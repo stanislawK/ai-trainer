@@ -216,3 +216,9 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# ai-trainer
+data/corpus/
+evals/reports/
+CLAUDE.local.md
+.claude/settings.local.json
