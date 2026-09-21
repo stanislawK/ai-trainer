@@ -16,3 +16,4 @@ paths:
 - **External sources (ADR-0016, ADR-0017):** a public data source is reached only through its port, from an adapter. Only a route, crag or place name leaves the app.
 - **SOLID:** small classes with one job; extend through new implementations or plugins, not growing conditionals.
 - **Library APIs:** check context7 before using one.
+- **New dependencies:** before adding one to `pyproject.toml`, check it's actively maintained and has no known CVEs — an AI suggestion is not itself a vetting step.

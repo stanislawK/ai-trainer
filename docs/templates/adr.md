@@ -22,7 +22,7 @@
 
 ## Alternatives considered
 
-<Only when the decision was contested. One line each: option — why not.>
+<Only when the decision was contested. One line each: option — why not, with a source link where the "why not" rests on a factual claim (docs, benchmark, changelog).>
 
 ## Consequences
 

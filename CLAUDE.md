@@ -67,6 +67,7 @@ uv run ai-trainer-evals run <template-id>   # evals (costs money — run on purp
 - Ambiguity is a choice card with concrete options, never a free-text question (ADR-0015).
 - External lookups are cached and attributed, and carry no user data — only a route, crag or place name (ADR-0016).
 - Look up library APIs with context7 (`.claude/rules/context7.md`) before using them. Several libraries here are newer than most training data: htmx 4, Pydantic AI v2, FastMCP 3.
+- Only stable/GA OpenRouter model IDs are used outside `/tune-prompt` experiments — no preview or beta models in default `Settings`.
 
 ## Status
 

@@ -29,6 +29,8 @@ Use these layers:
 
 **Branches.** `ticket/<issue#>-<slug>` from `main`; `main` is the integration branch. Changes that only touch docs may use `docs/<slug>`.
 
+**ADR research.** Before a new ADR's Decision or Alternatives considered is filled in, factual claims about a third-party library or service are checked against current docs (context7) or `WebSearch`, not written from memory. Unresolved items are flagged explicitly in Consequences instead of being carried as an untested assumption.
+
 **Delivery loop** (`/apply-ticket <issue#>`):
 
 1. Fetch the ticket (status, AC, blockers).
@@ -54,6 +56,7 @@ Human gates use Claude Code's `AskUserQuestion` with exactly those options.
 5. `/create-tickets` never creates an issue before its draft gate is approved.
 6. If a ticket contradicts an Accepted ADR or the Approved PRD, stop and propose a doc change in the plan gate. Never code around it.
 7. Never implement a ticket whose `Blocked by` issue is still open. Never implement an L ticket.
+8. A new ADR's claims about a third-party library or service are checked against current docs or web search before the ADR is marked Proposed.
 
 ## Alternatives considered
 
