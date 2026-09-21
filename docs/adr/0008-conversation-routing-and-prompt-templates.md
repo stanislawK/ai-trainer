@@ -4,7 +4,7 @@
 |---|---|
 | Status | Proposed |
 | Date | 2026-09-16 |
-| Related | PRD-0001 (G2, G3, G5, G6, B1, B3, B14), ADR-0006, ADR-0007, ADR-0009, ADR-0010 |
+| Related | PRD-0001 (G2, G3, G5, G6, G9, B1, B3, B14, B17), ADR-0006, ADR-0007, ADR-0009, ADR-0010, ADR-0014, ADR-0015 |
 
 ## Context
 
@@ -26,13 +26,14 @@ message + recent turns
 `log_session(sport)` · `edit_session` · `ask_training_question` · `request_plan` · `adjust_plan` · `request_report` · `update_profile` · `wellbeing_or_injury` · `chitchat` · `unclear`.
 The `sport` values are generated from `SportRegistry` (ADR-0006). For `log_session`, the specialist is the sport plugin's extraction template.
 
-**Router rules:** `wellbeing_or_injury` is handled first (G3). `unclear`, or a confidence below the threshold in settings, produces one clarifying question (B3). The router sees the last N turns (N in settings), so follow-ups like "oh, and 2 more 6B" resolve.
+**Router rules:** `wellbeing_or_injury` is handled first (G3). `unclear`, or a confidence below the threshold in settings, produces a structured `Clarification` — a short list of options to pick from, not a free-text question (B3, B17, ADR-0015). The router sees the last N turns (N in settings), so follow-ups like "oh, and 2 more 6B" resolve.
 
 **Prompt templates:**
 
 - A typed registry in `src/ai_trainer/llm/prompts/`. Each `PromptTemplate` declares `id`, `version`, `locale` (only `en` in v1), a deps model (the template's variables), a Pydantic output model, and a model settings key.
 - Bodies are files at `src/ai_trainer/llm/prompts/<id>/v<N>.<locale>.md`, loaded as Pydantic AI `TemplateStr` (Handlebars-style `{{var}}`). Variable names are validated against the deps model when the agent is built.
 - The persona (`src/ai_trainer/llm/prompts/_persona/v<N>.en.md`) is the static instruction of every user-facing agent; the specialist template is added as dynamic instructions.
+- Every user-facing template's deps model carries `today`, `now_local` and `timezone`, so relative dates resolve without a tool call (ADR-0014).
 - Pydantic AI's YAML `AgentSpec` is not used: it describes outputs as JSON schema and would lose the Python output types.
 - MCP prompts are user-selected templates in MCP clients, not an internal pipeline step. Selected templates may later be exposed through FastMCP `@mcp.prompt`, generated from this registry.
 

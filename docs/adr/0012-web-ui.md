@@ -4,7 +4,7 @@
 |---|---|
 | Status | Proposed |
 | Date | 2026-09-16 |
-| Related | PRD-0001 (F1–F6, G5), ADR-0002, ADR-0005 |
+| Related | PRD-0001 (F1–F6, F9, F10, G5, G10), ADR-0002, ADR-0005, ADR-0015 |
 
 ## Context
 
@@ -18,6 +18,7 @@ The product is chat-first with a few views (F1–F6). The project owner chose Fa
 - **Layout:** `src/ai_trainer/web/` holds routes, `templates/` (`pages/`, `partials/`, `components/`) and `static/`. A request with the `HX-Request` header gets a partial; any other request gets the full page.
 - **CSS** is built at image build time with the Tailwind standalone CLI and daisyUI's `daisyui.mjs` / `daisyui-theme.mjs` bundles — no Node anywhere.
 - **Designs** from Claude Design map onto daisyUI components and a daisyUI theme.
+- **Shared components** in `templates/components/`: the draft-confirm card (F2), the choice card (F9, ADR-0015) and the route and recommendation cards, which always show their source and fetch date (F10, G10).
 - User-facing strings live in templates, not Python, so adding Babel/gettext for Polish later is mechanical (G5).
 
 ### Invariants

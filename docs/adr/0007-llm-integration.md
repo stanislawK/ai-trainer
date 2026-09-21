@@ -4,7 +4,7 @@
 |---|---|
 | Status | Proposed |
 | Date | 2026-09-16 |
-| Related | PRD-0001 (G2, G6, B1, B8), ADR-0008, ADR-0009, ADR-0010, ADR-0011 |
+| Related | PRD-0001 (G2, G6, G10, B1, B8, B18), ADR-0008, ADR-0009, ADR-0010, ADR-0011, ADR-0016 |
 
 ## Context
 
@@ -18,7 +18,7 @@ Every core feature uses language models: extraction (B1), answers (B8), planning
 - Each prompt template has its own model ID, set in settings: a small, fast model for routing and stronger models for specialists (ADR-0008).
 - The persona is sent as static instructions, which Pydantic AI places before dynamic ones. That makes it a cacheable prefix: enable `OpenRouterModelSettings(openrouter_cache_instructions=True)`.
 - The application layer uses LLM features through ports; Pydantic AI code lives in `src/ai_trainer/llm/`.
-- **Web search** uses Pydantic AI's `WebSearchTool` via `capabilities=[NativeTool(...)]`, only in specialists that need it (Q&A). Results are labeled as web in the reply.
+- **Web search** uses Pydantic AI's `WebSearchTool` via `capabilities=[NativeTool(...)]`, only in specialists that need it: Q&A, and the route and area specialists of ADR-0016, whose searches are constrained to one domain and whose results are cached. Results are labeled as web in the reply.
 - **Embeddings** go through one adapter calling OpenRouter `POST /api/v1/embeddings` in batches (ADR-0011).
 - Every call has a timeout. A failure reaches the user as a friendly chat message, never as a stack trace.
 

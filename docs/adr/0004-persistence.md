@@ -4,7 +4,7 @@
 |---|---|
 | Status | Proposed |
 | Date | 2026-09-16 |
-| Related | PRD-0001 (G1, G7, B1–B6, B8–B13), ADR-0003, ADR-0005, ADR-0011 |
+| Related | PRD-0001 (G1, G7, B1–B6, B8–B13, B19), ADR-0003, ADR-0005, ADR-0011, ADR-0016 |
 
 ## Context
 
@@ -18,6 +18,7 @@ The app stores training sessions, plans, chat history and a vector knowledge bas
 - **Alembic** in `migrations/` owns every schema change. Autogenerate, then review.
 - Repositories live in `adapters/` and implement application ports. ORM models never leave the adapter layer; repositories return domain models.
 - Sport payloads are stored as JSONB (ADR-0006).
+- **Reference tables** (`crags`, `routes`, `places`, ADR-0016) are deliberately not user-owned: they hold public data about the world, shared by everyone. Invariant 1 does not apply to them, and account deletion has nothing to remove from them (B19).
 
 ### Invariants
 

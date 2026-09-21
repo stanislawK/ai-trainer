@@ -33,6 +33,10 @@ Locked by the ADRs cited below; `docs/adr/README.md` carries each ADR's current 
 - Knowledge base on pgvector with hybrid search — ADR-0011
 - FastAPI + Jinja2 + htmx 4 + daisyUI 5 — ADR-0012
 - pytest TDD, 100% coverage on touched modules — ADR-0013
+- `Clock` port, user timezone, session continuity — ADR-0014
+- Structured clarification and the choice card — ADR-0015
+- External route and crag reference data, grade conversion — ADR-0016
+- Geographic lookup, provider deferred to an M5 spike — ADR-0017
 
 ## Commands (available once M0 lands)
 
@@ -54,8 +58,11 @@ uv run ai-trainer-evals run <template-id>   # evals (costs money — run on purp
 - No prompt text in Python string literals outside tests (ADR-0008).
 - Secrets live only in `.env`.
 - AI-made data changes are drafts the user confirms.
+- The clock is a port: no `datetime.now()` outside its adapter, and stored time is UTC (ADR-0014).
+- Ambiguity is a choice card with concrete options, never a free-text question (ADR-0015).
+- External lookups are cached and attributed, and carry no user data — only a route, crag or place name (ADR-0016).
 - Look up library APIs with context7 (`.claude/rules/context7.md`) before using them. Several libraries here are newer than most training data: htmx 4, Pydantic AI v2, FastMCP 3.
 
 ## Status
 
-Bootstrap: docs only, no application code yet. PRD 0001 is In review and every ADR is Proposed, pending the first human review. Next: `/create-tickets M0`.
+Bootstrap: docs only, no application code yet. PRD 0001 (v0.2) is In review and every ADR (0001–0017) is Proposed, pending the first human review. Next: `/create-tickets M0`.

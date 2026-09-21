@@ -17,5 +17,9 @@ ADRs own the *how*: stack, architecture, testing and agent workflow. The current
 | 0011 | [Knowledge base and ingestion (outline)](0011-knowledge-base-and-ingestion.md) | Proposed | 2026-09-16 |
 | 0012 | [Web UI](0012-web-ui.md) | Proposed | 2026-09-16 |
 | 0013 | [Testing and quality](0013-testing-and-quality.md) | Proposed | 2026-09-16 |
+| 0014 | [Time, timezone and session continuity](0014-time-timezone-and-session-continuity.md) | Proposed | 2026-09-16 |
+| 0015 | [Structured clarification and the choice card](0015-structured-clarification.md) | Proposed | 2026-09-16 |
+| 0016 | [External reference data: crags, routes and grades](0016-external-reference-data.md) | Proposed | 2026-09-16 |
+| 0017 | [Geographic lookup (outline)](0017-geographic-lookup.md) | Proposed | 2026-09-16 |
 
 How to add an ADR: [docs/templates/README.md](../templates/README.md).

@@ -4,7 +4,7 @@
 |---|---|
 | Status | Proposed |
 | Date | 2026-09-16 |
-| Related | PRD-0001 (G1, B1, B5, B8–B11), ADR-0005, ADR-0007, ADR-0008 |
+| Related | PRD-0001 (G1, G9, B1, B5, B8–B11, B18, B21, B22), ADR-0005, ADR-0007, ADR-0008, ADR-0014, ADR-0016, ADR-0017 |
 
 ## Context
 
@@ -15,8 +15,9 @@ Specialist agents need data: training history, load, knowledge, plans. The proje
 - A standalone **FastMCP 3.x** server in `src/ai_trainer/mcp/`.
 - **Inside the app**, Pydantic AI specialists consume it in-process with `MCPToolset(server)` — no network hop.
 - **For external MCP clients**, it is mounted into FastAPI with `mcp.http_app(...)`, with its lifespan merged through `combine_lifespans` (required for session management).
-- **Starter tools:** `query_sessions`, `training_load_summary`, `search_knowledge`, `get_active_plan`, `propose_plan_change`, `draft_session`.
-- **Resources:** athlete profile, availability, current plan.
+- **Starter tools:** `query_sessions`, `training_load_summary`, `search_knowledge`, `get_active_plan`, `propose_plan_change`, `draft_session`, and from M5 `lookup_route`, `recommend_area_routes`, `resolve_place` (ADR-0016, ADR-0017).
+- **Resources:** athlete profile, availability, current plan, and `current_datetime` for external clients, which have no deps to inject the date into (ADR-0014).
+- Reference-data tools read shared, non-user-scoped tables, so `current_user_id(ctx)` governs their lookup budget and rate limit (B22) rather than the rows they return.
 - Every tool calls an application use case; tools contain no business logic.
 
 **User identity** comes from one helper, `current_user_id(ctx)`:

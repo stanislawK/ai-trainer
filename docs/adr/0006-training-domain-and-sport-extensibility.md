@@ -4,7 +4,7 @@
 |---|---|
 | Status | Proposed |
 | Date | 2026-09-16 |
-| Related | PRD-0001 (G4, B1, B2, B5, B12), ADR-0003, ADR-0004, ADR-0008 |
+| Related | PRD-0001 (G4, B1, B2, B5, B12, B18, B20), ADR-0003, ADR-0004, ADR-0008, ADR-0014, ADR-0016 |
 
 ## Context
 
@@ -15,6 +15,8 @@ Three sports ship together in M1, users cross-train, and more sports must be add
 **Session envelope** (sport-agnostic): `id`, `user_id`, `occurred_on` (plus an optional start time), `duration_min`, `rpe` (1–10, optional), `feeling`, `notes`, `raw_text`, `source` (`chat` | `manual`), `sport`, `payload` (JSONB) and `payload_version`.
 
 **Sport payload:** a Pydantic discriminated union on `sport`. Each payload model lives in its plugin.
+
+**Route identity** (climbing): an activity may name a route — route name, crag, ascent style (`onsight` | `flash` | `redpoint` | `repeat` | `attempt`) and attempt count (B18). Name and crag resolve against the shared reference tables (ADR-0016) when the athlete names one. A session logged without a route name stays valid; nothing in the envelope depends on an external lookup succeeding.
 
 **Sport plugins** in `src/ai_trainer/domain/sports/`:
 
@@ -32,7 +34,7 @@ Each plugin also owns an extraction prompt template (`src/ai_trainer/llm/prompts
 
 **Common load vocabulary** (`TrainingLoad`, one row per session): session-RPE load = RPE × duration in minutes, plus a strain score for each body system — `aerobic`, `anaerobic`, `max_strength`, `finger_forearm`, `upper_pull`, `upper_push`, `lower_body`, `core`. Each plugin's load calculator computes these; this is how a board session plus a back day is flagged (B12).
 
-**Grades:** stored as the original string, the scale and a canonical ordinal value. Case matters: "6A" is Fontainebleau (boulder), "6a" is French (sport).
+**Grades:** stored as the original string, its scale, the canonical French equivalent and an ordinal value. French is the canonical scale in the database (B20); the display scale is a profile preference that defaults to French. Conversion between French, Fontainebleau, V-scale, YDS and UIAA lives in `src/ai_trainer/domain/grades.py` (ADR-0016), not in a plugin, because comparisons cross sports and sources. Case matters in the original: "6A" is Fontainebleau (boulder), "6a" is French (sport).
 
 ### Invariants
 
@@ -41,6 +43,7 @@ Each plugin also owns an extraction prompt template (`src/ai_trainer/llm/prompts
 3. `raw_text` is always stored (B2).
 4. A payload change bumps `payload_version`; older versions stay readable by upcasting on read.
 5. The router's sport list, the payload union and the UI's sport options all derive from `SportRegistry`.
+6. Route identity is optional, and a grade the athlete typed is never overwritten by a fetched one (ADR-0016).
 
 ## Consequences
 
