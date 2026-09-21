@@ -33,6 +33,6 @@
 ## Consequences
 
 - An M0 ticket creates `pyproject.toml`, `Dockerfile`, `compose.yaml`, `.env.example` and CI.
-- ⚠ Confirm the FastAPI minimum for PEP 649 at M0: the 0.128.1 figure comes from the FastAPI GitHub PR #14789, not from context7.
-- Exact version pins are resolved by `uv add` at M0.
+- FastAPI minimum for PEP 649, verified at M0 (#2): the fix for `TYPE_CHECKING` annotations under PEP 649 ([PR #14789](https://github.com/fastapi/fastapi/pull/14789)) shipped in **0.128.1** (2026-02-04) per the [FastAPI release notes](https://fastapi.tiangolo.com/release-notes/); context7 had no entry. `pyproject.toml` requires `fastapi>=0.128.1`; `uv add` resolved 0.141.1 at M0.
+- Exact versions live only in `uv.lock`; this ADR records floors, not pins.
 - `.claude/rules/python.md` carries these rules.
