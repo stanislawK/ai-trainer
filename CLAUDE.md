@@ -42,6 +42,7 @@ Locked by the ADRs cited below; `docs/adr/README.md` carries each ADR's current 
 - Structured clarification and the choice card — ADR-0015
 - External route and crag reference data, grade conversion — ADR-0016
 - Geographic lookup, provider deferred to an M5 spike — ADR-0017
+- `llm_calls` accounting in Postgres; OpenTelemetry over OTLP, backend from settings — ADR-0018
 
 ## Commands (available once M0 lands)
 
@@ -71,4 +72,4 @@ uv run ai-trainer-evals run <template-id>   # evals (costs money — run on purp
 
 ## Status
 
-Bootstrap: docs only, no application code yet. PRD 0001 (v0.2) is In review and every ADR (0001–0017) is Proposed, pending the first human review. Next: `/create-tickets M0`.
+Bootstrap: docs only, no application code yet. PRD 0001 (v0.2) is Approved. Every ADR that M0 cites is Accepted (0001–0005, 0007–0009, 0012–0014, 0018); 0006, 0010, 0011 and 0015–0017 stay Proposed until their milestones. M0 is ticketed as issues #2–#17. Next: `/apply-ticket 2`.

@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | Proposed |
+| Status | Accepted |
 | Date | 2026-09-16 |
 | Related | PRD-0001 (G2, G6, G10, B1, B8, B18), ADR-0008, ADR-0009, ADR-0010, ADR-0011, ADR-0016 |
 
