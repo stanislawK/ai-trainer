@@ -19,6 +19,7 @@ Specialist agents need data: training history, load, knowledge, plans. The proje
 - **Resources:** athlete profile, availability, current plan, and `current_datetime` for external clients, which have no deps to inject the date into (ADR-0014).
 - Reference-data tools read shared, non-user-scoped tables, so `current_user_id(ctx)` governs their lookup budget and rate limit (B22) rather than the rows they return.
 - Every tool calls an application use case; tools contain no business logic.
+- **Result envelope:** every tool returns `ToolResult[T]`, one generic Pydantic model (`success: bool`, `data: T | None`, `error: str | None`, `recovery_hint: str | None`) parameterized with the tool's own typed output model — never `dict[str, Any]`. A tool that fails on bad input, an empty result, or a spent lookup budget (B22) returns `success=False` with a `recovery_hint` so the specialist can retry correctly or fall back to a clarification card (ADR-0015), instead of surfacing a raw exception. Identity and tenancy failures are not modeled this way — they raise, becoming a protocol-level MCP error, because they are never something the model should retry around.
 
 **User identity** comes from one helper, `current_user_id(ctx)`:
 
@@ -29,10 +30,11 @@ Specialist agents need data: training history, load, knowledge, plans. The proje
 
 1. Tools get `user_id` only through `current_user_id(ctx)` — never as a tool argument.
 2. Write tools create drafts or proposals only; the user confirms them in the UI.
-3. Tool results are typed Pydantic models.
-4. Every tool has tests through FastMCP's in-memory `Client(server)`: a happy path, a tenancy check and missing identity.
+3. Tool results are typed Pydantic models, returned as `ToolResult[T]`.
+4. Every tool has tests through FastMCP's in-memory `Client(server)`: a happy path, a tenancy check, missing identity (raises), and a domain failure (`success=False` with a `recovery_hint`).
 
 ## Consequences
 
 - ⚠ The first MCP ticket proves with a test that `process_tool_call` meta reaches a FastMCP 3 tool in-process.
+- ⚠ Practitioner experience shows agent tool selection degrades past roughly 10–20 simultaneously active tools, well under the protocol's limit — keep this server in the 5–15 range. It starts at 6 tools (9 from M5); if later growth threatens that ceiling, split by domain or lean harder on ADR-0008's per-specialist toolsets before adding more tools here.
 - The `/add-mcp-tool` skill implements these invariants.
