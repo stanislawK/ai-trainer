@@ -6,9 +6,14 @@ An AI training companion for amateur athletes (climbing, gym, cycling). Document
 
 1. Read `docs/prd/README.md` and the current PRD it links.
 2. Read `docs/adr/README.md` and every ADR relevant to the task.
-3. Follow the matching `.claude/rules/` (they load automatically for matching paths) and skills.
+3. Follow the matching `.claude/rules/` (they load automatically for matching paths) and skills (see guides below).
 
 Docs outrank chat. If a request contradicts an Accepted ADR or the Approved PRD, or needs a decision no doc records, stop and propose a doc change with `/update-docs`. Never leave a product or stack decision only in chat.
+
+## Guides & configuration
+
+- [**.claude/rules/README.md**](.claude/rules/README.md) — Rules by topic; loaded automatically when editing files in their scope (Python, tests, web, LLM, migrations, etc.)
+- [**.claude/skills/README.md**](.claude/skills/README.md) — Structured workflows for docs, tickets, evals, routes, tools, and sports (invoke with `/skill-name`)
 
 ## How work happens
 

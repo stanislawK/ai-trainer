@@ -1,25 +1,18 @@
 ---
 name: context7-mcp
-description: This skill should be used when the user asks about libraries, frameworks, API references, or needs code examples. Activates for setup questions, code generation involving libraries, or mentions of specific frameworks like React, Vue, Next.js, Prisma, Supabase, etc.
+description: Metadata for the context7 rule — when to use Context7 MCP for library lookups instead of training data.
 ---
 
-When the user asks about libraries, frameworks, or needs code examples, use Context7 to fetch current documentation instead of relying on training data.
+# Context7: Library documentation lookups
 
-## When to Use This Skill
+This is not a workflow skill to invoke. It documents when and how to apply the [context7 rule](../../.claude/rules/context7.md).
 
-Activate this skill when the user:
+**When it applies:** Any time the user asks about a library, framework, SDK, API, CLI tool, or cloud service — even well-known ones like React, Prisma, FastAPI, Tailwind, or Django. Examples: setup questions, code generation, API references, configuration, version migration, debugging.
 
-- Asks setup or configuration questions ("How do I configure Next.js middleware?")
-- Requests code involving libraries ("Write a Prisma query for...")
-- Needs API references ("What are the Supabase auth methods?")
-- Mentions specific frameworks (React, Vue, Svelte, Express, Tailwind, etc.)
+**How to execute:** Follow the steps in [.claude/rules/context7.md](../../.claude/rules/context7.md):
+1. Resolve the library ID
+2. Pick the best match
+3. Query one concept per call
+4. Answer from the fetched docs
 
-## How to fetch documentation
-
-The steps live in one place: `.claude/rules/context7.md` — resolve the library ID, pick the best match, then query one concept at a time. Follow them there rather than repeating them here, so the workflow has a single source of truth.
-
-## In this project
-
-- Use a version-specific library ID when the user names a version, or when this project pins one. Several pinned libraries are newer than most training data: htmx 4, Pydantic AI v2, FastMCP 3 (see `CLAUDE.md`).
-- Prefer official or primary packages over community forks.
-- Cite the library version when it affects the answer.
+**In this project:** Several pinned libraries are newer than training data (htmx 4, Pydantic AI v2, FastMCP 3). Use version-specific library IDs when a version is named or pinned in `CLAUDE.md`. Prefer official packages; cite library versions when they affect the answer.
