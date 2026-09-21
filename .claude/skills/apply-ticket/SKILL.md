@@ -17,7 +17,7 @@ Implements the delivery loop of ADR-0001.
 6. **Start.** `gh issue edit <n> --add-label status:in-progress --remove-label status:todo`, then `git checkout main && git pull && git checkout -b ticket/<n>-<slug>`.
 7. **Tests first.** One failing test per AC (`/run-tdd`).
 8. **Implement against the docs only.** `/run-tdd` → `/coverage` → ruff → mypy. Regenerate the OpenAPI snapshot if HTTP changed. Run `/tune-prompt` if a prompt, model ID or the router changed.
-9. **Verify** every AC with evidence: test names, command output, a browser check for web tickets, the eval report for llm tickets.
+9. **Verify** every AC with evidence: test names, command output, a browser check for web tickets, the eval report for llm tickets. Then, for each AC, spawn a fresh-context agent whose only job is to try to disprove the "this AC is done" claim, given just the diff and the AC text (not the implementer's reasoning or plan). An AC only goes to the human gate as verified if it survives; anything a skeptic successfully challenges gets fixed first, and the challenge is shown alongside the fix in the gate summary.
 10. **HUMAN GATE (review).** `AskUserQuestion`: Approve / Request changes / Reject. No commit, merge or issue close before Approve.
 11. **Finish** (after Approve): commit on the ticket branch with a message referencing `#<n>`; `git checkout main && git merge --no-ff ticket/<n>-<slug>`; stay on `main`; `gh issue close <n> --comment "<summary + evidence>"` and remove the status label. If stack or workflow changed, run `/update-docs` in the same change. Push only if the user asks.
 

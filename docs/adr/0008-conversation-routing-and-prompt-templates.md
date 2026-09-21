@@ -49,3 +49,4 @@ The `sport` values are generated from `SportRegistry` (ADR-0006). For `log_sessi
 
 - The `/tune-prompt` skill implements invariants 2–3.
 - Chat-history and context-window strategy (how much history is sent, summarisation) is decided in an M1 ADR.
+- A mixed-tier fan-out inside a specialist (several fast/cheap model calls gathering or summarizing sources in parallel, one stronger model composing the final reply) is worth considering once a multi-source specialist exists (e.g. multi-session report generation) — not decided here; revisit in the ADR that introduces that specialist.

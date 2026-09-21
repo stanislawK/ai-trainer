@@ -23,6 +23,10 @@ Skills are step-by-step checklists for complex, recurring tasks. Invoke with `/s
 - **Plan gate:** Use `EnterPlanMode` (via `/plan` or skill instructions) to design before coding. No product code without Approve.
 - **Review gate:** Run `/code-review` (or `/code-review ultra` for deeper multi-agent review) before merging. No commit without Approve.
 
+## Multi-agent patterns
+
+Several skills above use named orchestration patterns from `kb/12-workflows/README.md` — Fan Out & Synthesize (`add-sport`), Adversarial Verification (`apply-ticket`), Generate & Filter (`tune-prompt`). Reuse these terms rather than reinventing a shape when editing a skill.
+
 ## Adding a new skill
 
 Set `disable-model-invocation: true` in the frontmatter when the skill writes to GitHub, merges or pushes code, or spends money on real model calls (see `create-tickets`, `apply-ticket`, `tune-prompt`) — anything that must wait for an explicit `/skill-name` rather than Claude's own judgment that the description matches. Keep `SKILL.md` under 500 lines; move detail to `scripts/`, `references/`, or `assets/` only once a skill actually needs it.
