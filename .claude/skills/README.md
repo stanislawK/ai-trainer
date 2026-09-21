@@ -16,12 +16,16 @@ Skills are step-by-step checklists for complex, recurring tasks. Invoke with `/s
 
 ## Non-invokable references
 
-**Library lookups:** Not a skill to invoke. When you need to look up a library, framework, or SDK API, the [context7 rule](../rules/context7.md) applies automatically — it tells you to use Context7 MCP instead of training data. See the rule for the workflow.
+**Library lookups:** There is no skill for this. When you need to look up a library, framework, or SDK API, the [context7 rule](../rules/context7.md) applies automatically — it tells you to use Context7 MCP instead of training data. See the rule for the workflow.
 
 ## Execution gates
 
 - **Plan gate:** Use `EnterPlanMode` (via `/plan` or skill instructions) to design before coding. No product code without Approve.
 - **Review gate:** Run `/code-review` (or `/code-review ultra` for deeper multi-agent review) before merging. No commit without Approve.
+
+## Adding a new skill
+
+Set `disable-model-invocation: true` in the frontmatter when the skill writes to GitHub, merges or pushes code, or spends money on real model calls (see `create-tickets`, `apply-ticket`, `tune-prompt`) — anything that must wait for an explicit `/skill-name` rather than Claude's own judgment that the description matches. Keep `SKILL.md` under 500 lines; move detail to `scripts/`, `references/`, or `assets/` only once a skill actually needs it.
 
 ## Related
 

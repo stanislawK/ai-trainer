@@ -2,6 +2,7 @@
 name: tune-prompt
 description: Eval-driven change to a prompt template, a model ID or the router — add cases first, write a new template version, compare against the committed baseline, then promote after a human gate.
 argument-hint: "[template-id]"
+disable-model-invocation: true
 ---
 
 # Tune prompt: $ARGUMENTS (ADR-0008, ADR-0009)

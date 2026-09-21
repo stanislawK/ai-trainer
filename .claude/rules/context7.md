@@ -8,3 +8,7 @@ Do not use for: refactoring, writing scripts from scratch, debugging business lo
 2. Pick the best match (ID format: `/org/project`) by: exact name match, description relevance, code snippet count, source reputation (High/Medium preferred), and benchmark score (higher is better). If results don't look right, try alternate names or queries (e.g., "next.js" not "nextjs", or rephrase the question). Use version-specific IDs when the user mentions a version
 3. `query-docs` with the selected library ID and what to look up in the library's documentation (not single words), scoped to a single concept. If the question spans multiple distinct concepts (e.g. routing and auth and caching), make a separate `query-docs` call per concept with the same library ID, unless the question is about how the concepts interact — combined queries dilute ranking and return shallow results for each topic
 4. Answer using the fetched docs
+
+## In this project
+
+Several pinned libraries are newer than training data: htmx 4, Pydantic AI v2, FastMCP 3 (see `CLAUDE.md`). Use a version-specific library ID when a version is named or pinned. Prefer official packages over community forks; cite the library version when it affects the answer.
