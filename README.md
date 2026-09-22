@@ -6,7 +6,11 @@ An AI training companion for amateur athletes (climbing, gym, cycling). Document
 
 **M0 (Foundations) in progress.** So far: a typed Python/FastAPI skeleton, and a `docker compose` stack (app + PostgreSQL/pgvector) with a `GET /health` endpoint that reports database reachability without needing a session.
 
-Not built yet: authentication, any product feature, migrations, or CI. See [CLAUDE.md](CLAUDE.md) for the full milestone plan and [docs/prd/README.md](docs/prd/README.md) / [docs/adr/README.md](docs/adr/README.md) for the product requirements and the architecture decisions that govern the stack.
+Not built yet: authentication, any product feature, migrations. See [CLAUDE.md](CLAUDE.md) for the full milestone plan and [docs/prd/README.md](docs/prd/README.md) / [docs/adr/README.md](docs/adr/README.md) for the product requirements and the architecture decisions that govern the stack.
+
+## Continuous integration
+
+Every push and pull request runs `ruff check`, `ruff format --check`, `mypy --strict` and the full `pytest` suite (see [`.github/workflows/ci.yml`](.github/workflows/ci.yml)), with integration tests hitting a real PostgreSQL/pgvector service container. Prompt evals never run here — they cost money and are triggered on demand (ADR-0009).
 
 This project is document-driven: PRDs and ADRs are the source of truth, not this file. If something here ever looks out of date, trust the docs and open a doc fix — see [docs/README.md](docs/README.md).
 

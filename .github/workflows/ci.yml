@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  DATABASE_URL: postgresql+psycopg://ai_trainer:ai_trainer@localhost:5432/ai_trainer
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    services:
+      # Same image and credentials as compose.yaml (ADR-0004); integration
+      # tests read DATABASE_URL from the environment exactly like locally.
+      db:
+        image: pgvector/pgvector:pg18-trixie
+        env:
+          POSTGRES_USER: ai_trainer
+          POSTGRES_PASSWORD: ai_trainer
+          POSTGRES_DB: ai_trainer
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ai_trainer -d ai_trainer"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 5
+          --shm-size 256mb
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          # uv itself isn't a locked project dependency (uv.lock has no [[package]]
+          # name = "uv" entry), so version-file: uv.lock can't resolve a version —
+          # pin explicitly instead, matching the Dockerfile's uv pin (ADR-0002).
+          version: "0.11.28"
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --locked
+
+      - name: Lint (ruff check)
+        run: uv run ruff check .
+
+      - name: Format check (ruff format)
+        run: uv run ruff format --check .
+
+      - name: Type check (mypy --strict)
+        run: uv run mypy
+
+      - name: Test (pytest)
+        run: uv run pytest
