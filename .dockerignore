@@ -11,5 +11,6 @@ __pycache__
 !.env.example
 docs
 tests
+scripts
 .claude
 *.md
