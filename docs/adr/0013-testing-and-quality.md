@@ -23,7 +23,7 @@ The workflow is TDD (ADR-0001): each ticket's acceptance criteria become tests b
   ```
 
 - **pytest** with pytest-asyncio in `auto` mode — one async runner for app, Pydantic AI and FastMCP tests.
-- **Integration tests** use a real PostgreSQL (compose or testcontainers; the M0 ticket picks one), with each test isolated.
+- **Integration tests** use a real PostgreSQL — the `docker compose` Postgres (decided at #3, see Consequences), with each test isolated.
 - **LLM code:** agents run with Pydantic AI `TestModel` / `FunctionModel` through `agent.override`, and real model requests are disabled globally (`models.ALLOW_MODEL_REQUESTS = False` in `conftest.py`).
 - **MCP:** FastMCP's in-memory `Client(server)`.
 - **E2E:** pytest-playwright specs, committed, against the running compose stack, with external services (OpenRouter, Google) mocked at the API boundary.
@@ -43,3 +43,5 @@ The workflow is TDD (ADR-0001): each ticket's acceptance criteria become tests b
 
 - Skills `/run-tdd` and `/coverage` run this loop; `.claude/rules/tests.md` carries the invariants.
 - M0 wires CI, the async runner, the DB fixture and the OpenAPI script.
+- Integration tests use the `docker compose` Postgres, decided at #3: they read `DATABASE_URL` from `.env`/the environment like the app does, so `docker compose up -d db` (or the full stack) must be running before `uv run pytest tests/integration`. No testcontainers dependency. CI (#4) runs its own Postgres service the same way, not testcontainers either.
+- Warning-filter gotcha, found at #3: `starlette` 1.6.0's `TestClient` imports the deprecated `anyio.abc.BlockingPortal` alias at import time, which this project's `filterwarnings = ["error"]` (ADR-0013) turns into a hard collection error the first time any test imports `fastapi.testclient` or `starlette.testclient` — an upstream bug, not ours, with no fixed release yet. `pyproject.toml`'s `filterwarnings` carries one narrowly-scoped `ignore` for that exact message/module; re-check whether it's still needed next time `starlette` is upgraded.

@@ -11,6 +11,7 @@ Rules load automatically when editing files that match their path scope. Read th
 | [web.md](web.md) | `src/ai_trainer/web/**` | htmx 4 (not 2), partials for HX-Request, daisyUI 5 + Tailwind, SSE streams, user strings in templates, CSRF on POST, AI changes as confirm/edit/discard cards, ambiguity as choice card with option IDs. |
 | [migrations.md](migrations.md) | `migrations/**` | Alembic autogenerate + review, never edit applied migrations, new user tables get user_id + CASCADE delete + index, vectors use HNSW index, up/down both work. |
 | [docs.md](docs.md) | `docs/`, `CLAUDE.md`, `.claude/` | PRD owns *what*, ADR owns *how*. Exact one Approved PRD at a time. Only humans set Approved/Accepted. Stack decisions lock rules/skills. File numbers never change. Supersede old docs with links. |
+| [operability.md](operability.md) | `README.md`, `Makefile`, `Dockerfile`, `compose.yaml` | Keep README and the Makefile in sync with what the app actually does; Makefile targets wrap existing commands rather than inventing new ones; record non-obvious build/runtime gotchas in the relevant ADR's Consequences. |
 
 ## Quick lookup
 
@@ -21,6 +22,7 @@ Rules load automatically when editing files that match their path scope. Read th
 - **"I'm writing a database migration"** → read [migrations.md](migrations.md)
 - **"I need a library API"** → read [context7.md](context7.md)
 - **"I'm creating or updating docs"** → read [docs.md](docs.md)
+- **"I'm touching the Dockerfile, compose.yaml, README or Makefile"** → read [operability.md](operability.md)
 
 ## Related
 

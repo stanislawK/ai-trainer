@@ -21,6 +21,7 @@ Implements the delivery loop of ADR-0001.
 10. **HUMAN GATE (review).** `AskUserQuestion`: Approve / Request changes / Reject. No commit, push or PR before Approve.
 11. **Finish** (after Approve), all on the ticket branch:
     - If stack or workflow changed, run `/update-docs` so the doc change ships in the same PR.
+    - If the ticket changed how to build, run or operate the app (a new service, a new local-dev step, a new command), update `README.md` and the `Makefile` in the same change (`.claude/rules/operability.md`).
     - Commit with a message referencing `#<n>`.
     - `git push -u origin <area>/<n>-<slug>`.
     - `gh pr create --base main --title "<issue title> (#<n>)" --body-file <file>`. The body holds the summary, the AC → evidence table, the skeptic challenges and their fixes, and `Closes #<n>`.

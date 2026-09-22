@@ -1,0 +1,41 @@
+# The ai_trainer/ai_trainer credentials below are non-secret local-dev-only
+# defaults, already published in .env.example. They aren't pulled from .env via
+# ${VAR} substitution because Settings.database_url (settings.py) is the only
+# field .env is allowed to carry — tests/unit/test_settings.py::
+# test_env_example_lists_every_setting enforces a strict 1:1 match between
+# .env.example and Settings.model_fields, so an extra POSTGRES_* var there
+# would fail that test. Change a credential here, keep it identical in
+# .env.example (and your local .env), by hand.
+services:
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql+psycopg://ai_trainer:ai_trainer@db:5432/ai_trainer
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: pgvector/pgvector:pg18-trixie
+    environment:
+      POSTGRES_USER: ai_trainer
+      POSTGRES_PASSWORD: ai_trainer
+      POSTGRES_DB: ai_trainer
+    ports:
+      - "5432:5432"
+    volumes:
+      # pg 18+ mounts the parent dir; PGDATA lives at a pg_ctlcluster-style subpath.
+      - postgres_data:/var/lib/postgresql
+    # ADR-0004: shm_size must be at least maintenance_work_mem (64MB default)
+    # so parallel HNSW index builds don't fail.
+    shm_size: "256mb"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ai_trainer -d ai_trainer"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  postgres_data:

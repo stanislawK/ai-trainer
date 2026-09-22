@@ -8,6 +8,7 @@ authors = [
 requires-python = ">=3.14"
 dependencies = [
     "fastapi>=0.128.1",
+    "psycopg[binary]>=3.2",
     "pydantic>=2.12",
     "pydantic-ai-slim>=2.46.0",
     "pydantic-settings>=2.15.0",
@@ -50,7 +51,12 @@ testpaths = ["tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 addopts = ["--strict-markers", "--strict-config"]
-filterwarnings = ["error"]
+filterwarnings = [
+    "error",
+    # starlette 1.6.0's TestClient references the deprecated anyio.abc.BlockingPortal
+    # alias at import time; upstream bug, not ours. No newer starlette exists yet.
+    "ignore:The anyio\\.abc\\.BlockingPortal alias is deprecated:DeprecationWarning:starlette\\.testclient",
+]
 
 [tool.coverage.run]
 source = ["ai_trainer"]
