@@ -52,6 +52,7 @@ uv sync                          # install
 uv run pytest                    # tests
 uv run ruff check . && uv run ruff format --check .
 uv run mypy                      # strict type check
+uv run lint-imports              # layer-boundary check (ADR-0003)
 docker compose up -d             # app + postgres
 uv run alembic upgrade head      # migrations
 uv run ai-trainer-evals run <template-id>   # evals (costs money — run on purpose)

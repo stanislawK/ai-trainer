@@ -1,5 +1,5 @@
 .PHONY: install test test-unit test-integration coverage lint format format-check \
-	typecheck check up up-build down logs ps health migrate evals
+	typecheck import-lint check up up-build down logs ps health migrate evals
 
 install: ## Install dependencies (uv sync)
 	uv sync
@@ -28,7 +28,10 @@ format-check: ## Ruff format check (no changes)
 typecheck: ## mypy --strict
 	uv run mypy
 
-check: lint format-check typecheck test ## Everything CI runs
+import-lint: ## Check layer boundaries (import-linter, ADR-0003)
+	uv run lint-imports
+
+check: lint format-check typecheck import-lint test ## Everything CI runs
 
 up: ## Start app + postgres in the background
 	docker compose up -d
