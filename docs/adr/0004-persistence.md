@@ -33,3 +33,4 @@ The app stores training sessions, plans, chat history and a vector knowledge bas
 - `.claude/rules/migrations.md` carries these rules.
 - Integration tests run against a real PostgreSQL (ADR-0013). Every repository has a tenancy test: user A cannot read or change user B's rows.
 - The first migration creates the `vector` extension.
+- Docker volume gotcha, found at #3: the `pgvector/pgvector:pg18-trixie` image follows the [pg18+ Docker layout change](https://github.com/docker-library/postgres/pull/1259) — `PGDATA` moved to a `pg_ctlcluster`-style subdirectory and the image's `VOLUME` moved from `/var/lib/postgresql/data` to `/var/lib/postgresql`. `compose.yaml` mounts the named volume at the new, parent path; mounting at the old `.../data` path makes the container refuse to start ("unused mount/volume").
