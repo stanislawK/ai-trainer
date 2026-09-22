@@ -224,3 +224,8 @@ data/corpus/
 evals/reports/
 CLAUDE.local.md
 .claude/settings.local.json
+
+# Compiled Tailwind CSS + the build-time-only daisyUI plugin bundle (ADR-0012).
+# Built by scripts/build_css.sh (Dockerfile css-builder stage, or `make css` locally).
+src/ai_trainer/web/static/css/app.css
+src/ai_trainer/web/static/css/daisyui.js

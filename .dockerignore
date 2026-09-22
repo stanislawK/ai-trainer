@@ -12,5 +12,6 @@ __pycache__
 docs
 tests
 scripts
+!scripts/build_css.sh
 .claude
 *.md

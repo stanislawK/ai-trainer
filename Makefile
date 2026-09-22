@@ -1,8 +1,11 @@
-.PHONY: install test test-unit test-integration coverage lint format format-check \
+.PHONY: install css test test-unit test-integration coverage lint format format-check \
 	typecheck import-lint openapi openapi-check check up up-build down logs ps health migrate evals
 
 install: ## Install dependencies (uv sync)
 	uv sync
+
+css: ## Compile the Tailwind CSS v4 + daisyUI 5 stylesheet locally (no Node, ADR-0012)
+	./scripts/build_css.sh
 
 test: migrate ## Run the full test suite
 	uv run pytest

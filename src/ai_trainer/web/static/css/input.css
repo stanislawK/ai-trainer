@@ -1,0 +1,11 @@
+/*
+ * Automatic source detection is disabled (`source(none)`) so the build is
+ * deterministic regardless of .gitignore: without it, the daisyui.js plugin
+ * bundle sitting next to this file gets swept up as a "source" and its own
+ * literal class-name strings bloat the output (~370KB vs ~60KB, verified by
+ * comparing a local build against the Docker build, which has no .gitignore
+ * to exclude it). Only the explicit @source below is scanned.
+ */
+@import "tailwindcss" source(none);
+@plugin "./daisyui.js";
+@source "../../templates";
