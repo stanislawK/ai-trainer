@@ -4,16 +4,16 @@
 install: ## Install dependencies (uv sync)
 	uv sync
 
-test: ## Run the full test suite
+test: migrate ## Run the full test suite
 	uv run pytest
 
 test-unit: ## Run unit tests only (no external services needed)
 	uv run pytest tests/unit
 
-test-integration: ## Run integration tests (needs `make up` first)
+test-integration: migrate ## Run integration tests (needs `make up` first)
 	uv run pytest tests/integration
 
-coverage: ## Line coverage report for src/ai_trainer
+coverage: migrate ## Line coverage report for src/ai_trainer
 	uv run pytest --cov=ai_trainer --cov-report=term-missing
 
 lint: ## Ruff lint
@@ -48,7 +48,7 @@ ps: ## Show container + healthcheck status
 health: ## Curl the running app's health endpoint
 	curl -sS http://localhost:8000/health
 
-migrate: ## Apply database migrations (Alembic — lands in ticket #7)
+migrate: ## Apply database migrations (Alembic)
 	uv run alembic upgrade head
 
 evals: ## Run prompt evals — costs money, run on purpose (ticket TBD)

@@ -6,7 +6,7 @@ An AI training companion for amateur athletes (climbing, gym, cycling). Document
 
 **M0 (Foundations) in progress.** So far: a typed Python/FastAPI skeleton, and a `docker compose` stack (app + PostgreSQL/pgvector) with a `GET /health` endpoint that reports database reachability without needing a session.
 
-Not built yet: authentication, any product feature, migrations. See [CLAUDE.md](CLAUDE.md) for the full milestone plan and [docs/prd/README.md](docs/prd/README.md) / [docs/adr/README.md](docs/adr/README.md) for the product requirements and the architecture decisions that govern the stack.
+Not built yet: authentication, any product feature. See [CLAUDE.md](CLAUDE.md) for the full milestone plan and [docs/prd/README.md](docs/prd/README.md) / [docs/adr/README.md](docs/adr/README.md) for the product requirements and the architecture decisions that govern the stack.
 
 ## Continuous integration
 
@@ -46,10 +46,11 @@ Run `make` targets from the repo root; see the [Makefile](Makefile) for the comp
 | `make test` | Run the full test suite |
 | `make test-unit` / `make test-integration` | Run one test tier (integration needs `make up` first) |
 | `make coverage` | Line coverage on `src/ai_trainer` |
+| `make migrate` | Apply database migrations (Alembic) |
 | `make lint` / `make format` / `make typecheck` | ruff / ruff format / mypy --strict |
 | `make check` | Everything CI runs: lint, format check, typecheck, tests |
 
-`make migrate` and `make evals` are wired up but not usable yet — they land with the Alembic and evals tickets.
+`test`, `test-integration` and `coverage` run `make migrate` first, so the `vector` extension always exists before the suite runs. `make evals` is wired up but not usable yet — it lands with the evals ticket.
 
 ## Running locally without Docker
 
@@ -59,7 +60,7 @@ cp .env.example .env      # then point DATABASE_URL at a Postgres you have runni
 uv run uvicorn ai_trainer.main:app_factory --factory --reload
 ```
 
-Integration tests need a real PostgreSQL with pgvector reachable at `DATABASE_URL` — the simplest way is `make up` (or just `docker compose up -d db`) and let the app connect to `localhost:5432`.
+Integration tests need a real PostgreSQL with pgvector reachable at `DATABASE_URL` — the simplest way is `make up` (or just `docker compose up -d db`) and let the app connect to `localhost:5432`. Then `make migrate` (or `uv run alembic upgrade head`) before running integration tests directly with `uv run pytest`; `make test`/`make test-integration`/`make coverage` already do this for you.
 
 ## Project structure
 
