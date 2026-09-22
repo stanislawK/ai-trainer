@@ -16,7 +16,7 @@ The product is chat-first with a few views (F1–F6). The project owner chose Fa
 - **htmx 4.0.0** (released 2026-08-28) uses `fetch()` and has SSE and streaming in core (`hx-sse:connect`), so no extension is needed. Its npm `latest` tag stays on 2.x until early 2027, so the version is pinned explicitly and the file is vendored under the static folder (no CDN at runtime).
 - **Streaming chat** uses FastAPI's native `fastapi.sse.EventSourceResponse` and `ServerSentEvent`; no `sse-starlette` dependency.
 - **Layout:** `src/ai_trainer/web/` holds routes, `templates/` (`pages/`, `partials/`, `components/`) and `static/`. A request with the `HX-Request` header gets a partial; any other request gets the full page.
-- **CSS** is built at image build time with the Tailwind standalone CLI and daisyUI's `daisyui.mjs` / `daisyui-theme.mjs` bundles — no Node anywhere.
+- **CSS** is built at image build time with the Tailwind standalone CLI and daisyUI's `daisyui.js` Tailwind plugin bundle, loaded via a CSS `@plugin` directive — no Node anywhere. The separate `daisyui-theme.js` bundle, for defining a custom theme, is wired in once a Claude Design theme exists to encode; #8 ships only daisyUI's built-in themes.
 - **Designs** from Claude Design map onto daisyUI components and a daisyUI theme.
 - **Shared components** in `templates/components/`: the draft-confirm card (F2), the choice card (F9, ADR-0015) and the route and recommendation cards, which always show their source and fetch date (F10, G10).
 - User-facing strings live in templates, not Python, so adding Babel/gettext for Polish later is mechanical (G5).
@@ -34,3 +34,4 @@ The product is chat-first with a few views (F1–F6). The project owner chose Fa
 
 - `.claude/rules/web.md` points agents at the htmx 4 docs through context7 (`/bigskysoftware/htmx/v4.0.0`).
 - E2E tests drive the real UI (ADR-0013).
+- CSS build gotcha, found at #8: Tailwind v4's automatic source detection respects `.gitignore` to exclude things it shouldn't scan — but the Docker `css-builder` stage has no `.git`/`.gitignore` in its minimal build context, so with automatic detection left on, the daisyUI plugin bundle (`daisyui.js`, sitting next to `input.css` so `@plugin` can load it) gets swept up as a "source" too, and its own literal class-name strings bloat the compiled CSS roughly 6x (verified: 371KB vs 60KB) with unused component styles — a build that is non-deterministic across environments depending on gitignore presence. Fix: `input.css` disables automatic detection outright (`@import "tailwindcss" source(none);`) and scans only the explicit `@source "../../templates"`, making the build deterministic regardless of `.gitignore`.

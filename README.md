@@ -4,7 +4,7 @@ An AI training companion for amateur athletes (climbing, gym, cycling). Document
 
 ## Status
 
-**M0 (Foundations) in progress.** So far: a typed Python/FastAPI skeleton, and a `docker compose` stack (app + PostgreSQL/pgvector) with a `GET /health` endpoint that reports database reachability without needing a session.
+**M0 (Foundations) in progress.** So far: a typed Python/FastAPI skeleton, a `docker compose` stack (app + PostgreSQL/pgvector) with a `GET /health` endpoint that reports database reachability without needing a session, and a styled base layout (`GET /`) built with Jinja2 + htmx 4 + Tailwind CSS v4/daisyUI 5 — htmx is vendored under `static/`, the stylesheet is compiled at image build time with no Node.js anywhere.
 
 Not built yet: authentication, any product feature. See [CLAUDE.md](CLAUDE.md) for the full milestone plan and [docs/prd/README.md](docs/prd/README.md) / [docs/adr/README.md](docs/adr/README.md) for the product requirements and the architecture decisions that govern the stack.
 
@@ -43,6 +43,7 @@ Run `make` targets from the repo root; see the [Makefile](Makefile) for the comp
 | `make ps` | Show container + healthcheck status |
 | `make health` | Curl the running app's `/health` |
 | `make install` | `uv sync` — install dependencies locally |
+| `make css` | Compile the Tailwind CSS v4 + daisyUI 5 stylesheet (no Node) |
 | `make test` | Run the full test suite |
 | `make test-unit` / `make test-integration` | Run one test tier (integration needs `make up` first) |
 | `make coverage` | Line coverage on `src/ai_trainer` |
@@ -60,6 +61,7 @@ Run `make` targets from the repo root; see the [Makefile](Makefile) for the comp
 ```bash
 make install
 cp .env.example .env      # then point DATABASE_URL at a Postgres you have running
+make css                  # compiles static/css/app.css — Docker does this at image build time; a local run needs it too
 uv run uvicorn ai_trainer.main:app_factory --factory --reload
 ```
 
