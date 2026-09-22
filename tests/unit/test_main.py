@@ -1,10 +1,12 @@
 import pytest
 from fastapi import FastAPI
+from fastapi.testclient import TestClient
 from opentelemetry.sdk.trace import Tracer
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from pydantic import PostgresDsn, SecretStr
 from pydantic_ai import Agent, InstrumentationSettings
 from pydantic_ai.models.test import TestModel
+from sqlalchemy.ext.asyncio import AsyncEngine
 
 from ai_trainer.main import _build_tracer_provider, _traces_endpoint, app_factory, create_app
 from ai_trainer.settings import Settings
@@ -35,6 +37,28 @@ def test_create_app_wires_settings_into_app() -> None:
 
     assert isinstance(app, FastAPI)
     assert app.state.settings is settings
+
+
+async def test_create_app_disposes_its_engine_on_shutdown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A fresh SQLAlchemy engine is opened per `create_app` call for the auth repositories;
+    without disposing it on shutdown, a repeatedly-constructed app (a reload worker, or any
+    test building the app more than once) would leak idle pooled connections."""
+    disposed: list[AsyncEngine] = []
+    original_dispose = AsyncEngine.dispose
+
+    async def spy_dispose(self: AsyncEngine) -> None:
+        disposed.append(self)
+        await original_dispose(self)
+
+    monkeypatch.setattr(AsyncEngine, "dispose", spy_dispose)
+
+    app = create_app(_settings())
+    with TestClient(app):
+        assert disposed == []
+
+    assert len(disposed) == 1
 
 
 def test_app_factory_wires_settings_from_the_environment(

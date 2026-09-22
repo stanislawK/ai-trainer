@@ -4,9 +4,9 @@ An AI training companion for amateur athletes (climbing, gym, cycling). Document
 
 ## Status
 
-**M0 (Foundations) in progress.** So far: a typed Python/FastAPI skeleton, a `docker compose` stack (app + PostgreSQL/pgvector) with a `GET /health` endpoint that reports database reachability without needing a session, and a styled base layout (`GET /`) built with Jinja2 + htmx 4 + Tailwind CSS v4/daisyUI 5 — htmx is vendored under `static/`, the stylesheet is compiled at image build time with no Node.js anywhere.
+**M0 (Foundations) in progress.** So far: a typed Python/FastAPI skeleton, a `docker compose` stack (app + PostgreSQL/pgvector) with a `GET /health` endpoint that reports database reachability without needing a session, a styled base layout (`GET /`) built with Jinja2 + htmx 4 + Tailwind CSS v4/daisyUI 5 — htmx is vendored under `static/`, the stylesheet is compiled at image build time with no Node.js anywhere — and Google sign-in (`/auth/login`, `/auth/callback`, `/auth/logout`) with approval-gated accounts (ADR-0005).
 
-Not built yet: authentication, any product feature. See [CLAUDE.md](CLAUDE.md) for the full milestone plan and [docs/prd/README.md](docs/prd/README.md) / [docs/adr/README.md](docs/adr/README.md) for the product requirements and the architecture decisions that govern the stack.
+Not built yet: gating every other route on an active account, CSRF, the admin user-list page, account deletion, any product feature. See [CLAUDE.md](CLAUDE.md) for the full milestone plan and [docs/prd/README.md](docs/prd/README.md) / [docs/adr/README.md](docs/adr/README.md) for the product requirements and the architecture decisions that govern the stack.
 
 ## Continuous integration
 
@@ -27,6 +27,8 @@ cp .env.example .env      # local-only defaults; never commit .env
 ```
 
 Fill in `OPENROUTER_API_KEY` in `.env` — get one at [openrouter.ai/keys](https://openrouter.ai/keys); `Settings` requires it to start even before any LLM feature ships (ADR-0007).
+
+To sign in with Google locally, create an OAuth 2.0 client (type "Web application") at [Google Cloud Console](https://console.cloud.google.com/apis/credentials), with authorized redirect URI `http://localhost:8000/auth/callback`, then fill `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` and `SESSION_SECRET_KEY` (`openssl rand -hex 32`) in `.env`. Add your own email to `ADMIN_EMAILS` (comma-separated) to bootstrap the first admin account as `active` (ADR-0005) — otherwise every new account stays `pending`. Not needed to run the test suite, only to actually sign in.
 
 ```bash
 make up                   # builds and starts app + postgres

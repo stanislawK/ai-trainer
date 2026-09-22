@@ -8,13 +8,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ai_trainer.adapters.llm_calls_repository import SqlAlchemyLlmCallsRepository
 from ai_trainer.domain.llm_calls import LlmCallOutcome, NewLlmCall
 
-_INSERT_USER = text("INSERT INTO users (id) VALUES (:id)")
+_INSERT_USER = text("INSERT INTO users (id, sub, email) VALUES (:id, :sub, :email)")
 
 
 async def _create_user(session_factory: Callable[[], AsyncSession]) -> UUID:
     user_id = uuid4()
     async with session_factory() as session:
-        await session.execute(_INSERT_USER, {"id": user_id})
+        await session.execute(
+            _INSERT_USER, {"id": user_id, "sub": str(user_id), "email": f"{user_id}@example.com"}
+        )
         await session.commit()
     return user_id
 

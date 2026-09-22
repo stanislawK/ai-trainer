@@ -11,12 +11,34 @@ class Base(DeclarativeBase):
 
 
 class UserOrm(Base):
-    """Minimal placeholder: #13 (sign in with Google) adds sub/email/name/status/timezone."""
+    """Keyed by Google `sub`; no Google access or refresh token is ever stored (ADR-0005)."""
 
     __tablename__ = "users"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    sub: Mapped[str] = mapped_column(unique=True, index=True, nullable=False)
+    email: Mapped[str] = mapped_column(nullable=False)
+    name: Mapped[str | None] = mapped_column(nullable=True)
+    locale: Mapped[str] = mapped_column(nullable=False, server_default="en")
+    # UserStatus value: pending / active / disabled (ADR-0005).
+    status: Mapped[str] = mapped_column(nullable=False, server_default="pending")
     # timestamptz, UTC (ADR-0004 invariant 5).
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now()
+    )
+
+
+class SessionOrm(Base):
+    """A PostgreSQL-backed login session (ADR-0005): can be expired and revoked."""
+
+    __tablename__ = "sessions"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    # timestamptz, UTC (ADR-0004 invariant 5).
+    expires_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now()
     )
