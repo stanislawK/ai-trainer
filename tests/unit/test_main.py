@@ -1,12 +1,27 @@
 import pytest
 from fastapi import FastAPI
+from opentelemetry.sdk.trace import Tracer
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from pydantic import PostgresDsn, SecretStr
+from pydantic_ai import Agent, InstrumentationSettings
+from pydantic_ai.models.test import TestModel
 
-from ai_trainer.main import app_factory, create_app
+from ai_trainer.main import _build_tracer_provider, _traces_endpoint, app_factory, create_app
 from ai_trainer.settings import Settings
 
 DATABASE_URL = "postgresql+psycopg://ai_trainer:secret@localhost:5432/ai_trainer"
 OPENROUTER_API_KEY = "sk-or-v1-test"
+UNREACHABLE_ENDPOINT = "http://127.0.0.1:1"
+
+
+def _settings(**overrides: object) -> Settings:
+    values: dict[str, object] = {
+        "_env_file": None,
+        "database_url": PostgresDsn(DATABASE_URL),
+        "openrouter_api_key": SecretStr(OPENROUTER_API_KEY),
+        **overrides,
+    }
+    return Settings(**values)  # type: ignore[arg-type]
 
 
 def test_create_app_wires_settings_into_app() -> None:
@@ -32,3 +47,92 @@ def test_app_factory_wires_settings_from_the_environment(
 
     assert isinstance(app, FastAPI)
     assert str(app.state.settings.database_url) == DATABASE_URL
+
+
+def test_traces_endpoint_returns_none_when_unset() -> None:
+    assert _traces_endpoint(None) is None
+
+
+def test_traces_endpoint_appends_v1_traces_path() -> None:
+    """Regression: `OTLPSpanExporter` skips its own auto-append when `endpoint=` is passed
+    explicitly, so a bare Grafana Cloud host (as `.env.example` documents) must get the path
+    appended here or spans get silently POSTed to the wrong URL (ADR-0018)."""
+    assert (
+        _traces_endpoint("https://otlp-gateway-prod-us-central-0.grafana.net/otlp")
+        == "https://otlp-gateway-prod-us-central-0.grafana.net/otlp/v1/traces"
+    )
+
+
+def test_traces_endpoint_strips_trailing_slash_before_appending() -> None:
+    assert _traces_endpoint("http://localhost:4318/") == "http://localhost:4318/v1/traces"
+
+
+def test_traces_endpoint_does_not_double_append() -> None:
+    already_correct = "https://collector.example.com/v1/traces"
+    assert _traces_endpoint(already_correct) == already_correct
+
+
+def test_build_tracer_provider_returns_none_when_otel_disabled() -> None:
+    assert _build_tracer_provider(_settings(otel_enabled=False)) is None
+
+
+def test_build_tracer_provider_names_the_configured_service() -> None:
+    provider = _build_tracer_provider(
+        _settings(
+            otel_enabled=True,
+            otel_exporter_otlp_endpoint=UNREACHABLE_ENDPOINT,
+            otel_service_name="ai-trainer-test",
+        )
+    )
+
+    assert provider is not None
+    assert provider.resource.attributes["service.name"] == "ai-trainer-test"
+
+
+def test_create_app_does_not_instrument_agents_when_otel_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[object] = []
+    monkeypatch.setattr(Agent, "instrument_all", staticmethod(calls.append))
+
+    create_app(_settings(otel_enabled=False))
+
+    assert calls == []
+
+
+def test_create_app_instruments_agents_with_no_content_when_otel_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[InstrumentationSettings] = []
+    monkeypatch.setattr(Agent, "instrument_all", staticmethod(calls.append))
+
+    create_app(_settings(otel_enabled=True, otel_exporter_otlp_endpoint=UNREACHABLE_ENDPOINT))
+
+    assert len(calls) == 1
+    assert calls[0].include_content is False
+    # A real SDK `Tracer` (vs. `ProxyTracer`) proves a concrete `TracerProvider` was wired in,
+    # not the no-op global default (ADR-0018 invariant 3).
+    assert isinstance(calls[0].tracer, Tracer)
+
+
+async def test_instrumented_agent_run_names_the_model_and_excludes_content() -> None:
+    """An agent run through `_build_tracer_provider`'s real wiring (only the exporter transport
+    swapped for an in-memory one) produces a content-free span naming the model (AC1, AC2)."""
+    exporter = InMemorySpanExporter()
+    provider = _build_tracer_provider(
+        _settings(otel_enabled=True, otel_exporter_otlp_endpoint=UNREACHABLE_ENDPOINT),
+        span_exporter=exporter,
+    )
+    assert provider is not None
+    Agent.instrument_all(InstrumentationSettings(tracer_provider=provider, include_content=False))
+
+    secret_prompt = "a very private training question"
+    await Agent(TestModel()).run(secret_prompt)
+    provider.force_flush(timeout_millis=2000)
+
+    spans = exporter.get_finished_spans()
+    assert spans, "expected at least one span from the instrumented agent run"
+    assert any(span.attributes and span.attributes.get("gen_ai.request.model") for span in spans)
+    for span in spans:
+        serialized = repr(dict(span.attributes or {}))
+        assert secret_prompt not in serialized
