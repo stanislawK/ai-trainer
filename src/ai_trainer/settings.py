@@ -1,7 +1,16 @@
-from typing import Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import PostgresDsn, SecretStr
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import BeforeValidator, PostgresDsn, SecretStr
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+
+
+def _split_comma_separated(value: Any) -> Any:
+    if isinstance(value, str):
+        return [item.strip() for item in value.split(",") if item.strip()]
+    return value
+
+
+CommaSeparated = Annotated[list[str], NoDecode, BeforeValidator(_split_comma_separated)]
 
 
 class Settings(BaseSettings):
@@ -16,6 +25,18 @@ class Settings(BaseSettings):
     database_url: PostgresDsn
     openrouter_api_key: SecretStr
     llm_call_timeout_seconds: float = 30.0
+
+    # Google sign-in (ADR-0005). No Google access or refresh token is ever stored.
+    google_client_id: str = ""
+    google_client_secret: SecretStr = SecretStr("")
+    # Signs Starlette's transient OAuth-state cookie; distinct from the app's own
+    # PostgreSQL-backed session cookie.
+    session_secret_key: SecretStr = SecretStr("")
+    # Case-insensitively matched against a verified Google email to bootstrap the first
+    # admin (ADR-0005); comma-separated, e.g. "a@example.com,b@example.com".
+    admin_emails: CommaSeparated = []
+    session_cookie_secure: bool = True
+    session_ttl_days: int = 14
 
     # Telemetry (ADR-0018): off by default; Grafana Cloud is the intended backend and speaks
     # OTLP/HTTP only, so the protocol is fixed rather than a real switch.

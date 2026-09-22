@@ -1,5 +1,10 @@
 """Composition root: the only place concrete classes are wired (ADR-0003)."""
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from datetime import timedelta
+
+from authlib.integrations.starlette_client import OAuth
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
@@ -8,9 +13,16 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor, SpanExporter
 from opentelemetry.util.re import parse_env_headers
 from pydantic_ai import Agent, InstrumentationSettings
+from starlette.middleware.sessions import SessionMiddleware
 
+from ai_trainer.adapters.clock import UtcClock
+from ai_trainer.adapters.db import build_engine, build_session_factory
+from ai_trainer.adapters.google_oauth import AuthlibGoogleOAuthClient
 from ai_trainer.adapters.health import PsycopgDatabaseHealth
+from ai_trainer.adapters.sessions_repository import SqlAlchemySessionsRepository
+from ai_trainer.adapters.users_repository import SqlAlchemyUsersRepository
 from ai_trainer.settings import Settings
+from ai_trainer.web.auth import build_auth_router
 from ai_trainer.web.health import build_health_router
 from ai_trainer.web.home import build_home_router
 from ai_trainer.web.templating import STATIC_DIR, build_templates
@@ -19,14 +31,55 @@ from ai_trainer.web.templating import STATIC_DIR, build_templates
 # shuts down the provider is never stalled for long by an unreachable collector (ADR-0018).
 _OTLP_EXPORT_TIMEOUT_SECONDS = 5.0
 
+_GOOGLE_SERVER_METADATA_URL = "https://accounts.google.com/.well-known/openid-configuration"
+
 
 def create_app(settings: Settings) -> FastAPI:
-    app = FastAPI(title="ai-trainer")
+    engine = build_engine(str(settings.database_url))
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        yield
+        # Closes the SQLAlchemy pool's connections on shutdown; a fresh engine is otherwise
+        # opened by every `create_app` call, so a repeatedly-constructed app (a reload worker,
+        # or a test that never uses the app as a context manager) would leak idle connections.
+        await engine.dispose()
+
+    app = FastAPI(title="ai-trainer", lifespan=lifespan)
     app.state.settings = settings
+    # Signs Authlib's transient OAuth-state cookie only; distinct from the app's own
+    # PostgreSQL-backed session cookie set by the auth router (ADR-0005).
+    app.add_middleware(
+        SessionMiddleware,
+        secret_key=settings.session_secret_key.get_secret_value(),
+        https_only=settings.session_cookie_secure,
+    )
+
     health_port = PsycopgDatabaseHealth(str(settings.database_url))
     app.include_router(build_health_router(health_port))
     app.include_router(build_home_router(build_templates()))
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+    session_factory = build_session_factory(engine)
+    oauth = OAuth()
+    oauth.register(
+        "google",
+        client_id=settings.google_client_id,
+        client_secret=settings.google_client_secret.get_secret_value(),
+        server_metadata_url=_GOOGLE_SERVER_METADATA_URL,
+        client_kwargs={"scope": "openid email profile"},
+    )
+    app.include_router(
+        build_auth_router(
+            oauth_client=AuthlibGoogleOAuthClient(oauth.google),
+            users=SqlAlchemyUsersRepository(session_factory),
+            sessions=SqlAlchemySessionsRepository(session_factory),
+            clock=UtcClock(),
+            admin_emails=settings.admin_emails,
+            session_ttl=timedelta(days=settings.session_ttl_days),
+            cookie_secure=settings.session_cookie_secure,
+        )
+    )
 
     tracer_provider = _build_tracer_provider(settings)
     if tracer_provider is not None:

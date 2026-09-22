@@ -41,6 +41,19 @@ def test_reads_values_from_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     assert str(settings.database_url) == DATABASE_URL
     assert settings.openrouter_api_key.get_secret_value() == OPENROUTER_API_KEY
     assert settings.llm_call_timeout_seconds == 30.0
+    assert settings.session_cookie_secure is True
+    assert settings.session_ttl_days == 14
+    assert settings.admin_emails == []
+
+
+def test_admin_emails_parses_a_comma_separated_list(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", DATABASE_URL)
+    monkeypatch.setenv("OPENROUTER_API_KEY", OPENROUTER_API_KEY)
+    monkeypatch.setenv("ADMIN_EMAILS", "a@example.com, b@example.com")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.admin_emails == ["a@example.com", "b@example.com"]
 
 
 def test_env_example_lists_every_setting(monkeypatch: pytest.MonkeyPatch) -> None:
