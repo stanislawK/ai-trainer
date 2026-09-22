@@ -24,6 +24,7 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
+    "import-linter>=2.15",
     "mypy>=2.3.1",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
@@ -67,3 +68,39 @@ source = ["ai_trainer"]
 [tool.coverage.report]
 show_missing = true
 skip_covered = false
+
+[tool.importlinter]
+root_package = "ai_trainer"
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+# ADR-0003 invariants 1-2: domain never imports up; application never imports
+# a concrete adapter. Siblings in the outer layer may import each other freely -
+# nothing in ADR-0003 forbids that.
+name = "Hexagonal layers (ADR-0003)"
+type = "layers"
+layers = [
+    "ai_trainer.adapters : ai_trainer.llm : ai_trainer.mcp : ai_trainer.knowledge : ai_trainer.web",
+    "ai_trainer.application",
+    "ai_trainer.domain",
+]
+
+[[tool.importlinter.contracts]]
+# The other half of invariant 1: domain imports only the standard library and
+# Pydantic. The layers contract above already keeps it off application/adapters/
+# llm/mcp/knowledge/web; this keeps it off every other current dependency.
+# New third-party dependencies (pyproject.toml `[project.dependencies]`) need
+# adding here too if domain should stay clear of them.
+name = "Domain has no dependency but Pydantic (ADR-0003)"
+type = "forbidden"
+source_modules = ["ai_trainer.domain"]
+forbidden_modules = [
+    "alembic",
+    "fastapi",
+    "pgvector",
+    "psycopg",
+    "pydantic_ai",
+    "pydantic_settings",
+    "sqlalchemy",
+    "uvicorn",
+]

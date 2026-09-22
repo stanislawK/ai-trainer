@@ -10,7 +10,7 @@ Not built yet: authentication, any product feature. See [CLAUDE.md](CLAUDE.md) f
 
 ## Continuous integration
 
-Every push and pull request runs `ruff check`, `ruff format --check`, `mypy --strict` and the full `pytest` suite (see [`.github/workflows/ci.yml`](.github/workflows/ci.yml)), with integration tests hitting a real PostgreSQL/pgvector service container. Prompt evals never run here — they cost money and are triggered on demand (ADR-0009).
+Every push and pull request runs `ruff check`, `ruff format --check`, `mypy --strict`, the import-boundary check (`import-linter`, ADR-0003) and the full `pytest` suite (see [`.github/workflows/ci.yml`](.github/workflows/ci.yml)), with integration tests hitting a real PostgreSQL/pgvector service container. Prompt evals never run here — they cost money and are triggered on demand (ADR-0009).
 
 This project is document-driven: PRDs and ADRs are the source of truth, not this file. If something here ever looks out of date, trust the docs and open a doc fix — see [docs/README.md](docs/README.md).
 
@@ -48,7 +48,8 @@ Run `make` targets from the repo root; see the [Makefile](Makefile) for the comp
 | `make coverage` | Line coverage on `src/ai_trainer` |
 | `make migrate` | Apply database migrations (Alembic) |
 | `make lint` / `make format` / `make typecheck` | ruff / ruff format / mypy --strict |
-| `make check` | Everything CI runs: lint, format check, typecheck, tests |
+| `make import-lint` | Check layer boundaries (import-linter, ADR-0003) |
+| `make check` | Everything CI runs: lint, format check, typecheck, import-lint, tests |
 
 `test`, `test-integration` and `coverage` run `make migrate` first, so the `vector` extension always exists before the suite runs. `make evals` is wired up but not usable yet — it lands with the evals ticket.
 
