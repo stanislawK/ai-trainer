@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 from fastapi import FastAPI
-from pydantic import PostgresDsn
+from pydantic import PostgresDsn, SecretStr
 
 from ai_trainer.main import create_app
 from ai_trainer.settings import Settings
@@ -16,10 +16,15 @@ from scripts.generate_openapi import (
 )
 
 DATABASE_URL = "postgresql+psycopg://ai_trainer:secret@localhost:5432/ai_trainer"
+OPENROUTER_API_KEY = "sk-or-v1-test"
 
 
 def _build_app() -> FastAPI:
-    settings = Settings(_env_file=None, database_url=PostgresDsn(DATABASE_URL))
+    settings = Settings(
+        _env_file=None,
+        database_url=PostgresDsn(DATABASE_URL),
+        openrouter_api_key=SecretStr(OPENROUTER_API_KEY),
+    )
     return create_app(settings)
 
 
@@ -73,6 +78,7 @@ def test_main_writes_the_snapshot_from_settings_in_the_environment(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("DATABASE_URL", DATABASE_URL)
+    monkeypatch.setenv("OPENROUTER_API_KEY", OPENROUTER_API_KEY)
     output_path = tmp_path / "openapi.json"
 
     main(output_path=output_path)

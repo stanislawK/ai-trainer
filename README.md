@@ -24,6 +24,11 @@ This project is document-driven: PRDs and ADRs are the source of truth, not this
 
 ```bash
 cp .env.example .env      # local-only defaults; never commit .env
+```
+
+Fill in `OPENROUTER_API_KEY` in `.env` — get one at [openrouter.ai/keys](https://openrouter.ai/keys); `Settings` requires it to start even before any LLM feature ships (ADR-0007).
+
+```bash
 make up                   # builds and starts app + postgres
 make health   # -> {"database":"ok"}
 ```

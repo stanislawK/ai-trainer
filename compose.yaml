@@ -1,17 +1,32 @@
 # The ai_trainer/ai_trainer credentials below are non-secret local-dev-only
 # defaults, already published in .env.example. They aren't pulled from .env via
-# ${VAR} substitution because Settings.database_url (settings.py) is the only
-# field .env is allowed to carry — tests/unit/test_settings.py::
-# test_env_example_lists_every_setting enforces a strict 1:1 match between
-# .env.example and Settings.model_fields, so an extra POSTGRES_* var there
-# would fail that test. Change a credential here, keep it identical in
-# .env.example (and your local .env), by hand.
+# ${VAR} substitution because POSTGRES_USER/PASSWORD/DB aren't Settings fields —
+# tests/unit/test_settings.py::test_env_example_lists_every_setting enforces a
+# strict 1:1 match between .env.example and Settings.model_fields, so an extra
+# POSTGRES_* var there would fail that test. Change a credential here, keep it
+# identical in .env.example (and your local .env), by hand. DATABASE_URL is
+# hardcoded for the same reason plus one more: its host differs between the
+# container network (`db`) and a bare `uv run` (`localhost`), so it can't be a
+# straight passthrough of the host's own DATABASE_URL either way.
 services:
   app:
     build: .
     ports:
       - "8000:8000"
+    # Loads every other Settings field (OPENROUTER_API_KEY, LLM_CALL_TIMEOUT_SECONDS, …)
+    # straight from .env. Deliberately not `${VAR}` substitution in `environment:` below:
+    # that always injects the key, empty string if the host var is unset, which is silently
+    # wrong for a required field (empty OPENROUTER_API_KEY, no error) and a hard failure for
+    # an optional one (an empty string fails float parsing even though Settings has a
+    # default) — an old .env predating a Settings field addition would break both ways.
+    # `env_file` only sets a key that's actually present in the file, so a missing key falls
+    # through to that field's own default (or, for a required field, to the same clear
+    # "field required" error Settings always gives — loud instead of silently wrong).
+    env_file:
+      - .env
     environment:
+      # Overrides .env's copy: the container reaches Postgres by service name (`db`), not
+      # `localhost`, so this can never be a straight passthrough either way.
       DATABASE_URL: postgresql+psycopg://ai_trainer:ai_trainer@db:5432/ai_trainer
     depends_on:
       db:

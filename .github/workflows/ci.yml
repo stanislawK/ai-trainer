@@ -13,6 +13,9 @@ permissions:
 
 env:
   DATABASE_URL: postgresql+psycopg://ai_trainer:ai_trainer@localhost:5432/ai_trainer
+  # Settings() requires this to construct (ADR-0007); no test ever makes a real call with it
+  # (ADR-0013 invariant 1), so a placeholder is enough.
+  OPENROUTER_API_KEY: sk-or-v1-ci-placeholder-not-a-real-key
 
 jobs:
   ci:
