@@ -1,5 +1,5 @@
 .PHONY: install test test-unit test-integration coverage lint format format-check \
-	typecheck import-lint check up up-build down logs ps health migrate evals
+	typecheck import-lint openapi openapi-check check up up-build down logs ps health migrate evals
 
 install: ## Install dependencies (uv sync)
 	uv sync
@@ -13,8 +13,8 @@ test-unit: ## Run unit tests only (no external services needed)
 test-integration: migrate ## Run integration tests (needs `make up` first)
 	uv run pytest tests/integration
 
-coverage: migrate ## Line coverage report for src/ai_trainer
-	uv run pytest --cov=ai_trainer --cov-report=term-missing
+coverage: migrate ## Line coverage report for src/ai_trainer and scripts
+	uv run pytest --cov=ai_trainer --cov=scripts --cov-report=term-missing
 
 lint: ## Ruff lint
 	uv run ruff check .
@@ -31,7 +31,13 @@ typecheck: ## mypy --strict
 import-lint: ## Check layer boundaries (import-linter, ADR-0003)
 	uv run lint-imports
 
-check: lint format-check typecheck import-lint test ## Everything CI runs
+openapi: ## Regenerate the OpenAPI snapshot (docs/api/openapi.json)
+	uv run python scripts/generate_openapi.py
+
+openapi-check: openapi ## Fail if docs/api/openapi.json is out of date (CI drift check)
+	git diff --exit-code -- docs/api/openapi.json
+
+check: lint format-check typecheck import-lint openapi-check test ## Everything CI runs
 
 up: ## Start app + postgres in the background
 	docker compose up -d

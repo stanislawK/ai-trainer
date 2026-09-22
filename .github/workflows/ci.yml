@@ -62,6 +62,11 @@ jobs:
       - name: Import boundaries (import-linter)
         run: uv run lint-imports
 
+      - name: OpenAPI snapshot drift check
+        run: |
+          uv run python scripts/generate_openapi.py
+          git diff --exit-code -- docs/api/openapi.json
+
       - name: Run database migrations (Alembic)
         run: uv run alembic upgrade head
 
