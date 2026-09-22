@@ -59,5 +59,8 @@ jobs:
       - name: Type check (mypy --strict)
         run: uv run mypy
 
+      - name: Run database migrations (Alembic)
+        run: uv run alembic upgrade head
+
       - name: Test (pytest)
         run: uv run pytest
