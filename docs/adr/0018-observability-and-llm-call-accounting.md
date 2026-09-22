@@ -75,6 +75,33 @@ the database, not in a third-party trace store.
 - `.claude/rules/llm.md` carries invariants 1, 4 and 6; `CLAUDE.md` gains the stack line.
 - Deleting a user erases their `llm_calls` rows (G7). Aggregate spend therefore survives only in
   traces, which carry no user ID — an accepted trade of history for G7.
-- ⚠ Unresolved: whether OpenRouter returns cost on every response shape the gateway uses, streaming
-  included. The M0 gateway ticket verifies this and records the answer here; until then invariant 6
-  may need a follow-up call to the generation endpoint.
+- Resolved by the M0 gateway ticket (#9), two shapes checked separately since only one runs through
+  code this project executes:
+  - **Non-streaming**, checked against the installed library source (`pydantic-ai` v2.46.0,
+    `genai-prices` 0.1.7; no context7/changelog entry covered this distinction): OpenRouter includes a
+    real, billed `cost` in the response's `usage` object, but **Pydantic AI v2 does not surface it as
+    `result.usage.cost`** — `genai-prices`' OpenRouter extractor
+    (`pydantic_ai.models.openrouter._map_openrouter_usage`, backed by `genai_prices/data.py`'s
+    `openrouter` provider entry) maps only token counts and never a `cost` key, and
+    `pydantic_ai._genai_prices.fill_response_cost` only ever backfills `usage.cost` with a
+    `best_effort_price` static-table guess — by its own docstring, no model, OpenRouter included, ever
+    sets a real `usage.cost`. The real, billed figure is preserved separately, straight off
+    OpenRouter's wire response, on `ModelResponse.provider_details['cost']`
+    (`pydantic_ai/models/openrouter.py::_map_openrouter_provider_details`), read via
+    `AgentRunResult.response.provider_details`. The gateway reads cost from there, satisfying
+    invariant 6.
+  - **Streaming**, not exercised by this gateway (it only calls `agent.run()`, never `run_stream()`),
+    so checked by reading rather than running: OpenRouter's own docs say `cost` lands in the `usage`
+    object of a final, content-free chunk just before `[DONE]`, unconditionally — the
+    `usage: {include: true}` / `stream_options.include_usage` toggles are deprecated no-ops now
+    ([OpenRouter, *Usage Accounting*](https://openrouter.ai/docs/use-cases/usage-accounting)). On the
+    Pydantic AI side, `OpenRouterStreamedResponse._map_provider_details` calls the identical
+    `_map_openrouter_provider_details` mapper used for the non-streaming path, so the same extraction
+    this gateway relies on applies unchanged once a streaming caller exists. Revisit this bullet with
+    a real integration check the day a specialist actually calls `run_stream()`.
+- `provider_details['cost']` is per HTTP response, not per run, and a single `agent.run()` call can
+  already make more than one model request today — Pydantic AI retries failed output validation once
+  by default (`retries` defaults to 1 for both tools and output) — with no tool calls needed. The
+  gateway sums `provider_details['cost']` over every `ModelResponse` in `result.all_messages()`
+  rather than reading only the last one, so an output-validation retry's cost isn't silently dropped.
+  A future specialist with tool calls hits the same accumulation path, already covered by this sum.

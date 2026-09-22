@@ -6,6 +6,7 @@ from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
+from ai_trainer.adapters.orm import Base
 from ai_trainer.settings import Settings
 
 config = context.config
@@ -17,9 +18,7 @@ if config.config_file_name is not None:
 # carries no sqlalchemy.url.
 config.set_main_option("sqlalchemy.url", str(Settings().database_url))
 
-# No domain models yet, so nothing to autogenerate against. A later ticket
-# sets this to the declarative Base's metadata once real tables exist.
-target_metadata = None
+target_metadata = Base.metadata
 
 
 def run_migrations_offline() -> None:

@@ -1,5 +1,5 @@
 import asyncio
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Callable, Iterator
 
 import pytest
 from sqlalchemy import text
@@ -60,6 +60,32 @@ async def db_session() -> AsyncIterator[AsyncSession]:
                 yield session
             finally:
                 await session.close()
+                await transaction.rollback()
+    finally:
+        await engine.dispose()
+
+
+@pytest.fixture
+async def db_session_factory() -> AsyncIterator[Callable[[], AsyncSession]]:
+    """Like `db_session`, but yields a factory instead of one session.
+
+    A repository (e.g. `SqlAlchemyLlmCallsRepository`) opens and closes a fresh
+    `AsyncSession` per method call; every session this factory produces joins the
+    same connection's transaction via SAVEPOINTs, so the whole test still rolls
+    back at teardown (closing such a session releases nothing, since the
+    connection was supplied externally rather than checked out by the session).
+    """
+    engine = build_engine(_database_url())
+    try:
+        async with engine.connect() as connection:
+            transaction = await connection.begin()
+
+            def _factory() -> AsyncSession:
+                return AsyncSession(bind=connection, join_transaction_mode="create_savepoint")
+
+            try:
+                yield _factory
+            finally:
                 await transaction.rollback()
     finally:
         await engine.dispose()

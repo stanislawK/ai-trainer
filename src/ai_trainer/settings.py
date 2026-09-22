@@ -1,4 +1,4 @@
-from pydantic import PostgresDsn
+from pydantic import PostgresDsn, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -12,3 +12,5 @@ class Settings(BaseSettings):
     )
 
     database_url: PostgresDsn
+    openrouter_api_key: SecretStr
+    llm_call_timeout_seconds: float = 30.0
