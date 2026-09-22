@@ -19,7 +19,7 @@ Copy a template to create a new doc or ticket. Never invent a new structure.
 |---|---|
 | PRD | Draft · In review · Approved · Deprecated · Superseded (link the replacement) |
 | ADR | Proposed · Accepted · Deprecated · Superseded (link the replacement) |
-| Ticket | label `status:todo` · label `status:in-progress` · Done = closed issue |
+| Ticket | label `status:todo` · label `status:in-progress` · label `status:in-review` (PR open) · Done = closed issue (its PR merged) |
 
 Only one PRD is Approved at a time. Only a human sets a PRD to Approved or an ADR to Accepted; agents write Draft, In review or Proposed.
 

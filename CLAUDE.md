@@ -18,7 +18,8 @@ Docs outrank chat. If a request contradicts an Accepted ADR or the Approved PRD,
 ## How work happens
 
 - Tickets are GitHub Issues in `stanislawK/ai-trainer`. Create them with `/create-tickets <scope>`; implement one with `/apply-ticket <issue#>`.
-- Two human gates: the **plan gate** (no product code before Approve) and the **review gate** (no commit, merge or issue close before Approve).
+- Two human gates: the **plan gate** (no product code before Approve) and the **review gate** (no commit, push or PR before Approve).
+- Every change goes on its own branch and reaches `main` only through a PR a human merges. Ticket branches are `<area>/<issue#>-<slug>`; doc-only work without an issue uses `docs/<slug>`. Never commit to, push to or merge into `main` (ADR-0001).
 - Prompt, model or router changes go through `/tune-prompt <template-id>`.
 - Only a human sets a PRD to Approved or an ADR to Accepted.
 
@@ -72,4 +73,4 @@ uv run ai-trainer-evals run <template-id>   # evals (costs money — run on purp
 
 ## Status
 
-Bootstrap: docs only, no application code yet. PRD 0001 (v0.2) is Approved. Every ADR that M0 cites is Accepted (0001–0005, 0007–0009, 0012–0014, 0018); 0006, 0010, 0011 and 0015–0017 stay Proposed until their milestones. M0 is ticketed as issues #2–#17. Next: `/apply-ticket 2`.
+M0 in progress: the typed project skeleton (#2) is merged. PRD 0001 (v0.2) is Approved. Every ADR that M0 cites is Accepted (0001–0005, 0007–0009, 0012–0014, 0018); 0006, 0010, 0011 and 0015–0017 stay Proposed until their milestones. M0 is ticketed as issues #2–#17. Next: `/apply-ticket 3`.

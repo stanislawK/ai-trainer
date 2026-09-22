@@ -19,7 +19,7 @@ Role: product manager. Implements ADR-0001. Never write to GitHub before the dra
 5. **Draft** every ticket from `docs/templates/ticket.md`: title `<area>: <imperative outcome>` (≤70 characters, one verb, no "and"), body ≤200 words, 2–6 requirements, 3–7 AC including one error or edge case, `Blocked by`, and References to real PRD/ADR/skill paths with requirement IDs. Order the tickets by dependency. Auth- and gateway-shaped tickets run past 200 words easily — spend the budget on acceptance criteria, not on prose.
 6. **HUMAN GATE.** Show all drafts in chat, then `AskUserQuestion`: Approve / Request changes / Cancel. On Request changes, revise and ask again. On Cancel, stop.
 7. **Create** (only after Approve):
-   - Check labels with `gh label list`; create any missing ones from `area:{backend,web,llm,e2e,knowledge,infra,docs}`, `status:{todo,in-progress}`, `size:{S,M}` with `gh label create`.
+   - Check labels with `gh label list`; create any missing ones from `area:{backend,web,llm,e2e,knowledge,infra,docs}`, `status:{todo,in-progress,in-review}`, `size:{S,M}` with `gh label create`.
    - Write each body to a scratchpad file with a placeholder token per blocker, then create in dependency order with `gh issue create --title "<title>" --body-file <file> --label "area:<area>,status:todo,size:<size>"`. Every blocker already has its number by then, so substitute at creation and skip the patch pass entirely.
    - Use `gh issue edit` only for a ticket that had to be created out of order, or to fix a body after creation.
    - Check before reporting: no placeholder survives, every blocker number is lower than its own (an acyclic graph), each body has 3–7 AC and stays within 200 words, and every cited path exists.

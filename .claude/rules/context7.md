@@ -8,6 +8,7 @@ Do not use for: refactoring, writing scripts from scratch, debugging business lo
 2. Pick the best match (ID format: `/org/project`) by: exact name match, description relevance, code snippet count, source reputation (High/Medium preferred), and benchmark score (higher is better). If results don't look right, try alternate names or queries (e.g., "next.js" not "nextjs", or rephrase the question). Use version-specific IDs when the user mentions a version
 3. `query-docs` with the selected library ID and what to look up in the library's documentation (not single words), scoped to a single concept. If the question spans multiple distinct concepts (e.g. routing and auth and caching), make a separate `query-docs` call per concept with the same library ID, unless the question is about how the concepts interact — combined queries dilute ranking and return shallow results for each topic
 4. Answer using the fetched docs
+5. If context7 has no answer (common for release history, version minimums and fresh fixes), go to primary sources: the library's official changelog or release notes, then its upstream repo through `gh` (`gh pr view <n> -R <org>/<repo>`, `gh release view`). Cite the link, say that context7 had no entry, and never fill the gap from memory.
 
 ## In this project
 

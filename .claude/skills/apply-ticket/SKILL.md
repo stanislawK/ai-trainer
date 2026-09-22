@@ -1,6 +1,6 @@
 ---
 name: apply-ticket
-description: Deliver one GitHub issue through the gated TDD delivery loop — plan gate, tests first, implement against the docs, verify, review gate, merge.
+description: Deliver one GitHub issue through the gated TDD delivery loop — plan gate, tests first, implement against the docs, verify, review gate, pull request.
 argument-hint: "[issue-number]"
 disable-model-invocation: true
 ---
@@ -14,12 +14,18 @@ Implements the delivery loop of ADR-0001.
 3. **Plan in chat.** Effort S / M / L, the AC → test mapping, file-level steps, and any docs to touch.
 4. **HUMAN GATE (plan).** `AskUserQuestion`: Approve / Split / Request changes / Cancel. No product code before Approve.
 5. **L or Split** → stop and ask the user to run `/create-tickets` for the pieces. Don't implement the oversized ticket.
-6. **Start.** `gh issue edit <n> --add-label status:in-progress --remove-label status:todo`, then `git checkout main && git pull && git checkout -b ticket/<n>-<slug>`.
+6. **Start.** `gh issue edit <n> --add-label status:in-progress --remove-label status:todo`, then `git checkout main && git pull && git checkout -b <area>/<n>-<slug>` — `<area>` from the ticket's `area:` label, `<slug>` the issue title without its `area:` prefix, lowercase kebab-case, at most five words (e.g. `infra/3-start-stack-with-docker-compose`).
 7. **Tests first.** One failing test per AC (`/run-tdd`).
 8. **Implement against the docs only.** `/run-tdd` → `/coverage` → ruff → mypy. Regenerate the OpenAPI snapshot if HTTP changed. Run `/tune-prompt` if a prompt, model ID or the router changed.
 9. **Verify** every AC with evidence: test names, command output, a browser check for web tickets, the eval report for llm tickets. Then, for each AC, spawn a fresh-context agent whose only job is to try to disprove the "this AC is done" claim, given just the diff and the AC text (not the implementer's reasoning or plan). An AC only goes to the human gate as verified if it survives; anything a skeptic successfully challenges gets fixed first, and the challenge is shown alongside the fix in the gate summary.
-10. **HUMAN GATE (review).** `AskUserQuestion`: Approve / Request changes / Reject. No commit, merge or issue close before Approve.
-11. **Finish** (after Approve): commit on the ticket branch with a message referencing `#<n>`; `git checkout main && git merge --no-ff ticket/<n>-<slug>`; stay on `main`; `gh issue close <n> --comment "<summary + evidence>"` and remove the status label. If stack or workflow changed, run `/update-docs` in the same change. Push only if the user asks.
+10. **HUMAN GATE (review).** `AskUserQuestion`: Approve / Request changes / Reject. No commit, push or PR before Approve.
+11. **Finish** (after Approve), all on the ticket branch:
+    - If stack or workflow changed, run `/update-docs` so the doc change ships in the same PR.
+    - Commit with a message referencing `#<n>`.
+    - `git push -u origin <area>/<n>-<slug>`.
+    - `gh pr create --base main --title "<issue title> (#<n>)" --body-file <file>`. The body holds the summary, the AC → evidence table, the skeptic challenges and their fixes, and `Closes #<n>`.
+    - `gh issue edit <n> --add-label status:in-review --remove-label status:in-progress`.
+    - Report the PR URL and stop. A human reviews and merges it on GitHub; the merge closes the issue. Never commit to, push to or merge into `main`, and never merge the PR yourself.
 
 ## Area branches
 
@@ -35,4 +41,4 @@ If the area label doesn't match the work, say so in the plan and ask.
 
 ## Anti-patterns
 
-Coding before the plan gate; committing before the review gate; skipping the PRD or ADRs because the ticket "seems clear"; implementing blocked work; silently changing the locked stack.
+Coding before the plan gate; committing or pushing before the review gate; committing to, pushing to or merging into `main`; merging your own PR; skipping the PRD or ADRs because the ticket "seems clear"; implementing blocked work; silently changing the locked stack.

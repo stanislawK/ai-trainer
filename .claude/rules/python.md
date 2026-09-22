@@ -17,4 +17,4 @@ paths:
 - **Telemetry (ADR-0018):** the tracer provider and OTLP exporter are built only in the composition root, from `Settings`, off by default. No telemetry vendor SDK in application code, and nothing that can raise into a route.
 - **SOLID:** small classes with one job; extend through new implementations or plugins, not growing conditionals.
 - **Library APIs:** check context7 before using one.
-- **New dependencies:** before adding one to `pyproject.toml`, check it's actively maintained and has no known CVEs — an AI suggestion is not itself a vetting step.
+- **New dependencies:** before adding one to `pyproject.toml`, check it's actively maintained and has no known CVEs — an AI suggestion is not itself a vetting step. After `uv add`, audit the locked set: `uv export --format requirements-txt --no-hashes --all-groups --no-emit-project -o <scratch>/req.txt && uvx pip-audit -r <scratch>/req.txt --disable-pip --no-deps`.
