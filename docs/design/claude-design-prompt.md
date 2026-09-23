@@ -38,7 +38,7 @@ The brief for both Claude Design projects (ADR-0019). Paste it into Claude Desig
    - Navigation: on mobile, a floating **glass dock** at the bottom (Chat, Plans, Stats, History, Settings; Admin only for admins), safe-area aware. On desktop, a slim glass sidebar. Explore 3 options for how the dock coexists with the chat composer (e.g. the dock collapses to a mini-pill while typing, the composer docks above the dock, or the dock hides on the chat screen behind a menu button).
    - **Chat**:
      - User messages are right-aligned, accent-tinted regular glass.
-     - Assistant messages have no bubble: full-width readable text (max ~65ch) with a small avatar mark.
+     - Assistant messages have no bubble: full-width readable text (max ~65ch) with a small avatar tile. The tile shows the glyph of the sport the reply is about (climbing `mountain`, gym `dumbbell`, cycling `bike`), and the app mark when the reply covers several sports or none.
      - Timestamps, grouped consecutive messages, a streaming caret, an error bubble with Retry, and a "jump to latest" pill.
    - **Composer**: a thick-glass floating pill with an auto-growing textarea, a send button (disabled when empty, a stop button while streaming) and a keyboard hint on desktop.
    - **Autocomplete / suggestions**:

@@ -1,12 +1,12 @@
-# PRD 0002 — AI training companion
+# PRD 0003 — AI training companion
 
 | | |
 |---|---|
 | Product | ai-trainer |
-| Version | 0.3 |
-| Status | Superseded |
+| Version | 0.4 |
+| Status | Approved |
 | Date | 2026-09-23 |
-| Related | ADR-0001 … ADR-0019 ([index](../adr/README.md)); revises [PRD 0001](0001-ai-training-companion.md) v0.2 — adds the visual design and installability requirements (G11, F11–F14) and refines F4 |
+| Related | ADR-0001 … ADR-0019 ([index](../adr/README.md)); supersedes [PRD 0002](0002-ai-training-companion.md) v0.3 on approval — adds sport inference (B23) and the sport glyph on replies (F15) |
 
 ## Problem
 
@@ -46,6 +46,8 @@ Amateur athletes with full-time jobs have 3–8 hours a week to train. They can'
 - The app never looks frozen: every loading region shows a placeholder the size of what will appear, and while the AI works on a reply the chat shows that it is thinking and, when known, what it is doing.
 - Logging happens by typing plain text. The app shows a structured draft of what it understood and saves only after the user confirms or edits it.
 - Ambiguity is resolved by picking from a short list of concrete options, not by typing the answer again.
+- The app guesses the sport instead of asking. The guess is visible and easy to change on the draft card, and a question comes only when the guess really can't be made.
+- Every reply shows at a glance which sport it is about, through that sport's glyph.
 - The app knows what day it is where the athlete is, so "yesterday" lands on the right date.
 - One consistent, supportive tone in every reply. Missed sessions are met with understanding and an adjusted plan, never guilt.
 - Answers built on the knowledge base show their sources; web results are labeled as web. Route and crag data from a public database shows that source and when it was fetched.
@@ -55,7 +57,7 @@ Amateur athletes with full-time jobs have 3–8 hours a week to train. They can'
 ## Primary user flows
 
 1. **Sign in and onboarding** — Open the sign-in page → continue with Google → a new account is pending, showing only a status screen until an admin activates it → choose sports → set weekly availability (days and minutes) → set one or more goals → land in the chat.
-2. **Log a session** — Type "I climbed 3 6A and 2 6B boulders, felt strong" → a draft card shows sport, activities, grades and effort → confirm or edit → saved together with the original text. If something is ambiguous, the app offers a short list of options to pick from first.
+2. **Log a session** — Type "I climbed 3 6A and 2 6B boulders, felt strong" → the app infers the sport → a draft card shows sport, activities, grades and effort → confirm or edit → saved together with the original text. If something is ambiguous, the app offers a short list of options to pick from first.
 3. **Ask a question** — "How often should I hangboard?" → an answer grounded in the knowledge base, citing its sources and taking the athlete's recent load into account. Web results, if used, are labeled.
 4. **Plan** — Set a goal with a target date → a long-term plan in phases → this week's plan, fitted to the athlete's availability.
 5. **Re-plan** — "I missed Tuesday" or "only 45 minutes today" → the app proposes an adjusted week → the user accepts or tweaks it.
@@ -107,6 +109,7 @@ IDs are stable across revisions. Never reuse a retired ID.
 - **B20** — Grades are stored as the original string, its scale, the canonical French equivalent and an ordinal; the display scale is a profile preference defaulting to French.
 - **B21** — Given a place and a grade range, the app finds the crags within range and returns a ranked route list in one fixed shape: grade, ascent count, onsight rate, recommendation and a short summary of comments.
 - **B22** — External lookups are budgeted and rate-limited per user; a failed, empty or low-confidence lookup asks the athlete instead of inventing data.
+- **B23** — Sport inference: the sport of each logged activity is inferred from the message and its context: wording, units and grade scales ("6A", "km", "5×5 at 100 kg"), the athlete's own sports (an athlete with one sport needs no guess), the current conversation and the most recent sessions. A confident inference is not asked about; the draft card shows it and the athlete can change it (F2). Only when two or more of the athlete's sports stay plausible does the app ask, with a choice card offering just those sports (B17). Refines B3 for the sport.
 
 ### Frontend (F)
 
@@ -124,6 +127,7 @@ IDs are stable across revisions. Never reuse a retired ID.
 - **F12** — A statistics view per sport and across sports: charts and tables of volume, load and progress over a chosen date range.
 - **F13** — Composer suggestions: while the athlete types, the chat offers matching suggestions to pick by tap or keyboard. What is suggested is decided per milestone; the pattern exists from the first chat release.
 - **F14** — A thinking indicator: from sending a message until the reply starts streaming, the chat shows that the AI is working, naming the current step when the server reports one.
+- **F15** — Sport glyph on replies: each assistant reply carries the glyph of the sport it is about, the same glyph that sport uses everywhere else (statistics, history, draft card). A reply about several sports or about none (a general question, a cross-sport report) shows the app mark.
 
 ## Configuration and contracts
 
@@ -160,10 +164,15 @@ IDs are stable across revisions. Never reuse a retired ID.
 - [ ] Every page renders at 390 × 844 without horizontal scrolling, and the app can be added to a phone's home screen with its icon.
 - [ ] An unknown URL shows the designed not-found page with a way back to the chat.
 - [ ] After sending a message, the thinking indicator is visible until the first streamed token arrives.
+- [ ] "Did 4×4s on the board" produces a climbing draft without a question about the sport.
+- [ ] "2 hours easy" from an athlete whose only sport is cycling produces a cycling draft.
+- [ ] "Did intervals" from an athlete who does gym and cycling, with no recent context that settles it, produces a choice card offering exactly gym and cycling.
+- [ ] A reply about a logged ride shows the cycling glyph; a reply to "How was my week?" across sports shows the app mark.
 
 ## Success metrics
 
-- Router intent accuracy and extraction field accuracy on the eval datasets; thresholds are set from the first M1 baseline.
+- Router intent accuracy, sport-inference accuracy and extraction field accuracy on the eval datasets; thresholds are set from the first M1 baseline.
+- Share of logs that needed a sport question (lower is better, without lowering sport-inference accuracy).
 - Share of logged sessions saved without edits on the draft card.
 - Plan adherence: planned sessions completed per week.
 - Weekly active loggers.
@@ -188,7 +197,7 @@ IDs are stable across revisions. Never reuse a retired ID.
 |---|---|---|
 | M0 Foundations | Project skeleton, docker compose, CI, Google sign-in with approval gating, a minimal admin user list, LLM gateway, prompt registry, eval harness | G1, G6, G7, G8, F6 (sign-in), F7, F8 |
 | M0 Design foundation | Liquid Glass theme, dark default with a remembered toggle, app shell, icons and manifest, sign-in and error pages, first end-to-end specs | G11, F11 |
-| M1 Log it | Router + `log_session` path; session envelope, `SportRegistry` and the climbing, gym and cycling plugins together; draft → confirm; time awareness and session continuity; structured clarification and the choice card; composer suggestions and the thinking indicator; eval datasets for the router and all three extraction templates | B1–B4, B13–B17, F1, F2, F9, F13, F14, G2–G5, G9 |
+| M1 Log it | Router + `log_session` path; session envelope, `SportRegistry` and the climbing, gym and cycling plugins together; sport inference; draft → confirm; time awareness and session continuity; structured clarification and the choice card; composer suggestions, the thinking indicator and the sport glyph on replies; eval datasets for the router and all three extraction templates | B1–B4, B13–B17, B23, F1, F2, F9, F13–F15, G2–G5, G9 |
 | M2 See it | History, cross-sport load, weekly report, statistics per sport | B5, B6, B12, F3, F5, F12 |
 | M3 Know it | Ingestion-pipeline ADR → ingestion → cited Q&A | B7, B8 |
 | M4 Plan it | Goals, long-term and weekly plans, re-planning | B9–B11, F4 |

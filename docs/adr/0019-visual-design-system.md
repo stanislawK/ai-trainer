@@ -4,7 +4,7 @@
 |---|---|
 | Status | Accepted |
 | Date | 2026-09-23 |
-| Related | PRD-0002 (G11, F1–F14), ADR-0012 (amended alongside), ADR-0013, ADR-0015 |
+| Related | PRD-0002 (G11, F1–F14), PRD-0003 (F15), ADR-0012 (amended alongside), ADR-0013, ADR-0015 |
 
 ## Context
 
@@ -22,6 +22,7 @@ ADR-0012 fixes the stack (Jinja2, htmx 4, daisyUI 5, Tailwind 4, no Node). It sa
 - **Type and icons.**
   - Fonts: the system stack (`-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif`; `ui-monospace` for tabular numbers). No web fonts.
   - Icons: [Lucide](https://lucide.dev) SVGs, vendored under `static/icons/lucide/` and rendered through a Jinja `icon(name)` macro in `templates/components/icon.html`.
+  - Sport glyphs: each sport's icon comes from its plugin in `SportRegistry` (ADR-0006). An assistant reply's avatar is the glyph of the one sport the reply is about, and the app mark when it is about several sports or none (F15).
 - **Installability.** `static/manifest.webmanifest` (`display: standalone`, `theme_color`, 192/512 and maskable icons), an SVG favicon, a 180 px `apple-touch-icon`, and `viewport-fit=cover` with safe-area insets. **No service worker.**
 - **Templates.** Organized type first, then feature:
   - `templates/layouts/` holds `base.html`, `app.html` (the signed-in shell) and `bare.html` (sign-in, status and errors).
@@ -57,6 +58,8 @@ ADR-0012 fixes the stack (Jinja2, htmx 4, daisyUI 5, Tailwind 4, no Node). It sa
 - Committed pixel snapshots: flaky across operating systems and GPUs.
 
 ## Consequences
+
+- Owner-directed amendment, 2026-09-23 (PRD 0003, F15): the reply avatar is the sport glyph instead of an app mark on every reply. The Chat mocks are updated to match.
 
 - ADR-0012 is amended in the same change (layout, custom-CSS invariant, client JS). ADR-0013 records the parity check and the seeded-session helper.
 - New skill `/implement-design`. `.claude/rules/web.md` and `tests.md` and the skills `apply-ticket`, `add-endpoint` and `create-tickets` carry the rules above. `CLAUDE.md` lists this ADR.

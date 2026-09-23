@@ -12,7 +12,7 @@ paths:
 - Build from the Claude Design mock named in the ticket, using `/implement-design`, and run its parity check before the review gate.
 - Mobile first: design at 390 px wide first, with no horizontal scroll, tap targets of at least 44 px, and safe-area insets. Honor `prefers-reduced-motion`, `prefers-reduced-transparency` and `prefers-contrast`.
 - `trainer-dark` is the default theme. The theme is applied in `<head>` before first paint from `localStorage["theme"]`; never store it server-side.
-- Icons come from the `icon()` macro (vendored Lucide), never inline copies. Client JS is small hand-written files in `static/js/`.
+- Icons come from the `icon()` macro (vendored Lucide), never inline copies. A sport's icon comes from `SportRegistry`, never a hard-coded name; an assistant reply shows the glyph of its one sport, or the app mark for several sports or none (F15). Client JS is small hand-written files in `static/js/`.
 - Every region filled asynchronously gets a skeleton of the same size and layout. The chat shows the thinking indicator from send until the first streamed token; it shows the server's SSE phase when there is one. The words it cycles through live in a template.
 - Stream with `fastapi.sse.EventSourceResponse`.
 - User-facing strings live in templates, never in Python (G5).
