@@ -1,5 +1,9 @@
 <!doctype html>
-<html lang="en" data-theme="light">
+<html
+  lang="en"
+  data-theme="light"
+  {% if csrf_token %}hx-headers:inherited='{"X-CSRF-Token": "{{ csrf_token }}"}'{% endif %}
+>
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
