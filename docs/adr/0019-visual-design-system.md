@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | Proposed |
+| Status | Approved |
 | Date | 2026-09-23 |
 | Related | PRD-0002 Draft (G11, F1–F14), ADR-0012 (amended alongside), ADR-0013, ADR-0015 |
 
