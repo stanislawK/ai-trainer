@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -29,6 +30,11 @@ class SqlAlchemyUsersRepository:
     async def get_by_sub(self, sub: str) -> User | None:
         async with self._session_factory() as session:
             row = await session.scalar(select(UserOrm).where(UserOrm.sub == sub))
+            return _to_domain(row) if row is not None else None
+
+    async def get(self, user_id: UUID) -> User | None:
+        async with self._session_factory() as session:
+            row = await session.get(UserOrm, user_id)
             return _to_domain(row) if row is not None else None
 
     async def create(self, new_user: NewUser) -> User:

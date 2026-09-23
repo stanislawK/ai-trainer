@@ -26,6 +26,17 @@ def _settings(**overrides: object) -> Settings:
     return Settings(**values)  # type: ignore[arg-type]
 
 
+def test_create_app_refuses_an_unauthenticated_request_to_the_home_route() -> None:
+    """No cookie means the gate (ticket #14) short-circuits before any database access, so
+    this proves the wiring without needing a reachable Postgres."""
+    app = create_app(_settings())
+    client = TestClient(app)
+
+    response = client.get("/")
+
+    assert response.status_code == 401
+
+
 def test_create_app_wires_settings_into_app() -> None:
     settings = Settings(
         _env_file=None,

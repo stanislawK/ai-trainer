@@ -3,7 +3,7 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from ai_trainer.application.auth import sign_in_with_google, sign_out
+from ai_trainer.application.auth import resolve_authenticated_user, sign_in_with_google, sign_out
 from ai_trainer.domain.sessions import NewSession, Session
 from ai_trainer.domain.users import GoogleClaims, NewUser, User, UserAlreadyExistsError, UserStatus
 
@@ -24,6 +24,12 @@ class FakeUsersRepository:
 
     async def get_by_sub(self, sub: str) -> User | None:
         return self.users.get(sub)
+
+    async def get(self, user_id: UUID) -> User | None:
+        for user in self.users.values():
+            if user.id == user_id:
+                return user
+        return None
 
     async def create(self, new_user: NewUser) -> User:
         self.create_calls += 1
@@ -178,3 +184,63 @@ async def test_sign_out_deletes_the_session() -> None:
     await sign_out(session.id, sessions)
 
     assert await sessions.get(session.id) is None
+
+
+async def test_resolve_authenticated_user_returns_the_session_owner() -> None:
+    users = FakeUsersRepository()
+    sessions = FakeSessionsRepository()
+    user, _ = await sign_in_with_google(
+        _claims(),
+        admin_emails=ADMIN_EMAILS,
+        session_ttl=SESSION_TTL,
+        users=users,
+        sessions=sessions,
+        clock=FakeClock(),
+    )
+    session = await sessions.create(
+        NewSession(user_id=user.id, expires_at=FROZEN_NOW + SESSION_TTL)
+    )
+
+    resolved = await resolve_authenticated_user(
+        session.id, sessions=sessions, users=users, clock=FakeClock()
+    )
+
+    assert resolved is not None
+    assert resolved.id == user.id
+
+
+async def test_resolve_authenticated_user_returns_none_for_an_unknown_session() -> None:
+    resolved = await resolve_authenticated_user(
+        uuid4(), sessions=FakeSessionsRepository(), users=FakeUsersRepository(), clock=FakeClock()
+    )
+
+    assert resolved is None
+
+
+async def test_resolve_authenticated_user_returns_none_for_an_expired_session() -> None:
+    users = FakeUsersRepository()
+    sessions = FakeSessionsRepository()
+    session = await sessions.create(
+        NewSession(user_id=uuid4(), expires_at=FROZEN_NOW - timedelta(seconds=1))
+    )
+
+    resolved = await resolve_authenticated_user(
+        session.id, sessions=sessions, users=users, clock=FakeClock()
+    )
+
+    assert resolved is None
+
+
+async def test_resolve_authenticated_user_returns_none_when_the_user_no_longer_exists() -> None:
+    """Defensive: the session row outlives its user only if `ON DELETE CASCADE` (ADR-0004)
+    somehow didn't fire; resolving must not crash on that."""
+    sessions = FakeSessionsRepository()
+    session = await sessions.create(
+        NewSession(user_id=uuid4(), expires_at=FROZEN_NOW + SESSION_TTL)
+    )
+
+    resolved = await resolve_authenticated_user(
+        session.id, sessions=sessions, users=FakeUsersRepository(), clock=FakeClock()
+    )
+
+    assert resolved is None
