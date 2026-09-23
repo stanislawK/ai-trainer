@@ -13,7 +13,7 @@ Share only `claude.ai/design/...` links here. Never paste a `serve_url`: it carr
 
 Design-system files: [Foundations](https://claude.ai/design/p/d1ddc556-11d3-4434-8e02-9fee28f2efbb?file=Foundations.dc.html), [Components Core](https://claude.ai/design/p/d1ddc556-11d3-4434-8e02-9fee28f2efbb?file=Components+Core.dc.html), [Components Navigation](https://claude.ai/design/p/d1ddc556-11d3-4434-8e02-9fee28f2efbb?file=Components+Navigation.dc.html), [Components Chat](https://claude.ai/design/p/d1ddc556-11d3-4434-8e02-9fee28f2efbb?file=Components+Chat.dc.html), [Components Loading](https://claude.ai/design/p/d1ddc556-11d3-4434-8e02-9fee28f2efbb?file=Components+Loading.dc.html), [Favicon](https://claude.ai/design/p/d1ddc556-11d3-4434-8e02-9fee28f2efbb?file=Favicon.dc.html).
 
-Choices made in Foundations: accent **1b** (Glacier azure, hue 232) and dock pattern **2c** (no dock on chat; the sections open from a header menu button, and every other screen keeps the dock). The app mark (Favicon 3a–3c) is still open; the screens show 3a.
+Choices made in Foundations: accent **1b** (Glacier azure, hue 232) and dock pattern **2c** (no dock on chat; the sections open from a header menu button, and every other screen keeps the dock). The app mark is **3b** (chosen 2026-09-23); the screens still show 3a until they are updated.
 
 ## Handoff contract
 
