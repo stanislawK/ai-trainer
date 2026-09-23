@@ -35,6 +35,7 @@ dev = [
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
     "pytest-cov>=7.1.0",
+    "pytest-playwright>=0.9.0",
     "ruff>=0.16.8",
 ]
 
@@ -62,7 +63,9 @@ init_typed = true
 warn_required_dynamic_aliases = true
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+# tests/e2e is deliberately excluded: it needs the running compose stack (ADR-0013) and is
+# run explicitly with `make e2e` / `uv run pytest tests/e2e`, never by a bare `pytest`.
+testpaths = ["tests/unit", "tests/integration"]
 pythonpath = ["."]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
