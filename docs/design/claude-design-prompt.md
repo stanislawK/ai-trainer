@@ -33,7 +33,7 @@ The brief for both Claude Design projects (ADR-0019). Paste it into Claude Desig
    - the three glass materials over the wallpaper, in both themes
    - type scale, radii, spacing, elevation and motion tokens
    - icon sampler.
-3. `Components.dc.html`, every component in dark and light, with all states (default, hover, focus, active, disabled, loading):
+3. Components, split by area into `Components Core`, `Components Navigation`, `Components Chat` and `Components Loading` (`.dc.html`), every component in dark and light, with all states (default, hover, focus, active, disabled, loading):
    - Buttons (primary, ghost, glass), inputs, select, toggle, segmented control (`join`/`tabs`), badges, alert/toast, modal (including a destructive-confirm variant), table, stat tile.
    - Navigation: on mobile, a floating **glass dock** at the bottom (Chat, Plans, Stats, History, Settings; Admin only for admins), safe-area aware. On desktop, a slim glass sidebar. Explore 3 options for how the dock coexists with the chat composer (e.g. the dock collapses to a mini-pill while typing, the composer docks above the dock, or the dock hides on the chat screen behind a menu button).
    - **Chat**:
@@ -45,7 +45,7 @@ The brief for both Claude Design projects (ADR-0019). Paste it into Claude Desig
      - As the user types, a glass popover rises above the composer. It shows up to 6 rows, each with an icon, the label with the matched substring highlighted, a short detail and an optional category header.
      - Arrow keys, Enter/Tab to accept and Esc to dismiss on desktop; a tap on mobile.
      - On an empty composer, show 3–4 starter suggestion chips instead.
-     - Sample: typing "syn" shows "Sync from Strava" and "Import from 8a.nu" (sample data only).
+     - Sample: typing "lo" shows "Log a boulder session" and "Log yesterday's ride" (sample data only; wearable sync is a PRD non-goal).
    - **Choice card**, single and multi mode:
      - A question in the assistant's voice, then 2–5 large tappable option rows (label, distinguishing detail such as crag, date or grade, optional badge).
      - Single mode submits on tap. Multi mode uses checkbox rows and a sticky "Confirm (2)" button.

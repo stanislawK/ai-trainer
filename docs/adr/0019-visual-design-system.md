@@ -2,9 +2,9 @@
 
 | | |
 |---|---|
-| Status | Approved |
+| Status | Accepted |
 | Date | 2026-09-23 |
-| Related | PRD-0002 Draft (G11, F1–F14), ADR-0012 (amended alongside), ADR-0013, ADR-0015 |
+| Related | PRD-0002 (G11, F1–F14), ADR-0012 (amended alongside), ADR-0013, ADR-0015 |
 
 ## Context
 
@@ -63,4 +63,4 @@ ADR-0012 fixes the stack (Jinja2, htmx 4, daisyUI 5, Tailwind 4, no Node). It sa
 - The first ticket (template restructure) moves the existing templates into the new layout with no visual change. The theme ticket adds `daisyui-theme.js` to `scripts/build_css.sh` and the Dockerfile's `css-builder` stage, and adds `theme.css` and `glass.css` as `@import`s in `input.css`.
 - App icons are rendered from the design system's favicon file with Playwright and committed as PNGs. No Node.
 - ⚠ Support for `prefers-reduced-transparency` differs by browser. It ships in Chrome 118 and later ([Chrome blog](https://developer.chrome.com/en/blog/css-prefers-reduced-transparency)) but is off by default in Firefox ([bug 1736914](https://bugzilla.mozilla.org/show_bug.cgi?id=1736914)). Safari's support was not confirmed, which is why `prefers-contrast: more` is a second trigger. Re-check this in the theme ticket.
-- ⚠ Whether Tailwind's browser build plus daisyUI render correctly inside Claude Design's `.dc.html` runtime is checked in the first design step. If they don't, mocks link prebuilt daisyUI CSS plus `theme.css` without Tailwind JIT.
+- Checked in the first design step (2026-09-23): daisyUI and Tailwind render correctly inside Claude Design's `.dc.html` runtime. Each mock loads daisyUI's prebuilt CDN CSS, the pinned `@tailwindcss/browser` build (JIT) and `theme.css`. Because the prebuilt daisyUI CSS ships color opacities only in steps of 10, mocks use only those steps ([docs/design/README.md](../design/README.md)).
