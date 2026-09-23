@@ -66,13 +66,11 @@ class ActiveUserGateMiddleware(BaseHTTPMiddleware):
         )
         is_htmx = request.headers.get("HX-Request") == "true"
         if user is None:
-            template_name = (
-                "partials/unauthorized_content.html" if is_htmx else "pages/unauthorized.html"
-            )
+            template_name = "partials/errors/401.html" if is_htmx else "pages/errors/401.html"
             return self._templates.TemplateResponse(request, template_name, status_code=401)
 
         if user.status is not UserStatus.ACTIVE:
-            template_name = "partials/status_content.html" if is_htmx else "pages/status.html"
+            template_name = "partials/auth/status.html" if is_htmx else "pages/auth/status.html"
             return self._templates.TemplateResponse(
                 request, template_name, {"status": user.status.value}
             )

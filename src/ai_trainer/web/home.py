@@ -10,7 +10,7 @@ def build_home_router(templates: Jinja2Templates) -> APIRouter:
     @router.get("/", response_class=HTMLResponse)
     async def home(request: Request) -> HTMLResponse:
         is_htmx = request.headers.get("HX-Request") == "true"
-        template_name = "partials/home_content.html" if is_htmx else "pages/home.html"
+        template_name = "partials/home/index.html" if is_htmx else "pages/home/index.html"
         return templates.TemplateResponse(request, template_name)
 
     return router

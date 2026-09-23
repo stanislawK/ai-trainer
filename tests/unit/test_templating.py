@@ -13,6 +13,13 @@ def test_undefined_variable_raises_instead_of_rendering_empty() -> None:
         template.render()
 
 
+def test_missing_template_name_raises_instead_of_a_silent_404() -> None:
+    templates = build_templates()
+
+    with pytest.raises(jinja2.exceptions.TemplateNotFound):
+        templates.get_template("pages/does-not-exist/nope.html")
+
+
 def test_defined_variable_still_renders() -> None:
     templates = build_templates()
 
