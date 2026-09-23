@@ -4,7 +4,7 @@
 |---|---|
 | Status | Accepted |
 | Date | 2026-09-16 |
-| Related | PRD-0001 (G2, G3, G5, G6, G9, B1, B3, B14, B17), ADR-0006, ADR-0007, ADR-0009, ADR-0010, ADR-0014, ADR-0015 |
+| Related | PRD-0001 (G2, G3, G5, G6, G9, B1, B3, B14, B17), PRD-0003 (B23, F15), ADR-0006, ADR-0007, ADR-0009, ADR-0010, ADR-0014, ADR-0015 |
 
 ## Context
 
@@ -28,6 +28,8 @@ The `sport` values are generated from `SportRegistry` (ADR-0006). For `log_sessi
 
 **Router rules:** `wellbeing_or_injury` is handled first (G3). `unclear`, or a confidence below the threshold in settings, produces a structured `Clarification` — a short list of options to pick from, not a free-text question (B3, B17, ADR-0015). The router sees the last N turns (N in settings), so follow-ups like "oh, and 2 more 6B" resolve.
 
+**Sport inference (B23).** The router infers the `sport` of every `log_session` intent and does not ask when it can guess. Its deps carry the athlete's own sports and the sports of their most recent sessions, next to the recent turns. An athlete with one sport gets that sport without a model guess. A sport confidence below its own threshold in settings produces a `Clarification` offering only the athlete's sports that stay plausible, never the full registry. A confident guess goes straight to the extraction specialist; the draft card shows it and the athlete can change it there. Each reply part records the sports it is about, so the UI can draw the reply glyph (F15, ADR-0019).
+
 **Prompt templates:**
 
 - A typed registry in `src/ai_trainer/llm/prompts/`. Each `PromptTemplate` declares `id`, `version`, `locale` (only `en` in v1), a deps model (the template's variables), a Pydantic output model, and a model settings key.
@@ -46,6 +48,8 @@ The `sport` values are generated from `SportRegistry` (ADR-0006). For `log_sessi
 5. The router never writes data; specialists produce drafts and proposals (ADR-0010).
 
 ## Consequences
+
+- Owner-directed amendment, 2026-09-23 (PRD 0003, B23 and F15): sport inference and the recorded reply sports. The router eval dataset gains sport-inference cases (single-sport athlete, sport given by units or grades, a sport settled by recent sessions, a truly ambiguous message).
 
 - The `/tune-prompt` skill implements invariants 2–3.
 - Chat-history and context-window strategy (how much history is sent, summarisation) is decided in an M1 ADR.

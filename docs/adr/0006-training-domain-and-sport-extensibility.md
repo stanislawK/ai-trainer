@@ -4,7 +4,7 @@
 |---|---|
 | Status | Proposed |
 | Date | 2026-09-16 |
-| Related | PRD-0001 (G4, B1, B2, B5, B12, B18, B20), ADR-0003, ADR-0004, ADR-0008, ADR-0014, ADR-0016 |
+| Related | PRD-0001 (G4, B1, B2, B5, B12, B18, B20), PRD-0003 (B23, F15), ADR-0003, ADR-0004, ADR-0008, ADR-0014, ADR-0016 |
 
 ## Context
 
@@ -27,8 +27,10 @@ climbing/  gym/  cycling/
   payload.py   # payload model + version
   normalize.py # scales: Font / French / V / YDS grades; kg, reps, RIR; distance, elevation, zones
   load.py      # load calculator → TrainingLoad
-  plugin.py    # wires the above, names its extraction template and eval dataset, KB tags
+  plugin.py    # wires the above, names its extraction template and eval dataset, KB tags, and its Lucide icon
 ```
+
+Each plugin declares one Lucide `icon` name (climbing `mountain`, gym `dumbbell`, cycling `bike`). The UI uses it for every mention of the sport: tabs, tables, the draft card and the reply glyph (F15, ADR-0019).
 
 Each plugin also owns an extraction prompt template (`src/ai_trainer/llm/prompts/<sport>.extract/`, ADR-0008) and an eval dataset (`evals/datasets/<sport>.extract.yaml`, ADR-0009).
 
@@ -42,7 +44,7 @@ Each plugin also owns an extraction prompt template (`src/ai_trainer/llm/prompts
 2. Adding a sport means a new plugin, a registry entry, an extraction template, an eval dataset and tests — no core change and no schema migration.
 3. `raw_text` is always stored (B2).
 4. A payload change bumps `payload_version`; older versions stay readable by upcasting on read.
-5. The router's sport list, the payload union and the UI's sport options all derive from `SportRegistry`.
+5. The router's sport list, the payload union, the UI's sport options and the sport glyphs all derive from `SportRegistry`.
 6. Route identity is optional, and a grade the athlete typed is never overwritten by a fetched one (ADR-0016).
 
 ## Consequences
