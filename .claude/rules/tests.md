@@ -13,4 +13,5 @@ paths:
 - Every repository and every user-facing route has a tenancy test: user A cannot read or change user B's data.
 - Test MCP tools through FastMCP's in-memory `Client(server)`.
 - pytest-asyncio runs in `auto` mode, so async tests need no marker.
+- E2E specs assert behavior (theme persistence, navigation, no overflow at 390 px, served assets), never committed pixel snapshots. Reach signed-in pages through the seeded session from `scripts/dev_session.py` (ADR-0013, ADR-0019).
 - Never weaken a test to make it pass. Evals (`evals/`, ADR-0009) are not tests.

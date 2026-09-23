@@ -8,6 +8,7 @@ Skills are step-by-step checklists for complex, recurring tasks. Invoke with `/s
 | [create-tickets](create-tickets/SKILL.md) | Scaffold GitHub issues from a template | Planning work for a milestone (e.g., M0, M1) | `/create-tickets <scope>` |
 | [apply-ticket](apply-ticket/SKILL.md) | Implement a single GitHub issue end-to-end | Delivering a ticket; includes plan gate and review gate | `/apply-ticket <issue#>` |
 | [tune-prompt](tune-prompt/SKILL.md) | Eval-driven change to a prompt, model or router | Changing LLM behavior; includes baseline comparison and human gate | `/tune-prompt <template-id>` |
+| [implement-design](implement-design/SKILL.md) | Turn a Claude Design mock into daisyUI/Jinja and prove parity with Playwright | Any web ticket that builds or changes a designed screen (ADR-0019) | `/implement-design <screen>` |
 | [add-endpoint](add-endpoint/SKILL.md) | Checklist for adding or changing a web route | Adding a page, form, API endpoint, or SSE stream | `/add-endpoint` |
 | [add-mcp-tool](add-mcp-tool/SKILL.md) | Add a tool or resource to the MCP server | Exposing app behavior to Claude or other agents | `/add-mcp-tool <tool-name>` |
 | [add-sport](add-sport/SKILL.md) | Add a new sport as a plugin | Extending training domain without touching core (ADR-0006) | `/add-sport <sport-key>` |

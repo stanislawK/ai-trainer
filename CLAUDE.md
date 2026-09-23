@@ -13,7 +13,8 @@ Docs outrank chat. If a request contradicts an Accepted ADR or the Approved PRD,
 ## Guides & configuration
 
 - [**.claude/rules/README.md**](.claude/rules/README.md) — Rules by topic; loaded automatically when editing files in their scope (Python, tests, web, LLM, migrations, etc.)
-- [**.claude/skills/README.md**](.claude/skills/README.md) — Structured workflows for docs, tickets, evals, routes, tools, and sports (invoke with `/skill-name`)
+- [**.claude/skills/README.md**](.claude/skills/README.md) — Structured workflows for docs, tickets, evals, routes, tools, sports and design (invoke with `/skill-name`)
+- [**docs/design/README.md**](docs/design/README.md) — Claude Design projects, the screen → template → ticket map, and the design brief
 
 ## How work happens
 
@@ -44,6 +45,7 @@ Locked by the ADRs cited below; `docs/adr/README.md` carries each ADR's current 
 - External route and crag reference data, grade conversion — ADR-0016
 - Geographic lookup, provider deferred to an M5 spike — ADR-0017
 - `llm_calls` accounting in Postgres; OpenTelemetry over OTLP, backend from settings — ADR-0018
+- Liquid Glass daisyUI themes (`trainer-dark` default), glass utilities, Claude Design handoff and Playwright parity — ADR-0019
 
 ## Commands (available once M0 lands)
 
@@ -72,7 +74,8 @@ uv run ai-trainer-evals run <template-id>   # evals (costs money — run on purp
 - External lookups are cached and attributed, and carry no user data — only a route, crag or place name (ADR-0016).
 - Look up library APIs with context7 (`.claude/rules/context7.md`) before using them. Several libraries here are newer than most training data: htmx 4, Pydantic AI v2, FastMCP 3.
 - Only stable/GA OpenRouter model IDs are used outside `/tune-prompt` experiments — no preview or beta models in default `Settings`.
+- UI is built from its Claude Design mock with `/implement-design`; custom CSS lives only in the daisyUI theme and the glass utilities (ADR-0019).
 
 ## Status
 
-M0 in progress: the typed project skeleton (#2) is merged. PRD 0001 (v0.2) is Approved. Every ADR that M0 cites is Accepted (0001–0005, 0007–0009, 0012–0014, 0018); 0006, 0010, 0011 and 0015–0017 stay Proposed until their milestones. M0 is ticketed as issues #2–#17. Next: `/apply-ticket 3`.
+M0 in progress: #2–#11 and #13–#15 are merged; #12, #16 and #17 are open. PRD 0001 (v0.2) is Approved; PRD 0002 (v0.3, design and installability) is Draft. Every ADR that M0 cites is Accepted (0001–0005, 0007–0009, 0012–0014, 0018); 0019 (visual design system) is Proposed; 0006, 0010, 0011 and 0015–0017 stay Proposed until their milestones. Next: build the Claude Design design system (`docs/design/claude-design-prompt.md`), then ticket the design foundation.
