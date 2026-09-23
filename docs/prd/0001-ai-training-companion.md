@@ -4,7 +4,7 @@
 |---|---|
 | Product | ai-trainer |
 | Version | 0.2 |
-| Status | Superseded |
+| Status | Superseded by [PRD 0002](0002-ai-training-companion.md) |
 | Date | 2026-09-16 |
 | Related | ADR-0001 … ADR-0017 ([index](../adr/README.md)); no previous PRD |
 

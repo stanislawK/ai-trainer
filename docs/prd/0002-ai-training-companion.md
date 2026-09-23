@@ -4,7 +4,7 @@
 |---|---|
 | Product | ai-trainer |
 | Version | 0.3 |
-| Status | Superseded |
+| Status | Superseded by [PRD 0003](0003-ai-training-companion.md) |
 | Date | 2026-09-23 |
 | Related | ADR-0001 … ADR-0019 ([index](../adr/README.md)); revises [PRD 0001](0001-ai-training-companion.md) v0.2 — adds the visual design and installability requirements (G11, F11–F14) and refines F4 |
 

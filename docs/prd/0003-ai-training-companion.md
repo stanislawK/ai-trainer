@@ -6,7 +6,7 @@
 | Version | 0.4 |
 | Status | Approved |
 | Date | 2026-09-23 |
-| Related | ADR-0001 … ADR-0019 ([index](../adr/README.md)); supersedes [PRD 0002](0002-ai-training-companion.md) v0.3 on approval — adds sport inference (B23) and the sport glyph on replies (F15) |
+| Related | ADR-0001 … ADR-0019 ([index](../adr/README.md)); supersedes [PRD 0002](0002-ai-training-companion.md) v0.3 — adds sport inference (B23) and the sport glyph on replies (F15) |
 
 ## Problem
 
