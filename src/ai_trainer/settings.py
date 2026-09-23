@@ -32,6 +32,9 @@ class Settings(BaseSettings):
     # Signs Starlette's transient OAuth-state cookie; distinct from the app's own
     # PostgreSQL-backed session cookie.
     session_secret_key: SecretStr = SecretStr("")
+    # Signs the CSRF token (ADR-0005 invariant 3): kept separate from `session_secret_key`
+    # so the OAuth-state cookie signer and the CSRF token signer don't share a key.
+    csrf_secret_key: SecretStr = SecretStr("")
     # Case-insensitively matched against a verified Google email to bootstrap the first
     # admin (ADR-0005); comma-separated, e.g. "a@example.com,b@example.com".
     admin_emails: CommaSeparated = []

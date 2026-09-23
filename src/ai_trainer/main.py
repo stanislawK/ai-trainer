@@ -24,6 +24,7 @@ from ai_trainer.adapters.users_repository import SqlAlchemyUsersRepository
 from ai_trainer.settings import Settings
 from ai_trainer.web.active_user_gate import ActiveUserGateMiddleware
 from ai_trainer.web.auth import build_auth_router
+from ai_trainer.web.csrf import CsrfMiddleware
 from ai_trainer.web.health import build_health_router
 from ai_trainer.web.home import build_home_router
 from ai_trainer.web.templating import STATIC_DIR, build_templates
@@ -70,6 +71,14 @@ def create_app(settings: Settings) -> FastAPI:
         users=users,
         sessions=sessions,
         clock=clock,
+        templates=templates,
+    )
+    # Outermost among the two: runs before the gate above, so `request.state.csrf_token` is
+    # already set when the gate renders the unauthorized/status pages (ADR-0005 invariant 3,
+    # ticket #15).
+    app.add_middleware(
+        CsrfMiddleware,
+        secret_key=settings.csrf_secret_key.get_secret_value().encode(),
         templates=templates,
     )
 
