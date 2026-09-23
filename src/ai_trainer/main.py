@@ -22,6 +22,7 @@ from ai_trainer.adapters.health import PsycopgDatabaseHealth
 from ai_trainer.adapters.sessions_repository import SqlAlchemySessionsRepository
 from ai_trainer.adapters.users_repository import SqlAlchemyUsersRepository
 from ai_trainer.settings import Settings
+from ai_trainer.web.active_user_gate import ActiveUserGateMiddleware
 from ai_trainer.web.auth import build_auth_router
 from ai_trainer.web.health import build_health_router
 from ai_trainer.web.home import build_home_router
@@ -55,12 +56,28 @@ def create_app(settings: Settings) -> FastAPI:
         https_only=settings.session_cookie_secure,
     )
 
+    session_factory = build_session_factory(engine)
+    users = SqlAlchemyUsersRepository(session_factory)
+    sessions = SqlAlchemySessionsRepository(session_factory)
+    clock = UtcClock()
+    templates = build_templates()
+
+    # Gates every route but the exemptions it names for itself (sign-in, callback, sign-out,
+    # health, static) on an `active` user, resolved fresh on every request (ADR-0005
+    # invariants 2 and 7, ticket #14).
+    app.add_middleware(
+        ActiveUserGateMiddleware,
+        users=users,
+        sessions=sessions,
+        clock=clock,
+        templates=templates,
+    )
+
     health_port = PsycopgDatabaseHealth(str(settings.database_url))
     app.include_router(build_health_router(health_port))
-    app.include_router(build_home_router(build_templates()))
+    app.include_router(build_home_router(templates))
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
-    session_factory = build_session_factory(engine)
     oauth = OAuth()
     oauth.register(
         "google",
@@ -72,9 +89,9 @@ def create_app(settings: Settings) -> FastAPI:
     app.include_router(
         build_auth_router(
             oauth_client=AuthlibGoogleOAuthClient(oauth.google),
-            users=SqlAlchemyUsersRepository(session_factory),
-            sessions=SqlAlchemySessionsRepository(session_factory),
-            clock=UtcClock(),
+            users=users,
+            sessions=sessions,
+            clock=clock,
             admin_emails=settings.admin_emails,
             session_ttl=timedelta(days=settings.session_ttl_days),
             cookie_secure=settings.session_cookie_secure,

@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from uuid import uuid4
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -50,6 +51,26 @@ async def test_get_by_sub_with_no_match_returns_none(
     repository = SqlAlchemyUsersRepository(db_session_factory)
 
     assert await repository.get_by_sub("no-such-sub") is None
+
+
+async def test_get_finds_an_existing_user_by_id(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    repository = SqlAlchemyUsersRepository(db_session_factory)
+    created = await repository.create(_new_user(sub="google-sub-4"))
+
+    found = await repository.get(created.id)
+
+    assert found is not None
+    assert found.sub == "google-sub-4"
+
+
+async def test_get_with_no_match_returns_none(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    repository = SqlAlchemyUsersRepository(db_session_factory)
+
+    assert await repository.get(uuid4()) is None
 
 
 async def test_create_with_a_sub_already_taken_raises_user_already_exists(

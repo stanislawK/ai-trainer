@@ -16,6 +16,18 @@ from ai_trainer.domain.users import GoogleClaims
 SESSION_COOKIE_NAME = "session_id"
 
 
+def parse_session_id(raw_session_id: str | None) -> UUID | None:
+    """Parses the session cookie's raw value into a `UUID`, or `None` if it's missing or
+    malformed. Shared by `logout` below and by the active-user gate (ticket #14), which both
+    need to treat an unparseable cookie the same way a missing one is treated."""
+    if raw_session_id is None:
+        return None
+    try:
+        return UUID(raw_session_id)
+    except ValueError:
+        return None
+
+
 class GoogleOAuthClient(Protocol):
     """The web-layer's view of a Google OAuth client (ADR-0005): Starlette request/response
     types are inherent to the OAuth redirect dance, so this stays local to `web/`."""
@@ -76,14 +88,9 @@ def build_auth_router(
 
     @router.post("/logout")
     async def logout(request: Request) -> RedirectResponse:
-        raw_session_id = request.cookies.get(SESSION_COOKIE_NAME)
-        if raw_session_id is not None:
-            try:
-                session_id = UUID(raw_session_id)
-            except ValueError:
-                session_id = None
-            if session_id is not None:
-                await sign_out(session_id, sessions)
+        session_id = parse_session_id(request.cookies.get(SESSION_COOKIE_NAME))
+        if session_id is not None:
+            await sign_out(session_id, sessions)
         response = RedirectResponse(url="/", status_code=303)
         response.delete_cookie(SESSION_COOKIE_NAME)
         return response

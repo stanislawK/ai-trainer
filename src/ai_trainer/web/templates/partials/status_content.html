@@ -1,0 +1,14 @@
+<main class="hero min-h-screen" id="status-content">
+  <div class="hero-content text-center">
+    <div class="max-w-md">
+      <h1 class="text-3xl font-bold">
+        {% if status == "pending" %}
+          Your account is pending approval.
+        {% else %}
+          Your account is disabled.
+        {% endif %}
+      </h1>
+      <p class="py-6">There is nothing else to see here yet.</p>
+    </div>
+  </div>
+</main>
