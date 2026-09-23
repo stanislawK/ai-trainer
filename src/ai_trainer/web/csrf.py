@@ -44,9 +44,7 @@ class CsrfMiddleware(BaseHTTPMiddleware):
             )
             if not valid:
                 is_htmx = request.headers.get("HX-Request") == "true"
-                template_name = (
-                    "partials/csrf_error_content.html" if is_htmx else "pages/csrf_error.html"
-                )
+                template_name = "partials/errors/403.html" if is_htmx else "pages/errors/403.html"
                 return self._templates.TemplateResponse(request, template_name, status_code=403)
 
         return await call_next(request)
