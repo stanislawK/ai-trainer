@@ -27,18 +27,18 @@ Choices made in Foundations: accent **1b** (Glacier azure, hue 232) and dock pat
 
 ## Screen → file → ticket
 
-Filled in as screens and tickets are created.
+Filled in as screens and tickets are created. The design-foundation tickets that build no single screen: #36 (template layout), #37 (e2e specs), #38 (themes), #39 (icons), #42 (installability).
 
 `Ticket` holds only a GitHub issue number, or _tbd_ until the ticket exists. `Milestone` is where the screen is planned (PRD delivery mapping).
 
 | Screen | Claude Design file | Template | Milestone | Ticket |
 |---|---|---|---|---|
-| Sign-in | [Sign-in](https://claude.ai/design/p/a68b0219-f02b-4a26-8f38-99410521ad2d?file=Sign-in.dc.html) | `pages/auth/sign_in.html` | M0 | _tbd_ |
-| Status (pending / disabled) | [Status and errors](https://claude.ai/design/p/a68b0219-f02b-4a26-8f38-99410521ad2d?file=Status+and+errors.dc.html) | `pages/auth/status.html` | M0 | _tbd_ |
-| Errors (404, 500, 401, 403) | [Status and errors](https://claude.ai/design/p/a68b0219-f02b-4a26-8f38-99410521ad2d?file=Status+and+errors.dc.html) | `pages/errors/<code>.html` | M0 | _tbd_ |
-| App shell (dock, sidebar) | [Components Navigation](https://claude.ai/design/p/d1ddc556-11d3-4434-8e02-9fee28f2efbb?file=Components+Navigation.dc.html) (design system), [Chat desktop](https://claude.ai/design/p/a68b0219-f02b-4a26-8f38-99410521ad2d?file=Chat+desktop.dc.html) | `layouts/app.html` | M0 | _tbd_ |
+| Sign-in | [Sign-in](https://claude.ai/design/p/a68b0219-f02b-4a26-8f38-99410521ad2d?file=Sign-in.dc.html) | `pages/auth/sign_in.html` | M0 | #43 |
+| Status (pending / disabled) | [Status and errors](https://claude.ai/design/p/a68b0219-f02b-4a26-8f38-99410521ad2d?file=Status+and+errors.dc.html) | `pages/auth/status.html` | M0 | #44 |
+| Errors (404, 500, 401, 403) | [Status and errors](https://claude.ai/design/p/a68b0219-f02b-4a26-8f38-99410521ad2d?file=Status+and+errors.dc.html) | `pages/errors/<code>.html` | M0 | #44 |
+| App shell (dock, sidebar) | [Components Navigation](https://claude.ai/design/p/d1ddc556-11d3-4434-8e02-9fee28f2efbb?file=Components+Navigation.dc.html) (design system), [Chat desktop](https://claude.ai/design/p/a68b0219-f02b-4a26-8f38-99410521ad2d?file=Chat+desktop.dc.html) | `layouts/app.html` | M0 | #40 |
 | Chat | [Chat](https://claude.ai/design/p/a68b0219-f02b-4a26-8f38-99410521ad2d?file=Chat.dc.html), [Chat desktop](https://claude.ai/design/p/a68b0219-f02b-4a26-8f38-99410521ad2d?file=Chat+desktop.dc.html) | `pages/chat/index.html` | M1 | _tbd_ |
-| Onboarding / Settings | [Onboarding](https://claude.ai/design/p/a68b0219-f02b-4a26-8f38-99410521ad2d?file=Onboarding.dc.html), [Settings](https://claude.ai/design/p/a68b0219-f02b-4a26-8f38-99410521ad2d?file=Settings.dc.html) | `pages/onboarding/`, `pages/settings/` | M0 (sign-in, account deletion), M1 (onboarding) | #17 (account deletion) |
+| Onboarding / Settings | [Onboarding](https://claude.ai/design/p/a68b0219-f02b-4a26-8f38-99410521ad2d?file=Onboarding.dc.html), [Settings](https://claude.ai/design/p/a68b0219-f02b-4a26-8f38-99410521ad2d?file=Settings.dc.html) | `pages/onboarding/`, `pages/settings/` | M0 (appearance, account deletion), M1 (onboarding, the rest of Settings) | #41 (appearance), #17 (account deletion) |
 | History | [History](https://claude.ai/design/p/a68b0219-f02b-4a26-8f38-99410521ad2d?file=History.dc.html) | `pages/history/index.html` | M2 | _tbd_ |
 | Statistics | [Statistics](https://claude.ai/design/p/a68b0219-f02b-4a26-8f38-99410521ad2d?file=Statistics.dc.html) | `pages/stats/index.html` | M2 | _tbd_ |
 | Plans | [Plans](https://claude.ai/design/p/a68b0219-f02b-4a26-8f38-99410521ad2d?file=Plans.dc.html) | `pages/plans/index.html` | M4 | _tbd_ |
