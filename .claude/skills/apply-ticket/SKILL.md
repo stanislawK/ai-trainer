@@ -31,10 +31,10 @@ Implements the delivery loop of ADR-0001.
 ## Area branches
 
 - **backend** — layering (ADR-0003), user scoping (ADR-0004), migrations; use `/add-endpoint` for HTTP routes.
-- **web** — htmx 4 + daisyUI (ADR-0012); check the page in a browser; add a pytest-playwright spec for critical flows.
+- **web** — htmx 4 + daisyUI (ADR-0012, ADR-0019); build designed screens from their Claude Design mock with `/implement-design`, whose Playwright parity screenshots (390×844 and 1440×900, dark and light) are the browser evidence at the review gate; add a pytest-playwright spec for critical flows.
 - **llm** — templates and evals (ADR-0008, ADR-0009); `TestModel` in tests; the eval report is evidence.
 - **knowledge** — ADR-0011; ingestion details wait for the M3 ADR.
-- **e2e** — committed specs against the running compose stack; external services mocked at the API boundary.
+- **e2e** — committed specs against the running compose stack; external services mocked at the API boundary; signed-in pages through the seeded session from `scripts/dev_session.py`; behavior, not pixels.
 - **infra** — compose, Dockerfile, CI; verify with `docker compose up` and a CI run.
 - **docs** — `/update-docs`; no code.
 

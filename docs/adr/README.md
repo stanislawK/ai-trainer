@@ -22,5 +22,6 @@ ADRs own the *how*: stack, architecture, testing and agent workflow. The current
 | 0016 | [External reference data: crags, routes and grades](0016-external-reference-data.md) | Proposed | 2026-09-16 |
 | 0017 | [Geographic lookup (outline)](0017-geographic-lookup.md) | Proposed | 2026-09-16 |
 | 0018 | [Observability and LLM call accounting](0018-observability-and-llm-call-accounting.md) | Accepted | 2026-09-21 |
+| 0019 | [Visual design system and design handoff](0019-visual-design-system.md) | Proposed | 2026-09-23 |
 
 How to add an ADR: [docs/templates/README.md](../templates/README.md).

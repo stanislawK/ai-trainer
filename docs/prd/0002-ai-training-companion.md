@@ -1,12 +1,12 @@
-# PRD 0001 — AI training companion
+# PRD 0002 — AI training companion
 
 | | |
 |---|---|
 | Product | ai-trainer |
-| Version | 0.2 |
-| Status | Superseded |
-| Date | 2026-09-16 |
-| Related | ADR-0001 … ADR-0017 ([index](../adr/README.md)); no previous PRD |
+| Version | 0.3 |
+| Status | Approved |
+| Date | 2026-09-23 |
+| Related | ADR-0001 … ADR-0019 ([index](../adr/README.md)); revises [PRD 0001](0001-ai-training-companion.md) v0.2 — adds the visual design and installability requirements (G11, F11–F14) and refines F4 |
 
 ## Problem
 
@@ -41,7 +41,9 @@ Amateur athletes with full-time jobs have 3–8 hours a week to train. They can'
 
 ## Product shape and must-have UX
 
-- A chat-first web app, server-rendered, usable in a phone browser.
+- A chat-first web app, server-rendered, designed mobile-first for a phone browser and installable to the home screen.
+- A calm, glassy look in the spirit of Apple's Liquid Glass. Dark theme by default, with an equal light theme; each browser remembers the athlete's choice.
+- The app never looks frozen: every loading region shows a placeholder the size of what will appear, and while the AI works on a reply the chat shows that it is thinking and, when known, what it is doing.
 - Logging happens by typing plain text. The app shows a structured draft of what it understood and saves only after the user confirms or edits it.
 - Ambiguity is resolved by picking from a short list of concrete options, not by typing the answer again.
 - The app knows what day it is where the athlete is, so "yesterday" lands on the right date.
@@ -52,7 +54,7 @@ Amateur athletes with full-time jobs have 3–8 hours a week to train. They can'
 
 ## Primary user flows
 
-1. **Sign in and onboarding** — Sign in with Google → a new account is pending, showing only a status screen until an admin activates it → choose sports → set weekly availability (days and minutes) → set one or more goals → land in the chat.
+1. **Sign in and onboarding** — Open the sign-in page → continue with Google → a new account is pending, showing only a status screen until an admin activates it → choose sports → set weekly availability (days and minutes) → set one or more goals → land in the chat.
 2. **Log a session** — Type "I climbed 3 6A and 2 6B boulders, felt strong" → a draft card shows sport, activities, grades and effort → confirm or edit → saved together with the original text. If something is ambiguous, the app offers a short list of options to pick from first.
 3. **Ask a question** — "How often should I hangboard?" → an answer grounded in the knowledge base, citing its sources and taking the athlete's recent load into account. Web results, if used, are labeled.
 4. **Plan** — Set a goal with a target date → a long-term plan in phases → this week's plan, fitted to the athlete's availability.
@@ -79,6 +81,7 @@ IDs are stable across revisions. Never reuse a retired ID.
 - **G8** — Access is approval-gated: a new account is pending and cannot use the app until an admin activates it. An admin can disable an account again.
 - **G9** — The app knows the athlete's local date and time. Relative expressions resolve against the athlete's timezone, never the server's.
 - **G10** — Data fetched from a public source is shown with that source and the date it was fetched, and is never presented as the app's own knowledge.
+- **G11** — Mobile-first and installable: every page works at a 390 px wide viewport without horizontal scrolling, with tap targets of at least 44 px, and the app can be added to a phone's home screen with its own icon. Dark theme is the default, a light theme is available, and the choice is remembered in the browser.
 
 ### Backend (B)
 
@@ -110,13 +113,17 @@ IDs are stable across revisions. Never reuse a retired ID.
 - **F1** — Chat with streamed replies.
 - **F2** — A draft-confirm card for logged sessions (confirm / edit / discard).
 - **F3** — A history / calendar view of sessions.
-- **F4** — A plan view: this week and the long-term phases.
+- **F4** — A plan view per sport: this week and the long-term phases.
 - **F5** — A report view.
 - **F6** — Onboarding and profile: sports, availability, goals, timezone, display grade scale, and account deletion (G7).
 - **F7** — Admin view: list users with their status and change a user's status (pending / active / disabled).
 - **F8** — A signed-in user whose access is pending or disabled sees a neutral status screen and nothing else.
 - **F9** — A choice card: 2–N concrete options, single- or multi-select, resolved by tapping, with a "let me type instead" escape.
 - **F10** — A route card and a recommendation list, each showing the source and the fetch date.
+- **F11** — A sign-in page with a "Continue with Google" button, and designed pages for not found (404), server error (500), signed out (401) and an expired form session (403). The unauthenticated page links to sign-in.
+- **F12** — A statistics view per sport and across sports: charts and tables of volume, load and progress over a chosen date range.
+- **F13** — Composer suggestions: while the athlete types, the chat offers matching suggestions to pick by tap or keyboard. What is suggested is decided per milestone; the pattern exists from the first chat release.
+- **F14** — A thinking indicator: from sending a message until the reply starts streaming, the chat shows that the AI is working, naming the current step when the server reports one.
 
 ## Configuration and contracts
 
@@ -149,6 +156,10 @@ IDs are stable across revisions. Never reuse a retired ID.
 - [ ] "I fly to Malaga, recommend me the top 10 routes between 7a and 7b+" returns ten routes within the configured radius, each with grade, ascent count, onsight rate and a one-line summary of comments.
 - [ ] A failed external lookup asks the athlete for the grade and never invents one.
 - [ ] A grade typed as "V5" is stored with its original string and its French equivalent, and displays in the athlete's chosen scale.
+- [ ] A first visit renders in the dark theme; after switching to light and reloading, the page renders light with no flash of the dark theme.
+- [ ] Every page renders at 390 × 844 without horizontal scrolling, and the app can be added to a phone's home screen with its icon.
+- [ ] An unknown URL shows the designed not-found page with a way back to the chat.
+- [ ] After sending a message, the thinking indicator is visible until the first streamed token arrives.
 
 ## Success metrics
 
@@ -165,6 +176,8 @@ IDs are stable across revisions. Never reuse a retired ID.
 - Hosted deployment and other login methods.
 - An internal human-review page for evals.
 - A richer admin view: search, pagination, and a screen for the status-change history. M0 ships a minimal list with a status control.
+- Offline use: a service worker, cached pages or queued messages. v1 is installable but needs a connection.
+- Syncing the theme choice across devices.
 - Exposing prompt templates as MCP prompts to external clients.
 - Project tracking: matching a logged `attempt` on a named route to a later `redpoint`, and counting that as goal progress (B9).
 - Route lookup for sports other than climbing (cycling segments, gym exercise databases). The `ExternalRouteSource` port (ADR-0016) is shaped so this is an adapter, not a redesign.
@@ -174,8 +187,9 @@ IDs are stable across revisions. Never reuse a retired ID.
 | Milestone | Scope | Requirements |
 |---|---|---|
 | M0 Foundations | Project skeleton, docker compose, CI, Google sign-in with approval gating, a minimal admin user list, LLM gateway, prompt registry, eval harness | G1, G6, G7, G8, F6 (sign-in), F7, F8 |
-| M1 Log it | Router + `log_session` path; session envelope, `SportRegistry` and the climbing, gym and cycling plugins together; draft → confirm; time awareness and session continuity; structured clarification and the choice card; eval datasets for the router and all three extraction templates | B1–B4, B13–B17, F1, F2, F9, G2–G5, G9 |
-| M2 See it | History, cross-sport load, weekly report | B5, B6, B12, F3, F5 |
+| M0 Design foundation | Liquid Glass theme, dark default with a remembered toggle, app shell, icons and manifest, sign-in and error pages, first end-to-end specs | G11, F11 |
+| M1 Log it | Router + `log_session` path; session envelope, `SportRegistry` and the climbing, gym and cycling plugins together; draft → confirm; time awareness and session continuity; structured clarification and the choice card; composer suggestions and the thinking indicator; eval datasets for the router and all three extraction templates | B1–B4, B13–B17, F1, F2, F9, F13, F14, G2–G5, G9 |
+| M2 See it | History, cross-sport load, weekly report, statistics per sport | B5, B6, B12, F3, F5, F12 |
 | M3 Know it | Ingestion-pipeline ADR → ingestion → cited Q&A | B7, B8 |
 | M4 Plan it | Goals, long-term and weekly plans, re-planning | B9–B11, F4 |
 | M5 Explore it | Grade conversion and route identity, the 8a.nu route lookup, crag geography, area recommendations | B18–B22, F10, G10 |
