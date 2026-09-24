@@ -37,6 +37,53 @@ def test_create_app_refuses_an_unauthenticated_request_to_the_home_route() -> No
     assert response.status_code == 401
 
 
+def test_create_app_serves_the_manifest_as_application_manifest_json() -> None:
+    """AC1 (ticket #42): the PWA manifest is exempt from the auth gate (it lives under
+    `/static/`) and is served with the manifest content type, not `StaticFiles`' generic
+    fallback — `mimetypes.add_type` in `main.py` makes this hold regardless of the host OS's
+    own `/etc/mime.types`."""
+    app = create_app(_settings())
+    client = TestClient(app)
+
+    response = client.get("/static/manifest.webmanifest")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("application/manifest+json")
+    manifest = response.json()
+    assert manifest["display"] == "standalone"
+    assert manifest["start_url"] == "/"
+    assert manifest["theme_color"]
+
+
+def test_create_app_serves_every_manifest_icon() -> None:
+    """AC1 (ticket #42): every icon the manifest lists is actually reachable at 200, so a
+    typo in a path never silently breaks installability."""
+    app = create_app(_settings())
+    client = TestClient(app)
+    manifest = client.get("/static/manifest.webmanifest").json()
+
+    assert len(manifest["icons"]) >= 2
+    for icon in manifest["icons"]:
+        response = client.get(icon["src"])
+        assert response.status_code == 200, icon["src"]
+        assert response.headers["content-type"] == icon["type"]
+
+
+def test_create_app_serves_the_favicon_and_apple_touch_icon() -> None:
+    """Ticket #42 requirements: an SVG favicon and a 180px apple-touch-icon, both linked from
+    `layouts/base.html` and served alongside the manifest icons."""
+    app = create_app(_settings())
+    client = TestClient(app)
+
+    favicon = client.get("/static/favicon.svg")
+    apple_touch = client.get("/static/icons/apple-touch-icon.png")
+
+    assert favicon.status_code == 200
+    assert favicon.headers["content-type"] == "image/svg+xml"
+    assert apple_touch.status_code == 200
+    assert apple_touch.headers["content-type"] == "image/png"
+
+
 def test_create_app_registers_the_admin_route() -> None:
     """Unlike the home-route check above, a 401 here wouldn't prove much: the gate (ticket
     #14) refuses an unauthenticated request to *any* non-exempt path, registered or not, so

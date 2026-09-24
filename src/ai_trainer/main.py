@@ -1,5 +1,6 @@
 """Composition root: the only place concrete classes are wired (ADR-0003)."""
 
+import mimetypes
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import timedelta
@@ -36,6 +37,11 @@ from ai_trainer.web.templating import STATIC_DIR, build_templates
 _OTLP_EXPORT_TIMEOUT_SECONDS = 5.0
 
 _GOOGLE_SERVER_METADATA_URL = "https://accounts.google.com/.well-known/openid-configuration"
+
+# The stdlib's mimetypes registry only maps `.webmanifest` on systems whose `/etc/mime.types`
+# happens to list it; registering it here makes `StaticFiles`' content-type for the PWA
+# manifest correct regardless of the host OS (ticket #42, PRD-0003 G11).
+mimetypes.add_type("application/manifest+json", ".webmanifest")
 
 
 def create_app(settings: Settings) -> FastAPI:
