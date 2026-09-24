@@ -1,5 +1,6 @@
 .PHONY: install css test test-unit test-integration coverage lint format format-check \
-	typecheck import-lint openapi openapi-check check up up-build down logs ps health migrate evals
+	typecheck import-lint openapi openapi-check check up up-build down logs ps health migrate \
+	evals e2e-install e2e
 
 install: ## Install dependencies (uv sync)
 	uv sync
@@ -65,3 +66,9 @@ migrate: ## Apply database migrations (Alembic)
 
 evals: ## Run prompt evals — costs money, run on purpose (ticket TBD)
 	uv run ai-trainer-evals run $(template)
+
+e2e-install: ## One-time Playwright browser download for e2e specs (no --with-deps: needs sudo, Linux-only)
+	uv run playwright install chromium
+
+e2e: migrate ## Run pytest-playwright specs against the running compose stack (needs `make up` first)
+	uv run pytest tests/e2e

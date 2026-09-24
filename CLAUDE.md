@@ -58,6 +58,8 @@ uv run lint-imports              # layer-boundary check (ADR-0003)
 uv run python scripts/generate_openapi.py   # regenerate docs/api/openapi.json (never hand-edit it)
 docker compose up -d             # app + postgres
 uv run alembic upgrade head      # migrations
+uv run playwright install chromium   # one-time browser download for e2e
+uv run pytest tests/e2e          # e2e specs (needs `docker compose up`; excluded from `uv run pytest`)
 uv run ai-trainer-evals run <template-id>   # evals (costs money — run on purpose)
 ```
 

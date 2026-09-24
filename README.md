@@ -10,7 +10,7 @@ Not built yet: the Liquid Glass design foundation (ADR-0019), the admin user-lis
 
 ## Continuous integration
 
-Every push and pull request runs `ruff check`, `ruff format --check`, `mypy --strict`, the import-boundary check (`import-linter`, ADR-0003), the OpenAPI snapshot drift check and the full `pytest` suite (see [`.github/workflows/ci.yml`](.github/workflows/ci.yml)), with integration tests hitting a real PostgreSQL/pgvector service container. Prompt evals never run here — they cost money and are triggered on demand (ADR-0009).
+Every push and pull request runs `ruff check`, `ruff format --check`, `mypy --strict`, the import-boundary check (`import-linter`, ADR-0003), the OpenAPI snapshot drift check and the full `pytest` suite (see [`.github/workflows/ci.yml`](.github/workflows/ci.yml)), with integration tests hitting a real PostgreSQL/pgvector service container. Once that passes, a second `e2e` job builds and starts the full `docker compose` stack and runs the pytest-playwright specs in `tests/e2e/` (ADR-0013). Prompt evals never run here — they cost money and are triggered on demand (ADR-0009).
 
 This project is document-driven: PRDs and ADRs are the source of truth, not this file. If something here ever looks out of date, trust the docs and open a doc fix — see [docs/README.md](docs/README.md).
 
@@ -53,6 +53,8 @@ Run `make` targets from the repo root; see the [Makefile](Makefile) for the comp
 | `make css` | Compile the Tailwind CSS v4 + daisyUI 5 stylesheet (no Node) |
 | `make test` | Run the full test suite |
 | `make test-unit` / `make test-integration` | Run one test tier (integration needs `make up` first) |
+| `make e2e-install` | One-time Playwright Chromium browser download |
+| `make e2e` | Run the pytest-playwright specs in `tests/e2e/` (needs `make up` first) |
 | `make coverage` | Line coverage on `src/ai_trainer` |
 | `make migrate` | Apply database migrations (Alembic) |
 | `make lint` / `make format` / `make typecheck` | ruff / ruff format / mypy --strict |
@@ -61,7 +63,11 @@ Run `make` targets from the repo root; see the [Makefile](Makefile) for the comp
 | `make openapi-check` | Regenerate, then fail if the committed snapshot drifted (what CI runs) |
 | `make check` | Everything CI runs: lint, format check, typecheck, import-lint, openapi-check, tests |
 
-`test`, `test-integration` and `coverage` run `make migrate` first, so the `vector` extension always exists before the suite runs. `make evals` is wired up but not usable yet — it lands with the evals ticket.
+`test`, `test-integration`, `coverage` and `e2e` run `make migrate` first, so the `vector` extension always exists before the suite runs. `make evals` is wired up but not usable yet — it lands with the evals ticket.
+
+## End-to-end tests
+
+`tests/e2e/` (pytest-playwright, ADR-0013) runs against the full running app, not a test client, so it needs `make up` (or `make up-build`) first, and `make e2e-install` once to download the Chromium browser. Signed-in pages are reached through `scripts/dev_session.py`, a dev-only script that seeds an active user and a session directly in the database and prints the cookie — never a real Google sign-in, and never a route. Specs are excluded from a bare `uv run pytest` / `make test`; run them explicitly with `make e2e`.
 
 ## Running locally without Docker
 
