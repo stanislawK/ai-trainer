@@ -4,9 +4,9 @@ An AI training companion for amateur athletes (climbing, gym, cycling). Document
 
 ## Status
 
-**M0 (Foundations) in progress.** So far: a typed Python/FastAPI skeleton, a `docker compose` stack (app + PostgreSQL/pgvector) with a `GET /health` endpoint that reports database reachability without needing a session, a styled base layout (`GET /`) built with Jinja2 + htmx 4 + Tailwind CSS v4/daisyUI 5 — htmx is vendored under `static/`, the stylesheet is compiled at image build time with no Node.js anywhere — Google sign-in (`/auth/login`, `/auth/callback`, `/auth/logout`) with approval-gated accounts, every other route gated on an active account, and CSRF protection on non-GET requests (ADR-0005).
+**M0 (Foundations) in progress.** So far: a typed Python/FastAPI skeleton, a `docker compose` stack (app + PostgreSQL/pgvector) with a `GET /health` endpoint that reports database reachability without needing a session, a styled base layout (`GET /`) built with Jinja2 + htmx 4 + Tailwind CSS v4/daisyUI 5 — htmx is vendored under `static/`, the stylesheet is compiled at image build time with no Node.js anywhere — Google sign-in (`/auth/login`, `/auth/callback`, `/auth/logout`) with approval-gated accounts, every other route gated on an active account, CSRF protection on non-GET requests (ADR-0005), and the Liquid Glass `trainer-dark`/`trainer-light` themes and glass utilities (ADR-0019), dark by default and remembered per browser with no flash on reload.
 
-Not built yet: the Liquid Glass design foundation (ADR-0019), the admin user-list page, account deletion, the eval harness, any product feature. See [CLAUDE.md](CLAUDE.md) for the full milestone plan and [docs/prd/README.md](docs/prd/README.md) / [docs/adr/README.md](docs/adr/README.md) for the product requirements and the architecture decisions that govern the stack.
+Not built yet: the rest of the Liquid Glass design foundation (icons, installability, the app shell — ADR-0019), the admin user-list page, account deletion, the eval harness, any product feature. See [CLAUDE.md](CLAUDE.md) for the full milestone plan and [docs/prd/README.md](docs/prd/README.md) / [docs/adr/README.md](docs/adr/README.md) for the product requirements and the architecture decisions that govern the stack.
 
 ## Continuous integration
 

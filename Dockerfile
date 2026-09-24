@@ -7,6 +7,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certifi
 WORKDIR /app
 COPY scripts/build_css.sh scripts/build_css.sh
 COPY src/ai_trainer/web/static/css/input.css src/ai_trainer/web/static/css/input.css
+COPY src/ai_trainer/web/static/css/theme.css src/ai_trainer/web/static/css/theme.css
+COPY src/ai_trainer/web/static/css/glass.css src/ai_trainer/web/static/css/glass.css
 COPY src/ai_trainer/web/templates src/ai_trainer/web/templates
 RUN ./scripts/build_css.sh
 
