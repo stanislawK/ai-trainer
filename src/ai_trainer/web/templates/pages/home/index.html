@@ -1,7 +1,9 @@
-{% extends "layouts/base.html" %}
+{% extends "layouts/app.html" %}
 
 {% block title %}AI Trainer{% endblock %}
 
-{% block content %}
+{%- block nav_variant -%}chat{%- endblock -%}
+
+{% block app_content %}
   {% include "partials/home/index.html" %}
 {% endblock %}

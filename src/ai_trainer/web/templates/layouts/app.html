@@ -1,0 +1,98 @@
+{% extends "layouts/base.html" %}
+{% from "components/icon.html" import icon %}
+
+{%- block nav_variant -%}dock{%- endblock -%}
+
+{% macro nav_link(section) -%}
+<a
+  href="{{ section.href }}"
+  class="min-h-11 gap-3{% if section.href == current_path %} menu-active{% endif %}"
+  {%- if section.href == current_path %} aria-current="page"{% endif %}
+>{{ icon(section.icon) }}{{ section.label }}</a>
+{%- endmacro %}
+
+{% block content %}
+{% set variant = self.nav_variant() | trim %}
+<div class="flex min-h-screen">
+  <aside
+    class="hidden lg:flex glass-thick glass-rim fixed inset-y-4 left-4 w-60 rounded-box p-3 flex-col z-30"
+    aria-label="Primary"
+  >
+    <div class="flex items-center gap-3 px-2 h-14">
+      <span class="size-9 rounded-[22%] glass-regular grid place-items-center text-primary">
+        {{ icon("mountain", "size-5") }}
+      </span>
+      <span class="text-[17px] font-semibold tracking-tight">ai-trainer</span>
+    </div>
+    <ul
+      class="menu w-full p-0 gap-0.5 text-[15px] mt-2 [--menu-active-bg:color-mix(in_oklch,var(--color-primary)_20%,transparent)] [--menu-active-fg:var(--color-base-content)]"
+      aria-label="Sections"
+    >
+      {% for section in nav_sections %}
+      <li>{{ nav_link(section) }}</li>
+      {% endfor %}
+    </ul>
+    {% if current_user %}
+    <div class="mt-auto flex items-center gap-3 px-2 pt-3 border-t border-base-content/10">
+      <div class="flex flex-col min-w-0 flex-1">
+        <span class="text-[13px] text-base-content/70 truncate">{{ current_user.email }}</span>
+      </div>
+      <button
+        type="button"
+        class="btn btn-ghost btn-circle"
+        aria-label="Sign out"
+        hx-post="/auth/logout"
+      >{{ icon("log-out", "size-4") }}</button>
+    </div>
+    {% endif %}
+  </aside>
+
+  <div class="flex-1 flex flex-col min-w-0 lg:ml-[272px]">
+    {% if variant == "chat" %}
+    <header class="lg:hidden sticky top-0 z-20 flex items-center justify-between h-11 px-4 mt-4">
+      <button
+        type="button"
+        class="btn btn-circle glass-regular glass-rim relative border-0 min-h-11"
+        popovertarget="sections-menu"
+        aria-label="Sections"
+        aria-expanded="false"
+        aria-controls="sections-menu"
+        data-sections-trigger
+      >{{ icon("menu") }}</button>
+      <span class="text-[17px] font-semibold">{% block chat_title %}Chat{% endblock %}</span>
+      <span class="size-11" aria-hidden="true"></span>
+    </header>
+    <ul
+      id="sections-menu"
+      popover
+      class="hidden! [&:popover-open]:flex! menu absolute top-16 left-4 w-64 glass-thick glass-rim rounded-box p-2 gap-0.5 text-[16px] [--menu-active-bg:color-mix(in_oklch,var(--color-primary)_20%,transparent)] [--menu-active-fg:var(--color-base-content)]"
+      aria-label="Sections"
+    >
+      {% for section in nav_sections %}
+      <li>{{ nav_link(section) }}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+
+    <main class="flex-1 min-w-0 {% if variant != 'chat' %}pb-28{% endif %} lg:pb-6">
+      {% block app_content %}{% endblock %}
+    </main>
+
+    {% if variant != "chat" %}
+    <nav
+      class="dock lg:hidden fixed bottom-5 inset-x-4 h-16 rounded-full glass-thick glass-rim px-2 z-20"
+      aria-label="Sections"
+    >
+      {% for section in nav_sections %}
+      <a
+        href="{{ section.href }}"
+        class="min-h-11{% if section.href == current_path %} dock-active text-primary{% endif %}"
+        {%- if section.href == current_path %} aria-current="page"{% endif %}
+      >{{ icon(section.icon) }}<span class="dock-label">{{ section.label }}</span></a>
+      {% endfor %}
+    </nav>
+    {% endif %}
+  </div>
+</div>
+<script src="/static/js/nav.js" defer></script>
+{% endblock %}

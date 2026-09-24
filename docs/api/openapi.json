@@ -44,6 +44,24 @@
         "summary": "Home"
       }
     },
+    "/admin": {
+      "get": {
+        "operationId": "admin_index_admin_get",
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Admin Index"
+      }
+    },
     "/auth/callback": {
       "get": {
         "operationId": "auth_callback_auth_callback_get",

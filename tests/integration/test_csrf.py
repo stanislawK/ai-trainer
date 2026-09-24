@@ -78,6 +78,7 @@ def _client(
         sessions=sessions,
         clock=FakeClock(),
         templates=templates,
+        admin_emails=[],
     )
     app.add_middleware(CsrfMiddleware, secret_key=SECRET, templates=templates)
     return TestClient(app)

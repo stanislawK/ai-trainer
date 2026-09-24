@@ -8,6 +8,7 @@ from starlette.requests import Request
 from starlette.templating import Jinja2Templates
 
 from ai_trainer.web.icons import render_icon
+from ai_trainer.web.nav import visible_sections
 
 WEB_DIR = Path(__file__).parent
 TEMPLATES_DIR = WEB_DIR / "templates"
@@ -22,6 +23,20 @@ def _csrf_context_processor(request: Request) -> dict[str, Any]:
     return {"csrf_token": getattr(request.state, "csrf_token", None)}
 
 
+def _nav_context_processor(request: Request) -> dict[str, Any]:
+    """Injects the signed-in shell's nav state into every `TemplateResponse` (ADR-0019,
+    ticket #40), the same way `_csrf_context_processor` injects `csrf_token`. A request whose
+    gate middleware never ran (a test app that wires only its own router) still renders, with
+    no sections beyond the always-visible ones and no user."""
+    is_admin = bool(getattr(request.state, "is_admin", False))
+    return {
+        "nav_sections": visible_sections(is_admin=is_admin),
+        "is_admin": is_admin,
+        "current_user": getattr(request.state, "user", None),
+        "current_path": request.url.path,
+    }
+
+
 def build_templates() -> Jinja2Templates:
     env = jinja2.Environment(
         loader=jinja2.FileSystemLoader(TEMPLATES_DIR),
@@ -29,4 +44,6 @@ def build_templates() -> Jinja2Templates:
         undefined=jinja2.StrictUndefined,
     )
     env.globals["render_icon"] = render_icon
-    return Jinja2Templates(env=env, context_processors=[_csrf_context_processor])
+    return Jinja2Templates(
+        env=env, context_processors=[_csrf_context_processor, _nav_context_processor]
+    )

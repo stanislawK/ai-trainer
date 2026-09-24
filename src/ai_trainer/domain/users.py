@@ -24,12 +24,18 @@ class GoogleClaims(BaseModel):
     locale: str | None = None
 
 
+def is_admin_email(email: str, admin_emails: Sequence[str]) -> bool:
+    """Whether `email` is in `ADMIN_EMAILS`, case-insensitively (ADR-0005: admin rights are
+    derived per request, never stored as a database role)."""
+    admin_emails_casefold = {address.casefold() for address in admin_emails}
+    return email.casefold() in admin_emails_casefold
+
+
 def resolve_initial_status(
     email: str, email_verified: bool, admin_emails: Sequence[str]
 ) -> UserStatus:
     """A new account is `active` only when its verified email is in `ADMIN_EMAILS`."""
-    admin_emails_casefold = {address.casefold() for address in admin_emails}
-    if email_verified and email.casefold() in admin_emails_casefold:
+    if email_verified and is_admin_email(email, admin_emails):
         return UserStatus.ACTIVE
     return UserStatus.PENDING
 

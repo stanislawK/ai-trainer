@@ -1,7 +1,7 @@
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import PlainTextResponse
 from fastapi.testclient import TestClient
 
@@ -68,7 +68,12 @@ def _session(user: User, *, expires_at: datetime | None = None) -> Session:
     )
 
 
-def _client(*, users: FakeUsersRepository, sessions: FakeSessionsRepository) -> TestClient:
+def _client(
+    *,
+    users: FakeUsersRepository,
+    sessions: FakeSessionsRepository,
+    admin_emails: list[str] | None = None,
+) -> TestClient:
     app = FastAPI()
 
     @app.get("/protected")
@@ -79,12 +84,17 @@ def _client(*, users: FakeUsersRepository, sessions: FakeSessionsRepository) -> 
     async def health() -> PlainTextResponse:
         return PlainTextResponse("ok")
 
+    @app.get("/is-admin")
+    async def is_admin_probe(request: Request) -> PlainTextResponse:
+        return PlainTextResponse(str(request.state.is_admin))
+
     app.add_middleware(
         ActiveUserGateMiddleware,
         users=users,
         sessions=sessions,
         clock=FakeClock(),
         templates=build_templates(),
+        admin_emails=admin_emails or [],
     )
     return TestClient(app)
 
@@ -209,6 +219,49 @@ def test_pending_user_status_screen_names_no_other_account_or_admin_contact() ->
 
     assert user.email not in response.text
     assert "admin" not in response.text.lower()
+
+
+def test_active_user_whose_email_is_not_an_admin_email_has_is_admin_false() -> None:
+    user = _user(UserStatus.ACTIVE)
+    session = _session(user)
+    client = _client(
+        users=FakeUsersRepository(user), sessions=FakeSessionsRepository(session), admin_emails=[]
+    )
+    client.cookies.set(SESSION_COOKIE_NAME, str(session.id))
+
+    response = client.get("/is-admin")
+
+    assert response.text == "False"
+
+
+def test_active_user_whose_email_is_an_admin_email_has_is_admin_true() -> None:
+    user = _user(UserStatus.ACTIVE)
+    session = _session(user)
+    client = _client(
+        users=FakeUsersRepository(user),
+        sessions=FakeSessionsRepository(session),
+        admin_emails=[user.email],
+    )
+    client.cookies.set(SESSION_COOKIE_NAME, str(session.id))
+
+    response = client.get("/is-admin")
+
+    assert response.text == "True"
+
+
+def test_admin_email_match_is_case_insensitive_on_the_gate() -> None:
+    user = _user(UserStatus.ACTIVE)
+    session = _session(user)
+    client = _client(
+        users=FakeUsersRepository(user),
+        sessions=FakeSessionsRepository(session),
+        admin_emails=[user.email.upper()],
+    )
+    client.cookies.set(SESSION_COOKIE_NAME, str(session.id))
+
+    response = client.get("/is-admin")
+
+    assert response.text == "True"
 
 
 def test_pending_user_status_screen_is_an_htmx_partial_for_an_hx_request() -> None:

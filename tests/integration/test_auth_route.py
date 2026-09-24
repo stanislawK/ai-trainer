@@ -209,3 +209,16 @@ async def test_logout_with_a_malformed_cookie_is_a_noop_not_a_crash() -> None:
     response = client.post("/auth/logout", follow_redirects=False)
 
     assert response.status_code == 303
+
+
+async def test_htmx_logout_gets_a_200_with_hx_redirect_instead_of_a_3xx() -> None:
+    """htmx never processes response headers on a 3xx status (`.claude/skills/apply-ticket`'s
+    `implement-design` groundwork, ticket #40): the sidebar's sign-out button is the first UI
+    caller of this route, and it goes through htmx to carry the CSRF header, so logout must
+    answer it with `HX-Redirect` on a 2xx instead of the plain 303 non-htmx callers still get."""
+    client = _client(_unreachable_session_factory, oauth_client=FakeGoogleOAuthClient())
+
+    response = client.post("/auth/logout", headers={"HX-Request": "true"}, follow_redirects=False)
+
+    assert response.status_code == 200
+    assert response.headers["HX-Redirect"] == "/"

@@ -54,6 +54,7 @@ def _client(
     users: SqlAlchemyUsersRepository,
     sessions: SqlAlchemySessionsRepository,
     include_auth_router: bool = False,
+    admin_emails: list[str] | None = None,
 ) -> TestClient:
     app = FastAPI()
     templates = build_templates()
@@ -63,6 +64,7 @@ def _client(
         sessions=sessions,
         clock=FakeClock(),
         templates=templates,
+        admin_emails=admin_emails or [],
     )
     app.include_router(build_health_router(_NoOpHealth()))
     app.include_router(build_home_router(templates))

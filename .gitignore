@@ -230,3 +230,7 @@ CLAUDE.local.md
 src/ai_trainer/web/static/css/app.css
 src/ai_trainer/web/static/css/daisyui.js
 src/ai_trainer/web/static/css/daisyui-theme.js
+
+# Playwright MCP's own working directory: page snapshots, console logs and the
+# `/implement-design` parity screenshots (ADR-0019) never get committed.
+.playwright-mcp/
