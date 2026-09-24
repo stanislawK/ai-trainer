@@ -26,17 +26,18 @@ Runs inside a web ticket (`/apply-ticket`), between tests-first and the review g
      - `mcp__playwright__browser_navigate` to it
      - `browser_resize`
      - set the theme with `browser_evaluate` (`document.documentElement.dataset.theme = '…'`)
-     - `browser_take_screenshot`.
-   - **App.** Add the session cookie with `browser_run_code_unsafe` (`context.addCookies`), then navigate to `http://localhost:8000/<route>`, set the theme the same way, and take a screenshot.
+     - `browser_take_screenshot` with an explicit `filename` under the scratchpad directory (e.g. `<scratchpad>/parity/<screen>-mock-<viewport>-<theme>.png`) — not the tool's default ephemeral output path, so the file survives past this step for the human to look at.
+   - **App.** Add the session cookie with `browser_run_code_unsafe` (`context.addCookies`), then navigate to `http://localhost:8000/<route>`, set the theme the same way, and take a screenshot the same way (`<scratchpad>/parity/<screen>-app-<viewport>-<theme>.png`).
    - **Probe.** Run `browser_evaluate` on both pages and compare:
      - `getComputedStyle` of the key surfaces: background, `backdrop-filter`, border radius, font family and size
      - `document.documentElement.scrollWidth <= innerWidth` (no horizontal overflow)
      - that interactive targets are at least 44 px tall.
    - **Gate.** Check `browser_console_messages` and `browser_network_requests`: no errors, no 404s, and no request leaves localhost.
    - The screenshots are the ground truth, and the probes explain any difference. Fix what differs and repeat. After three rounds that don't converge on the same element, measure the element and its parent, state the root cause in one sentence, and make one decisive edit.
-6. **Evidence.** For the review gate, attach the side-by-side screenshots (mock | app) per viewport and theme, the probe table, and any intended differences with their reasons (e.g. real data is longer than the sample). Don't commit the screenshots.
-7. **Behavior specs.** For a critical flow, add or extend a pytest-playwright spec under `tests/e2e/` that asserts behavior, not pixels (`.claude/rules/tests.md`).
-8. **Map.** Fill in the screen's row in `docs/design/README.md` (file, template, ticket) in the same change.
+6. **Human gate (parity).** This check is never self-certified (ADR-0019). Once every viewport/theme combination looks right, stop and use `AskUserQuestion` (Approve / Request changes) pointing at the saved screenshot folder, with the probe table in the message. Don't fold "the screenshots matched" into the review-gate summary as already-settled — wait for this answer first, and only move on once it comes back Approve. Do not delete the screenshots when done; they stay in the scratchpad for the human to revisit.
+7. **Evidence.** For the review gate, reference the same screenshots (mock | app) per viewport and theme, the probe table, and any intended differences with their reasons (e.g. real data is longer than the sample), plus a note that the human gate above passed. Don't commit the screenshots.
+8. **Behavior specs.** `tests/e2e/` is expensive and reserved for critical flows (ADR-0013) — only add or extend a pytest-playwright spec here when this screen's flow is one of those; otherwise the parity check above is the verification, and no new spec is needed.
+9. **Map.** Fill in the screen's row in `docs/design/README.md` (file, template, ticket) in the same change.
 
 ## Anti-patterns
 
@@ -46,3 +47,5 @@ Runs inside a web ticket (`/apply-ticket`), between tests-first and the review g
 - Pasting a `serve_url` anywhere.
 - Committing pixel snapshots.
 - Loading a CDN, a web font or a remote icon in the app.
+- Declaring parity without the human gate, or deleting the screenshots before the human has looked at them.
+- Adding a `tests/e2e/` spec for a screen whose flow isn't critical — the parity check already covers it.

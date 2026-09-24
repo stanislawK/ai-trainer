@@ -38,6 +38,7 @@ ADR-0012 fixes the stack (Jinja2, htmx 4, daisyUI 5, Tailwind 4, no Node). It sa
   - **Harvest into the repo** with `/implement-design`. Theme blocks become `@plugin "daisyui/theme"` blocks; the variable names are unchanged. Mock markup becomes Jinja pages, partials and macros.
 - **Verification.**
   - During a web ticket's verify step, a Playwright MCP parity check opens the mock (via `render_preview`) and the running app at 390×844 and 1440×900, in both themes. It compares screenshots side by side and probes key computed styles.
+  - The screenshots are saved to files, not just judged in the moment: a human looks at them and confirms the match before this check counts as passed. The agent's own read of "no diff" is evidence to present, never the verdict.
   - Committed pytest-playwright specs assert behavior, not pixels (ADR-0013).
 
 ### Invariants
@@ -66,4 +67,5 @@ ADR-0012 fixes the stack (Jinja2, htmx 4, daisyUI 5, Tailwind 4, no Node). It sa
 - The first ticket (template restructure) moves the existing templates into the new layout with no visual change. The theme ticket adds `daisyui-theme.js` to `scripts/build_css.sh` and the Dockerfile's `css-builder` stage, and adds `theme.css` and `glass.css` as `@import`s in `input.css`.
 - App icons are rendered from the design system's favicon file with Playwright and committed as PNGs. No Node.
 - ⚠ Support for `prefers-reduced-transparency` differs by browser. It ships in Chrome 118 and later ([Chrome blog](https://developer.chrome.com/en/blog/css-prefers-reduced-transparency)) but is off by default in Firefox ([bug 1736914](https://bugzilla.mozilla.org/show_bug.cgi?id=1736914)). Safari's support was not confirmed, which is why `prefers-contrast: more` is a second trigger. Re-check this in the theme ticket.
+- Owner-directed amendment, 2026-09-24: the parity check gets a human gate. `mcp__playwright__browser_take_screenshot` is called with an explicit `filename` under the session's scratchpad directory (not the tool's default ephemeral output path) so the files outlive the check, and `/implement-design` asks the human to look at that folder and confirm the match — pausing there rather than folding "screenshots looked right to me" into the review-gate summary as if it were already settled. `.claude/skills/implement-design` and `apply-ticket`'s verify step carry this.
 - Checked in the first design step (2026-09-23): daisyUI and Tailwind render correctly inside Claude Design's `.dc.html` runtime. Each mock loads daisyUI's prebuilt CDN CSS, the pinned `@tailwindcss/browser` build (JIT) and `theme.css`. Because the prebuilt daisyUI CSS ships color opacities only in steps of 10, mocks use only those steps ([docs/design/README.md](../design/README.md)).

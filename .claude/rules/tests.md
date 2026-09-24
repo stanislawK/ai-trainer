@@ -14,4 +14,5 @@ paths:
 - Test MCP tools through FastMCP's in-memory `Client(server)`.
 - pytest-asyncio runs in `auto` mode, so async tests need no marker.
 - E2E specs assert behavior (theme persistence, navigation, no overflow at 390 px, served assets), never committed pixel snapshots. Reach signed-in pages through the seeded session from `scripts/dev_session.py` (ADR-0013, ADR-0019).
+- `tests/e2e/` is expensive (a real browser, the full compose stack) and reserved for critical, must-not-regress flows — not a default for every web ticket. For one-off verification (does this render, is this element present), drive the Playwright MCP tools directly against the running app instead of adding a spec; only add one when the flow is worth guarding forever (ADR-0013).
 - Never weaken a test to make it pass. Evals (`evals/`, ADR-0009) are not tests.

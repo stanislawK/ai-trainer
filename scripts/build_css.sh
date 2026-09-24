@@ -23,7 +23,10 @@ case "$os-$arch" in
     ;;
 esac
 
-curl -sLfo "$TOOLS_DIR/tailwindcss" \
+# --retry: GitHub Releases occasionally answers a fresh runner's first request with a
+# transient 4xx/5xx (found at #37, once CI started actually building this image); a few
+# quick retries clear it without masking a real, persistent failure (bad version pin, DNS).
+curl -sLfo "$TOOLS_DIR/tailwindcss" --retry 3 --retry-delay 2 --retry-connrefused \
   "https://github.com/tailwindlabs/tailwindcss/releases/download/v${TAILWIND_VERSION}/tailwindcss-${tw_platform}"
 chmod +x "$TOOLS_DIR/tailwindcss"
 
@@ -34,7 +37,7 @@ chmod +x "$TOOLS_DIR/tailwindcss"
 # or partial fetch (network drop, bad version pin) can never leave it behind for
 # a later `docker build`'s `COPY . /app` to sweep into the final image.
 trap 'rm -rf "$TOOLS_DIR" "$CSS_DIR/daisyui.js"' EXIT
-curl -sLfo "$CSS_DIR/daisyui.js" \
+curl -sLfo "$CSS_DIR/daisyui.js" --retry 3 --retry-delay 2 --retry-connrefused \
   "https://github.com/saadeghi/daisyui/releases/download/v${DAISYUI_VERSION}/daisyui.js"
 
 "$TOOLS_DIR/tailwindcss" -i "$CSS_DIR/input.css" -o "$CSS_DIR/app.css" --minify
