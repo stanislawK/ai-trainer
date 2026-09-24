@@ -30,14 +30,17 @@ curl -sLfo "$TOOLS_DIR/tailwindcss" --retry 3 --retry-delay 2 --retry-connrefuse
   "https://github.com/tailwindlabs/tailwindcss/releases/download/v${TAILWIND_VERSION}/tailwindcss-${tw_platform}"
 chmod +x "$TOOLS_DIR/tailwindcss"
 
-# daisyui.js is a build-time Tailwind plugin, not a runtime asset — it must sit
-# next to input.css for the `@plugin "./daisyui.js"` directive to find it, so it
-# lands in the tracked (though gitignored) source tree rather than $TOOLS_DIR.
+# daisyui.js and daisyui-theme.js are build-time Tailwind plugins, not runtime assets — they
+# must sit next to input.css for the `@plugin "./daisyui.js"` and `@plugin "./daisyui-theme.js"`
+# directives (theme.css, ADR-0019) to find them, so they land in the tracked (though
+# gitignored) source tree rather than $TOOLS_DIR.
 # The cleanup trap is registered *before* the download — not after — so a failed
 # or partial fetch (network drop, bad version pin) can never leave it behind for
 # a later `docker build`'s `COPY . /app` to sweep into the final image.
-trap 'rm -rf "$TOOLS_DIR" "$CSS_DIR/daisyui.js"' EXIT
+trap 'rm -rf "$TOOLS_DIR" "$CSS_DIR/daisyui.js" "$CSS_DIR/daisyui-theme.js"' EXIT
 curl -sLfo "$CSS_DIR/daisyui.js" --retry 3 --retry-delay 2 --retry-connrefused \
   "https://github.com/saadeghi/daisyui/releases/download/v${DAISYUI_VERSION}/daisyui.js"
+curl -sLfo "$CSS_DIR/daisyui-theme.js" --retry 3 --retry-delay 2 --retry-connrefused \
+  "https://github.com/saadeghi/daisyui/releases/download/v${DAISYUI_VERSION}/daisyui-theme.js"
 
 "$TOOLS_DIR/tailwindcss" -i "$CSS_DIR/input.css" -o "$CSS_DIR/app.css" --minify
