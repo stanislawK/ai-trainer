@@ -127,6 +127,24 @@
         },
         "summary": "Health"
       }
+    },
+    "/settings": {
+      "get": {
+        "operationId": "settings_index_settings_get",
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Settings Index"
+      }
     }
   }
 }

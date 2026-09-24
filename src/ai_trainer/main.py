@@ -28,6 +28,7 @@ from ai_trainer.web.auth import build_auth_router
 from ai_trainer.web.csrf import CsrfMiddleware
 from ai_trainer.web.health import build_health_router
 from ai_trainer.web.home import build_home_router
+from ai_trainer.web.settings import build_settings_router
 from ai_trainer.web.templating import STATIC_DIR, build_templates
 
 # Bounds a single export attempt (including its retries) so a request that later flushes or
@@ -88,6 +89,7 @@ def create_app(settings: Settings) -> FastAPI:
     app.include_router(build_health_router(health_port))
     app.include_router(build_home_router(templates))
     app.include_router(build_admin_router(templates))
+    app.include_router(build_settings_router(templates))
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
     oauth = OAuth()

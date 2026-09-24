@@ -49,6 +49,15 @@ def test_create_app_registers_the_admin_route() -> None:
     assert "/admin" in app.openapi()["paths"]
 
 
+def test_create_app_registers_the_settings_route() -> None:
+    """Same reasoning as the admin-route check above (ticket #41): the gate refuses an
+    unauthenticated request to any non-exempt path whether or not it's registered, so this
+    checks the OpenAPI schema instead of an HTTP round trip."""
+    app = create_app(_settings())
+
+    assert "/settings" in app.openapi()["paths"]
+
+
 def test_create_app_wires_settings_into_app() -> None:
     settings = Settings(
         _env_file=None,

@@ -40,7 +40,7 @@ def test_a_request_with_no_gate_middleware_gets_safe_defaults() -> None:
 
     response = client.get("/probe")
 
-    assert response.text == "chat|False|None|/probe"
+    assert response.text == "chat,settings|False|None|/probe"
 
 
 def test_an_admin_request_sees_every_section_and_its_own_identity() -> None:
@@ -48,4 +48,4 @@ def test_an_admin_request_sees_every_section_and_its_own_identity() -> None:
 
     response = client.get("/probe-as-admin")
 
-    assert response.text == "chat,admin|True|admin@example.com|/probe-as-admin"
+    assert response.text == "chat,settings,admin|True|admin@example.com|/probe-as-admin"

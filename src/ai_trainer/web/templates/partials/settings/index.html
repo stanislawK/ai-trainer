@@ -1,0 +1,26 @@
+{% from "components/icon.html" import icon %}
+<div class="flex flex-col gap-5 px-4 pt-14 lg:pt-2 lg:w-[640px] lg:mx-auto" id="settings-content">
+  <h1 class="text-[34px]/[40px] lg:text-[28px]/[34px] font-semibold tracking-tight px-1 lg:h-14 lg:flex lg:items-center">
+    Settings
+  </h1>
+  <section class="flex flex-col gap-2" aria-label="Appearance">
+    <h2 class="text-[13px] font-medium text-base-content/70 px-1">Appearance</h2>
+    <div class="glass-regular glass-rim relative rounded-box p-4 flex items-center justify-between gap-3">
+      <span class="text-[16px]">Theme</span>
+      <div class="tabs tabs-box glass-regular rounded-full p-1 gap-0.5" role="group" aria-label="Theme">
+        <button
+          type="button"
+          class="tab tab-active h-9 rounded-full px-3 gap-1.5 text-[14px] [--tab-bg:light-dark(var(--color-base-100),color-mix(in_oklch,var(--color-base-content)_18%,transparent))] shadow-sm"
+          data-theme-option="trainer-dark"
+          aria-pressed="true"
+        >{{ icon("moon", "size-4") }}Dark</button>
+        <button
+          type="button"
+          class="tab text-base-content/70 h-9 rounded-full px-3 gap-1.5 text-[14px] [--tab-bg:light-dark(var(--color-base-100),color-mix(in_oklch,var(--color-base-content)_18%,transparent))]"
+          data-theme-option="trainer-light"
+          aria-pressed="false"
+        >{{ icon("sun", "size-4") }}Light</button>
+      </div>
+    </div>
+  </section>
+</div>
