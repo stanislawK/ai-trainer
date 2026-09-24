@@ -145,6 +145,22 @@
         },
         "summary": "Settings Index"
       }
+    },
+    "/sign-in": {
+      "get": {
+        "operationId": "sign_in_sign_in_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Sign In"
+      }
     }
   }
 }

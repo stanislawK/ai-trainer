@@ -15,6 +15,7 @@ from ai_trainer.web.active_user_gate import ActiveUserGateMiddleware
 from ai_trainer.web.auth import SESSION_COOKIE_NAME, build_auth_router
 from ai_trainer.web.health import build_health_router
 from ai_trainer.web.home import build_home_router
+from ai_trainer.web.sign_in import build_sign_in_router
 from ai_trainer.web.templating import build_templates
 
 FROZEN_NOW = datetime(2026, 9, 22, 12, 0, tzinfo=UTC)
@@ -68,6 +69,9 @@ def _client(
     )
     app.include_router(build_health_router(_NoOpHealth()))
     app.include_router(build_home_router(templates))
+    app.include_router(
+        build_sign_in_router(templates=templates, users=users, sessions=sessions, clock=FakeClock())
+    )
     if include_auth_router:
         app.include_router(
             build_auth_router(
@@ -200,6 +204,45 @@ async def test_health_stays_reachable_for_a_pending_user_and_with_no_cookie_at_a
     client.cookies.set(SESSION_COOKIE_NAME, str(session.id))
     pending_health = client.get("/health")
     assert pending_health.status_code == 200
+
+
+async def test_sign_in_stays_reachable_for_a_pending_user_while_home_does_not(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    """`/sign-in` is exempt from the gate (ADR-0005 invariant 2, ticket #43) the same way
+    `/health` and auth's own routes are, while an ordinary gated route like `/` still isn't."""
+    users = SqlAlchemyUsersRepository(db_session_factory)
+    sessions = SqlAlchemySessionsRepository(db_session_factory)
+    user = await users.create(
+        NewUser(
+            sub="sub-6", email="f@example.com", name="F", locale="en", status=UserStatus.PENDING
+        )
+    )
+    session = await sessions.create(
+        NewSession(user_id=user.id, expires_at=FROZEN_NOW + timedelta(days=1))
+    )
+    client = _client(db_session_factory, users=users, sessions=sessions)
+    client.cookies.set(SESSION_COOKIE_NAME, str(session.id))
+
+    sign_in = client.get("/sign-in")
+    assert sign_in.status_code == 200
+    assert "Continue with Google" in sign_in.text
+
+    home = client.get("/")
+    assert home.status_code == 200
+    assert "pending" in home.text.lower()
+
+
+async def test_sign_in_stays_reachable_with_no_session_at_all(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    users = SqlAlchemyUsersRepository(db_session_factory)
+    sessions = SqlAlchemySessionsRepository(db_session_factory)
+    client = _client(db_session_factory, users=users, sessions=sessions)
+
+    response = client.get("/sign-in")
+
+    assert response.status_code == 200
 
 
 async def test_login_callback_and_logout_stay_reachable_for_a_pending_user(

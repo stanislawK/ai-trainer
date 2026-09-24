@@ -15,8 +15,9 @@ from ai_trainer.web.auth import SESSION_COOKIE_NAME, parse_session_id
 
 # Every route except sign-in, the callback, sign-out, health and static assets requires an
 # `active` user (ADR-0005 invariants 2 and 7). The status screen itself needs no exemption:
-# it is rendered in place of the requested route, never at a route of its own.
-_EXEMPT_PATHS = frozenset({"/auth/login", "/auth/callback", "/auth/logout", "/health"})
+# it is rendered in place of the requested route, never at a route of its own. `/sign-in`
+# resolves its own session and decides for itself whether to redirect (ticket #43).
+_EXEMPT_PATHS = frozenset({"/auth/login", "/auth/callback", "/auth/logout", "/health", "/sign-in"})
 _EXEMPT_PREFIXES = ("/static/",)
 
 
