@@ -7,6 +7,7 @@ from pydantic import PostgresDsn, SecretStr
 from pydantic_ai import Agent, InstrumentationSettings
 from pydantic_ai.models.test import TestModel
 from sqlalchemy.ext.asyncio import AsyncEngine
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from ai_trainer.main import _build_tracer_provider, _traces_endpoint, app_factory, create_app
 from ai_trainer.settings import Settings
@@ -94,6 +95,19 @@ def test_create_app_registers_the_admin_route() -> None:
     app = create_app(_settings())
 
     assert "/admin" in app.openapi()["paths"]
+
+
+def test_create_app_wires_the_designed_404_and_500_pages() -> None:
+    """`register_error_handlers` (ticket #44) is called from `create_app`. A full HTTP round
+    trip can't prove this here: `ActiveUserGateMiddleware` refuses any non-exempt, unmatched
+    path with 401 for an unauthenticated request before routing ever runs (same reasoning as
+    `test_create_app_registers_the_admin_route` above), and building a real `active` session
+    needs a database this unit-level test doesn't have. `tests/integration/test_error_pages.py`
+    proves the end-to-end behavior with a real signed-in session instead."""
+    app = create_app(_settings())
+
+    assert StarletteHTTPException in app.exception_handlers
+    assert Exception in app.exception_handlers
 
 
 def test_create_app_registers_the_settings_route() -> None:

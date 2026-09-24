@@ -86,6 +86,15 @@ def test_rejection_renders_the_full_error_page_for_a_plain_request() -> None:
     assert "CSRF token missing or invalid" not in response.text
 
 
+def test_rejection_page_offers_a_reload_action() -> None:
+    client = _client()
+    client.cookies.set(SESSION_COOKIE_NAME, str(uuid4()))
+
+    response = client.post("/action")
+
+    assert "data-reload-page" in response.text
+
+
 def test_rejection_renders_an_htmx_partial_for_an_hx_request() -> None:
     client = _client()
     client.cookies.set(SESSION_COOKIE_NAME, str(uuid4()))

@@ -27,6 +27,7 @@ from ai_trainer.web.active_user_gate import ActiveUserGateMiddleware
 from ai_trainer.web.admin import build_admin_router
 from ai_trainer.web.auth import build_auth_router
 from ai_trainer.web.csrf import CsrfMiddleware
+from ai_trainer.web.errors import register_error_handlers
 from ai_trainer.web.health import build_health_router
 from ai_trainer.web.home import build_home_router
 from ai_trainer.web.settings import build_settings_router
@@ -71,6 +72,7 @@ def create_app(settings: Settings) -> FastAPI:
     sessions = SqlAlchemySessionsRepository(session_factory)
     clock = UtcClock()
     templates = build_templates()
+    register_error_handlers(app, templates)
 
     # Gates every route but the exemptions it names for itself (sign-in, callback, sign-out,
     # health, static) on an `active` user, resolved fresh on every request (ADR-0005

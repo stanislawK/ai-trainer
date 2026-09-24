@@ -1,0 +1,9 @@
+{% from "components/status_card.html" import status_card %}
+{{ status_card(
+  icon_name="triangle-alert",
+  kicker="500",
+  title="Something slipped",
+  body="An error on our side. Your data is safe. Try again in a moment.",
+  primary={"label": "Try again", "reload": true},
+  secondary={"label": "Back to chat", "href": "/"}
+) }}

@@ -1,8 +1,8 @@
-<main class="hero min-h-screen" id="csrf-error-content">
-  <div class="hero-content text-center">
-    <div class="max-w-md">
-      <h1 class="text-3xl font-bold">Your session needs a refresh.</h1>
-      <p class="py-6">Reload the page and try again.</p>
-    </div>
-  </div>
-</main>
+{% from "components/status_card.html" import status_card %}
+{{ status_card(
+  icon_name="refresh-cw",
+  kicker="403",
+  title="This session needs a refresh",
+  body="For your security, reload the page and try that again.",
+  primary={"label": "Reload", "reload": true}
+) }}
