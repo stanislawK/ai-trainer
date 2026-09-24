@@ -23,6 +23,7 @@ from ai_trainer.adapters.sessions_repository import SqlAlchemySessionsRepository
 from ai_trainer.adapters.users_repository import SqlAlchemyUsersRepository
 from ai_trainer.settings import Settings
 from ai_trainer.web.active_user_gate import ActiveUserGateMiddleware
+from ai_trainer.web.admin import build_admin_router
 from ai_trainer.web.auth import build_auth_router
 from ai_trainer.web.csrf import CsrfMiddleware
 from ai_trainer.web.health import build_health_router
@@ -72,6 +73,7 @@ def create_app(settings: Settings) -> FastAPI:
         sessions=sessions,
         clock=clock,
         templates=templates,
+        admin_emails=settings.admin_emails,
     )
     # Outermost among the two: runs before the gate above, so `request.state.csrf_token` is
     # already set when the gate renders the unauthorized/status pages (ADR-0005 invariant 3,
@@ -85,6 +87,7 @@ def create_app(settings: Settings) -> FastAPI:
     health_port = PsycopgDatabaseHealth(str(settings.database_url))
     app.include_router(build_health_router(health_port))
     app.include_router(build_home_router(templates))
+    app.include_router(build_admin_router(templates))
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
     oauth = OAuth()

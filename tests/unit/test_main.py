@@ -37,6 +37,18 @@ def test_create_app_refuses_an_unauthenticated_request_to_the_home_route() -> No
     assert response.status_code == 401
 
 
+def test_create_app_registers_the_admin_route() -> None:
+    """Unlike the home-route check above, a 401 here wouldn't prove much: the gate (ticket
+    #14) refuses an unauthenticated request to *any* non-exempt path, registered or not, so
+    hitting `/admin` with no cookie can't tell "wired but gated" apart from "never wired"
+    (ticket #40 skeptic finding). `app.openapi()` builds the schema in-process, the same way
+    `scripts/generate_openapi.py` does, so it sees every registered route with no HTTP round
+    trip to get gated."""
+    app = create_app(_settings())
+
+    assert "/admin" in app.openapi()["paths"]
+
+
 def test_create_app_wires_settings_into_app() -> None:
     settings = Settings(
         _env_file=None,

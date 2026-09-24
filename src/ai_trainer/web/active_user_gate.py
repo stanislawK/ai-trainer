@@ -1,3 +1,5 @@
+from collections.abc import Sequence
+
 from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.responses import Response
@@ -8,7 +10,7 @@ from ai_trainer.application.auth import resolve_authenticated_user
 from ai_trainer.application.ports.clock import ClockPort
 from ai_trainer.application.ports.sessions import SessionsRepositoryPort
 from ai_trainer.application.ports.users import UsersRepositoryPort
-from ai_trainer.domain.users import UserStatus
+from ai_trainer.domain.users import UserStatus, is_admin_email
 from ai_trainer.web.auth import SESSION_COOKIE_NAME, parse_session_id
 
 # Every route except sign-in, the callback, sign-out, health and static assets requires an
@@ -45,12 +47,14 @@ class ActiveUserGateMiddleware(BaseHTTPMiddleware):
         sessions: SessionsRepositoryPort,
         clock: ClockPort,
         templates: Jinja2Templates,
+        admin_emails: Sequence[str],
     ) -> None:
         super().__init__(app)
         self._users = users
         self._sessions = sessions
         self._clock = clock
         self._templates = templates
+        self._admin_emails = admin_emails
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         if _is_exempt(request.url.path):
@@ -76,4 +80,5 @@ class ActiveUserGateMiddleware(BaseHTTPMiddleware):
             )
 
         request.state.user = user
+        request.state.is_admin = is_admin_email(user.email, self._admin_emails)
         return await call_next(request)

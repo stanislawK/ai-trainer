@@ -4,7 +4,7 @@ from typing import Protocol
 from uuid import UUID
 
 from authlib.integrations.base_client import OAuthError
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
 
 from ai_trainer.application.auth import sign_in_with_google, sign_out
@@ -87,11 +87,19 @@ def build_auth_router(
         return response
 
     @router.post("/logout")
-    async def logout(request: Request) -> RedirectResponse:
+    async def logout(request: Request) -> Response:
         session_id = parse_session_id(request.cookies.get(SESSION_COOKIE_NAME))
         if session_id is not None:
             await sign_out(session_id, sessions)
-        response = RedirectResponse(url="/", status_code=303)
+
+        # htmx never processes response headers on a 3xx (it only follows the redirect as a
+        # plain XHR would); the sidebar's sign-out button goes through htmx to carry the CSRF
+        # header, so it needs `HX-Redirect` on a 2xx instead (`.claude/rules/web.md`).
+        response: Response
+        if request.headers.get("HX-Request") == "true":
+            response = Response(status_code=200, headers={"HX-Redirect": "/"})
+        else:
+            response = RedirectResponse(url="/", status_code=303)
         response.delete_cookie(SESSION_COOKIE_NAME)
         return response
 
