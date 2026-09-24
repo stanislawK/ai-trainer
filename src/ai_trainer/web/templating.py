@@ -7,6 +7,8 @@ import jinja2
 from starlette.requests import Request
 from starlette.templating import Jinja2Templates
 
+from ai_trainer.web.icons import render_icon
+
 WEB_DIR = Path(__file__).parent
 TEMPLATES_DIR = WEB_DIR / "templates"
 STATIC_DIR = WEB_DIR / "static"
@@ -26,4 +28,5 @@ def build_templates() -> Jinja2Templates:
         autoescape=jinja2.select_autoescape(["html"]),
         undefined=jinja2.StrictUndefined,
     )
+    env.globals["render_icon"] = render_icon
     return Jinja2Templates(env=env, context_processors=[_csrf_context_processor])
