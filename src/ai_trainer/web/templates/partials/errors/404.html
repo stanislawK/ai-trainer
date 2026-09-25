@@ -1,0 +1,8 @@
+{% from "components/status_card.html" import status_card %}
+{{ status_card(
+  icon_name="route",
+  kicker="404",
+  title="Off route",
+  body="This page isn't on the topo. Let's get you back to familiar ground.",
+  primary={"label": "Back to chat", "href": "/"}
+) }}

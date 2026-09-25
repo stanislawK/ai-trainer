@@ -77,7 +77,7 @@ class ActiveUserGateMiddleware(BaseHTTPMiddleware):
         if user.status is not UserStatus.ACTIVE:
             template_name = "partials/auth/status.html" if is_htmx else "pages/auth/status.html"
             return self._templates.TemplateResponse(
-                request, template_name, {"status": user.status.value}
+                request, template_name, {"status": user.status.value, "email": user.email}
             )
 
         request.state.user = user

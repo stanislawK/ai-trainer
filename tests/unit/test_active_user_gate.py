@@ -133,6 +133,14 @@ def test_feature_route_with_no_cookie_is_refused() -> None:
     assert "sign in" in response.text.lower()
 
 
+def test_feature_route_with_no_cookie_is_refused_with_a_link_to_sign_in() -> None:
+    client = _client(users=FakeUsersRepository(), sessions=FakeSessionsRepository())
+
+    response = client.get("/protected")
+
+    assert 'href="/sign-in"' in response.text
+
+
 def test_unauthorized_response_is_an_htmx_partial_for_an_hx_request() -> None:
     client = _client(users=FakeUsersRepository(), sessions=FakeSessionsRepository())
 
@@ -193,7 +201,7 @@ def test_pending_user_gets_the_status_screen_instead_of_the_feature_route() -> N
 
     assert response.status_code == 200
     assert "feature content" not in response.text
-    assert "pending" in response.text.lower()
+    assert "on the list" in response.text
 
 
 def test_disabled_user_gets_the_status_screen_instead_of_the_feature_route() -> None:
@@ -206,10 +214,12 @@ def test_disabled_user_gets_the_status_screen_instead_of_the_feature_route() -> 
 
     assert response.status_code == 200
     assert "feature content" not in response.text
-    assert "disabled" in response.text.lower()
+    assert "This account is paused" in response.text
 
 
-def test_pending_user_status_screen_names_no_other_account_or_admin_contact() -> None:
+def test_pending_user_status_screen_shows_their_own_email_as_signed_in() -> None:
+    """The designed status card shows a "Signed in as ..." badge (ADR-0019, ticket #44) —
+    that's the user's own account, not "another account" in F8's sense."""
     user = _user(UserStatus.PENDING)
     session = _session(user)
     client = _client(users=FakeUsersRepository(user), sessions=FakeSessionsRepository(session))
@@ -217,8 +227,43 @@ def test_pending_user_status_screen_names_no_other_account_or_admin_contact() ->
 
     response = client.get("/protected")
 
-    assert user.email not in response.text
-    assert "admin" not in response.text.lower()
+    assert f"Signed in as {user.email}" in response.text
+
+
+def test_pending_user_status_screen_offers_only_sign_out() -> None:
+    user = _user(UserStatus.PENDING)
+    session = _session(user)
+    client = _client(users=FakeUsersRepository(user), sessions=FakeSessionsRepository(session))
+    client.cookies.set(SESSION_COOKIE_NAME, str(session.id))
+
+    response = client.get("/protected")
+
+    assert 'hx-post="/auth/logout"' in response.text
+
+
+def test_pending_user_status_screen_names_no_other_account() -> None:
+    """The designed copy names "an admin" generically (ADR-0019, ticket #44) without giving
+    contact details — F8's guarantee is about not identifying *other accounts*, checked here
+    against a second user who isn't the one signed in."""
+    user = _user(UserStatus.PENDING)
+    other = User(
+        id=uuid4(),
+        sub="google-sub-2",
+        email="other-athlete@example.com",
+        name="Other Athlete",
+        locale="en",
+        status=UserStatus.ACTIVE,
+        created_at=FROZEN_NOW,
+    )
+    session = _session(user)
+    client = _client(
+        users=FakeUsersRepository(user, other), sessions=FakeSessionsRepository(session)
+    )
+    client.cookies.set(SESSION_COOKIE_NAME, str(session.id))
+
+    response = client.get("/protected")
+
+    assert other.email not in response.text
 
 
 def test_active_user_whose_email_is_not_an_admin_email_has_is_admin_false() -> None:

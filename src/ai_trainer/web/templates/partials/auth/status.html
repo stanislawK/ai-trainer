@@ -1,14 +1,20 @@
-<main class="hero min-h-screen" id="status-content">
-  <div class="hero-content text-center">
-    <div class="max-w-md">
-      <h1 class="text-3xl font-bold">
-        {% if status == "pending" %}
-          Your account is pending approval.
-        {% else %}
-          Your account is disabled.
-        {% endif %}
-      </h1>
-      <p class="py-6">There is nothing else to see here yet.</p>
-    </div>
-  </div>
-</main>
+{% from "components/status_card.html" import status_card %}
+{% if status == "pending" %}
+{{ status_card(
+  icon_name="clock",
+  kicker="Almost there",
+  title="You're on the list",
+  body="An admin approves every new account. You'll get in as soon as yours is approved; there's nothing else to do.",
+  secondary={"label": "Sign out", "logout": true},
+  email=email
+) }}
+{% else %}
+{{ status_card(
+  icon_name="lock",
+  kicker="Account paused",
+  title="This account is paused",
+  body="Ask the admin who invited you to turn it back on.",
+  secondary={"label": "Sign out", "logout": true},
+  email=email
+) }}
+{% endif %}

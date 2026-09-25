@@ -107,7 +107,7 @@ async def test_a_pending_user_requesting_the_home_route_lands_on_the_status_scre
 
     assert response.status_code == 200
     assert "AI Trainer</h1>" not in response.text
-    assert "pending" in response.text.lower()
+    assert "on the list" in response.text
 
 
 async def test_activating_a_pending_user_lets_the_next_request_through_with_no_new_sign_in(
@@ -127,7 +127,7 @@ async def test_activating_a_pending_user_lets_the_next_request_through_with_no_n
     client.cookies.set(SESSION_COOKIE_NAME, str(session.id))
     blocked = client.get("/")
     assert blocked.status_code == 200
-    assert "pending" in blocked.text.lower()
+    assert "on the list" in blocked.text
 
     async with db_session_factory() as write_session:
         row = await write_session.get(UserOrm, user.id)
@@ -168,7 +168,7 @@ async def test_disabling_an_active_user_mid_session_blocks_their_next_request(
 
     assert blocked.status_code == 200
     assert "AI Trainer</h1>" not in blocked.text
-    assert "disabled" in blocked.text.lower()
+    assert "This account is paused" in blocked.text
 
 
 async def test_an_unauthenticated_request_to_the_home_route_is_refused(
@@ -230,7 +230,7 @@ async def test_sign_in_stays_reachable_for_a_pending_user_while_home_does_not(
 
     home = client.get("/")
     assert home.status_code == 200
-    assert "pending" in home.text.lower()
+    assert "on the list" in home.text
 
 
 async def test_sign_in_stays_reachable_with_no_session_at_all(
