@@ -19,10 +19,14 @@ dependencies = [
     "psycopg[binary]>=3.2",
     "pydantic>=2.12",
     "pydantic-ai-slim[openai,spec]>=2.46.0",
+    "pydantic-evals>=2.46.0",
     "pydantic-settings>=2.15.0",
     "sqlalchemy[asyncio]>=2.0.54",
     "uvicorn>=0.53.0",
 ]
+
+[project.scripts]
+ai-trainer-evals = "ai_trainer.llm.evals.cli:main"
 
 [build-system]
 requires = ["uv_build>=0.11.28,<0.12.0"]

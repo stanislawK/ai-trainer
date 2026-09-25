@@ -16,6 +16,9 @@ env:
   # Settings() requires this to construct (ADR-0007); no test ever makes a real call with it
   # (ADR-0013 invariant 1), so a placeholder is enough.
   OPENROUTER_API_KEY: sk-or-v1-ci-placeholder-not-a-real-key
+  # Settings() requires this too (ADR-0009); evals never run on push/pull_request — only in
+  # evals.yml, which is workflow_dispatch-only — so a placeholder is enough here as well.
+  EVAL_JUDGE_MODEL: ci-placeholder-not-a-real-model
 
 jobs:
   ci:

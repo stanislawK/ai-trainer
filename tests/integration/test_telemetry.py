@@ -9,6 +9,7 @@ from ai_trainer.settings import Settings
 
 DATABASE_URL = "postgresql+psycopg://ai_trainer:secret@localhost:5432/ai_trainer"
 OPENROUTER_API_KEY = "sk-or-v1-test"
+EVAL_JUDGE_MODEL = "test/judge-model"
 # Guaranteed-closed local port (no service ever listens on port 1): connections fail fast with
 # ECONNREFUSED, so this never reaches out over the real network.
 UNREACHABLE_ENDPOINT = "http://127.0.0.1:1"
@@ -19,6 +20,7 @@ def _settings(**overrides: object) -> Settings:
         "_env_file": None,
         "database_url": PostgresDsn(DATABASE_URL),
         "openrouter_api_key": SecretStr(OPENROUTER_API_KEY),
+        "eval_judge_model": EVAL_JUDGE_MODEL,
         **overrides,
     }
     return Settings(**values)  # type: ignore[arg-type]

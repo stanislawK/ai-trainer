@@ -8,11 +8,13 @@ from ai_trainer.settings import Settings
 ENV_EXAMPLE = Path(__file__).parents[2] / ".env.example"
 DATABASE_URL = "postgresql+psycopg://ai_trainer:secret@localhost:5432/ai_trainer"
 OPENROUTER_API_KEY = "sk-or-v1-test"
+EVAL_JUDGE_MODEL = "test/judge-model"
 
 
 def test_missing_required_key_raises_naming_it(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("DATABASE_URL", raising=False)
     monkeypatch.setenv("OPENROUTER_API_KEY", OPENROUTER_API_KEY)
+    monkeypatch.setenv("EVAL_JUDGE_MODEL", EVAL_JUDGE_MODEL)
 
     with pytest.raises(ValidationError) as excinfo:
         Settings(_env_file=None)
@@ -24,6 +26,7 @@ def test_missing_required_key_raises_naming_it(monkeypatch: pytest.MonkeyPatch) 
 def test_missing_openrouter_api_key_raises_naming_it(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DATABASE_URL", DATABASE_URL)
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.setenv("EVAL_JUDGE_MODEL", EVAL_JUDGE_MODEL)
 
     with pytest.raises(ValidationError) as excinfo:
         Settings(_env_file=None)
@@ -35,11 +38,13 @@ def test_missing_openrouter_api_key_raises_naming_it(monkeypatch: pytest.MonkeyP
 def test_reads_values_from_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DATABASE_URL", DATABASE_URL)
     monkeypatch.setenv("OPENROUTER_API_KEY", OPENROUTER_API_KEY)
+    monkeypatch.setenv("EVAL_JUDGE_MODEL", EVAL_JUDGE_MODEL)
 
     settings = Settings(_env_file=None)
 
     assert str(settings.database_url) == DATABASE_URL
     assert settings.openrouter_api_key.get_secret_value() == OPENROUTER_API_KEY
+    assert settings.eval_judge_model == EVAL_JUDGE_MODEL
     assert settings.llm_call_timeout_seconds == 30.0
     assert settings.session_cookie_secure is True
     assert settings.session_ttl_days == 14
@@ -49,6 +54,7 @@ def test_reads_values_from_environment(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_admin_emails_parses_a_comma_separated_list(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DATABASE_URL", DATABASE_URL)
     monkeypatch.setenv("OPENROUTER_API_KEY", OPENROUTER_API_KEY)
+    monkeypatch.setenv("EVAL_JUDGE_MODEL", EVAL_JUDGE_MODEL)
     monkeypatch.setenv("ADMIN_EMAILS", "a@example.com, b@example.com")
 
     settings = Settings(_env_file=None)
@@ -77,6 +83,7 @@ def test_unknown_key_in_env_file_is_rejected(
     env_file = tmp_path / ".env"
     env_file.write_text(
         f"DATABASE_URL={DATABASE_URL}\nOPENROUTER_API_KEY={OPENROUTER_API_KEY}\n"
+        f"EVAL_JUDGE_MODEL={EVAL_JUDGE_MODEL}\n"
         "DATABSE_POOL_SIZE=5\n"
     )
 

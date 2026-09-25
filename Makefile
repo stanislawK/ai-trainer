@@ -64,8 +64,8 @@ health: ## Curl the running app's health endpoint
 migrate: ## Apply database migrations (Alembic)
 	uv run alembic upgrade head
 
-evals: ## Run prompt evals — costs money, run on purpose (ticket TBD)
-	uv run ai-trainer-evals run $(template)
+evals: ## Run prompt evals — costs money, run on purpose. Usage: make evals template=<id> [version=2] [model=openai/gpt-5]
+	uv run ai-trainer-evals run $(template) $(if $(version),--version $(version)) $(if $(model),--model $(model))
 
 e2e-install: ## One-time Playwright browser download for e2e specs (no --with-deps: needs sudo, Linux-only)
 	uv run playwright install chromium
