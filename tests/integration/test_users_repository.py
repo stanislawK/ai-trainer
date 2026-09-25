@@ -86,3 +86,17 @@ async def test_create_with_a_sub_already_taken_raises_user_already_exists(
         await repository.create(_new_user(sub="google-sub-3", email="other@example.com"))
 
     assert excinfo.value.sub == "google-sub-3"
+
+
+async def test_list_all_returns_every_user(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    repository = SqlAlchemyUsersRepository(db_session_factory)
+    first = await repository.create(_new_user(sub="google-sub-list-1"))
+    second = await repository.create(_new_user(sub="google-sub-list-2", status=UserStatus.ACTIVE))
+
+    users = await repository.list_all()
+
+    ids = {user.id for user in users}
+    assert first.id in ids
+    assert second.id in ids

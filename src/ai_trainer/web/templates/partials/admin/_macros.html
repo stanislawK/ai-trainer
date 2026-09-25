@@ -1,0 +1,95 @@
+{% from "components/icon.html" import icon %}
+
+{% macro _status_badge(status) %}
+{% set badge_class = {"active": "badge-success", "pending": "badge-warning", "disabled": "badge-neutral"}[status.value] %}
+<span class="badge {{ badge_class }}">{{ status.value | title }}</span>
+{% endmacro %}
+
+{% macro _access_control(user, current_user) %}
+{% if user.id == current_user.id %}
+<span class="flex items-center gap-1.5 text-[13px] text-base-content/70" aria-label="Your own account cannot be changed here">
+  {{ icon("lock", "size-4") }}You · admin
+</span>
+{% else %}
+<select
+  class="select select-sm h-10 w-44 text-[15px] bg-base-100/50 border-base-content/20"
+  aria-label="Access for {{ user.email }}"
+  name="status"
+  hx-post="/admin/users/{{ user.id }}/status"
+  hx-trigger="change"
+  hx-swap="none"
+>
+  <option value="pending"{% if user.status.value == "pending" %} selected{% endif %}>Pending</option>
+  <option value="active"{% if user.status.value == "active" %} selected{% endif %}>Active</option>
+  <option value="disabled"{% if user.status.value == "disabled" %} selected{% endif %}>Disabled</option>
+</select>
+{% endif %}
+{% endmacro %}
+
+{% macro pending_count_badge(pending_count, oob=false) %}
+<span id="admin-pending-count" class="badge badge-warning"{% if oob %} hx-swap-oob="true"{% endif %}>{{ pending_count }} pending</span>
+{% endmacro %}
+
+{% macro user_row(user, current_user, oob=false) %}
+<tr id="user-row-{{ user.id }}" class="border-base-content/10"{% if oob %} hx-swap-oob="true"{% endif %}>
+  <td class="font-medium">{{ user.email }}</td>
+  <td>{{ user.name or "—" }}</td>
+  <td>{{ _status_badge(user.status) }}</td>
+  <td class="tabular-nums text-base-content/70">{{ user.created_at | dateformat }}</td>
+  <td>{{ _access_control(user, current_user) }}</td>
+</tr>
+{% endmacro %}
+
+{% macro user_card(user, current_user, oob=false) %}
+{% set initials = (user.name or user.email).split(" ") | map("first") | join("") | upper %}
+<li id="user-card-{{ user.id }}" class="glass-regular glass-rim relative rounded-box p-4 flex flex-col gap-3"{% if oob %} hx-swap-oob="true"{% endif %}>
+  <div class="flex items-start gap-3">
+    <span class="size-10 rounded-full bg-base-content/10 grid place-items-center text-[13px] font-semibold shrink-0">{{ initials }}</span>
+    <div class="flex flex-col flex-1 min-w-0">
+      <span class="text-[16px] font-medium truncate">{{ user.name or user.email }}</span>
+      <span class="text-[13px] text-base-content/70 truncate">{{ user.email }} · joined {{ user.created_at | dateformat }}</span>
+    </div>
+    {{ _status_badge(user.status) }}
+  </div>
+  {% if user.id == current_user.id %}
+  <span class="flex items-center gap-1.5 text-[13px] text-base-content/70">
+    {{ icon("lock", "size-4") }}This is you. Admin rights come from the server config.
+  </span>
+  {% else %}
+  <select
+    class="select w-full text-[16px] bg-base-100/50 border-base-content/20"
+    aria-label="Access for {{ user.email }}"
+    name="status"
+    hx-post="/admin/users/{{ user.id }}/status"
+    hx-trigger="change"
+    hx-swap="none"
+  >
+    <option value="pending"{% if user.status.value == "pending" %} selected{% endif %}>Pending</option>
+    <option value="active"{% if user.status.value == "active" %} selected{% endif %}>Active</option>
+    <option value="disabled"{% if user.status.value == "disabled" %} selected{% endif %}>Disabled</option>
+  </select>
+  {% endif %}
+</li>
+{% endmacro %}
+
+{% macro toast(message, variant="success", undo_user_id=none, undo_status=none, oob=false) %}
+<div id="admin-toast-region" class="toast toast-top toast-center lg:toast-bottom lg:toast-end z-40"{% if oob %} hx-swap-oob="true"{% endif %}>
+  <div role="status" class="alert glass-thick glass-rim relative border-0 text-[15px]">
+    {% if variant == "error" %}
+    {{ icon("triangle-alert", "text-error") }}
+    {% else %}
+    {{ icon("circle-check", "text-success") }}
+    {% endif %}
+    <span>{{ message }}</span>
+    {% if undo_user_id and undo_status %}
+    <button
+      type="button"
+      class="btn btn-sm btn-ghost"
+      hx-post="/admin/users/{{ undo_user_id }}/status"
+      hx-vals='{"status": "{{ undo_status }}"}'
+      hx-swap="none"
+    >Undo</button>
+    {% endif %}
+  </div>
+</div>
+{% endmacro %}

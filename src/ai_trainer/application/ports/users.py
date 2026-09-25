@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from typing import Protocol
 from uuid import UUID
 
@@ -13,4 +14,8 @@ class UsersRepositoryPort(Protocol):
 
     async def create(self, new_user: NewUser) -> User:
         """Raises `UserAlreadyExistsError` if a concurrent sign-in already took this `sub`."""
+        ...
+
+    async def list_all(self) -> Sequence[User]:
+        """Every user, for the admin page (F7)."""
         ...

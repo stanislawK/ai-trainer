@@ -1,0 +1,5 @@
+{% from "partials/admin/_macros.html" import user_row, user_card, toast, pending_count_badge %}
+{{ user_row(user, current_user, oob=true) }}
+{{ user_card(user, current_user, oob=true) }}
+{{ pending_count_badge(pending_count, oob=true) }}
+{{ toast(user.email + " is now " + user.status.value, undo_user_id=user.id, undo_status=previous_status.value, oob=true) }}

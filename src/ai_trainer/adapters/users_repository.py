@@ -1,4 +1,4 @@
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from uuid import UUID
 
 from sqlalchemy import select
@@ -56,3 +56,8 @@ class SqlAlchemyUsersRepository:
                 raise UserAlreadyExistsError(new_user.sub) from exc
             await session.refresh(row)
             return _to_domain(row)
+
+    async def list_all(self) -> Sequence[User]:
+        async with self._session_factory() as session:
+            rows = await session.scalars(select(UserOrm).order_by(UserOrm.created_at))
+            return [_to_domain(row) for row in rows]

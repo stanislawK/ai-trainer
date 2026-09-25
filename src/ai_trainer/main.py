@@ -21,6 +21,7 @@ from ai_trainer.adapters.db import build_engine, build_session_factory
 from ai_trainer.adapters.google_oauth import AuthlibGoogleOAuthClient
 from ai_trainer.adapters.health import PsycopgDatabaseHealth
 from ai_trainer.adapters.sessions_repository import SqlAlchemySessionsRepository
+from ai_trainer.adapters.user_status_changer import SqlAlchemyUserStatusChanger
 from ai_trainer.adapters.users_repository import SqlAlchemyUsersRepository
 from ai_trainer.settings import Settings
 from ai_trainer.web.active_user_gate import ActiveUserGateMiddleware
@@ -70,6 +71,7 @@ def create_app(settings: Settings) -> FastAPI:
     session_factory = build_session_factory(engine)
     users = SqlAlchemyUsersRepository(session_factory)
     sessions = SqlAlchemySessionsRepository(session_factory)
+    status_changer = SqlAlchemyUserStatusChanger(session_factory)
     clock = UtcClock()
     templates = build_templates()
     register_error_handlers(app, templates)
@@ -97,7 +99,11 @@ def create_app(settings: Settings) -> FastAPI:
     health_port = PsycopgDatabaseHealth(str(settings.database_url))
     app.include_router(build_health_router(health_port))
     app.include_router(build_home_router(templates))
-    app.include_router(build_admin_router(templates))
+    app.include_router(
+        build_admin_router(
+            templates=templates, users=users, sessions=sessions, status_changer=status_changer
+        )
+    )
     app.include_router(build_settings_router(templates))
     app.include_router(
         build_sign_in_router(templates=templates, users=users, sessions=sessions, clock=clock)

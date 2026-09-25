@@ -32,6 +32,9 @@ class FakeUsersRepository:
     async def create(self, new_user: NewUser) -> User:
         raise NotImplementedError
 
+    async def list_all(self) -> list[User]:
+        raise NotImplementedError
+
 
 class FakeSessionsRepository:
     def __init__(self, *sessions: Session) -> None:
@@ -44,6 +47,9 @@ class FakeSessionsRepository:
         return self._sessions.get(session_id)
 
     async def delete(self, session_id: UUID) -> None:
+        raise NotImplementedError
+
+    async def delete_for_user(self, user_id: UUID) -> None:
         raise NotImplementedError
 
 

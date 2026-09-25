@@ -63,3 +63,20 @@ class UserAlreadyExistsError(Exception):
     def __init__(self, sub: str) -> None:
         super().__init__(f"a user with sub {sub!r} already exists")
         self.sub = sub
+
+
+class CannotChangeOwnStatusError(Exception):
+    """Raised when an admin tries to change their own status (ADR-0005 invariant: an admin
+    cannot change their own status)."""
+
+    def __init__(self, user_id: UUID) -> None:
+        super().__init__(f"user {user_id} cannot change their own status")
+        self.user_id = user_id
+
+
+class UserNotFoundError(Exception):
+    """Raised when a status change targets a user that no longer exists."""
+
+    def __init__(self, user_id: UUID) -> None:
+        super().__init__(f"user {user_id} not found")
+        self.user_id = user_id

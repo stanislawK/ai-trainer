@@ -1,3 +1,5 @@
+from datetime import UTC, datetime
+
 import jinja2
 import pytest
 
@@ -26,3 +28,12 @@ def test_defined_variable_still_renders() -> None:
     template = templates.env.from_string("{{ greeting }}")
 
     assert template.render(greeting="hi") == "hi"
+
+
+def test_dateformat_filter_renders_day_month_year() -> None:
+    templates = build_templates()
+    template = templates.env.from_string("{{ value | dateformat }}")
+
+    rendered = template.render(value=datetime(2025, 9, 2, tzinfo=UTC))
+
+    assert rendered == "2 Sep 2025"

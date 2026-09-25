@@ -37,6 +37,9 @@ class FakeUsersRepository:
         self.users[new_user.sub] = user
         return user
 
+    async def list_all(self) -> list[User]:
+        raise NotImplementedError
+
 
 class FakeSessionsRepository:
     def __init__(self) -> None:
@@ -52,6 +55,9 @@ class FakeSessionsRepository:
 
     async def delete(self, session_id: UUID) -> None:
         self.sessions.pop(session_id, None)
+
+    async def delete_for_user(self, user_id: UUID) -> None:
+        raise NotImplementedError
 
 
 def _claims(**overrides: object) -> GoogleClaims:
