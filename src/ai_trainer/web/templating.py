@@ -1,5 +1,6 @@
 """Jinja2 environment wiring (ADR-0012). Undefined variables fail loudly, never render empty."""
 
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -37,6 +38,12 @@ def _nav_context_processor(request: Request) -> dict[str, Any]:
     }
 
 
+def _format_date(value: datetime) -> str:
+    """Renders `2 Sep 2025`-style dates (the Admin users mock, ticket #16); admin timestamps
+    aren't athlete-facing, so unlike ADR-0014 they need no timezone conversion."""
+    return f"{value.day} {value.strftime('%b %Y')}"
+
+
 def build_templates() -> Jinja2Templates:
     env = jinja2.Environment(
         loader=jinja2.FileSystemLoader(TEMPLATES_DIR),
@@ -44,6 +51,7 @@ def build_templates() -> Jinja2Templates:
         undefined=jinja2.StrictUndefined,
     )
     env.globals["render_icon"] = render_icon
+    env.filters["dateformat"] = _format_date
     return Jinja2Templates(
         env=env, context_processors=[_csrf_context_processor, _nav_context_processor]
     )

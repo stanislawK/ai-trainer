@@ -28,6 +28,9 @@ class _NoSessionUsers:
     async def create(self, new_user: NewUser) -> User:
         raise AssertionError("no cookie means no repository call")
 
+    async def list_all(self) -> list[User]:
+        raise AssertionError("no cookie means no repository call")
+
 
 class _NoSessionSessions:
     async def get(self, session_id: UUID) -> Session | None:
@@ -37,6 +40,9 @@ class _NoSessionSessions:
         raise AssertionError("no cookie means no repository call")
 
     async def delete(self, session_id: UUID) -> None:
+        raise AssertionError("no cookie means no repository call")
+
+    async def delete_for_user(self, user_id: UUID) -> None:
         raise AssertionError("no cookie means no repository call")
 
 

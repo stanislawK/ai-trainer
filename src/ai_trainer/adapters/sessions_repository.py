@@ -1,6 +1,7 @@
 from collections.abc import Callable
 from uuid import UUID
 
+from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai_trainer.adapters.orm import SessionOrm
@@ -41,3 +42,8 @@ class SqlAlchemySessionsRepository:
             if row is not None:
                 await session.delete(row)
                 await session.commit()
+
+    async def delete_for_user(self, user_id: UUID) -> None:
+        async with self._session_factory() as session:
+            await session.execute(delete(SessionOrm).where(SessionOrm.user_id == user_id))
+            await session.commit()

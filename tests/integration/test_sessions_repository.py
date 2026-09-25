@@ -79,3 +79,29 @@ async def test_delete_with_no_match_is_a_noop(
     repository = SqlAlchemySessionsRepository(db_session_factory)
 
     await repository.delete(uuid4())  # must not raise
+
+
+async def test_delete_for_user_removes_only_that_users_sessions(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    target_id = await _create_user(db_session_factory)
+    other_id = await _create_user(db_session_factory)
+    repository = SqlAlchemySessionsRepository(db_session_factory)
+    expires_at = datetime.now(UTC) + timedelta(days=14)
+    target_session_1 = await repository.create(NewSession(user_id=target_id, expires_at=expires_at))
+    target_session_2 = await repository.create(NewSession(user_id=target_id, expires_at=expires_at))
+    other_session = await repository.create(NewSession(user_id=other_id, expires_at=expires_at))
+
+    await repository.delete_for_user(target_id)
+
+    assert await repository.get(target_session_1.id) is None
+    assert await repository.get(target_session_2.id) is None
+    assert await repository.get(other_session.id) is not None
+
+
+async def test_delete_for_user_with_no_sessions_is_a_noop(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    repository = SqlAlchemySessionsRepository(db_session_factory)
+
+    await repository.delete_for_user(uuid4())  # must not raise

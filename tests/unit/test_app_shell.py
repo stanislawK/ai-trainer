@@ -38,6 +38,9 @@ class FakeUsersRepository:
     async def create(self, new_user: NewUser) -> User:
         raise NotImplementedError
 
+    async def list_all(self) -> list[User]:
+        return list(self._users.values())
+
 
 class FakeSessionsRepository:
     def __init__(self, *sessions: Session) -> None:
@@ -50,6 +53,16 @@ class FakeSessionsRepository:
         return self._sessions.get(session_id)
 
     async def delete(self, session_id: UUID) -> None:
+        raise NotImplementedError
+
+    async def delete_for_user(self, user_id: UUID) -> None:
+        raise NotImplementedError
+
+
+class FakeUserStatusChanger:
+    async def change(
+        self, *, target_user_id: UUID, new_status: UserStatus, actor_user_id: UUID
+    ) -> tuple[User, UserStatus]:
         raise NotImplementedError
 
 
@@ -71,16 +84,25 @@ def _client(*, admin_emails: list[str]) -> TestClient:
     )
     app = FastAPI()
     templates = build_templates()
+    users = FakeUsersRepository(user)
+    sessions = FakeSessionsRepository(session)
     app.add_middleware(
         ActiveUserGateMiddleware,
-        users=FakeUsersRepository(user),
-        sessions=FakeSessionsRepository(session),
+        users=users,
+        sessions=sessions,
         clock=FakeClock(),
         templates=templates,
         admin_emails=admin_emails,
     )
     app.include_router(build_home_router(templates))
-    app.include_router(build_admin_router(templates))
+    app.include_router(
+        build_admin_router(
+            templates=templates,
+            users=users,
+            sessions=sessions,
+            status_changer=FakeUserStatusChanger(),
+        )
+    )
     client = TestClient(app)
     client.cookies.set(SESSION_COOKIE_NAME, str(session.id))
     return client

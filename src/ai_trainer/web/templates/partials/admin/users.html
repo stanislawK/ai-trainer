@@ -1,0 +1,39 @@
+{% from "partials/admin/_macros.html" import user_row, user_card, pending_count_badge %}
+<div class="flex flex-col gap-4 px-4 pt-14 lg:pt-2 lg:w-[960px] lg:mx-auto" id="admin-users-content">
+  <div class="flex items-baseline justify-between lg:h-14 lg:flex lg:items-center">
+    <h1 class="text-[34px]/[40px] lg:text-[28px]/[34px] font-semibold tracking-tight px-1">
+      Users
+    </h1>
+    <div class="flex items-center gap-2 text-[13px] text-base-content/70">
+      {{ pending_count_badge(pending_count) }}
+      <span class="hidden lg:inline">{{ total_count }} accounts</span>
+    </div>
+  </div>
+
+  <div id="admin-toast-region" class="toast toast-top toast-center lg:toast-bottom lg:toast-end z-40"></div>
+
+  <div class="glass-regular glass-rim relative rounded-box overflow-hidden hidden lg:block">
+    <table class="table text-[15px]">
+      <thead class="text-[12px] text-base-content/70">
+        <tr class="border-base-content/10">
+          <th>Email</th>
+          <th>Name</th>
+          <th>Status</th>
+          <th>Joined</th>
+          <th class="w-52">Access</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for user in users %}
+        {{ user_row(user, current_user) }}
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <ul class="lg:hidden flex flex-col gap-3" aria-label="Users">
+    {% for user in users %}
+    {{ user_card(user, current_user) }}
+    {% endfor %}
+  </ul>
+</div>

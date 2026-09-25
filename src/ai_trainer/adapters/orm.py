@@ -44,6 +44,27 @@ class SessionOrm(Base):
     )
 
 
+class UserStatusChangeOrm(Base):
+    """One row per admin status change: actor, target, old/new status, timestamp
+    (ADR-0005 invariant 9)."""
+
+    __tablename__ = "user_status_changes"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    actor_user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    target_user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    old_status: Mapped[str] = mapped_column(nullable=False)
+    new_status: Mapped[str] = mapped_column(nullable=False)
+    # timestamptz, UTC (ADR-0004 invariant 5).
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now()
+    )
+
+
 class LlmCallOrm(Base):
     """One row per gateway call, on success, timeout and error alike (ADR-0018)."""
 

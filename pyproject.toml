@@ -21,6 +21,7 @@ dependencies = [
     "pydantic-ai-slim[openai,spec]>=2.46.0",
     "pydantic-evals>=2.46.0",
     "pydantic-settings>=2.15.0",
+    "python-multipart>=0.0.32",
     "sqlalchemy[asyncio]>=2.0.54",
     "uvicorn>=0.53.0",
 ]
@@ -51,6 +52,11 @@ line-length = 100
 [tool.ruff.lint]
 # No "TC": moving runtime-annotation imports under TYPE_CHECKING breaks PEP 649 (ADR-0002).
 select = ["E", "W", "F", "I", "B", "UP", "SIM", "RUF", "PT", "N"]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI's own idiom for a form field's default value (ticket #16); the call is evaluated once
+# at route-declaration time, not per-request, so B008's "mutable default" concern doesn't apply.
+extend-immutable-calls = ["fastapi.Form"]
 
 [tool.mypy]
 strict = true
