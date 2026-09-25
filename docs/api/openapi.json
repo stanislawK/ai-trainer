@@ -261,6 +261,22 @@
         "summary": "Settings Index"
       }
     },
+    "/settings/delete-account": {
+      "post": {
+        "operationId": "settings_delete_account_settings_delete_account_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Settings Delete Account"
+      }
+    },
     "/sign-in": {
       "get": {
         "operationId": "sign_in_sign_in_get",

@@ -23,4 +23,53 @@
       </div>
     </div>
   </section>
+  <section class="flex flex-col gap-2" aria-label="Danger zone">
+    <h2 class="text-[13px] font-medium text-error px-1">Danger zone</h2>
+    <div class="glass-regular relative rounded-box p-4 flex flex-col gap-3 border-error/40">
+      <p class="text-[15px] leading-[22px]">
+        <span class="font-medium">Delete account.</span>
+        <span class="text-base-content/80">Removes your sessions, plans and messages for good. There is no undo.</span>
+      </p>
+      <button
+        type="button"
+        class="btn btn-outline btn-error self-start gap-1.5"
+        data-delete-account-trigger
+      >{{ icon("trash-2", "size-4") }}Delete account…</button>
+    </div>
+  </section>
 </div>
+
+<dialog id="delete-account-dialog" class="modal modal-bottom lg:modal-middle" aria-label="Delete your account">
+  <div class="modal-box glass-thick glass-rim max-w-none lg:max-w-md p-6 pb-10 lg:pb-6 flex flex-col gap-4">
+    <span class="mx-auto h-1.5 w-10 rounded-full bg-base-content/20 lg:hidden" aria-hidden="true"></span>
+    <span class="size-12 rounded-[22%] bg-error/20 text-error grid place-items-center">{{ icon("triangle-alert", "size-6") }}</span>
+    <h2 class="text-[22px]/[28px] font-semibold tracking-tight">Delete your account?</h2>
+    <p class="text-[15px] leading-[22px] text-base-content/80">
+      This removes every session, plan and message. It can't be undone, and you'd need an admin to approve a new account.
+    </p>
+    <fieldset class="fieldset">
+      <legend class="fieldset-legend text-[13px]">Type DELETE to confirm</legend>
+      <input
+        type="text"
+        class="input w-full text-[16px] bg-base-100/50 border-base-content/20 tracking-widest"
+        aria-label="Type DELETE to confirm"
+        autocomplete="off"
+        data-delete-account-input
+      />
+    </fieldset>
+    <button
+      type="button"
+      class="btn btn-error w-full"
+      hx-post="/settings/delete-account"
+      disabled
+      data-delete-account-confirm
+    >Delete account</button>
+    <form method="dialog">
+      <button class="btn btn-ghost w-full">Cancel</button>
+    </form>
+  </div>
+  <form method="dialog" class="modal-backdrop">
+    <button>close</button>
+  </form>
+</dialog>
+<script src="/static/js/delete_account.js" defer></script>
