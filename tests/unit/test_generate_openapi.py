@@ -17,6 +17,7 @@ from scripts.generate_openapi import (
 
 DATABASE_URL = "postgresql+psycopg://ai_trainer:secret@localhost:5432/ai_trainer"
 OPENROUTER_API_KEY = "sk-or-v1-test"
+EVAL_JUDGE_MODEL = "test/judge-model"
 
 
 def _build_app() -> FastAPI:
@@ -24,6 +25,7 @@ def _build_app() -> FastAPI:
         _env_file=None,
         database_url=PostgresDsn(DATABASE_URL),
         openrouter_api_key=SecretStr(OPENROUTER_API_KEY),
+        eval_judge_model=EVAL_JUDGE_MODEL,
     )
     return create_app(settings)
 

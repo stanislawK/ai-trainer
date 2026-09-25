@@ -1,0 +1,61 @@
+name: Evals
+
+# Manual only (ADR-0009): evals call real models through OpenRouter and cost money, so this
+# never runs on push or pull_request — see ci.yml, which never invokes the eval CLI.
+on:
+  workflow_dispatch:
+    inputs:
+      template_id:
+        description: Prompt template id (e.g. the dataset at evals/datasets/<template_id>.yaml)
+        required: true
+      version:
+        description: Template version to evaluate
+        required: false
+        default: "1"
+      model:
+        description: Overrides the model under test (defaults to the template's configured model)
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  evals:
+    runs-on: ubuntu-latest
+    environment: evals
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          # See ci.yml for why this is pinned explicitly rather than via version-file.
+          version: "0.11.28"
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --locked
+
+      - name: Run the eval
+        env:
+          # Settings() requires this to construct (ADR-0007), but the eval CLI never touches
+          # the database — a placeholder is enough, same as ci.yml.
+          DATABASE_URL: postgresql+psycopg://ai_trainer:ai_trainer@localhost:5432/ai_trainer
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          EVAL_JUDGE_MODEL: ${{ secrets.EVAL_JUDGE_MODEL }}
+        run: |
+          args=(run "${{ inputs.template_id }}" --version "${{ inputs.version }}")
+          if [ -n "${{ inputs.model }}" ]; then
+            args+=(--model "${{ inputs.model }}")
+          fi
+          uv run ai-trainer-evals "${args[@]}"
+
+      - name: Upload the report and baseline
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa9 # v4.6.2
+        with:
+          name: evals-${{ inputs.template_id }}
+          path: |
+            evals/reports/${{ inputs.template_id }}.json
+            evals/baselines/${{ inputs.template_id }}.json

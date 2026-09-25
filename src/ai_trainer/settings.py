@@ -25,6 +25,10 @@ class Settings(BaseSettings):
     database_url: PostgresDsn
     openrouter_api_key: SecretStr
     llm_call_timeout_seconds: float = 30.0
+    # Evals (ADR-0009): pinned, distinct from the model under test, set explicitly on every
+    # eval run with `set_default_judge_model`. No default here — a stable/GA OpenRouter model
+    # id is an operator choice, not a code default (`.claude/rules/llm.md`).
+    eval_judge_model: str
 
     # Google sign-in (ADR-0005). No Google access or refresh token is ever stored.
     google_client_id: str = ""

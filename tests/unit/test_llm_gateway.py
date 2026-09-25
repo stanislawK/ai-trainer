@@ -39,6 +39,7 @@ def _settings(timeout_seconds: float = 30.0) -> Settings:
         _env_file=None,
         database_url=PostgresDsn("postgresql+psycopg://u:p@localhost:5432/db"),
         openrouter_api_key=SecretStr("test-key"),
+        eval_judge_model="test/judge-model",
         llm_call_timeout_seconds=timeout_seconds,
     )
 
