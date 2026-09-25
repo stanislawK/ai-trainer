@@ -61,3 +61,13 @@ class SqlAlchemyUsersRepository:
         async with self._session_factory() as session:
             rows = await session.scalars(select(UserOrm).order_by(UserOrm.created_at))
             return [_to_domain(row) for row in rows]
+
+    async def delete(self, user_id: UUID) -> None:
+        async with self._session_factory() as session:
+            row = await session.get(UserOrm, user_id)
+            if row is not None:
+                # ON DELETE CASCADE on every user-owned table's FK removes their sessions,
+                # status-change audit rows and llm_calls in the same statement (ADR-0004
+                # invariant 1, G7) -- nothing else needs deleting here.
+                await session.delete(row)
+                await session.commit()
