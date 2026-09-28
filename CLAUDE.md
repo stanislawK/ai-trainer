@@ -57,7 +57,7 @@ uv run mypy                      # strict type check
 uv run lint-imports              # layer-boundary check (ADR-0003)
 uv run python scripts/generate_openapi.py   # regenerate docs/api/openapi.json (never hand-edit it)
 docker compose up -d             # app + postgres
-make start                       # dev loop: app + postgres with uvicorn --reload over src/ (foreground)
+make start                       # dev loop: app + postgres with uvicorn --reload and a live Tailwind CSS rebuild over src/ (foreground)
 uv run alembic upgrade head      # migrations
 uv run playwright install chromium   # one-time browser download for e2e
 uv run pytest tests/e2e          # e2e specs (needs `docker compose up`; excluded from `uv run pytest`)

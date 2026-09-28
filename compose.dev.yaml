@@ -11,19 +11,11 @@
 # which ADR-0002's Consequences already record as broken for the non-root runtime user.
 services:
   app:
-    # Same entrypoint as the Dockerfile's CMD, plus --reload; no `uv run` here either, for
-    # the same non-root-venv reason as production (ADR-0002).
+    # dev_start.sh runs the Dockerfile's CMD plus --reload (no `uv run`, same non-root-venv
+    # reason as production, ADR-0002) alongside a Tailwind `--watch` process that recompiles
+    # app.css on every synced template/CSS change (#63, ADR-0012 Consequences).
     command:
-      - uvicorn
-      - ai_trainer.main:app_factory
-      - --factory
-      - --host
-      - "0.0.0.0"
-      - --port
-      - "8000"
-      - --reload
-      - --reload-dir
-      - src
+      - ./scripts/dev_start.sh
     develop:
       watch:
         # Covers both Python routes and Jinja templates: both live under src/ai_trainer/.
