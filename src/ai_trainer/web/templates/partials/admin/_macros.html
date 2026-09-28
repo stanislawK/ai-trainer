@@ -76,9 +76,9 @@
 <div id="admin-toast-region" class="toast toast-top toast-center lg:toast-bottom lg:toast-end z-40"{% if oob %} hx-swap-oob="true"{% endif %}>
   <div role="status" class="alert glass-thick glass-rim relative border-0 text-[15px]">
     {% if variant == "error" %}
-    {{ icon("triangle-alert", "text-error") }}
+    {{ icon("triangle-alert", "size-5 text-error") }}
     {% else %}
-    {{ icon("circle-check", "text-success") }}
+    {{ icon("circle-check", "size-5 text-success") }}
     {% endif %}
     <span>{{ message }}</span>
     {% if undo_user_id and undo_status %}

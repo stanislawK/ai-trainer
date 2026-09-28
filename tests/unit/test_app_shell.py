@@ -206,3 +206,67 @@ def test_dock_and_menu_items_meet_the_44px_tap_target() -> None:
 
     # Every generated nav_link and the dock anchor itself carries min-h-11 (44px).
     assert response.text.count("min-h-11") >= 4
+
+
+def _nav_block(html: str, opening_marker: str, closing_tag: str) -> str:
+    start = html.index(opening_marker)
+    return html[start : html.index(closing_tag, start)]
+
+
+def test_sidebar_menu_items_center_icon_and_label_vertically() -> None:
+    """daisyUI's menu item sets `align-content: flex-start`, pinning icon and label to the top
+    of the 44px tap target; the Components Navigation mock adds `content-center` (#58)."""
+    html = _client(admin_emails=[USER_EMAIL]).get("/admin").text
+    sidebar = _nav_block(html, 'aria-label="Primary"', "</ul>")
+
+    links = sidebar.split("<a")[1:]
+    assert links
+    for link in links:
+        assert "content-center" in link.split(">")[0]
+        assert 'class="size-5"' in link
+
+
+def test_chat_menu_items_center_icon_and_label_vertically() -> None:
+    html = _client(admin_emails=[USER_EMAIL]).get("/").text
+    menu = _nav_block(html, 'id="sections-menu"', "</ul>")
+
+    links = menu.split("<a")[1:]
+    assert links
+    for link in links:
+        assert "content-center" in link.split(">")[0]
+        assert 'class="size-5"' in link
+
+
+def test_dock_icons_are_sized_so_the_label_clears_the_active_underline() -> None:
+    """An unsized SVG grew to 36.5px in a dock item and pushed the label onto daisyUI's
+    active underline; the mock's icons are 1.25rem (#58)."""
+    html = _client(admin_emails=[USER_EMAIL]).get("/admin").text
+    dock = _nav_block(html, 'class="dock lg:hidden', "</nav>")
+
+    links = dock.split("<a")[1:]
+    assert links
+    for link in links:
+        assert 'class="size-5"' in link
+
+
+def test_dock_width_yields_to_its_side_insets() -> None:
+    """daisyUI's `.dock` sets `width: 100%`, so with `inset-x-4` alone it spanned 16px→406px
+    on a 390px screen, its right end off-canvas; the mock adds `w-auto` (#58)."""
+    html = _client(admin_emails=[USER_EMAIL]).get("/admin").text
+    dock_tag = _nav_block(html, 'class="dock lg:hidden', ">")
+
+    assert "inset-x-4" in dock_tag
+    assert "w-auto" in dock_tag
+
+
+def test_dock_floats_above_the_safe_area_instead_of_padding_into_it() -> None:
+    """daisyUI's `.dock` adds `padding-bottom: env(safe-area-inset-bottom)`; inside the fixed
+    `h-16` that ate 34px on a home-indicator iPhone and put the label back on the underline.
+    The mock floats the dock 20px above the safe area, so the inset goes into the offset
+    (skeptic finding, #58 review gate)."""
+    html = _client(admin_emails=[USER_EMAIL]).get("/admin").text
+    dock_tag = _nav_block(html, 'class="dock lg:hidden', ">")
+
+    assert "pb-0" in dock_tag
+    assert "bottom-[calc(1.25rem+env(safe-area-inset-bottom))]" in dock_tag
+    assert " bottom-5 " not in dock_tag

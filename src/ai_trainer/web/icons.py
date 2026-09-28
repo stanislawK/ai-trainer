@@ -12,6 +12,7 @@ ICONS_DIR = WEB_DIR / "static" / "icons" / "lucide"
 _STROKE_WIDTH = "1.75"
 _VALID_NAME_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 _VIEW_BOX_RE = re.compile(r'viewBox="([^"]+)"')
+_KEPT_STROKE_ATTR_RE = re.compile(r'\s(stroke-line(?:cap|join))="([^"]+)"')
 _ICON_CALL_RE = re.compile(r'icon\(\s*(?:name\s*=\s*)?["\']([^"\']+)["\']')
 
 
@@ -30,6 +31,9 @@ def referenced_icon_names(templates_dir: Path) -> set[str]:
 def render_icon(name: str, css_class: str = "") -> Markup:
     """Inlines a vendored Lucide SVG, forcing the monochrome stroke look (ADR-0019).
 
+    The vendored `stroke-linecap` and `stroke-linejoin` are kept: zero-length paths such as
+    triangle-alert's dot only paint with round caps.
+
     Raises `ValueError` for a name that isn't vendored, so a typo or a missing icon fails
     the render instead of silently producing empty markup. `name` is checked against the
     kebab-case charset before it ever reaches the filesystem, so a name carrying a path
@@ -47,12 +51,17 @@ def render_icon(name: str, css_class: str = "") -> Markup:
     view_box_match = _VIEW_BOX_RE.search(source)
     assert view_box_match is not None, f"vendored icon {name!r} has no viewBox"
 
-    body_start = source.index(">", source.index("<svg")) + 1
+    svg_start = source.index("<svg")
+    body_start = source.index(">", svg_start) + 1
+    kept_attrs = "".join(
+        f' {attr}="{escape(value)}"'
+        for attr, value in _KEPT_STROKE_ATTR_RE.findall(source[svg_start:body_start])
+    )
     body_end = source.rindex("</svg>")
     inner = source[body_start:body_end].strip()
 
     return Markup(
         f'<svg viewBox="{escape(view_box_match.group(1))}" fill="none" '
-        f'stroke="currentColor" stroke-width="{_STROKE_WIDTH}" '
+        f'stroke="currentColor" stroke-width="{_STROKE_WIDTH}"{kept_attrs} '
         f'class="{escape(css_class)}" aria-hidden="true">{inner}</svg>'
     )

@@ -1,5 +1,6 @@
 """Vendored Lucide icons rendered through the `icon()` macro (ADR-0019, ticket #39)."""
 
+import re
 from pathlib import Path
 
 import pytest
@@ -96,3 +97,25 @@ def test_scanner_catches_a_keyword_argument_style_call(tmp_path: Path) -> None:
     referenced = referenced_icon_names(tmp_path)
 
     assert "not-vendored" in referenced - vendored_icon_names()
+
+
+def test_icon_keeps_the_vendored_round_line_caps_and_joins() -> None:
+    """triangle-alert's dot is the zero-length path `M12 17h.01`, which only paints with
+    `stroke-linecap="round"`; dropping the vendored caps and joins erased it (#58)."""
+    markup = _render('{% from "components/icon.html" import icon %}{{ icon("triangle-alert") }}')
+
+    assert 'stroke-linecap="round"' in markup
+    assert 'stroke-linejoin="round"' in markup
+    assert 'd="M12 17h.01"' in markup
+
+
+def test_every_icon_call_in_templates_carries_a_size_class() -> None:
+    """An unsized inline SVG collapses to 0px in a daisyUI menu and stretches to fill a dock
+    item, crowding its label; the mocks' icons default to 1.25rem (`size-5`) (#58)."""
+    unsized = []
+    for path in TEMPLATES_DIR.rglob("*.html"):
+        for call in re.findall(r"icon\((?!name, class)[^)]*\)", path.read_text()):
+            if "size-" not in call:
+                unsized.append(f"{path.relative_to(TEMPLATES_DIR)}: {call}")
+
+    assert unsized == []
