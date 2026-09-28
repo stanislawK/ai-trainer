@@ -33,7 +33,7 @@ Filled in as screens and tickets are created. The design-foundation tickets that
 
 | Screen | Claude Design file | Template | Milestone | Ticket |
 |---|---|---|---|---|
-| Sign-in | [Sign-in](https://claude.ai/design/p/a68b0219-f02b-4a26-8f38-99410521ad2d?file=Sign-in.dc.html) | `pages/auth/sign_in.html` | M0 | #43 |
+| Sign-in | [Sign In](https://claude.ai/design/p/d1ddc556-11d3-4434-8e02-9fee28f2efbb?file=Sign+In.dc.html) (design system; replaces the Screens project's `Sign-in` file) | `pages/auth/sign_in.html` | M0 | #43, #59 |
 | Status (pending / disabled) | [Status and errors](https://claude.ai/design/p/a68b0219-f02b-4a26-8f38-99410521ad2d?file=Status+and+errors.dc.html) | `pages/auth/status.html` | M0 | #44, #58 |
 | Errors (404, 500, 401, 403) | [Status and errors](https://claude.ai/design/p/a68b0219-f02b-4a26-8f38-99410521ad2d?file=Status+and+errors.dc.html) | `pages/errors/<code>.html` | M0 | #44, #58 |
 | App shell (dock, sidebar) | [Components Navigation](https://claude.ai/design/p/d1ddc556-11d3-4434-8e02-9fee28f2efbb?file=Components+Navigation.dc.html) (design system), [Chat desktop](https://claude.ai/design/p/a68b0219-f02b-4a26-8f38-99410521ad2d?file=Chat+desktop.dc.html) | `layouts/app.html` | M0 | #40, #58 |

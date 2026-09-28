@@ -104,17 +104,119 @@ def test_sign_in_page_uses_the_bare_layout_with_no_app_shell() -> None:
     assert 'aria-label="Sections"' not in response.text
 
 
-def test_sign_in_button_is_a_44px_tap_target() -> None:
+def _google_button_tag(html: str) -> str:
+    button_start = html.index('href="/auth/login"')
+    tag_start = html.rindex("<a", 0, button_start)
+    tag_end = html.index(">", button_start)
+    return html[tag_start:tag_end]
+
+
+def test_sign_in_button_is_a_44px_tap_target_at_both_sizes() -> None:
+    client = _client()
+
+    response = client.get("/sign-in")
+
+    button_classes = _google_button_tag(response.text).split()
+    assert "h-14" in button_classes
+    assert "lg:h-12" in button_classes
+
+
+def test_sign_in_page_shows_the_redesigned_headline() -> None:
+    client = _client()
+
+    response = client.get("/sign-in")
+
+    assert "Train with a coach that remembers every session." in response.text
+
+
+def test_desktop_chat_preview_is_decorative_and_desktop_only() -> None:
+    client = _client()
+
+    response = client.get("/sign-in")
+
+    preview_start = response.text.index('id="sign-in-preview-desktop"')
+    tag_start = response.text.rindex("<div", 0, preview_start)
+    preview_tag = response.text[tag_start : response.text.index(">", preview_start)]
+    assert 'aria-hidden="true"' in preview_tag
+    assert "hidden" in preview_tag.split('class="')[1].split()
+    assert "lg:flex" in preview_tag
+
+
+def test_google_button_carries_the_multicolor_g_mark_and_brand_fills() -> None:
     client = _client()
 
     response = client.get("/sign-in")
 
     button_start = response.text.index('href="/auth/login"')
-    tag_start = response.text.rindex("<a", 0, button_start)
-    tag_end = response.text.index(">", button_start)
-    button_tag = response.text[tag_start:tag_end]
+    button_end = response.text.index("</a>", button_start)
+    button_html = response.text[button_start:button_end]
+    assert 'src="/static/brand/google-g.svg"' in button_html
+    assert "Continue with Google" in button_html
+    button_classes = _google_button_tag(response.text).split()
+    # Google branding: near-black fill on the light theme, white fill on the dark theme.
+    assert "bg-[#131314]" in button_classes
+    assert "dark:bg-white" in button_classes
 
-    assert "h-12" in button_tag
+
+def test_google_g_mark_is_served_locally_in_all_four_brand_colors() -> None:
+    client = _client()
+
+    response = client.get("/static/brand/google-g.svg")
+
+    assert response.status_code == 200
+    for color in ("#EA4335", "#4285F4", "#FBBC05", "#34A853"):
+        assert color in response.text
+
+
+def test_google_button_ships_a_hidden_loading_state_and_its_script() -> None:
+    client = _client()
+
+    response = client.get("/sign-in")
+
+    button_start = response.text.index('href="/auth/login"')
+    button_html = response.text[button_start : response.text.index("</a>", button_start)]
+    assert "Opening Google…" in button_html
+    assert "loading-spinner" in button_html
+    assert 'src="/static/js/sign_in.js"' in response.text
+    assert client.get("/static/js/sign_in.js").status_code == 200
+
+
+def test_sign_in_page_has_no_alert_without_an_error() -> None:
+    client = _client()
+
+    response = client.get("/sign-in")
+
+    assert 'role="alert"' not in response.text
+
+
+def test_failed_google_sign_in_shows_the_inline_alert_above_the_button_and_keeps_the_page() -> None:
+    client = _client()
+
+    response = client.get("/sign-in?error=google")
+
+    assert response.status_code == 200
+    alert_at = response.text.index('role="alert"')
+    assert alert_at < response.text.index('href="/auth/login"')
+    assert "Google sign-in didn\u2019t finish. Try again." in response.text
+    assert "Train with a coach that remembers every session." in response.text
+    assert "approved by an admin" in response.text
+
+
+def test_failed_google_sign_in_alert_also_renders_in_the_htmx_partial() -> None:
+    client = _client()
+
+    response = client.get("/sign-in?error=google", headers={"HX-Request": "true"})
+
+    assert 'role="alert"' in response.text
+
+
+def test_an_unknown_error_value_shows_no_alert_and_is_never_echoed() -> None:
+    client = _client()
+
+    response = client.get("/sign-in?error=%3Cscript%3Eboom%3C%2Fscript%3E")
+
+    assert 'role="alert"' not in response.text
+    assert "boom" not in response.text
 
 
 def test_sign_in_with_no_session_cookie_renders_the_page_without_touching_the_repositories() -> (

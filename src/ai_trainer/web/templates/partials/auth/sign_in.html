@@ -1,24 +1,77 @@
 {% from "components/icon.html" import icon %}
-<main class="hero min-h-screen px-4" id="sign-in-content">
+<main class="relative min-h-dvh overflow-clip" id="sign-in-content">
+  <span class="absolute -right-32 -top-24 size-[360px] lg:-right-40 lg:-top-40 lg:size-[640px] rounded-full bg-primary/15 blur-3xl pointer-events-none" aria-hidden="true"></span>
   <div
-    class="hero-content w-full lg:w-[420px] flex-col text-center gap-5 lg:gap-6 glass-regular glass-rim rounded-[28px] px-6 py-8 lg:px-10 lg:py-10"
+    class="relative mx-auto flex min-h-dvh w-full max-w-[1280px] flex-col px-6 pt-[max(4rem,env(safe-area-inset-top))] pb-[max(2.5rem,env(safe-area-inset-bottom))] lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:gap-16 lg:px-24 lg:py-16"
   >
-    <span
-      class="size-16 lg:size-20 rounded-[22%] grid place-items-center text-base-content bg-[radial-gradient(120%_120%_at_22%_0%,color-mix(in_oklch,var(--color-primary)_38%,var(--color-base-100)),var(--color-base-300))] shadow-[inset_0_1px_0_color-mix(in_oklch,var(--color-neutral-content)_35%,transparent)]"
-      aria-hidden="true"
-    >{{ icon("trending-up", "size-9 lg:size-11") }}</span>
-    <div class="flex flex-col gap-2">
-      <h1 class="text-[28px]/[34px] lg:text-[34px]/[40px] font-semibold tracking-tight">ai-trainer</h1>
-      <p class="text-[16px] leading-6 text-base-content/80">
-        Log climbs, lifts and rides in plain words. Get advice that knows your training.
-      </p>
+    <div class="flex flex-1 flex-col">
+      <div class="flex items-center gap-2.5 lg:gap-3">
+        <span class="relative size-9 lg:size-10 rounded-[22%] glass-regular glass-rim grid place-items-center text-primary" aria-hidden="true">
+          {{ icon("mountain", "size-5 lg:size-6") }}
+        </span>
+        <span class="text-[17px] lg:text-[19px] font-semibold tracking-tight">ai-trainer</span>
+      </div>
+
+      <div class="flex flex-1 flex-col lg:justify-center lg:gap-10 lg:max-w-[480px]">
+        <div class="mt-10 lg:mt-0 flex flex-col gap-3 lg:gap-5">
+          <h1 class="text-[36px]/[40px] lg:text-[60px]/[64px] font-semibold tracking-[-0.03em] text-balance">Train with a coach that remembers every session.</h1>
+          <p class="text-[16px]/[23px] lg:text-[19px]/[28px] text-base-content/75 text-pretty">
+            <span class="lg:hidden">Climbing, gym and cycling in one place. Tell it what you did; it keeps the log and adjusts the plan.</span>
+            <span class="hidden lg:inline">Climbing, gym and cycling in one place. Tell it what you did in plain words; it keeps the log and adjusts next week’s plan.</span>
+          </p>
+        </div>
+
+        <div class="flex flex-1 flex-col justify-center gap-3 py-6 lg:hidden" aria-hidden="true">
+          <div class="relative glass-regular glass-rim rounded-[20px] rounded-bl-md p-3.5 flex flex-col gap-2 mr-8">
+            <div class="flex items-center gap-1.5 text-[11px] font-medium text-base-content/70">{{ icon("mountain", "size-3.5") }}Climbing · Tue</div>
+            <p class="text-[15px]/[21px]">Hades 8a on the third try. Rest tomorrow, fingerboard Thursday?</p>
+          </div>
+          <div class="self-end bg-primary/20 border border-primary/25 rounded-[20px] rounded-br-md px-3.5 py-2.5 text-[15px]/[21px] ml-12">Thursday works. Under 45 minutes.</div>
+        </div>
+
+        <div class="flex flex-col gap-3 lg:gap-4 lg:w-[340px]">
+          {% if sign_in_failed %}
+            <div role="alert" class="alert glass-regular border-0 text-[15px]">
+              {{ icon("circle-alert", "size-5 text-error") }}<span>Google sign-in didn’t finish. Try again.</span>
+            </div>
+          {% endif %}
+          <a
+            href="/auth/login"
+            data-google-sign-in
+            aria-busy="false"
+            class="btn h-14 lg:h-12 w-full rounded-full gap-3 text-[16px] font-medium shadow-sm transition-transform active:scale-[0.98] motion-reduce:transition-none bg-[#131314] text-[#e3e3e3] border-[#131314] hover:bg-[#2a2a2c] dark:bg-white dark:text-[#1f1f1f] dark:border-white dark:hover:bg-[#f2f2f2] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+          >
+            <span data-idle class="inline-flex items-center gap-3">
+              <img src="/static/brand/google-g.svg" alt="" class="size-5" width="20" height="20" />
+              <span>Continue with Google</span>
+            </span>
+            <span data-busy hidden class="inline-flex items-center gap-3">
+              <span class="loading loading-spinner loading-sm"></span>
+              <span>Opening Google…</span>
+            </span>
+          </a>
+          <p class="text-[12px]/[17px] lg:text-[13px]/[19px] text-base-content/70 text-center lg:text-left text-pretty">New here? The same button creates your account.</p>
+          <p class="text-[12px]/[17px] lg:text-[13px]/[19px] text-base-content/70 text-center lg:text-left text-pretty">
+            <span class="whitespace-nowrap">{{ icon("lock", "size-3.5 inline-block align-[-2px] mr-1") }}New</span> accounts are approved by an admin before first use.
+          </p>
+        </div>
+      </div>
     </div>
-    <a href="/auth/login" class="btn w-full h-12 bg-base-100 border-base-content/20 text-base-content gap-3 text-[16px]">
-      <span class="size-5 rounded-full border border-base-content/30 grid place-items-center text-[11px] font-bold" aria-hidden="true">G</span>
-      Continue with Google
-    </a>
-    <p class="text-[13px] text-base-content/70 flex items-start lg:items-center gap-2 text-left lg:text-center">
-      {{ icon("lock", "size-4 mt-0.5 lg:mt-0") }}<span>New accounts are approved by an admin before first use.</span>
-    </p>
+
+    <div id="sign-in-preview-desktop" class="relative hidden lg:flex flex-col justify-center gap-4 pl-6" aria-hidden="true">
+      <div class="relative glass-regular glass-rim rounded-[22px] rounded-bl-md p-4 max-w-[420px] flex flex-col gap-3">
+        <div class="flex items-center gap-2 text-[12px] font-medium text-base-content/70">{{ icon("mountain", "size-3.5") }}Climbing · Tue 16 Sep</div>
+        <p class="text-[16px]/[23px]">Hades 8a went in on the third try. That’s your hardest send this year. Rest tomorrow, then a short fingerboard block Thursday?</p>
+      </div>
+      <div class="self-end bg-primary/20 border border-primary/25 rounded-[22px] rounded-br-md px-4 py-3 max-w-[320px] text-[16px]/[23px]">Thursday works. Keep it under 45 minutes.</div>
+      <div class="relative glass-regular glass-rim rounded-[22px] rounded-bl-md p-4 max-w-[420px] flex flex-col gap-3">
+        <p class="text-[16px]/[23px]">Done. I moved Saturday’s ride to Sunday so your fingers get two full rest days before the next project session.</p>
+        <div class="grid grid-cols-3 gap-2">
+          <div class="rounded-2xl px-3 py-2 flex flex-col"><span class="text-[11px] text-base-content/70">Thu</span><span class="text-[14px] font-medium flex items-center gap-1.5">{{ icon("mountain", "size-3.5") }}45 min</span></div>
+          <div class="rounded-2xl px-3 py-2 flex flex-col"><span class="text-[11px] text-base-content/70">Fri</span><span class="text-[14px] font-medium flex items-center gap-1.5">{{ icon("dumbbell", "size-3.5") }}Legs</span></div>
+          <div class="rounded-2xl px-3 py-2 flex flex-col"><span class="text-[11px] text-base-content/70">Sun</span><span class="text-[14px] font-medium flex items-center gap-1.5">{{ icon("bike", "size-3.5") }}60 km</span></div>
+        </div>
+      </div>
+    </div>
   </div>
 </main>

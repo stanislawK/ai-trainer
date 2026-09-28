@@ -2,7 +2,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
-from authlib.integrations.base_client import MismatchingStateError
+from authlib.integrations.base_client import MismatchingStateError, OAuthError
 from fastapi import FastAPI, Request
 from fastapi.responses import RedirectResponse
 from fastapi.testclient import TestClient
@@ -151,7 +151,7 @@ async def test_second_callback_with_the_same_sub_reuses_the_user(
     assert await _count_users(db_session_factory) == 1
 
 
-async def test_callback_with_mismatched_state_is_rejected_and_creates_no_user(
+async def test_callback_with_mismatched_state_returns_to_sign_in_with_the_error_and_creates_no_user(
     db_session_factory: Callable[[], AsyncSession],
 ) -> None:
     client = _client(
@@ -161,7 +161,26 @@ async def test_callback_with_mismatched_state_is_rejected_and_creates_no_user(
 
     response = client.get("/auth/callback", follow_redirects=False)
 
-    assert response.status_code == 400
+    assert response.status_code == 303
+    assert response.headers["location"] == "/sign-in?error=google"
+    assert "session_id" not in response.cookies
+    assert await _count_users(db_session_factory) == 0
+
+
+async def test_callback_after_the_user_cancels_at_google_returns_to_sign_in_with_the_error(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    """Google sends `?error=access_denied` back when the user cancels; Authlib raises it as
+    an `OAuthError` (ticket #59)."""
+    client = _client(
+        db_session_factory,
+        oauth_client=FakeGoogleOAuthClient(error=OAuthError(error="access_denied")),
+    )
+
+    response = client.get("/auth/callback?error=access_denied", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/sign-in?error=google"
     assert await _count_users(db_session_factory) == 0
 
 

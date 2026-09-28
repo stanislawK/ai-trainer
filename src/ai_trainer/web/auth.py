@@ -4,7 +4,7 @@ from typing import Protocol
 from uuid import UUID
 
 from authlib.integrations.base_client import OAuthError
-from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi import APIRouter, Request, Response
 from fastapi.responses import RedirectResponse
 
 from ai_trainer.application.auth import sign_in_with_google, sign_out
@@ -62,8 +62,11 @@ def build_auth_router(
     async def callback(request: Request) -> RedirectResponse:
         try:
             claims = await oauth_client.authorize_access_token(request)
-        except OAuthError as exc:
-            raise HTTPException(status_code=400, detail="invalid oauth state") from exc
+        except OAuthError:
+            # A cancelled consent screen (`?error=access_denied`) and a bad or missing state
+            # both land here; the sign-in page shows its inline alert rather than an error
+            # page (ticket #59). The query value is a fixed flag, never the provider's text.
+            return RedirectResponse(url="/sign-in?error=google", status_code=303)
 
         _user, session = await sign_in_with_google(
             claims,
