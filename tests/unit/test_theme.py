@@ -147,3 +147,14 @@ def test_daisyui_theme_bundle_is_gitignored_like_daisyui_js() -> None:
     gitignore = (REPO_ROOT / ".gitignore").read_text()
 
     assert "daisyui-theme.js" in gitignore
+
+
+def test_input_css_binds_the_dark_variant_to_trainer_dark_not_the_os_preference() -> None:
+    """ADR-0019: `dark:` follows the app's theme choice. Without the binding, Tailwind's
+    default `prefers-color-scheme` variant ignores the toggle (found on ticket #59)."""
+    input_css = (STATIC_DIR / "css" / "input.css").read_text()
+
+    assert (
+        "@custom-variant dark (&:where([data-theme=trainer-dark], [data-theme=trainer-dark] *));"
+        in input_css
+    )

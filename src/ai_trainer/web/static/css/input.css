@@ -13,3 +13,5 @@
 @source "../../templates";
 @import "./theme.css";
 @import "./glass.css";
+/* `dark:` follows the app's theme choice, not the OS preference (ADR-0019). */
+@custom-variant dark (&:where([data-theme=trainer-dark], [data-theme=trainer-dark] *));

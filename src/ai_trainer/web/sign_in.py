@@ -21,6 +21,8 @@ def build_sign_in_router(
     `ActiveUserGateMiddleware` (F11), so it resolves the session itself: an already-signed-in
     `ACTIVE` user is sent to `/` instead of seeing the button again; anyone else, including a
     `pending`/`disabled` user or a missing/expired/malformed cookie, gets the sign-in page.
+    `?error=google`, set by the OAuth callback on a failed or cancelled sign-in, adds the
+    inline alert above the button (ticket #59).
     """
     router = APIRouter()
 
@@ -36,6 +38,10 @@ def build_sign_in_router(
 
         is_htmx = request.headers.get("HX-Request") == "true"
         template_name = "partials/auth/sign_in.html" if is_htmx else "pages/auth/sign_in.html"
-        return templates.TemplateResponse(request, template_name)
+        return templates.TemplateResponse(
+            request,
+            template_name,
+            {"sign_in_failed": request.query_params.get("error") == "google"},
+        )
 
     return router
