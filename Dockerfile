@@ -5,7 +5,7 @@ FROM python:3.14-slim-trixie AS css-builder
 RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
-COPY scripts/build_css.sh scripts/build_css.sh
+COPY scripts/build_css.sh scripts/css_versions.sh scripts/css_tools.sh scripts/
 COPY src/ai_trainer/web/static/css/input.css src/ai_trainer/web/static/css/input.css
 COPY src/ai_trainer/web/static/css/theme.css src/ai_trainer/web/static/css/theme.css
 COPY src/ai_trainer/web/static/css/glass.css src/ai_trainer/web/static/css/glass.css
@@ -15,6 +15,13 @@ RUN ./scripts/build_css.sh
 # ADR-0002: pin the uv binary, sync deps without the project, copy source, sync again.
 FROM python:3.14-slim-trixie
 COPY --from=ghcr.io/astral-sh/uv:0.11.28 /uv /uvx /bin/
+
+# curl is only ever invoked by scripts/watch_css.sh (#63), and only when compose.dev.yaml's
+# dev_start.sh overrides the CMD below — `make up`/production never run it, but the tool
+# still has to be in this image since watch_css.sh runs inside the running container, not
+# at build time.
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
 
 RUN groupadd --system --gid 999 nonroot \
  && useradd --system --gid 999 --uid 999 --create-home nonroot
@@ -35,6 +42,12 @@ COPY --from=css-builder /app/src/ai_trainer/web/static/css/app.css \
     src/ai_trainer/web/static/css/app.css
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked
+
+# nonroot only ever needs to write here: scripts/watch_css.sh (#63) recompiles app.css and
+# fetches the daisyUI bundles into this directory from inside the running container. -R:
+# the files already inside it (COPY'd in as root above) need to change owner too, not just
+# the directory — an open()-and-truncate on a root-owned file would still fail otherwise.
+RUN chown -R nonroot:nonroot src/ai_trainer/web/static/css
 
 ENV PATH="/app/.venv/bin:$PATH"
 

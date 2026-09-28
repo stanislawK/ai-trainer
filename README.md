@@ -81,7 +81,8 @@ It's foreground on purpose (`docker compose watch` can't run detached), so use a
 - A route's edited Python response and a fixed syntax error both show up within a few seconds — Compose Watch syncs the file, then Uvicorn's own `--reload` notices the change and restarts just the app process (not the container). A syntax error shows as a traceback in the logs; the app keeps retrying and recovers as soon as the file is valid again, no `make stop`/`make start` needed.
 - An edited Jinja template shows on the very next request, no restart at all: Jinja's environment reloads a changed template per-request on its own once the file is synced.
 - A dependency added with `uv add` needs a fresh image (Compose Watch rebuilds automatically if `uv.lock`/`pyproject.toml` change while `make start` is running, or rebuilds on the next `make start` either way).
-- `make up`, the production image and CI's e2e job never use `--reload` or `compose.dev.yaml` — this is purely a local dev loop.
+- An edited daisyUI class or a `theme.css`/`glass.css` token shows on the next page load too: alongside `uvicorn --reload`, the app container runs a Tailwind `--watch` process that recompiles `app.css` on every synced change — no `make css`, no rebuild (#63). A CSS syntax error shows in `make logs` and the last good `app.css` keeps serving until the file is fixed.
+- `make up`, the production image and CI's e2e job never use `--reload`, the CSS watcher or `compose.dev.yaml` — this is purely a local dev loop.
 
 ## End-to-end tests
 

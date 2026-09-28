@@ -49,7 +49,7 @@ up: ## Start app + postgres in the background
 up-build: ## Rebuild images, then start app + postgres
 	docker compose up -d --build
 
-start: ## Dev loop: app + postgres with uvicorn --reload over src/ (foreground; needs a 2nd terminal for make health/make logs)
+start: ## Dev loop: app + postgres with uvicorn --reload and a live Tailwind CSS rebuild over src/ (foreground; needs a 2nd terminal for make health/make logs)
 	docker compose -f compose.yaml -f compose.dev.yaml watch
 
 stop: ## Stop the make start stack (keeps the postgres volume)

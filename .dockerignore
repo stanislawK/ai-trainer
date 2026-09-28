@@ -13,5 +13,9 @@ docs
 tests
 scripts
 !scripts/build_css.sh
+!scripts/css_versions.sh
+!scripts/css_tools.sh
+!scripts/watch_css.sh
+!scripts/dev_start.sh
 .claude
 *.md
