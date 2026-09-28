@@ -6,9 +6,9 @@
 {% macro nav_link(section) -%}
 <a
   href="{{ section.href }}"
-  class="min-h-11 gap-3{% if section.href == current_path %} menu-active{% endif %}"
+  class="min-h-11 gap-3 content-center{% if section.href == current_path %} menu-active{% endif %}"
   {%- if section.href == current_path %} aria-current="page"{% endif %}
->{{ icon(section.icon) }}{{ section.label }}</a>
+>{{ icon(section.icon, "size-5") }}{{ section.label }}</a>
 {%- endmacro %}
 
 {% block content %}
@@ -58,7 +58,7 @@
         aria-expanded="false"
         aria-controls="sections-menu"
         data-sections-trigger
-      >{{ icon("menu") }}</button>
+      >{{ icon("menu", "size-5") }}</button>
       <span class="text-[17px] font-semibold">{% block chat_title %}Chat{% endblock %}</span>
       <span class="size-11" aria-hidden="true"></span>
     </header>
@@ -80,15 +80,15 @@
 
     {% if variant != "chat" %}
     <nav
-      class="dock lg:hidden fixed bottom-5 inset-x-4 h-16 rounded-full glass-thick glass-rim px-2 z-20"
+      class="dock lg:hidden fixed bottom-[calc(1.25rem+env(safe-area-inset-bottom))] inset-x-4 w-auto h-16 pb-0 rounded-full glass-thick glass-rim px-2 z-20"
       aria-label="Sections"
     >
       {% for section in nav_sections %}
       <a
         href="{{ section.href }}"
-        class="min-h-11{% if section.href == current_path %} dock-active text-primary{% endif %}"
+        class="min-h-11{% if section.href == current_path %} text-primary{% endif %}"
         {%- if section.href == current_path %} aria-current="page"{% endif %}
-      >{{ icon(section.icon) }}<span class="dock-label">{{ section.label }}</span></a>
+      >{{ icon(section.icon, "size-5") }}<span class="dock-label">{{ section.label }}</span></a>
       {% endfor %}
     </nav>
     {% endif %}
