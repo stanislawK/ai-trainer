@@ -104,7 +104,7 @@ def create_app(settings: Settings) -> FastAPI:
             templates=templates, users=users, sessions=sessions, status_changer=status_changer
         )
     )
-    app.include_router(build_settings_router(templates))
+    app.include_router(build_settings_router(templates, users=users))
     app.include_router(
         build_sign_in_router(templates=templates, users=users, sessions=sessions, clock=clock)
     )

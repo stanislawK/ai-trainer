@@ -40,6 +40,11 @@ class FakeUsersRepository:
     async def list_all(self) -> list[User]:
         raise NotImplementedError
 
+    async def delete(self, user_id: UUID) -> None:
+        sub = next((s for s, user in self.users.items() if user.id == user_id), None)
+        if sub is not None:
+            del self.users[sub]
+
 
 class FakeSessionsRepository:
     def __init__(self) -> None:
@@ -250,3 +255,32 @@ async def test_resolve_authenticated_user_returns_none_when_the_user_no_longer_e
     )
 
     assert resolved is None
+
+
+async def test_signing_in_again_after_deletion_creates_a_fresh_pending_account() -> None:
+    """G7: a deleted user signing in again with the same Google account is a brand new
+    account, not a resurrection of the old one — same `sub`, a new `id`, `pending` again."""
+    users = FakeUsersRepository()
+    sessions = FakeSessionsRepository()
+    first_user, _ = await sign_in_with_google(
+        _claims(),
+        admin_emails=ADMIN_EMAILS,
+        session_ttl=SESSION_TTL,
+        users=users,
+        sessions=sessions,
+        clock=FakeClock(),
+    )
+    await users.delete(first_user.id)
+
+    second_user, _ = await sign_in_with_google(
+        _claims(),
+        admin_emails=ADMIN_EMAILS,
+        session_ttl=SESSION_TTL,
+        users=users,
+        sessions=sessions,
+        clock=FakeClock(),
+    )
+
+    assert second_user.id != first_user.id
+    assert second_user.sub == first_user.sub
+    assert second_user.status is UserStatus.PENDING
