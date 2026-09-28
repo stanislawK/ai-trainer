@@ -1,6 +1,6 @@
 .PHONY: install css test test-unit test-integration coverage lint format format-check \
-	typecheck import-lint openapi openapi-check check up up-build down logs ps health migrate \
-	evals e2e-install e2e
+	typecheck import-lint openapi openapi-check check up up-build start stop down logs ps \
+	health migrate evals e2e-install e2e
 
 install: ## Install dependencies (uv sync)
 	uv sync
@@ -48,6 +48,12 @@ up: ## Start app + postgres in the background
 
 up-build: ## Rebuild images, then start app + postgres
 	docker compose up -d --build
+
+start: ## Dev loop: app + postgres with uvicorn --reload over src/ (foreground; needs a 2nd terminal for make health/make logs)
+	docker compose -f compose.yaml -f compose.dev.yaml watch
+
+stop: ## Stop the make start stack (keeps the postgres volume)
+	docker compose -f compose.yaml -f compose.dev.yaml down
 
 down: ## Stop and remove the stack (keeps the postgres volume)
 	docker compose down

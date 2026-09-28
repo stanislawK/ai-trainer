@@ -45,6 +45,8 @@ Run `make` targets from the repo root; see the [Makefile](Makefile) for the comp
 |---|---|
 | `make up` | Start app + postgres (background) |
 | `make up-build` | Rebuild images, then start |
+| `make start` | Dev loop: app + postgres with live reload (foreground) — see "Dev loop" below |
+| `make stop` | Stop the `make start` stack (keeps the postgres volume) |
 | `make down` | Stop the stack (keeps the postgres volume) |
 | `make logs` | Follow container logs |
 | `make ps` | Show container + healthcheck status |
@@ -65,6 +67,21 @@ Run `make` targets from the repo root; see the [Makefile](Makefile) for the comp
 | `make evals template=<id>` | Run a prompt template's eval dataset (ADR-0009) — costs money, no default CI job runs it |
 
 `test`, `test-integration`, `coverage` and `e2e` run `make migrate` first, so the `vector` extension always exists before the suite runs. `make evals` takes an optional `version=` and `model=` to override the template version or the model under test; it needs `EVAL_JUDGE_MODEL` set in `.env` (ADR-0009) and a dataset at `evals/datasets/<id>.yaml`, which the first M1 specialist template ships.
+
+## Dev loop
+
+`make start` runs `docker compose watch` (`compose.yaml` plus the dev-only `compose.dev.yaml`) instead of `make up`'s plain `docker compose up -d --build`: same app + Postgres, but the app container runs `uvicorn --reload` and Compose Watch syncs edited files under `src/` straight into the running container — no image rebuild, no manual restart.
+
+```bash
+make start   # foreground: builds, starts, then streams logs + sync/rebuild events
+```
+
+It's foreground on purpose (`docker compose watch` can't run detached), so use a second terminal for `make health`, `make logs` or `make ps` while it's running. `make stop` stops it (keeps the Postgres volume, same as `make down`).
+
+- A route's edited Python response and a fixed syntax error both show up within a few seconds — Compose Watch syncs the file, then Uvicorn's own `--reload` notices the change and restarts just the app process (not the container). A syntax error shows as a traceback in the logs; the app keeps retrying and recovers as soon as the file is valid again, no `make stop`/`make start` needed.
+- An edited Jinja template shows on the very next request, no restart at all: Jinja's environment reloads a changed template per-request on its own once the file is synced.
+- A dependency added with `uv add` needs a fresh image (Compose Watch rebuilds automatically if `uv.lock`/`pyproject.toml` change while `make start` is running, or rebuilds on the next `make start` either way).
+- `make up`, the production image and CI's e2e job never use `--reload` or `compose.dev.yaml` — this is purely a local dev loop.
 
 ## End-to-end tests
 

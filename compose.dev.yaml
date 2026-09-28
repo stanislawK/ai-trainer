@@ -1,0 +1,45 @@
+# Dev-only overlay for `make start`/`make stop` (ticket #62). Named compose.dev.yaml, not
+# compose.override.yaml: Compose auto-loads the latter for every bare `docker compose …`
+# invocation, which would silently turn on --reload for `make up`, `make up-build` and CI's
+# e2e job too. This file is only ever applied explicitly, with `-f compose.yaml -f
+# compose.dev.yaml`, so those stay on the plain production image and command (ADR-0002).
+#
+# Uses Compose Watch (`develop.watch`), not a bind mount, for src/: Watch's `sync` action
+# tar-copies changed files into the running container using the host's own file watcher,
+# which sidesteps the bind-mount/inotify unreliability that macOS Docker Desktop is known
+# for — a bind mount would also need `uv run` at startup to pick up dependency changes,
+# which ADR-0002's Consequences already record as broken for the non-root runtime user.
+services:
+  app:
+    # Same entrypoint as the Dockerfile's CMD, plus --reload; no `uv run` here either, for
+    # the same non-root-venv reason as production (ADR-0002).
+    command:
+      - uvicorn
+      - ai_trainer.main:app_factory
+      - --factory
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8000"
+      - --reload
+      - --reload-dir
+      - src
+    develop:
+      watch:
+        # Covers both Python routes and Jinja templates: both live under src/ai_trainer/.
+        # No `watchfiles` package is locked, so Uvicorn's fallback reloader only polls *.py
+        # mtimes — a template-only change never restarts the process; Jinja's own
+        # auto_reload (the jinja2.Environment default, never overridden in templating.py)
+        # picks up the edited template on the next request instead.
+        - action: sync
+          path: ./src
+          target: /app/src
+          ignore:
+            - "**/__pycache__"
+            - "*.pyc"
+        # A dependency change needs a fresh image (`uv sync --locked` runs at build time,
+        # ADR-0002), so rebuild rather than sync when either file changes.
+        - action: rebuild
+          path: ./uv.lock
+        - action: rebuild
+          path: ./pyproject.toml
