@@ -2,7 +2,7 @@ from collections.abc import Sequence
 
 from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
-from starlette.responses import Response
+from starlette.responses import RedirectResponse, Response
 from starlette.templating import Jinja2Templates
 from starlette.types import ASGIApp
 
@@ -29,6 +29,13 @@ def _is_exempt(path: str) -> bool:
     # that chance.
     canonical = path.rstrip("/") or "/"
     return canonical in _EXEMPT_PATHS or path.startswith(_EXEMPT_PREFIXES)
+
+
+_SIGN_IN_PATH = "/sign-in"
+
+
+def _is_home(path: str) -> bool:
+    return (path.rstrip("/") or "/") == "/"
 
 
 class ActiveUserGateMiddleware(BaseHTTPMiddleware):
@@ -61,7 +68,17 @@ class ActiveUserGateMiddleware(BaseHTTPMiddleware):
         if _is_exempt(request.url.path):
             return await call_next(request)
 
-        session_id = parse_session_id(request.cookies.get(SESSION_COOKIE_NAME))
+        raw_session_id = request.cookies.get(SESSION_COOKIE_NAME)
+        is_htmx = request.headers.get("HX-Request") == "true"
+        if not raw_session_id and _is_home(request.url.path):
+            # A first visit has no cookie and nothing to explain, so it goes to sign-in (F11).
+            # A cookie that no longer resolves still gets the 401 page below, so the athlete
+            # learns why. htmx ignores headers on a 3xx, hence `HX-Redirect` on a 200.
+            if is_htmx:
+                return Response(status_code=200, headers={"HX-Redirect": _SIGN_IN_PATH})
+            return RedirectResponse(url=_SIGN_IN_PATH, status_code=303)
+
+        session_id = parse_session_id(raw_session_id)
         user = (
             None
             if session_id is None
@@ -69,7 +86,6 @@ class ActiveUserGateMiddleware(BaseHTTPMiddleware):
                 session_id, sessions=self._sessions, users=self._users, clock=self._clock
             )
         )
-        is_htmx = request.headers.get("HX-Request") == "true"
         if user is None:
             template_name = "partials/errors/401.html" if is_htmx else "pages/errors/401.html"
             return self._templates.TemplateResponse(request, template_name, status_code=401)

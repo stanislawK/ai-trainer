@@ -171,16 +171,123 @@ async def test_disabling_an_active_user_mid_session_blocks_their_next_request(
     assert "This account is paused" in blocked.text
 
 
-async def test_an_unauthenticated_request_to_the_home_route_is_refused(
+async def test_an_anonymous_visit_to_the_home_route_redirects_to_sign_in(
     db_session_factory: Callable[[], AsyncSession],
 ) -> None:
     users = SqlAlchemyUsersRepository(db_session_factory)
     sessions = SqlAlchemySessionsRepository(db_session_factory)
     client = _client(db_session_factory, users=users, sessions=sessions)
 
-    response = client.get("/")
+    response = client.get("/", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/sign-in"
+
+
+async def test_an_anonymous_htmx_request_to_the_home_route_gets_an_hx_redirect_to_sign_in(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    users = SqlAlchemyUsersRepository(db_session_factory)
+    sessions = SqlAlchemySessionsRepository(db_session_factory)
+    client = _client(db_session_factory, users=users, sessions=sessions)
+
+    response = client.get("/", headers={"HX-Request": "true"}, follow_redirects=False)
+
+    assert response.status_code == 200
+    assert response.headers["hx-redirect"] == "/sign-in"
+
+
+async def test_a_revoked_session_cookie_on_the_home_route_still_gets_the_401_page(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    users = SqlAlchemyUsersRepository(db_session_factory)
+    sessions = SqlAlchemySessionsRepository(db_session_factory)
+    user = await users.create(
+        NewUser(sub="sub-7", email="g@example.com", name="G", locale="en", status=UserStatus.ACTIVE)
+    )
+    session = await sessions.create(
+        NewSession(user_id=user.id, expires_at=FROZEN_NOW + timedelta(days=1))
+    )
+    await sessions.delete(session.id)
+    client = _client(db_session_factory, users=users, sessions=sessions)
+    client.cookies.set(SESSION_COOKIE_NAME, str(session.id))
+
+    response = client.get("/", follow_redirects=False)
 
     assert response.status_code == 401
+
+
+async def test_an_expired_session_cookie_on_the_home_route_still_gets_the_401_page(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    users = SqlAlchemyUsersRepository(db_session_factory)
+    sessions = SqlAlchemySessionsRepository(db_session_factory)
+    user = await users.create(
+        NewUser(sub="sub-8", email="h@example.com", name="H", locale="en", status=UserStatus.ACTIVE)
+    )
+    session = await sessions.create(
+        NewSession(user_id=user.id, expires_at=FROZEN_NOW - timedelta(minutes=1))
+    )
+    client = _client(db_session_factory, users=users, sessions=sessions)
+    client.cookies.set(SESSION_COOKIE_NAME, str(session.id))
+
+    response = client.get("/", follow_redirects=False)
+
+    assert response.status_code == 401
+
+
+async def test_a_malformed_session_cookie_on_the_home_route_still_gets_the_401_page(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    users = SqlAlchemyUsersRepository(db_session_factory)
+    sessions = SqlAlchemySessionsRepository(db_session_factory)
+    client = _client(db_session_factory, users=users, sessions=sessions)
+    client.cookies.set(SESSION_COOKIE_NAME, "not-a-uuid")
+
+    response = client.get("/", follow_redirects=False)
+
+    assert response.status_code == 401
+
+
+async def test_an_empty_session_cookie_on_the_home_route_is_treated_as_anonymous(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    users = SqlAlchemyUsersRepository(db_session_factory)
+    sessions = SqlAlchemySessionsRepository(db_session_factory)
+    client = _client(db_session_factory, users=users, sessions=sessions)
+    client.cookies.set(SESSION_COOKIE_NAME, "")
+
+    response = client.get("/", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/sign-in"
+
+
+async def test_an_anonymous_request_to_another_gated_route_still_gets_the_401_page(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    users = SqlAlchemyUsersRepository(db_session_factory)
+    sessions = SqlAlchemySessionsRepository(db_session_factory)
+    client = _client(db_session_factory, users=users, sessions=sessions)
+
+    response = client.get("/settings", follow_redirects=False)
+
+    assert response.status_code == 401
+    assert "sign-in" in response.text
+
+
+async def test_sign_in_never_redirects_to_itself_for_an_anonymous_visitor(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    users = SqlAlchemyUsersRepository(db_session_factory)
+    sessions = SqlAlchemySessionsRepository(db_session_factory)
+    client = _client(db_session_factory, users=users, sessions=sessions)
+
+    response = client.get("/sign-in", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert "location" not in response.headers
+    assert "hx-redirect" not in response.headers
 
 
 async def test_health_stays_reachable_for_a_pending_user_and_with_no_cookie_at_all(
