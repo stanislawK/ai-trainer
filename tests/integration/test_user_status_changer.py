@@ -80,3 +80,28 @@ async def test_change_with_no_match_raises_user_not_found(
         )
 
     assert excinfo.value.user_id == missing_id
+
+
+async def test_change_to_the_current_status_writes_no_audit_row(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    """A stale caller (e.g. two overlapping sign-ins that both read `disabled`) must not record
+    an `active` -> `active` change (ADR-0005 invariant 9, ticket #70 skeptic finding)."""
+    users = SqlAlchemyUsersRepository(db_session_factory)
+    changer = SqlAlchemyUserStatusChanger(db_session_factory)
+    target_id = await _create_user(users, sub="changer-target-3", status=UserStatus.ACTIVE)
+    actor_id = await _create_user(users, sub="changer-actor-3")
+
+    updated, previous_status = await changer.change(
+        target_user_id=target_id, new_status=UserStatus.ACTIVE, actor_user_id=actor_id
+    )
+
+    assert updated.status is UserStatus.ACTIVE
+    assert previous_status is UserStatus.ACTIVE
+    async with db_session_factory() as session:
+        rows = list(
+            await session.scalars(
+                select(UserStatusChangeOrm).where(UserStatusChangeOrm.target_user_id == target_id)
+            )
+        )
+    assert rows == []

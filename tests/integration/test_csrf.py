@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai_trainer.adapters.sessions_repository import SqlAlchemySessionsRepository
+from ai_trainer.adapters.user_status_changer import SqlAlchemyUserStatusChanger
 from ai_trainer.adapters.users_repository import SqlAlchemyUsersRepository
 from ai_trainer.domain.sessions import NewSession
 from ai_trainer.domain.users import GoogleClaims, NewUser, UserStatus
@@ -61,6 +62,7 @@ def _client(
             oauth_client=_UnusedOAuthClient(),
             users=users,
             sessions=sessions,
+            status_changer=SqlAlchemyUserStatusChanger(session_factory),
             clock=FakeClock(),
             admin_emails=[],
             session_ttl=timedelta(days=14),
