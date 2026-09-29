@@ -12,6 +12,7 @@ class LlmCallOutcome(StrEnum):
     SUCCESS = "success"
     TIMEOUT = "timeout"
     ERROR = "error"
+    CANCELLED = "cancelled"
 
 
 class NewLlmCall(BaseModel):

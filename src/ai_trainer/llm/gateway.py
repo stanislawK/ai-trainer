@@ -1,5 +1,7 @@
 import asyncio
 import time
+from collections.abc import AsyncGenerator
+from dataclasses import dataclass
 from decimal import Decimal
 from uuid import UUID
 
@@ -8,14 +10,34 @@ from pydantic_ai import Agent, ModelMessage, ModelResponse
 from pydantic_ai.models.openrouter import OpenRouterModel, OpenRouterModelSettings
 from pydantic_ai.models.test import TestModel
 from pydantic_ai.providers.openrouter import OpenRouterProvider
+from pydantic_ai.result import StreamedRunResult
 
 from ai_trainer.application.ports.llm_calls import LlmCallsRepositoryPort
-from ai_trainer.application.ports.llm_gateway import LlmGatewayResult
+from ai_trainer.application.ports.llm_gateway import (
+    LlmGatewayResult,
+    LlmStreamEvent,
+    StreamEnd,
+    TextChunk,
+)
 from ai_trainer.domain.llm_calls import LlmCallOutcome, NewLlmCall
 from ai_trainer.settings import Settings
 
 TIMEOUT_MESSAGE = "The AI assistant is taking too long to respond. Please try again in a moment."
 ERROR_MESSAGE = "Something went wrong talking to the AI assistant. Please try again."
+
+
+class _Done:
+    """Marks a stream that ended normally."""
+
+
+_DONE = _Done()
+
+
+@dataclass
+class _StreamState:
+    """The producer's run, shared so usage can be read however the stream ends."""
+
+    streamed: StreamedRunResult[None, str] | None = None
 
 
 class OpenRouterGateway:
@@ -97,6 +119,105 @@ class OpenRouterGateway:
         return LlmGatewayResult(
             output=result.output, friendly_error=None, outcome=LlmCallOutcome.SUCCESS
         )
+
+    async def stream(
+        self,
+        *,
+        user_id: UUID,
+        template_id: str,
+        template_version: int,
+        model_id: str,
+        instructions: str,
+        prompt: str,
+    ) -> AsyncGenerator[LlmStreamEvent]:
+        """Streams a text reply; writes exactly one `llm_calls` row however the stream ends.
+
+        A producer task owns the model stream and feeds a queue; this generator only reads the
+        queue. Pydantic AI's stream holds an anyio cancel scope that must be entered and left in
+        one task, so keeping it out of the generator makes an abandoned or cancelled consumer
+        safe to finalise from any task.
+
+        The timeout applies to each wait on the model (the first response, then each chunk), not
+        to the whole reply, so a long answer that keeps flowing is never cut off and time the
+        consumer spends between chunks never counts against it.
+        """
+        started = time.monotonic()
+        queue: asyncio.Queue[str | Exception | _Done] = asyncio.Queue()
+        state = _StreamState()
+        producer = asyncio.create_task(self._pump(queue, state, model_id, instructions, prompt))
+        # Stays `CANCELLED` only if the consumer closes the generator at a `yield`.
+        outcome = LlmCallOutcome.CANCELLED
+        parts: list[str] = []
+        friendly_error: str | None = None
+
+        try:
+            while True:
+                try:
+                    item = await asyncio.wait_for(queue.get(), timeout=self._timeout_seconds)
+                except TimeoutError:
+                    outcome, friendly_error = LlmCallOutcome.TIMEOUT, TIMEOUT_MESSAGE
+                    break
+                if isinstance(item, Exception):
+                    # Every model/provider failure becomes a friendly message, never a stack
+                    # trace (ADR-0007).
+                    outcome, friendly_error = LlmCallOutcome.ERROR, ERROR_MESSAGE
+                    break
+                if isinstance(item, _Done):
+                    outcome = LlmCallOutcome.SUCCESS
+                    break
+                parts.append(item)
+                yield TextChunk(item)
+        finally:
+            producer.cancel()
+            await asyncio.gather(producer, return_exceptions=True)
+            input_tokens = output_tokens = 0
+            cost: Decimal | None = None
+            if state.streamed is not None:
+                input_tokens = state.streamed.usage.input_tokens
+                output_tokens = state.streamed.usage.output_tokens
+                cost = _sum_cost(state.streamed.all_messages())
+            await self._record(
+                user_id,
+                template_id,
+                template_version,
+                model_id,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                cost=cost,
+                latency_ms=_elapsed_ms(started),
+                outcome=outcome,
+            )
+
+        output = "".join(parts) if outcome is LlmCallOutcome.SUCCESS else None
+        yield StreamEnd(
+            LlmGatewayResult(output=output, friendly_error=friendly_error, outcome=outcome)
+        )
+
+    async def _pump(
+        self,
+        queue: asyncio.Queue[str | Exception | _Done],
+        state: _StreamState,
+        model_id: str,
+        instructions: str,
+        prompt: str,
+    ) -> None:
+        model = OpenRouterModel(model_id, provider=self._provider)
+        model_settings = OpenRouterModelSettings(openrouter_cache_instructions=True)
+        try:
+            async with self.agent.run_stream(
+                prompt,
+                model=model,
+                output_type=str,
+                instructions=instructions,
+                model_settings=model_settings,
+            ) as streamed:
+                state.streamed = streamed
+                async for text in streamed.stream_text(delta=True, debounce_by=None):
+                    await queue.put(text)
+        except Exception as exc:
+            await queue.put(exc)
+            return
+        await queue.put(_DONE)
 
     async def _record(
         self,

@@ -1,3 +1,4 @@
+from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 from typing import Protocol
 from uuid import UUID
@@ -8,12 +9,27 @@ from ai_trainer.domain.llm_calls import LlmCallOutcome
 
 
 @dataclass(frozen=True, slots=True)
-class LlmGatewayResult[OutputT: BaseModel]:
+class LlmGatewayResult[OutputT]:
     """Never raises for a model/provider failure: `output` or `friendly_error` is set (ADR-0007)."""
 
     output: OutputT | None
     friendly_error: str | None
     outcome: LlmCallOutcome
+
+
+@dataclass(frozen=True, slots=True)
+class TextChunk:
+    text: str
+
+
+@dataclass(frozen=True, slots=True)
+class StreamEnd:
+    """Always the last event of a stream that runs to its end; `output` is the full reply text."""
+
+    result: LlmGatewayResult[str]
+
+
+type LlmStreamEvent = TextChunk | StreamEnd
 
 
 class LlmGatewayPort(Protocol):
@@ -30,3 +46,21 @@ class LlmGatewayPort(Protocol):
         instructions: str,
         prompt: str,
     ) -> LlmGatewayResult[OutputT]: ...
+
+    def stream(
+        self,
+        *,
+        user_id: UUID,
+        template_id: str,
+        template_version: int,
+        model_id: str,
+        instructions: str,
+        prompt: str,
+    ) -> AsyncGenerator[LlmStreamEvent]:
+        """Yields `TextChunk`s, then one `StreamEnd`; never raises for a model/provider failure.
+
+        A consumer that stops early should close the stream (`contextlib.aclosing`) so the call's
+        row is written promptly, as `cancelled`; it then gets no `StreamEnd`. After a timeout or
+        error `StreamEnd.result.output` is `None`, even if chunks were already yielded.
+        """
+        ...
