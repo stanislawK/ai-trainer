@@ -256,3 +256,13 @@ async def test_instrumented_agent_run_names_the_model_and_excludes_content() -> 
     for span in spans:
         serialized = repr(dict(span.attributes or {}))
         assert secret_prompt not in serialized
+
+
+def test_create_app_exposes_the_default_sport_registry() -> None:
+    app = create_app(_settings())
+
+    assert [plugin.id for plugin in app.state.sport_registry.all()] == [
+        "climbing",
+        "gym",
+        "cycling",
+    ]

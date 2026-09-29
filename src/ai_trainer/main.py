@@ -23,6 +23,7 @@ from ai_trainer.adapters.health import PsycopgDatabaseHealth
 from ai_trainer.adapters.sessions_repository import SqlAlchemySessionsRepository
 from ai_trainer.adapters.user_status_changer import SqlAlchemyUserStatusChanger
 from ai_trainer.adapters.users_repository import SqlAlchemyUsersRepository
+from ai_trainer.domain.sports.registry import default_sport_registry
 from ai_trainer.settings import Settings
 from ai_trainer.web.active_user_gate import ActiveUserGateMiddleware
 from ai_trainer.web.admin import build_admin_router
@@ -60,6 +61,7 @@ def create_app(settings: Settings) -> FastAPI:
 
     app = FastAPI(title="ai-trainer", lifespan=lifespan)
     app.state.settings = settings
+    app.state.sport_registry = default_sport_registry()
     # Signs Authlib's transient OAuth-state cookie only; distinct from the app's own
     # PostgreSQL-backed session cookie set by the auth router (ADR-0005).
     app.add_middleware(
