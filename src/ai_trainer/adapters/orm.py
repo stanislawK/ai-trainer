@@ -26,6 +26,8 @@ class UserOrm(Base):
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now()
     )
+    # timestamptz, UTC; null until onboarding finishes (ADR-0006).
+    onboarded_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
 
 
 class SessionOrm(Base):
@@ -59,6 +61,23 @@ class UserStatusChangeOrm(Base):
     )
     old_status: Mapped[str] = mapped_column(nullable=False)
     new_status: Mapped[str] = mapped_column(nullable=False)
+    # timestamptz, UTC (ADR-0004 invariant 5).
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now()
+    )
+
+
+class UserSportOrm(Base):
+    """One row per sport the athlete trains (ADR-0006). `sport_id` is a `SportRegistry` ID
+    stored as text and validated in the application layer, never a database enum, so a new
+    sport needs no migration."""
+
+    __tablename__ = "user_sports"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    sport_id: Mapped[str] = mapped_column(primary_key=True)
     # timestamptz, UTC (ADR-0004 invariant 5).
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now()

@@ -1,0 +1,29 @@
+{% from "components/icon.html" import icon %}
+{#- The frame every onboarding step shares: back control, segmented progress, title and lede.
+    `back_href` is empty on the first step, which keeps the control's space but hides it. -#}
+{% macro header(step, title, lede, back_href="", total=4) -%}
+<div class="flex items-center gap-3">
+  {% if back_href %}
+  <a href="{{ back_href }}" class="btn btn-circle btn-ghost lg:hidden" aria-label="Back">{{ icon("chevron-left", "size-5") }}</a>
+  {% else %}
+  <span class="btn btn-circle btn-ghost invisible lg:hidden" aria-hidden="true"></span>
+  {% endif %}
+  <div
+    class="flex-1 flex gap-1.5"
+    role="progressbar"
+    aria-valuemin="1"
+    aria-valuemax="{{ total }}"
+    aria-valuenow="{{ step }}"
+    aria-label="Step {{ step }} of {{ total }}"
+  >
+    {% for n in range(1, total + 1) %}
+    <span class="h-1.5 flex-1 rounded-full {{ 'bg-primary' if n <= step else 'bg-base-content/20' }}"></span>
+    {% endfor %}
+  </div>
+  <span class="text-[13px] text-base-content/70 tabular-nums w-11 text-right">{{ step }} / {{ total }}</span>
+</div>
+<div class="flex flex-col gap-2 px-1">
+  <h1 class="text-[28px]/[34px] font-semibold tracking-tight">{{ title }}</h1>
+  <p class="text-[16px] leading-6 text-base-content/80">{{ lede }}</p>
+</div>
+{%- endmacro %}

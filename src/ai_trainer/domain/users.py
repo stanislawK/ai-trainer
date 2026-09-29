@@ -65,6 +65,9 @@ class User(NewUser):
 
     id: UUID
     created_at: datetime
+    # Null until onboarding finishes; an `active` user without it is sent to onboarding
+    # (ADR-0006).
+    onboarded_at: datetime | None = None
 
 
 class UserAlreadyExistsError(Exception):

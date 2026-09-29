@@ -18,6 +18,7 @@ def _to_domain(row: UserOrm) -> User:
         locale=row.locale,
         status=UserStatus(row.status),
         created_at=row.created_at,
+        onboarded_at=row.onboarded_at,
     )
 
 

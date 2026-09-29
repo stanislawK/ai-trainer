@@ -1,6 +1,7 @@
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
+import pytest
 from fastapi import FastAPI, Request
 from fastapi.responses import PlainTextResponse
 from fastapi.testclient import TestClient
@@ -56,7 +57,7 @@ class FakeSessionsRepository:
         raise NotImplementedError
 
 
-def _user(status: UserStatus) -> User:
+def _user(status: UserStatus, *, onboarded: bool = True) -> User:
     return User(
         id=uuid4(),
         sub="google-sub-1",
@@ -65,6 +66,7 @@ def _user(status: UserStatus) -> User:
         locale="en",
         status=status,
         created_at=FROZEN_NOW,
+        onboarded_at=FROZEN_NOW if onboarded else None,
     )
 
 
@@ -92,6 +94,34 @@ def _client(
     @app.get("/health")
     async def health() -> PlainTextResponse:
         return PlainTextResponse("ok")
+
+    @app.get("/")
+    async def home() -> PlainTextResponse:
+        return PlainTextResponse("home")
+
+    @app.get("/settings")
+    async def settings_probe() -> PlainTextResponse:
+        return PlainTextResponse("settings")
+
+    @app.post("/settings/delete-account")
+    async def delete_probe() -> PlainTextResponse:
+        return PlainTextResponse("deleted")
+
+    @app.get("/admin")
+    async def admin_probe() -> PlainTextResponse:
+        return PlainTextResponse("admin")
+
+    @app.get("/admin/users")
+    async def admin_users_probe() -> PlainTextResponse:
+        return PlainTextResponse("admin users")
+
+    @app.post("/auth/logout")
+    async def logout_probe() -> PlainTextResponse:
+        return PlainTextResponse("logged out")
+
+    @app.get("/onboarding/sports")
+    async def onboarding_probe() -> PlainTextResponse:
+        return PlainTextResponse("sports step")
 
     @app.get("/is-admin")
     async def is_admin_probe(request: Request) -> PlainTextResponse:
@@ -328,3 +358,84 @@ def test_pending_user_status_screen_is_an_htmx_partial_for_an_hx_request() -> No
 
     assert response.status_code == 200
     assert "<html" not in response.text
+
+
+def _not_onboarded_client() -> TestClient:
+    user = _user(UserStatus.ACTIVE, onboarded=False)
+    session = _session(user)
+    client = _client(users=FakeUsersRepository(user), sessions=FakeSessionsRepository(session))
+    client.cookies.set(SESSION_COOKIE_NAME, str(session.id))
+    return client
+
+
+def test_active_user_without_onboarded_at_opening_home_lands_on_the_sports_step() -> None:
+    client = _not_onboarded_client()
+
+    response = client.get("/", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/onboarding/sports"
+
+
+def test_active_user_without_onboarded_at_is_redirected_from_a_feature_route() -> None:
+    client = _not_onboarded_client()
+
+    response = client.get("/protected", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/onboarding/sports"
+
+
+def test_not_onboarded_htmx_request_is_redirected_with_hx_redirect() -> None:
+    client = _not_onboarded_client()
+
+    response = client.get("/protected", headers={"HX-Request": "true"})
+
+    assert response.status_code == 200
+    assert response.headers["HX-Redirect"] == "/onboarding/sports"
+
+
+def test_onboarded_user_is_not_redirected_to_onboarding() -> None:
+    user = _user(UserStatus.ACTIVE)
+    session = _session(user)
+    client = _client(users=FakeUsersRepository(user), sessions=FakeSessionsRepository(session))
+    client.cookies.set(SESSION_COOKIE_NAME, str(session.id))
+
+    response = client.get("/", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert response.text == "home"
+
+
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [
+        ("GET", "/settings"),
+        ("POST", "/settings/delete-account"),
+        ("GET", "/admin"),
+        ("GET", "/admin/users"),
+        ("POST", "/auth/logout"),
+        ("GET", "/onboarding/sports"),
+        ("GET", "/health"),
+    ],
+)
+def test_not_onboarded_user_still_reaches_settings_admin_sign_out_and_onboarding(
+    method: str, path: str
+) -> None:
+    client = _not_onboarded_client()
+
+    response = client.request(method, path, follow_redirects=False)
+
+    assert response.status_code == 200
+
+
+def test_pending_user_still_sees_the_status_screen_not_the_onboarding_redirect() -> None:
+    user = _user(UserStatus.PENDING, onboarded=False)
+    session = _session(user)
+    client = _client(users=FakeUsersRepository(user), sessions=FakeSessionsRepository(session))
+    client.cookies.set(SESSION_COOKIE_NAME, str(session.id))
+
+    response = client.get("/", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert "on the list" in response.text.lower()

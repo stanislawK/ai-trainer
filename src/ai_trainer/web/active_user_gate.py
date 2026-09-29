@@ -32,6 +32,20 @@ def _is_exempt(path: str) -> bool:
 
 
 _SIGN_IN_PATH = "/sign-in"
+_ONBOARDING_PATH = "/onboarding/sports"
+
+# An `active` user who hasn't finished onboarding (`onboarded_at` is null) is sent to the
+# sports step from every app page except these: onboarding itself, Settings (account
+# deletion works before onboarding), Admin, and the routes already exempt above, which never
+# reach this check (ADR-0006, ticket #74).
+_ONBOARDING_EXEMPT_ROOTS = ("/onboarding", "/settings", "/admin")
+
+
+def _is_onboarding_exempt(path: str) -> bool:
+    canonical = path.rstrip("/") or "/"
+    return any(
+        canonical == root or canonical.startswith(f"{root}/") for root in _ONBOARDING_EXEMPT_ROOTS
+    )
 
 
 def _is_home(path: str) -> bool:
@@ -98,4 +112,8 @@ class ActiveUserGateMiddleware(BaseHTTPMiddleware):
 
         request.state.user = user
         request.state.is_admin = is_admin_email(user.email, self._admin_emails)
+        if user.onboarded_at is None and not _is_onboarding_exempt(request.url.path):
+            if is_htmx:
+                return Response(status_code=200, headers={"HX-Redirect": _ONBOARDING_PATH})
+            return RedirectResponse(url=_ONBOARDING_PATH, status_code=303)
         return await call_next(request)

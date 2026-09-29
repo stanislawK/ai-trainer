@@ -8,6 +8,7 @@ from fastapi.responses import RedirectResponse
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ai_trainer.adapters.onboarding_repository import SqlAlchemyOnboardingRepository
 from ai_trainer.adapters.sessions_repository import SqlAlchemySessionsRepository
 from ai_trainer.adapters.user_status_changer import SqlAlchemyUserStatusChanger
 from ai_trainer.adapters.users_repository import SqlAlchemyUsersRepository
@@ -90,6 +91,7 @@ async def _active_session(
     *,
     users: SqlAlchemyUsersRepository,
     sessions: SqlAlchemySessionsRepository,
+    onboarding: SqlAlchemyOnboardingRepository,
     sub: str,
 ) -> UUID:
     user = await users.create(
@@ -97,6 +99,8 @@ async def _active_session(
             sub=sub, email=f"{sub}@example.com", name=sub, locale="en", status=UserStatus.ACTIVE
         )
     )
+    # Onboarded, or `/` would redirect to the sports step (ticket #74).
+    await onboarding.set_onboarded_at(user.id, datetime(2026, 9, 29, tzinfo=UTC))
     session = await sessions.create(
         NewSession(user_id=user.id, expires_at=FROZEN_NOW + timedelta(days=1))
     )
@@ -111,7 +115,12 @@ async def test_a_post_carrying_a_csrf_token_matching_the_rendered_page_succeeds(
     to carry the header automatically, with no per-form setup."""
     users = SqlAlchemyUsersRepository(db_session_factory)
     sessions = SqlAlchemySessionsRepository(db_session_factory)
-    session_id = await _active_session(users=users, sessions=sessions, sub="sub-csrf-1")
+    session_id = await _active_session(
+        users=users,
+        sessions=sessions,
+        onboarding=SqlAlchemyOnboardingRepository(db_session_factory),
+        sub="sub-csrf-1",
+    )
     client = _client(db_session_factory, users=users, sessions=sessions)
     client.cookies.set(SESSION_COOKIE_NAME, str(session_id))
 
@@ -132,7 +141,12 @@ async def test_a_post_with_no_csrf_token_is_rejected(
 ) -> None:
     users = SqlAlchemyUsersRepository(db_session_factory)
     sessions = SqlAlchemySessionsRepository(db_session_factory)
-    session_id = await _active_session(users=users, sessions=sessions, sub="sub-csrf-2")
+    session_id = await _active_session(
+        users=users,
+        sessions=sessions,
+        onboarding=SqlAlchemyOnboardingRepository(db_session_factory),
+        sub="sub-csrf-2",
+    )
     client = _client(db_session_factory, users=users, sessions=sessions)
     client.cookies.set(SESSION_COOKIE_NAME, str(session_id))
 
@@ -146,7 +160,12 @@ async def test_a_post_carrying_another_sessions_csrf_token_is_rejected(
 ) -> None:
     users = SqlAlchemyUsersRepository(db_session_factory)
     sessions = SqlAlchemySessionsRepository(db_session_factory)
-    session_a = await _active_session(users=users, sessions=sessions, sub="sub-csrf-3a")
+    session_a = await _active_session(
+        users=users,
+        sessions=sessions,
+        onboarding=SqlAlchemyOnboardingRepository(db_session_factory),
+        sub="sub-csrf-3a",
+    )
     client = _client(db_session_factory, users=users, sessions=sessions)
     client.cookies.set(SESSION_COOKIE_NAME, str(session_a))
     page = client.get("/")
@@ -154,7 +173,12 @@ async def test_a_post_carrying_another_sessions_csrf_token_is_rejected(
     assert match is not None
     session_a_token = match.group(1)
 
-    session_b = await _active_session(users=users, sessions=sessions, sub="sub-csrf-3b")
+    session_b = await _active_session(
+        users=users,
+        sessions=sessions,
+        onboarding=SqlAlchemyOnboardingRepository(db_session_factory),
+        sub="sub-csrf-3b",
+    )
     other_client = _client(db_session_factory, users=users, sessions=sessions)
     other_client.cookies.set(SESSION_COOKIE_NAME, str(session_b))
     other_page = other_client.get("/")
@@ -178,7 +202,12 @@ async def test_logout_through_the_full_middleware_stack_succeeds_with_a_valid_to
     composition `main.py` wires."""
     users = SqlAlchemyUsersRepository(db_session_factory)
     sessions = SqlAlchemySessionsRepository(db_session_factory)
-    session_id = await _active_session(users=users, sessions=sessions, sub="sub-csrf-logout-1")
+    session_id = await _active_session(
+        users=users,
+        sessions=sessions,
+        onboarding=SqlAlchemyOnboardingRepository(db_session_factory),
+        sub="sub-csrf-logout-1",
+    )
     client = _client(db_session_factory, users=users, sessions=sessions)
     client.cookies.set(SESSION_COOKIE_NAME, str(session_id))
     page = client.get("/")
@@ -199,7 +228,12 @@ async def test_logout_through_the_full_middleware_stack_is_rejected_with_no_toke
 ) -> None:
     users = SqlAlchemyUsersRepository(db_session_factory)
     sessions = SqlAlchemySessionsRepository(db_session_factory)
-    session_id = await _active_session(users=users, sessions=sessions, sub="sub-csrf-logout-2")
+    session_id = await _active_session(
+        users=users,
+        sessions=sessions,
+        onboarding=SqlAlchemyOnboardingRepository(db_session_factory),
+        sub="sub-csrf-logout-2",
+    )
     client = _client(db_session_factory, users=users, sessions=sessions)
     client.cookies.set(SESSION_COOKIE_NAME, str(session_id))
 

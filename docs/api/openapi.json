@@ -14,6 +14,26 @@
         "title": "Body_admin_update_user_status_admin_users__user_id__status_post",
         "type": "object"
       },
+      "Body_choose_sports_step_onboarding_sports_post": {
+        "properties": {
+          "sports": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sports"
+          }
+        },
+        "title": "Body_choose_sports_step_onboarding_sports_post",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -241,6 +261,75 @@
           }
         },
         "summary": "Health"
+      }
+    },
+    "/onboarding/availability": {
+      "get": {
+        "operationId": "availability_step_onboarding_availability_get",
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Availability Step"
+      }
+    },
+    "/onboarding/sports": {
+      "get": {
+        "operationId": "sports_step_onboarding_sports_get",
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Sports Step"
+      },
+      "post": {
+        "operationId": "choose_sports_step_onboarding_sports_post",
+        "requestBody": {
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_choose_sports_step_onboarding_sports_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Choose Sports Step"
       }
     },
     "/settings": {
