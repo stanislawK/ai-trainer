@@ -6,7 +6,7 @@ Skills are step-by-step checklists for complex, recurring tasks. Invoke with `/s
 |---|---|---|---|
 | [update-docs](update-docs/SKILL.md) | Add or revise PRDs and ADRs | Writing product or architecture docs; need to supersede old docs | `/update-docs [prd\|adr] [title]` |
 | [create-tickets](create-tickets/SKILL.md) | Scaffold GitHub issues from a template | Planning work for a milestone (e.g., M0, M1) | `/create-tickets <scope>` |
-| [apply-ticket](apply-ticket/SKILL.md) | Implement a single GitHub issue end-to-end | Delivering a ticket; includes plan gate and review gate | `/apply-ticket <issue#>` |
+| [apply-ticket](apply-ticket/SKILL.md) | Implement a single GitHub issue end-to-end | Delivering a ticket; includes plan, acceptance and review gates | `/apply-ticket <issue#>` |
 | [tune-prompt](tune-prompt/SKILL.md) | Eval-driven change to a prompt, model or router | Changing LLM behavior; includes baseline comparison and human gate | `/tune-prompt <template-id>` |
 | [implement-design](implement-design/SKILL.md) | Turn a Claude Design mock into daisyUI/Jinja and prove parity with Playwright | Any web ticket that builds or changes a designed screen (ADR-0019) | `/implement-design <screen>` |
 | [add-endpoint](add-endpoint/SKILL.md) | Checklist for adding or changing a web route | Adding a page, form, API endpoint, or SSE stream | `/add-endpoint` |
@@ -22,6 +22,7 @@ Skills are step-by-step checklists for complex, recurring tasks. Invoke with `/s
 ## Execution gates
 
 - **Plan gate:** Use `EnterPlanMode` (via `/plan` or skill instructions) to design before coding. No product code without Approve.
+- **Acceptance gate:** Inside `/apply-ticket`, after verify. A human tries the change on the running `make start` stack, following the agent's step-by-step script, and approves any screenshots under `.acceptance/<issue#>/`. Pass / Fail / Blocked; never self-certified (ADR-0001).
 - **Review gate:** Run `/code-review` (or `/code-review ultra` for deeper multi-agent review) before merging. No commit without Approve.
 
 ## Multi-agent patterns

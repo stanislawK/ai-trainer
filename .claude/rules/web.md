@@ -9,7 +9,7 @@ paths:
 - Requests with the `HX-Request` header get a partial from `templates/partials/<feature>/`; other requests get a full page from `templates/pages/<feature>/`.
 - Templates are organized type first, then feature. Layouts go in `layouts/` (`base.html`, `app.html` for the signed-in shell, `bare.html` for sign-in, status and errors). Jinja macros go in `components/`. Name a partial for what it renders (`partials/chat/message.html`), never `<page>_content.html`.
 - Style with daisyUI 5 components and Tailwind utilities. Custom CSS only in `static/css/theme.css` (the `trainer-dark` and `trainer-light` themes) and the glass utilities in `static/css/glass.css`. No Node, no runtime CDN, no web fonts.
-- Build from the Claude Design mock named in the ticket, using `/implement-design`, and run its parity check before the review gate.
+- Build from the Claude Design mock named in the ticket, using `/implement-design`, and run its parity check; a human approves its screenshots at the acceptance gate, before the review gate (ADR-0001, ADR-0019).
 - Mobile first: design at 390 px wide first, with no horizontal scroll, tap targets of at least 44 px, and safe-area insets. Honor `prefers-reduced-motion`, `prefers-reduced-transparency` and `prefers-contrast`.
 - `trainer-dark` is the default theme. The theme is applied in `<head>` before first paint from `localStorage["theme"]`; never store it server-side.
 - Icons come from the `icon()` macro (vendored Lucide), never inline copies. A sport's icon comes from `SportRegistry`, never a hard-coded name; an assistant reply shows the glyph of its one sport, or the app mark for several sports or none (F15). Client JS is small hand-written files in `static/js/`.
