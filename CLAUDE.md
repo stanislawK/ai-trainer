@@ -70,7 +70,7 @@ uv run ai-trainer-evals run <template-id>   # evals (costs money — run on purp
 ## Non-negotiables
 
 - `user_id` comes only from the authenticated session; every query is user-scoped.
-- Access is approval-gated: new accounts are `pending` until an admin activates them, and admin rights come from `ADMIN_EMAILS` — never from the database (ADR-0005).
+- Access is approval-gated: new accounts are `pending` until an admin activates them, and admin rights come from `ADMIN_EMAILS` — never from the database. A sign-in with a listed, verified email always ends `active` (ADR-0005).
 - No real LLM calls in pytest.
 - No prompt text in Python string literals outside tests (ADR-0008).
 - Secrets live only in `.env`.
@@ -84,4 +84,4 @@ uv run ai-trainer-evals run <template-id>   # evals (costs money — run on purp
 
 ## Status
 
-M0 is complete: #2–#17, the design foundation #36–#44 with its fixes #58–#59, and the `make start` dev loop #62–#64 are merged. PRD 0003 (v0.4, sport inference and the sport glyph on replies) is Approved and supersedes PRD 0002 (v0.3, design and installability), which superseded PRD 0001. Every ADR that M0 cites is Accepted (0001–0005, 0007–0009, 0012–0014, 0018, 0019); 0006, 0010, 0011 and 0015–0017 stay Proposed until their milestones. The Claude Design design system and screens exist ([docs/design/README.md](docs/design/README.md)). Next: record the M1 skeleton decisions in ADR-0005, ADR-0006 and ADR-0008, then ticket real Google sign-in and the clickable M1 skeleton (onboarding, chat).
+M0 is complete: #2–#17, the design foundation #36–#44 with its fixes #58–#59, and the `make start` dev loop #62–#64 are merged. PRD 0003 (v0.4, sport inference and the sport glyph on replies) is Approved and supersedes PRD 0002 (v0.3, design and installability), which superseded PRD 0001. Accepted: 0001–0009, 0012–0014, 0018, 0019. 0010, 0011 and 0015–0017 stay Proposed until their milestones. The Claude Design design system and screens exist ([docs/design/README.md](docs/design/README.md)). The M1 skeleton decisions are recorded in ADR-0005, ADR-0006 and ADR-0008. Next: ticket real Google sign-in and the clickable M1 skeleton (onboarding, chat).

@@ -26,7 +26,7 @@ message + recent turns
 `log_session(sport)` · `edit_session` · `ask_training_question` · `request_plan` · `adjust_plan` · `request_report` · `update_profile` · `wellbeing_or_injury` · `chitchat` · `unclear`.
 The `sport` values are generated from `SportRegistry` (ADR-0006). For `log_session`, the specialist is the sport plugin's extraction template.
 
-**Router rules:** `wellbeing_or_injury` is handled first (G3). `unclear`, or a confidence below the threshold in settings, produces a structured `Clarification` — a short list of options to pick from, not a free-text question (B3, B17, ADR-0015). The router sees the last N turns (N in settings), so follow-ups like "oh, and 2 more 6B" resolve.
+**Router rules:** `wellbeing_or_injury` is handled first (G3). `unclear`, or a confidence below the threshold in settings, produces a structured `Clarification` — a short list of options to pick from, not a free-text question (B3, B17, ADR-0015). The router and every specialist see the last `chat_history_turns` messages (one setting), so follow-ups like "oh, and 2 more 6B" resolve.
 
 **Sport inference (B23).** The router infers the `sport` of every `log_session` intent and does not ask when it can guess. Its deps carry the athlete's own sports and the sports of their most recent sessions, next to the recent turns. An athlete with one sport gets that sport without a model guess. A sport confidence below its own threshold in settings produces a `Clarification` offering only the athlete's sports that stay plausible, never the full registry. A confident guess goes straight to the extraction specialist; the draft card shows it and the athlete can change it there. Each reply part records the sports it is about, so the UI can draw the reply glyph (F15, ADR-0019).
 
@@ -52,5 +52,12 @@ The `sport` values are generated from `SportRegistry` (ADR-0006). For `log_sessi
 - Owner-directed amendment, 2026-09-23 (PRD 0003, B23 and F15): sport inference and the recorded reply sports. The router eval dataset gains sport-inference cases (single-sport athlete, sport given by units or grades, a sport settled by recent sessions, a truly ambiguous message).
 
 - The `/tune-prompt` skill implements invariants 2–3.
-- Chat-history and context-window strategy (how much history is sent, summarisation) is decided in an M1 ADR.
+- Owner-directed amendment, 2026-09-29: chat history and the M1 skeleton.
+  - **History.** Each user's chat is stored in a user-owned `chat_messages` table. A row holds the role, the text, the sports the reply is about (F15), the template ID and version that produced it, and `created_at`.
+  - The router and every specialist get the same last `chat_history_turns` messages. There is no summarisation; a new ADR takes that up once real conversations outgrow the window.
+  - **Skeleton routing.** Until each specialist exists:
+    - the dispatcher sends `chitchat`, `unclear` and `wellbeing_or_injury` to the `chitchat` specialist. The persona carries G3, the chitchat eval dataset includes safety cases, and invariant 4's ordering still holds;
+    - every other intent gets a fixed "not yet" reply rendered from a template file, with no model call;
+    - as each specialist ships, it replaces its intent's fallback;
+    - `unclear` produces a `Clarification` again once ADR-0015's choice card lands with M1 logging.
 - A mixed-tier fan-out inside a specialist (several fast/cheap model calls gathering or summarizing sources in parallel, one stronger model composing the final reply) is worth considering once a multi-source specialist exists (e.g. multi-session report generation) — not decided here; revisit in the ADR that introduces that specialist.
