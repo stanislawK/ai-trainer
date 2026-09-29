@@ -40,6 +40,7 @@ def test_typing_delete_and_confirming_deletes_the_account_and_signs_out(
     expect(confirm_button).to_be_enabled()
     confirm_button.click()
 
-    expect(signed_in_page).to_have_url(f"{BASE_URL}/")
+    # Sign-out lands on `/`, which sends an anonymous visitor on to sign-in (ticket #71).
+    expect(signed_in_page).to_have_url(f"{BASE_URL}/sign-in")
     signed_in_page.goto(f"{BASE_URL}/settings")
     expect(signed_in_page.get_by_role("heading", name="Please sign in")).to_be_visible()
