@@ -35,6 +35,48 @@ def test_missing_openrouter_api_key_raises_naming_it(monkeypatch: pytest.MonkeyP
     assert "openrouter_api_key" in str(excinfo.value)
 
 
+GOOGLE_SIGN_IN_KEYS = [
+    "GOOGLE_CLIENT_ID",
+    "GOOGLE_CLIENT_SECRET",
+    "SESSION_SECRET_KEY",
+    "CSRF_SECRET_KEY",
+]
+
+
+def _set_required_keys(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", DATABASE_URL)
+    monkeypatch.setenv("OPENROUTER_API_KEY", OPENROUTER_API_KEY)
+    monkeypatch.setenv("EVAL_JUDGE_MODEL", EVAL_JUDGE_MODEL)
+
+
+@pytest.mark.parametrize("key", GOOGLE_SIGN_IN_KEYS)
+@pytest.mark.parametrize("value", ["", "   "])
+def test_blank_google_sign_in_key_raises_naming_it(
+    monkeypatch: pytest.MonkeyPatch, key: str, value: str
+) -> None:
+    _set_required_keys(monkeypatch)
+    monkeypatch.setenv(key, value)
+
+    with pytest.raises(ValidationError) as excinfo:
+        Settings(_env_file=None)
+
+    assert [error["loc"] for error in excinfo.value.errors()] == [(key.lower(),)]
+    assert f"{key} must not be blank" in str(excinfo.value)
+
+
+@pytest.mark.parametrize("key", GOOGLE_SIGN_IN_KEYS)
+def test_missing_google_sign_in_key_raises_naming_it(
+    monkeypatch: pytest.MonkeyPatch, key: str
+) -> None:
+    _set_required_keys(monkeypatch)
+    monkeypatch.delenv(key)
+
+    with pytest.raises(ValidationError) as excinfo:
+        Settings(_env_file=None)
+
+    assert [error["loc"] for error in excinfo.value.errors()] == [(key.lower(),)]
+
+
 def test_reads_values_from_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DATABASE_URL", DATABASE_URL)
     monkeypatch.setenv("OPENROUTER_API_KEY", OPENROUTER_API_KEY)
@@ -72,6 +114,8 @@ def test_env_example_lists_every_setting(monkeypatch: pytest.MonkeyPatch) -> Non
     }
 
     assert keys == {name.upper() for name in Settings.model_fields}
+    # The example leaves the four Google sign-in keys blank for the operator to fill in, which
+    # `Settings` rejects on purpose; the environment (set in tests/conftest.py) outranks the file.
     Settings(_env_file=ENV_EXAMPLE)
 
 

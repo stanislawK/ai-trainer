@@ -12,7 +12,8 @@ from ai_trainer.settings import Settings
 config = context.config
 
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # Keep loggers that already exist (the app's own, when a test runs a migration in-process).
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 # Settings is the only reader of the environment (ADR-0002); alembic.ini
 # carries no sqlalchemy.url.

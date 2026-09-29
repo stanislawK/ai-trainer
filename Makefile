@@ -51,6 +51,9 @@ up-build: ## Rebuild images, then start app + postgres
 
 start: ## Dev loop: app + postgres with uvicorn --reload, a live Tailwind CSS rebuild and a one-shot migrate step (#64) over src/ (foreground; needs a 2nd terminal for make health/make logs)
 	docker compose -f compose.yaml -f compose.dev.yaml build
+	@# Foreground first: `watch` streams only `app`, so a failing `migrate` (a blank Google key, #72) would
+	@# show as a bare "exit 1". Here its output reaches this terminal and a failure stops `make`.
+	docker compose -f compose.yaml -f compose.dev.yaml run --rm migrate
 	docker compose -f compose.yaml -f compose.dev.yaml watch
 
 stop: ## Stop the make start stack (keeps the postgres volume)

@@ -1,3 +1,4 @@
+import logging
 from collections.abc import Sequence
 from datetime import UTC, timedelta
 from typing import Protocol
@@ -13,6 +14,8 @@ from ai_trainer.application.ports.sessions import SessionsRepositoryPort
 from ai_trainer.application.ports.user_status_changer import UserStatusChangerPort
 from ai_trainer.application.ports.users import UsersRepositoryPort
 from ai_trainer.domain.users import GoogleClaims
+
+logger = logging.getLogger(__name__)
 
 SESSION_COOKIE_NAME = "session_id"
 
@@ -64,7 +67,12 @@ def build_auth_router(
     async def callback(request: Request) -> RedirectResponse:
         try:
             claims = await oauth_client.authorize_access_token(request)
-        except OAuthError:
+        except OAuthError as exc:
+            # Log the reason only. On a GET callback Authlib builds the error from the request's
+            # own `error` and `error_description`, so both are attacker-controlled: log just
+            # the code, escaped (`%r`) and capped, and never the description, the request, or
+            # its `code` and `state`. `mismatching_state` and `access_denied` are the usual ones.
+            logger.warning("google sign-in failed: %.80r", exc.error)
             # A cancelled consent screen (`?error=access_denied`) and a bad or missing state
             # both land here; the sign-in page shows its inline alert rather than an error
             # page (ticket #59). The query value is a fixed flag, never the provider's text.

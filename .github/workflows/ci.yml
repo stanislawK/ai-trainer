@@ -19,6 +19,12 @@ env:
   # Settings() requires this too (ADR-0009); evals never run on push/pull_request — only in
   # evals.yml, which is workflow_dispatch-only — so a placeholder is enough here as well.
   EVAL_JUDGE_MODEL: ci-placeholder-not-a-real-model
+  # Settings() rejects a blank Google sign-in key at startup (ADR-0005). CI never signs in with
+  # Google (tests fake the OAuth client, e2e seeds sessions), so placeholders are enough.
+  GOOGLE_CLIENT_ID: ci-placeholder.apps.googleusercontent.com
+  GOOGLE_CLIENT_SECRET: ci-placeholder-not-a-real-secret
+  SESSION_SECRET_KEY: ci-placeholder-session-secret-key
+  CSRF_SECRET_KEY: ci-placeholder-csrf-secret-key
 
 jobs:
   ci:
@@ -108,6 +114,9 @@ jobs:
         run: |
           cp .env.example .env
           sed -i "s#^OPENROUTER_API_KEY=.*#OPENROUTER_API_KEY=${OPENROUTER_API_KEY}#" .env
+          for key in GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET SESSION_SECRET_KEY CSRF_SECRET_KEY; do
+            sed -i "s#^${key}=.*#${key}=${!key}#" .env
+          done
 
       - name: Start the compose stack
         run: docker compose up -d --build
