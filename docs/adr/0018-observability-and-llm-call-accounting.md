@@ -98,10 +98,13 @@ the database, not in a third-party trace store.
     Pydantic AI side, `OpenRouterStreamedResponse._map_provider_details` calls the identical
     `_map_openrouter_provider_details` mapper used for the non-streaming path, so the same extraction
     this gateway relies on applies unchanged once a streaming caller exists. Revisit this bullet with
-    a real integration check the day a specialist actually calls `run_stream()`.
+    a real integration check the day a specialist actually calls `run_stream()`. #79 adds
+    `OpenRouterGateway.stream`, which does call `run_stream()` and sums cost with the same
+    `_sum_cost`, but is tested only against `FunctionModel`, so that real check is still owed.
 - `provider_details['cost']` is per HTTP response, not per run, and a single `agent.run()` call can
   already make more than one model request today — Pydantic AI retries failed output validation once
   by default (`retries` defaults to 1 for both tools and output) — with no tool calls needed. The
   gateway sums `provider_details['cost']` over every `ModelResponse` in `result.all_messages()`
   rather than reading only the last one, so an output-validation retry's cost isn't silently dropped.
   A future specialist with tool calls hits the same accumulation path, already covered by this sum.
+- `LlmCallOutcome` gained `cancelled` at #79: a streamed reply whose consumer stops early still writes its one row (invariant 1), with the tokens and cost the provider had reported by then — often zero and `NULL`. The `outcome` column is a plain string, so no migration was needed. `success` therefore keeps meaning "the reply finished".
