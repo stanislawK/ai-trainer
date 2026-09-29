@@ -2,9 +2,9 @@
 
 | | |
 |---|---|
-| Status | Proposed |
+| Status | Accepted |
 | Date | 2026-09-16 |
-| Related | PRD-0001 (G4, B1, B2, B5, B12, B18, B20), PRD-0003 (B23, F15), ADR-0003, ADR-0004, ADR-0008, ADR-0014, ADR-0016 |
+| Related | PRD-0001 (G4, B1, B2, B5, B12, B18, B20), PRD-0003 (B9, B23, F6, F15), ADR-0003, ADR-0004, ADR-0008, ADR-0014, ADR-0016 |
 
 ## Context
 
@@ -34,6 +34,13 @@ Each plugin declares one Lucide `icon` name (climbing `mountain`, gym `dumbbell`
 
 Each plugin also owns an extraction prompt template (`src/ai_trainer/llm/prompts/<sport>.extract/`, ADR-0008) and an eval dataset (`evals/datasets/<sport>.extract.yaml`, ADR-0009).
 
+**Athlete profile** (F6, onboarding in PRD flow 1). What onboarding collects is stored in user-owned tables (ADR-0004, invariant 1):
+
+- `users.timezone` (ADR-0014) and `users.onboarded_at`, a `timestamptz` that stays null until onboarding finishes. An `active` user without it is sent to onboarding.
+- `user_sports`: one row per sport the athlete trains. `sport_id` is a registry ID stored as text and validated against `SportRegistry` in the application layer, never a database enum, so a new sport needs no migration (invariant 2).
+- `weekly_availability`: one row per weekday the athlete can train, with the minutes available.
+- `goals`: free text and an optional `target_date`. M4 plans (B9) extend this table rather than replace it.
+
 **Common load vocabulary** (`TrainingLoad`, one row per session): session-RPE load = RPE × duration in minutes, plus a strain score for each body system — `aerobic`, `anaerobic`, `max_strength`, `finger_forearm`, `upper_pull`, `upper_push`, `lower_body`, `core`. Each plugin's load calculator computes these; this is how a board session plus a back day is flagged (B12).
 
 **Grades:** stored as the original string, its scale, the canonical French equivalent and an ordinal value. French is the canonical scale in the database (B20); the display scale is a profile preference that defaults to French. Conversion between French, Fontainebleau, V-scale, YDS and UIAA lives in `src/ai_trainer/domain/grades.py` (ADR-0016), not in a plugin, because comparisons cross sports and sources. Case matters in the original: "6A" is Fontainebleau (boulder), "6a" is French (sport).
@@ -50,4 +57,8 @@ Each plugin also owns an extraction prompt template (`src/ai_trainer/llm/prompts
 ## Consequences
 
 - The `/add-sport` skill implements invariant 2.
+- Phased delivery, owner-directed 2026-09-29, at acceptance:
+  - The M1 skeleton ships `registry.py` with each plugin's ID, label and Lucide icon only. That is enough for onboarding's sport picker and the reply glyph.
+  - Payloads, normalizers, load calculators and extraction templates arrive with M1 logging. `/add-sport` applies once they exist.
+  - The athlete-profile tables are added in the same change.
 - M2 may refine the load formulas through a new ADR once real data exists.

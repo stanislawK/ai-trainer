@@ -9,7 +9,7 @@ ADRs own the *how*: stack, architecture, testing and agent workflow. The current
 | 0003 | [Application architecture](0003-application-architecture.md) | Accepted | 2026-09-16 |
 | 0004 | [Persistence](0004-persistence.md) | Accepted | 2026-09-16 |
 | 0005 | [Auth and tenancy (POC)](0005-auth-and-tenancy.md) | Accepted | 2026-09-16 |
-| 0006 | [Training domain and sport extensibility](0006-training-domain-and-sport-extensibility.md) | Proposed | 2026-09-16 |
+| 0006 | [Training domain and sport extensibility](0006-training-domain-and-sport-extensibility.md) | Accepted | 2026-09-16 |
 | 0007 | [LLM integration](0007-llm-integration.md) | Accepted | 2026-09-16 |
 | 0008 | [Conversation routing and prompt templates](0008-conversation-routing-and-prompt-templates.md) | Accepted | 2026-09-16 |
 | 0009 | [Prompt evaluation pipeline](0009-prompt-evaluation-pipeline.md) | Accepted | 2026-09-16 |
