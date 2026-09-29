@@ -49,7 +49,8 @@ up: ## Start app + postgres in the background
 up-build: ## Rebuild images, then start app + postgres
 	docker compose up -d --build
 
-start: ## Dev loop: app + postgres with uvicorn --reload and a live Tailwind CSS rebuild over src/ (foreground; needs a 2nd terminal for make health/make logs)
+start: ## Dev loop: app + postgres with uvicorn --reload, a live Tailwind CSS rebuild and a one-shot migrate step (#64) over src/ (foreground; needs a 2nd terminal for make health/make logs)
+	docker compose -f compose.yaml -f compose.dev.yaml build
 	docker compose -f compose.yaml -f compose.dev.yaml watch
 
 stop: ## Stop the make start stack (keeps the postgres volume)
@@ -58,11 +59,11 @@ stop: ## Stop the make start stack (keeps the postgres volume)
 down: ## Stop and remove the stack (keeps the postgres volume)
 	docker compose down
 
-logs: ## Follow container logs
-	docker compose logs -f
+logs: ## Follow container logs (includes the one-shot migrate service from `make start`, #64)
+	docker compose -f compose.yaml -f compose.dev.yaml logs -f
 
-ps: ## Show container + healthcheck status
-	docker compose ps
+ps: ## Show container + healthcheck status (includes the one-shot migrate service from `make start`, #64)
+	docker compose -f compose.yaml -f compose.dev.yaml ps -a
 
 health: ## Curl the running app's health endpoint
 	curl -sS http://localhost:8000/health

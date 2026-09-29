@@ -9,6 +9,13 @@
 # which sidesteps the bind-mount/inotify unreliability that macOS Docker Desktop is known
 # for — a bind mount would also need `uv run` at startup to pick up dependency changes,
 # which ADR-0002's Consequences already record as broken for the non-root runtime user.
+#
+# `make start` runs `docker compose build` before `watch` (#64): `watch`'s own implicit
+# build only reliably refreshes the image tag of the service it watches (`app`); a sibling
+# service built from the identical context but with no `develop.watch` of its own (like
+# `migrate` below) can be left on a stale image tag by `watch` alone, serving an out-of-date
+# `migrations/` directory. An explicit `build` first keeps every dev-stack image, watched or
+# not, in sync with the working tree on every `make start`. See ADR-0002 Consequences.
 services:
   app:
     # dev_start.sh runs the Dockerfile's CMD plus --reload (no `uv run`, same non-root-venv
@@ -16,6 +23,14 @@ services:
     # app.css on every synced template/CSS change (#63, ADR-0012 Consequences).
     command:
       - ./scripts/dev_start.sh
+    # Merges with the base file's `depends_on.db` (a mapping, keyed by service — Compose
+    # merges matching keys across -f files rather than replacing the whole map) so `app`
+    # waits on both `db` being healthy and `migrate` having exited 0 (#64). `make up` and
+    # CI's e2e job never load this file, so they're unaffected — the `migrate` service
+    # below doesn't exist for them either.
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
     develop:
       watch:
         # Covers both Python routes and Jinja templates: both live under src/ai_trainer/.
@@ -35,3 +50,26 @@ services:
           path: ./uv.lock
         - action: rebuild
           path: ./pyproject.toml
+
+  # One-shot: brings the schema to head before `app` starts (#64), so a fresh clone or a
+  # newly pulled migration never serves against a stale schema. `alembic upgrade head` is
+  # idempotent — already-at-head is a fast no-op, matching `app`'s image (same build) and
+  # the same `db`-hostname `DATABASE_URL` override, and needs `env_file: .env` too since
+  # `migrations/env.py` constructs a full `Settings()`, which requires OPENROUTER_API_KEY
+  # and EVAL_JUDGE_MODEL even though this command never touches either. Runs the venv's own
+  # `alembic` binary directly, not `uv run` — ADR-0002's non-root-venv gotcha (a re-sync
+  # against the root-owned .venv fails for the nonroot runtime user) applies to any command
+  # in this image, not just the app's own CMD.
+  migrate:
+    build: .
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://ai_trainer:ai_trainer@db:5432/ai_trainer
+    depends_on:
+      db:
+        condition: service_healthy
+    command:
+      - alembic
+      - upgrade
+      - head

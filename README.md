@@ -31,9 +31,10 @@ Fill in `OPENROUTER_API_KEY` in `.env` — get one at [openrouter.ai/keys](https
 To sign in with Google locally, create an OAuth 2.0 client (type "Web application") at [Google Cloud Console](https://console.cloud.google.com/apis/credentials), with authorized redirect URI `http://localhost:8000/auth/callback`, then fill `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` and `SESSION_SECRET_KEY` (`openssl rand -hex 32`) in `.env`. Add your own email to `ADMIN_EMAILS` (comma-separated) to bootstrap the first admin account as `active` (ADR-0005) — otherwise every new account stays `pending`. Not needed to run the test suite, only to actually sign in.
 
 ```bash
-make up                   # builds and starts app + postgres
-make health   # -> {"database":"ok"}
+make start                # builds, migrates the schema to head, and starts app + postgres (foreground)
 ```
+
+In a second terminal: `make health` → `{"database":"ok"}`. Running the app needs only Docker and `.env` — `make start`'s one-shot `migrate` step (#64) brings the schema to head before `app` starts, so there's no separate `make migrate`/local `uv` step for a fresh clone. See "Dev loop" below for what else `make start` does, and `make up` in the table below for a plain background start without live reload (still needs `make migrate` once, or `make test`/`make test-integration`, to have a schema).
 
 The app is then at `http://localhost:8000`, Postgres at `localhost:5432` (credentials in `.env.example`).
 
@@ -82,7 +83,8 @@ It's foreground on purpose (`docker compose watch` can't run detached), so use a
 - An edited Jinja template shows on the very next request, no restart at all: Jinja's environment reloads a changed template per-request on its own once the file is synced.
 - A dependency added with `uv add` needs a fresh image (Compose Watch rebuilds automatically if `uv.lock`/`pyproject.toml` change while `make start` is running, or rebuilds on the next `make start` either way).
 - An edited daisyUI class or a `theme.css`/`glass.css` token shows on the next page load too: alongside `uvicorn --reload`, the app container runs a Tailwind `--watch` process that recompiles `app.css` on every synced change — no `make css`, no rebuild (#63). A CSS syntax error shows in `make logs` and the last good `app.css` keeps serving until the file is fixed.
-- `make up`, the production image and CI's e2e job never use `--reload`, the CSS watcher or `compose.dev.yaml` — this is purely a local dev loop.
+- A one-shot `migrate` service (#64) runs `alembic upgrade head` against Postgres before `app` starts, on every `make start` — a fresh, empty volume reaches head, and a migration pulled since your last `make start` is applied on the next one; an up-to-date schema makes it a fast no-op. A failing migration keeps `app` from starting at all; its traceback shows in `make logs`.
+- `make up`, the production image and CI's e2e job never use `--reload`, the CSS watcher, the migrate service or `compose.dev.yaml` — this is purely a local dev loop.
 
 ## End-to-end tests
 
