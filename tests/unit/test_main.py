@@ -29,13 +29,23 @@ def _settings(**overrides: object) -> Settings:
     return Settings(**values)  # type: ignore[arg-type]
 
 
-def test_create_app_refuses_an_unauthenticated_request_to_the_home_route() -> None:
-    """No cookie means the gate (ticket #14) short-circuits before any database access, so
-    this proves the wiring without needing a reachable Postgres."""
+def test_create_app_sends_an_anonymous_request_to_the_home_route_to_sign_in() -> None:
+    """No cookie means the gate (tickets #14, #71) short-circuits before any database access,
+    so this proves the wiring without needing a reachable Postgres."""
     app = create_app(_settings())
     client = TestClient(app)
 
-    response = client.get("/")
+    response = client.get("/", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/sign-in"
+
+
+def test_create_app_refuses_an_anonymous_request_to_another_gated_route() -> None:
+    app = create_app(_settings())
+    client = TestClient(app)
+
+    response = client.get("/settings", follow_redirects=False)
 
     assert response.status_code == 401
 
