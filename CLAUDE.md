@@ -19,7 +19,10 @@ Docs outrank chat. If a request contradicts an Accepted ADR or the Approved PRD,
 ## How work happens
 
 - Tickets are GitHub Issues in `stanislawK/ai-trainer`. Create them with `/create-tickets <scope>`; implement one with `/apply-ticket <issue#>`.
-- Two human gates: the **plan gate** (no product code before Approve) and the **review gate** (no commit, push or PR before Approve).
+- Three human gates:
+  - the **plan gate**: no product code before Approve;
+  - the **acceptance gate**: a human tries the change on the running `make start` stack, following the agent's step-by-step script and opening any screenshots under `.acceptance/<issue#>/`, before the diff is reviewed;
+  - the **review gate**: no commit, push or PR before Approve.
 - Every change goes on its own branch and reaches `main` only through a PR a human merges. Ticket branches are `<area>/<issue#>-<slug>`; doc-only work without an issue uses `docs/<slug>`. Never commit to, push to or merge into `main` (ADR-0001).
 - Prompt, model or router changes go through `/tune-prompt <template-id>`.
 - Only a human sets a PRD to Approved or an ADR to Accepted.
@@ -81,4 +84,4 @@ uv run ai-trainer-evals run <template-id>   # evals (costs money — run on purp
 
 ## Status
 
-M0 in progress: #2–#11 and #13–#15 are merged; #12, #16, #17 and the design-foundation tickets #36–#44 are open. PRD 0003 (v0.4, sport inference and the sport glyph on replies) is Approved and supersedes PRD 0002 (v0.3, design and installability), which superseded PRD 0001. Every ADR that M0 cites is Accepted (0001–0005, 0007–0009, 0012–0014, 0018, 0019); 0006, 0010, 0011 and 0015–0017 stay Proposed until their milestones. The Claude Design design system and screens exist ([docs/design/README.md](docs/design/README.md)). Next: build the design foundation (#36 first), then #16 and #17 on the new app shell, then #12.
+M0 is complete: #2–#17, the design foundation #36–#44 with its fixes #58–#59, and the `make start` dev loop #62–#64 are merged. PRD 0003 (v0.4, sport inference and the sport glyph on replies) is Approved and supersedes PRD 0002 (v0.3, design and installability), which superseded PRD 0001. Every ADR that M0 cites is Accepted (0001–0005, 0007–0009, 0012–0014, 0018, 0019); 0006, 0010, 0011 and 0015–0017 stay Proposed until their milestones. The Claude Design design system and screens exist ([docs/design/README.md](docs/design/README.md)). Next: record the M1 skeleton decisions in ADR-0005, ADR-0006 and ADR-0008, then ticket real Google sign-in and the clickable M1 skeleton (onboarding, chat).

@@ -234,3 +234,7 @@ src/ai_trainer/web/static/css/daisyui-theme.js
 # Playwright MCP's own working directory: page snapshots, console logs and the
 # `/implement-design` parity screenshots (ADR-0019) never get committed.
 .playwright-mcp/
+
+# Acceptance-gate evidence (ADR-0001): parity and other screenshots a human opens at the
+# acceptance gate, kept after the gate and never committed.
+.acceptance/

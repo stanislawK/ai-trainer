@@ -46,8 +46,9 @@ Use these layers:
 7. Tests first: every AC maps to a failing test.
 8. Implement against the docs: TDD → coverage → lint → types → contract snapshot.
 9. Verify every AC with evidence.
-10. **Review gate** — Approve / Request changes / Reject.
-11. Commit on the ticket branch, push it, open a PR against `main` with the AC evidence and `Closes #<issue#>`, and move the issue to `status:in-review`. A human merges the PR, which closes the issue. Update docs in the same PR if stack or workflow changed.
+10. **Acceptance gate** — Pass / Fail / Blocked. A human tries the change on the running `make start` stack, following a step-by-step script the agent writes: which account, the start URL, each click and the expected result, or the exact commands for a change with no UI. When the ticket saved screenshots, the same gate asks a second question about them (Approve / Request changes), and the files are listed where the human can open them. Fail, Blocked or Request changes goes back to step 8.
+11. **Review gate** — Approve / Request changes / Reject.
+12. Commit on the ticket branch, push it, open a PR against `main` with the AC evidence, the acceptance script and its result, and `Closes #<issue#>`, then move the issue to `status:in-review`. A human merges the PR, which closes the issue. Update docs in the same PR if stack or workflow changed.
 
 Human gates use Claude Code's `AskUserQuestion` with exactly those options.
 
@@ -56,12 +57,14 @@ Human gates use Claude Code's `AskUserQuestion` with exactly those options.
 1. Never bury a product or stack decision only in chat: update the PRD or add an ADR first.
 2. Exactly one PRD is Approved. Only a human sets a PRD to Approved or an ADR to Accepted.
 3. An ADR that locks stack or workflow patches `CLAUDE.md`, rules and skills in the same change.
-4. No product code before the plan gate; no commit, push or PR before the review gate.
+4. No product code before the plan gate; no review gate before the acceptance gate passes; no commit, push or PR before the review gate.
 5. `/create-tickets` never creates an issue before its draft gate is approved.
 6. If a ticket contradicts an Accepted ADR or the Approved PRD, stop and propose a doc change in the plan gate. Never code around it.
 7. Never implement a ticket whose `Blocked by` issue is still open. Never implement an L ticket.
 8. A new ADR's claims about a third-party library or service are checked against current docs or web search before the ADR is marked Proposed.
 9. `main` changes only when a human merges a pull request. Agents never commit to, push to or merge into `main`, and never merge their own PR.
+10. The acceptance gate is never self-certified. The agent writes the script and presents the evidence; a human runs the script and gives the answer.
+11. Every ticket is demoable: its body names what a human opens or runs at the acceptance gate.
 
 ## Alternatives considered
 
@@ -73,4 +76,10 @@ Human gates use Claude Code's `AskUserQuestion` with exactly those options.
 - Implemented by `CLAUDE.md`, `.claude/rules/docs.md` and the skills `create-tickets`, `apply-ticket` and `update-docs`.
 - `CLAUDE.md` and rules are guidance, not enforcement. M0 adds hooks where a hard stop is worth it (e.g. no commits on `main`, formatting after edits).
 - Amended 2026-09-22 at the project owner's direction: delivery moved from local merges into `main` to pull requests merged by a human; ticket branches renamed from `ticket/<n>-<slug>` to `<area>/<n>-<slug>`; `status:in-review` added.
+- Amended 2026-09-29 at the project owner's direction: a third human gate, the **acceptance gate**, sits between verify and review.
+  - **Why.** The app now has a UI, and the owner wants every change tried by hand before its diff is read. The dev loop (#62–#64, `make start`) reloads code, templates, CSS and migrations, so re-trying a fix needs no rebuild.
+  - **Parity check.** The separate human parity check of ADR-0019 (2026-09-24) becomes the gate's second question.
+  - **Screenshots** move from the session scratchpad to `.acceptance/<issue#>/` at the repo root. The folder is gitignored and kept after the gate, so the human can find and reopen them.
+  - **Demo line.** The ticket template gains a required **Demo** line (invariant 11).
+  - **Where it's carried.** `apply-ticket`, `create-tickets`, `implement-design`, `docs/templates/ticket.md`, `.claude/rules/web.md` and `CLAUDE.md` carry this.
 - Moving to Linear later means a new ADR superseding the tracker section, plus skill changes.
