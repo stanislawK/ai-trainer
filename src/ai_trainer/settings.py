@@ -1,6 +1,6 @@
 from typing import Annotated, Any, Literal
 
-from pydantic import BeforeValidator, PostgresDsn, SecretStr
+from pydantic import BeforeValidator, PostgresDsn, SecretStr, ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
@@ -31,14 +31,15 @@ class Settings(BaseSettings):
     eval_judge_model: str
 
     # Google sign-in (ADR-0005). No Google access or refresh token is ever stored.
-    google_client_id: str = ""
-    google_client_secret: SecretStr = SecretStr("")
+    # Required and non-blank: a blank value otherwise fails only on Google's own page.
+    google_client_id: str
+    google_client_secret: SecretStr
     # Signs Starlette's transient OAuth-state cookie; distinct from the app's own
     # PostgreSQL-backed session cookie.
-    session_secret_key: SecretStr = SecretStr("")
+    session_secret_key: SecretStr
     # Signs the CSRF token (ADR-0005 invariant 3): kept separate from `session_secret_key`
     # so the OAuth-state cookie signer and the CSRF token signer don't share a key.
-    csrf_secret_key: SecretStr = SecretStr("")
+    csrf_secret_key: SecretStr
     # Case-insensitively matched against a verified Google email to bootstrap the first
     # admin (ADR-0005); comma-separated, e.g. "a@example.com,b@example.com".
     admin_emails: CommaSeparated = []
@@ -52,3 +53,13 @@ class Settings(BaseSettings):
     otel_exporter_otlp_protocol: Literal["http/protobuf"] = "http/protobuf"
     otel_exporter_otlp_headers: str | None = None
     otel_service_name: str = "ai-trainer"
+
+    @field_validator(
+        "google_client_id", "google_client_secret", "session_secret_key", "csrf_secret_key"
+    )
+    @classmethod
+    def _reject_blank(cls, value: str | SecretStr, info: ValidationInfo) -> str | SecretStr:
+        raw = value.get_secret_value() if isinstance(value, SecretStr) else value
+        if not raw.strip():
+            raise ValueError(f"{(info.field_name or '').upper()} must not be blank")
+        return value

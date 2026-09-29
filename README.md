@@ -4,9 +4,9 @@ An AI training companion for amateur athletes (climbing, gym, cycling). Document
 
 ## Status
 
-**M0 (Foundations) in progress.** So far: a typed Python/FastAPI skeleton, a `docker compose` stack (app + PostgreSQL/pgvector) with a `GET /health` endpoint that reports database reachability without needing a session, a styled base layout (`GET /`) built with Jinja2 + htmx 4 + Tailwind CSS v4/daisyUI 5 — htmx is vendored under `static/`, the stylesheet is compiled at image build time with no Node.js anywhere — Google sign-in (`/auth/login`, `/auth/callback`, `/auth/logout`) with approval-gated accounts, every other route gated on an active account, CSRF protection on non-GET requests (ADR-0005), and the Liquid Glass `trainer-dark`/`trainer-light` themes and glass utilities (ADR-0019), dark by default and remembered per browser with no flash on reload.
+**M0 (Foundations) is complete; M1 (the clickable skeleton) is in progress.** So far: a typed Python/FastAPI skeleton, a `docker compose` stack (app + PostgreSQL/pgvector) with a `GET /health` endpoint that reports database reachability without needing a session, a styled base layout built with Jinja2 + htmx 4 + Tailwind CSS v4/daisyUI 5 (htmx is vendored under `static/`, the stylesheet is compiled at image build time with no Node.js anywhere), Google sign-in (`/auth/login`, `/auth/callback`, `/auth/logout`) with approval-gated accounts and a minimal admin user list at `/admin`, every other route gated on an active account, CSRF protection on non-GET requests (ADR-0005), account deletion, and the Liquid Glass `trainer-dark`/`trainer-light` themes and glass utilities (ADR-0019), dark by default and remembered per browser with no flash on reload.
 
-Not built yet: the rest of the Liquid Glass design foundation (icons, installability, the app shell — ADR-0019), the admin user-list page, account deletion, any product feature. The eval harness (`make evals` / `ai-trainer-evals`, ADR-0009) is wired up but has no datasets to run yet — those ship with the first M1 specialist templates. See [CLAUDE.md](CLAUDE.md) for the full milestone plan and [docs/prd/README.md](docs/prd/README.md) / [docs/adr/README.md](docs/adr/README.md) for the product requirements and the architecture decisions that govern the stack.
+The eval harness (`make evals` / `ai-trainer-evals`, ADR-0009) is wired up but has no datasets to run yet — those ship with the first M1 specialist templates. See [CLAUDE.md](CLAUDE.md) for the current status, [docs/prd/README.md](docs/prd/README.md) and [docs/adr/README.md](docs/adr/README.md) for the product requirements and the architecture decisions that govern the stack.
 
 ## Continuous integration
 
@@ -28,7 +28,24 @@ cp .env.example .env      # local-only defaults; never commit .env
 
 Fill in `OPENROUTER_API_KEY` in `.env` — get one at [openrouter.ai/keys](https://openrouter.ai/keys); `Settings` requires it to start even before any LLM feature ships (ADR-0007).
 
-To sign in with Google locally, create an OAuth 2.0 client (type "Web application") at [Google Cloud Console](https://console.cloud.google.com/apis/credentials), with authorized redirect URI `http://localhost:8000/auth/callback`, then fill `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` and `SESSION_SECRET_KEY` (`openssl rand -hex 32`) in `.env`. Add your own email to `ADMIN_EMAILS` (comma-separated) to bootstrap the first admin account as `active` (ADR-0005) — otherwise every new account stays `pending`. Not needed to run the test suite, only to actually sign in.
+Then set up Google sign-in (next section) — `Settings` refuses to start while any of its four keys is blank.
+
+## Sign in with Google
+
+The app signs in with Google only (ADR-0005). Every key below is required: `make start`, the test suite and every other command that builds `Settings` stop with an error naming the blank one (for example `GOOGLE_CLIENT_ID must not be blank`).
+
+1. In [Google Cloud Console](https://console.cloud.google.com/), open **APIs & Services → OAuth consent screen**, and configure it: user type **External**, an app name and your email. While the app is in **Testing**, only the accounts listed under **Test users** can sign in — add every Google account you will use, admin and second account alike.
+2. Open **APIs & Services → Credentials → Create credentials → OAuth client ID**, type **Web application**, with the authorized redirect URI `http://localhost:8000/auth/callback`.
+3. Fill `.env`:
+   - `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` from the client you just created;
+   - `SESSION_SECRET_KEY` and `CSRF_SECRET_KEY` — two different values, each from `openssl rand -hex 32`;
+   - `ADMIN_EMAILS` — your own Google email (comma-separated for more than one). A verified email in this list is `active` and an admin.
+4. Start the stack with `make start`, or restart it if it is already running: **`.env` is read only at startup**, so an edit does nothing until you restart.
+5. Open **`http://localhost:8000`** — `localhost`, not `127.0.0.1`. Google matches the redirect URI exactly and the session cookie belongs to one host, so `127.0.0.1` fails with `redirect_uri_mismatch` or a state error. Click *Continue with Google*.
+
+Every sign-in re-checks `ADMIN_EMAILS` (ADR-0005): a listed, verified email always ends `active`, even if the account was `pending` or `disabled`. A second Google account (not listed) lands `pending`; an admin activates it at `http://localhost:8000/admin`. To lock an admin out for good, remove their email from `ADMIN_EMAILS` and restart — disabling a listed admin lasts only until their next sign-in.
+
+If sign-in bounces back to the sign-in page with an error, `make logs` shows why (`google sign-in failed: …`); the log never contains tokens or claims. Safari and the `Secure` session cookie: see ADR-0005's Consequences.
 
 ```bash
 make start                # builds, migrates the schema to head, and starts app + postgres (foreground)
@@ -83,6 +100,7 @@ It's foreground on purpose (`docker compose watch` can't run detached), so use a
 - An edited Jinja template shows on the very next request, no restart at all: Jinja's environment reloads a changed template per-request on its own once the file is synced.
 - A dependency added with `uv add` needs a fresh image (Compose Watch rebuilds automatically if `uv.lock`/`pyproject.toml` change while `make start` is running, or rebuilds on the next `make start` either way).
 - An edited daisyUI class or a `theme.css`/`glass.css` token shows on the next page load too: alongside `uvicorn --reload`, the app container runs a Tailwind `--watch` process that recompiles `app.css` on every synced change — no `make css`, no rebuild (#63). A CSS syntax error shows in `make logs` and the last good `app.css` keeps serving until the file is fixed.
+- `make start` first runs `migrate` once in the foreground, so its output — including a blank or missing `Settings` key such as `GOOGLE_CLIENT_ID must not be blank` — shows in your terminal and a failure stops `make start` before anything else starts (`docker compose watch` streams only `app`).
 - A one-shot `migrate` service (#64) runs `alembic upgrade head` against Postgres before `app` starts, on every `make start` — a fresh, empty volume reaches head, and a migration pulled since your last `make start` is applied on the next one; an up-to-date schema makes it a fast no-op. A failing migration keeps `app` from starting at all; its traceback shows in `make logs`.
 - `make up`, the production image and CI's e2e job never use `--reload`, the CSS watcher, the migrate service or `compose.dev.yaml` — this is purely a local dev loop.
 

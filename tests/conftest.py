@@ -1,3 +1,4 @@
+import os
 from collections.abc import Iterator
 
 import pytest
@@ -5,6 +6,14 @@ from pydantic_ai import Agent, models
 
 # No test may reach a real model (ADR-0013 invariant 1).
 models.ALLOW_MODEL_REQUESTS = False
+
+# `Settings` refuses a blank Google sign-in key at startup (ADR-0005), and a developer's local
+# `.env` may leave them blank. Set at import time, not in a fixture, so session-scoped
+# fixtures that build `Settings()` see them too. Nothing here ever reaches Google.
+os.environ["GOOGLE_CLIENT_ID"] = "test-client-id.apps.googleusercontent.com"
+os.environ["GOOGLE_CLIENT_SECRET"] = "test-client-secret"
+os.environ["SESSION_SECRET_KEY"] = "test-session-secret-key"
+os.environ["CSRF_SECRET_KEY"] = "test-csrf-secret-key"
 
 
 @pytest.fixture(autouse=True)

@@ -44,6 +44,12 @@ jobs:
           DATABASE_URL: postgresql+psycopg://ai_trainer:ai_trainer@localhost:5432/ai_trainer
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           EVAL_JUDGE_MODEL: ${{ secrets.EVAL_JUDGE_MODEL }}
+          # Settings() also rejects a blank Google sign-in key (ADR-0005); the eval CLI never
+          # signs anyone in, so placeholders are enough.
+          GOOGLE_CLIENT_ID: ci-placeholder.apps.googleusercontent.com
+          GOOGLE_CLIENT_SECRET: ci-placeholder-not-a-real-secret
+          SESSION_SECRET_KEY: ci-placeholder-session-secret-key
+          CSRF_SECRET_KEY: ci-placeholder-csrf-secret-key
         run: |
           args=(run "${{ inputs.template_id }}" --version "${{ inputs.version }}")
           if [ -n "${{ inputs.model }}" ]; then

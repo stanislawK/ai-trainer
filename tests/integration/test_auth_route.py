@@ -1,7 +1,9 @@
+import logging
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
+import pytest
 from authlib.integrations.base_client import MismatchingStateError, OAuthError
 from fastapi import FastAPI, Request
 from fastapi.responses import RedirectResponse
@@ -256,6 +258,46 @@ async def test_callback_with_mismatched_state_returns_to_sign_in_with_the_error_
     assert response.headers["location"] == "/sign-in?error=google"
     assert "session_id" not in response.cookies
     assert await _count_users(db_session_factory) == 0
+
+
+async def test_callback_failure_logs_its_reason_and_nothing_sensitive(
+    db_session_factory: Callable[[], AsyncSession],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    client = _client(
+        db_session_factory,
+        oauth_client=FakeGoogleOAuthClient(error=MismatchingStateError()),
+    )
+
+    with caplog.at_level(logging.WARNING, logger="ai_trainer.web.auth"):
+        response = client.get(
+            "/auth/callback?state=forged-state&code=secret-auth-code", follow_redirects=False
+        )
+
+    assert response.headers["location"] == "/sign-in?error=google"
+    [record] = caplog.records
+    assert record.levelno == logging.WARNING
+    assert "mismatching_state" in record.getMessage()
+    assert "forged-state" not in caplog.text
+    assert "secret-auth-code" not in caplog.text
+
+
+async def test_callback_failure_log_cannot_be_forged_through_the_query_string(
+    db_session_factory: Callable[[], AsyncSession],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """On a GET callback Authlib builds the `OAuthError` from the request's own `error` and
+    `error_description`, so both are attacker-controlled: neither may inject a log line or grow
+    the log without bound."""
+    forged = OAuthError(error="access_denied\nFAKE LINE token=SECRET" + "x" * 500, description="d")
+    client = _client(db_session_factory, oauth_client=FakeGoogleOAuthClient(error=forged))
+
+    with caplog.at_level(logging.WARNING, logger="ai_trainer.web.auth"):
+        client.get("/auth/callback", follow_redirects=False)
+
+    [record] = caplog.records
+    assert "\n" not in record.getMessage()
+    assert len(record.getMessage()) < 200
 
 
 async def test_callback_after_the_user_cancels_at_google_returns_to_sign_in_with_the_error(
