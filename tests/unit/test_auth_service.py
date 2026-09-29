@@ -65,6 +65,25 @@ class FakeSessionsRepository:
         raise NotImplementedError
 
 
+class FakeUserStatusChanger:
+    """Applies the change to the fake users repository and records each call."""
+
+    def __init__(self, users: FakeUsersRepository) -> None:
+        self._users = users
+        self.calls: list[tuple[UUID, UserStatus, UUID]] = []
+
+    async def change(
+        self, *, target_user_id: UUID, new_status: UserStatus, actor_user_id: UUID
+    ) -> tuple[User, UserStatus]:
+        self.calls.append((target_user_id, new_status, actor_user_id))
+        for sub, user in self._users.users.items():
+            if user.id == target_user_id:
+                updated = user.model_copy(update={"status": new_status})
+                self._users.users[sub] = updated
+                return updated, user.status
+        raise AssertionError("unknown user")
+
+
 def _claims(**overrides: object) -> GoogleClaims:
     defaults: dict[str, object] = {
         "sub": "google-sub-1",
@@ -87,6 +106,7 @@ async def test_first_sign_in_creates_a_pending_user_and_a_session() -> None:
         session_ttl=SESSION_TTL,
         users=users,
         sessions=sessions,
+        status_changer=FakeUserStatusChanger(users),
         clock=FakeClock(),
     )
 
@@ -105,6 +125,7 @@ async def test_verified_admin_email_is_created_active() -> None:
         session_ttl=SESSION_TTL,
         users=users,
         sessions=sessions,
+        status_changer=FakeUserStatusChanger(users),
         clock=FakeClock(),
     )
 
@@ -121,6 +142,7 @@ async def test_second_sign_in_with_the_same_sub_reuses_the_user() -> None:
         session_ttl=SESSION_TTL,
         users=users,
         sessions=sessions,
+        status_changer=FakeUserStatusChanger(users),
         clock=FakeClock(),
     )
     second_user, second_session = await sign_in_with_google(
@@ -129,6 +151,7 @@ async def test_second_sign_in_with_the_same_sub_reuses_the_user() -> None:
         session_ttl=SESSION_TTL,
         users=users,
         sessions=sessions,
+        status_changer=FakeUserStatusChanger(users),
         clock=FakeClock(),
     )
 
@@ -158,6 +181,7 @@ async def test_concurrent_sign_in_recovers_by_fetching_the_race_winner() -> None
         session_ttl=SESSION_TTL,
         users=users,
         sessions=sessions,
+        status_changer=FakeUserStatusChanger(users),
         clock=FakeClock(),
     )
 
@@ -184,6 +208,7 @@ async def test_concurrent_sign_in_raises_if_the_race_winner_is_not_found() -> No
             session_ttl=SESSION_TTL,
             users=users,
             sessions=sessions,
+            status_changer=FakeUserStatusChanger(users),
             clock=FakeClock(),
         )
 
@@ -206,6 +231,7 @@ async def test_resolve_authenticated_user_returns_the_session_owner() -> None:
         session_ttl=SESSION_TTL,
         users=users,
         sessions=sessions,
+        status_changer=FakeUserStatusChanger(users),
         clock=FakeClock(),
     )
     session = await sessions.create(
@@ -268,6 +294,7 @@ async def test_signing_in_again_after_deletion_creates_a_fresh_pending_account()
         session_ttl=SESSION_TTL,
         users=users,
         sessions=sessions,
+        status_changer=FakeUserStatusChanger(users),
         clock=FakeClock(),
     )
     await users.delete(first_user.id)
@@ -278,9 +305,88 @@ async def test_signing_in_again_after_deletion_creates_a_fresh_pending_account()
         session_ttl=SESSION_TTL,
         users=users,
         sessions=sessions,
+        status_changer=FakeUserStatusChanger(users),
         clock=FakeClock(),
     )
 
     assert second_user.id != first_user.id
     assert second_user.sub == first_user.sub
     assert second_user.status is UserStatus.PENDING
+
+
+async def _existing_user(users: FakeUsersRepository, status: UserStatus, email: str) -> User:
+    user = User(
+        id=uuid4(),
+        sub="google-sub-1",
+        email=email,
+        name="Athlete",
+        locale="en",
+        status=status,
+        created_at=FROZEN_NOW,
+    )
+    users.users[user.sub] = user
+    return user
+
+
+async def _sign_in_existing(
+    status: UserStatus,
+    *,
+    email: str = "admin@example.com",
+    email_verified: bool = True,
+) -> tuple[User, FakeUserStatusChanger]:
+    users = FakeUsersRepository()
+    existing = await _existing_user(users, status, email)
+    changer = FakeUserStatusChanger(users)
+    user, _ = await sign_in_with_google(
+        _claims(email=email, email_verified=email_verified),
+        admin_emails=ADMIN_EMAILS,
+        session_ttl=SESSION_TTL,
+        users=users,
+        sessions=FakeSessionsRepository(),
+        status_changer=changer,
+        clock=FakeClock(),
+    )
+    assert user.id == existing.id
+    return user, changer
+
+
+async def test_listed_pending_account_is_activated_at_sign_in_by_itself() -> None:
+    user, changer = await _sign_in_existing(UserStatus.PENDING)
+
+    assert user.status is UserStatus.ACTIVE
+    assert changer.calls == [(user.id, UserStatus.ACTIVE, user.id)]
+
+
+async def test_listed_disabled_account_is_reactivated_at_sign_in() -> None:
+    user, changer = await _sign_in_existing(UserStatus.DISABLED)
+
+    assert user.status is UserStatus.ACTIVE
+    assert changer.calls == [(user.id, UserStatus.ACTIVE, user.id)]
+
+
+async def test_listed_email_matches_case_insensitively_at_sign_in() -> None:
+    user, changer = await _sign_in_existing(UserStatus.PENDING, email="Admin@Example.COM")
+
+    assert user.status is UserStatus.ACTIVE
+    assert len(changer.calls) == 1
+
+
+async def test_unlisted_pending_account_stays_pending_at_sign_in() -> None:
+    user, changer = await _sign_in_existing(UserStatus.PENDING, email="athlete@example.com")
+
+    assert user.status is UserStatus.PENDING
+    assert changer.calls == []
+
+
+async def test_listed_but_unverified_email_is_never_promoted_at_sign_in() -> None:
+    user, changer = await _sign_in_existing(UserStatus.PENDING, email_verified=False)
+
+    assert user.status is UserStatus.PENDING
+    assert changer.calls == []
+
+
+async def test_already_active_listed_admin_writes_no_status_change_at_sign_in() -> None:
+    user, changer = await _sign_in_existing(UserStatus.ACTIVE)
+
+    assert user.status is UserStatus.ACTIVE
+    assert changer.calls == []

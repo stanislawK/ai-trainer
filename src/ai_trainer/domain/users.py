@@ -40,6 +40,16 @@ def resolve_initial_status(
     return UserStatus.PENDING
 
 
+def should_activate_on_sign_in(
+    status: UserStatus, email: str, email_verified: bool, admin_emails: Sequence[str]
+) -> bool:
+    """A `pending` or `disabled` account whose verified email is in `ADMIN_EMAILS` is
+    activated at sign-in (ADR-0005 invariant 6). An `active` account is left alone."""
+    return (
+        status is not UserStatus.ACTIVE and email_verified and is_admin_email(email, admin_emails)
+    )
+
+
 class NewUser(BaseModel):
     """A user about to be persisted; the repository assigns `id` and `created_at`."""
 

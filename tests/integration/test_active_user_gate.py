@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai_trainer.adapters.orm import UserOrm
 from ai_trainer.adapters.sessions_repository import SqlAlchemySessionsRepository
+from ai_trainer.adapters.user_status_changer import SqlAlchemyUserStatusChanger
 from ai_trainer.adapters.users_repository import SqlAlchemyUsersRepository
 from ai_trainer.domain.sessions import NewSession
 from ai_trainer.domain.users import GoogleClaims, NewUser, UserStatus
@@ -39,13 +40,13 @@ class FakeGoogleOAuthClient:
             url=f"https://accounts.google.com/o/oauth2/auth?redirect_uri={redirect_uri}"
         )
 
+    def __init__(self, *, email: str = "other@example.com", sub: str = "google-sub-other") -> None:
+        self._email = email
+        self._sub = sub
+
     async def authorize_access_token(self, request: Request) -> GoogleClaims:
         return GoogleClaims(
-            sub="google-sub-other",
-            email="other@example.com",
-            email_verified=True,
-            name="Other",
-            locale="en",
+            sub=self._sub, email=self._email, email_verified=True, name="Other", locale="en"
         )
 
 
@@ -56,6 +57,7 @@ def _client(
     sessions: SqlAlchemySessionsRepository,
     include_auth_router: bool = False,
     admin_emails: list[str] | None = None,
+    oauth_client: FakeGoogleOAuthClient | None = None,
 ) -> TestClient:
     app = FastAPI()
     templates = build_templates()
@@ -75,11 +77,12 @@ def _client(
     if include_auth_router:
         app.include_router(
             build_auth_router(
-                oauth_client=FakeGoogleOAuthClient(),
+                oauth_client=oauth_client or FakeGoogleOAuthClient(),
                 users=users,
                 sessions=sessions,
+                status_changer=SqlAlchemyUserStatusChanger(session_factory),
                 clock=FakeClock(),
-                admin_emails=[],
+                admin_emails=admin_emails or [],
                 session_ttl=timedelta(days=14),
                 cookie_secure=False,
             )
@@ -274,3 +277,51 @@ async def test_login_callback_and_logout_stay_reachable_for_a_pending_user(
 
     logout = client.post("/auth/logout", follow_redirects=False)
     assert logout.status_code == 303
+
+
+async def _sign_in_then_get_home(
+    db_session_factory: Callable[[], AsyncSession],
+    *,
+    status: UserStatus,
+    admin_emails: list[str],
+) -> str:
+    users = SqlAlchemyUsersRepository(db_session_factory)
+    sessions = SqlAlchemySessionsRepository(db_session_factory)
+    await users.create(
+        NewUser(sub="sub-3", email="c@example.com", name="C", locale="en", status=status)
+    )
+    client = _client(
+        db_session_factory,
+        users=users,
+        sessions=sessions,
+        include_auth_router=True,
+        admin_emails=admin_emails,
+        oauth_client=FakeGoogleOAuthClient(email="c@example.com", sub="sub-3"),
+    )
+    callback = client.get("/auth/callback", follow_redirects=False)
+    assert callback.headers["location"] == "/"
+    response = client.get("/")
+    assert response.status_code == 200
+    return response.text
+
+
+async def test_a_listed_pending_account_signs_in_and_reaches_home(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    text = await _sign_in_then_get_home(
+        db_session_factory, status=UserStatus.PENDING, admin_emails=["C@Example.com"]
+    )
+
+    assert "AI Trainer</h1>" in text
+    assert "on the list" not in text
+
+
+async def test_an_unlisted_pending_account_signs_in_and_sees_the_status_screen(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    text = await _sign_in_then_get_home(
+        db_session_factory, status=UserStatus.PENDING, admin_emails=["someone-else@example.com"]
+    )
+
+    assert "AI Trainer</h1>" not in text
+    assert "on the list" in text

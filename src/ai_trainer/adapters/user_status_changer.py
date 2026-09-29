@@ -1,6 +1,7 @@
 from collections.abc import Callable
 from uuid import UUID
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai_trainer.adapters.orm import UserOrm, UserStatusChangeOrm
@@ -19,11 +20,18 @@ class SqlAlchemyUserStatusChanger:
         self, *, target_user_id: UUID, new_status: UserStatus, actor_user_id: UUID
     ) -> tuple[User, UserStatus]:
         async with self._session_factory() as session:
-            row = await session.get(UserOrm, target_user_id)
+            # Locked so two overlapping changes serialize: the second re-reads the committed
+            # status rather than acting on a stale one.
+            row = await session.scalar(
+                select(UserOrm).where(UserOrm.id == target_user_id).with_for_update()
+            )
             if row is None:
                 raise UserNotFoundError(target_user_id)
 
             old_status = UserStatus(row.status)
+            if old_status is new_status:
+                return _to_user(row), old_status
+
             change = NewUserStatusChange(
                 actor_user_id=actor_user_id,
                 target_user_id=target_user_id,
@@ -41,14 +49,16 @@ class SqlAlchemyUserStatusChanger:
             )
             await session.commit()
             await session.refresh(row)
+            return _to_user(row), old_status
 
-            updated = User(
-                id=row.id,
-                sub=row.sub,
-                email=row.email,
-                name=row.name,
-                locale=row.locale,
-                status=UserStatus(row.status),
-                created_at=row.created_at,
-            )
-            return updated, old_status
+
+def _to_user(row: UserOrm) -> User:
+    return User(
+        id=row.id,
+        sub=row.sub,
+        email=row.email,
+        name=row.name,
+        locale=row.locale,
+        status=UserStatus(row.status),
+        created_at=row.created_at,
+    )

@@ -9,10 +9,11 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ai_trainer.adapters.orm import UserOrm
+from ai_trainer.adapters.orm import UserOrm, UserStatusChangeOrm
 from ai_trainer.adapters.sessions_repository import SqlAlchemySessionsRepository
+from ai_trainer.adapters.user_status_changer import SqlAlchemyUserStatusChanger
 from ai_trainer.adapters.users_repository import SqlAlchemyUsersRepository
-from ai_trainer.domain.users import GoogleClaims, UserStatus
+from ai_trainer.domain.users import GoogleClaims, NewUser, UserStatus
 from ai_trainer.web.auth import build_auth_router
 
 FROZEN_NOW = datetime(2026, 9, 22, 12, 0, tzinfo=UTC)
@@ -70,6 +71,7 @@ def _client(
             oauth_client=oauth_client,
             users=SqlAlchemyUsersRepository(session_factory),
             sessions=SqlAlchemySessionsRepository(session_factory),
+            status_changer=SqlAlchemyUserStatusChanger(session_factory),
             clock=FakeClock(),
             admin_emails=admin_emails or [],
             session_ttl=SESSION_TTL,
@@ -83,6 +85,94 @@ async def _count_users(session_factory: Callable[[], AsyncSession]) -> int:
     async with session_factory() as session:
         rows = await session.scalars(select(UserOrm))
         return len(list(rows))
+
+
+async def _seed_user(
+    session_factory: Callable[[], AsyncSession], status: UserStatus, email: str
+) -> UUID:
+    user = await SqlAlchemyUsersRepository(session_factory).create(
+        NewUser(sub="google-sub-1", email=email, name="Athlete", locale="en", status=status)
+    )
+    return user.id
+
+
+async def _status_changes(
+    session_factory: Callable[[], AsyncSession],
+) -> list[UserStatusChangeOrm]:
+    async with session_factory() as session:
+        return list(await session.scalars(select(UserStatusChangeOrm)))
+
+
+async def _sign_in_as(
+    session_factory: Callable[[], AsyncSession],
+    status: UserStatus,
+    *,
+    email: str = "admin@example.com",
+    email_verified: bool = True,
+) -> UUID:
+    user_id = await _seed_user(session_factory, status, email)
+    client = _client(
+        session_factory,
+        oauth_client=FakeGoogleOAuthClient(
+            claims=_claims(email=email, email_verified=email_verified)
+        ),
+        admin_emails=["Admin@Example.com"],
+    )
+    response = client.get("/auth/callback", follow_redirects=False)
+    assert response.status_code == 303
+    assert response.headers["location"] == "/"
+    return user_id
+
+
+async def _status_of(session_factory: Callable[[], AsyncSession], user_id: UUID) -> UserStatus:
+    user = await SqlAlchemyUsersRepository(session_factory).get(user_id)
+    assert user is not None
+    return user.status
+
+
+async def test_callback_activates_a_listed_pending_account(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    user_id = await _sign_in_as(db_session_factory, UserStatus.PENDING)
+
+    assert await _status_of(db_session_factory, user_id) is UserStatus.ACTIVE
+
+
+async def test_callback_reactivates_a_listed_disabled_account_with_one_audit_row(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    user_id = await _sign_in_as(db_session_factory, UserStatus.DISABLED)
+
+    assert await _status_of(db_session_factory, user_id) is UserStatus.ACTIVE
+    (change,) = await _status_changes(db_session_factory)
+    assert (change.actor_user_id, change.target_user_id) == (user_id, user_id)
+    assert (change.old_status, change.new_status) == ("disabled", "active")
+
+
+async def test_callback_leaves_an_unlisted_pending_account_pending(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    user_id = await _sign_in_as(db_session_factory, UserStatus.PENDING, email="athlete@example.com")
+
+    assert await _status_of(db_session_factory, user_id) is UserStatus.PENDING
+    assert await _status_changes(db_session_factory) == []
+
+
+async def test_callback_never_promotes_a_listed_but_unverified_email(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    user_id = await _sign_in_as(db_session_factory, UserStatus.PENDING, email_verified=False)
+
+    assert await _status_of(db_session_factory, user_id) is UserStatus.PENDING
+    assert await _status_changes(db_session_factory) == []
+
+
+async def test_callback_writes_no_audit_row_for_an_already_active_admin(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    await _sign_in_as(db_session_factory, UserStatus.ACTIVE)
+
+    assert await _status_changes(db_session_factory) == []
 
 
 async def test_login_redirects_through_the_oauth_client(
@@ -138,6 +228,7 @@ async def test_callback_with_verified_admin_email_creates_active_user(
     user = await users.get_by_sub("google-sub-1")
     assert user is not None
     assert user.status is UserStatus.ACTIVE
+    assert await _status_changes(db_session_factory) == []
 
 
 async def test_second_callback_with_the_same_sub_reuses_the_user(

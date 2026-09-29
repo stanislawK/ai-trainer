@@ -123,6 +123,7 @@ def create_app(settings: Settings) -> FastAPI:
             oauth_client=AuthlibGoogleOAuthClient(oauth.google),
             users=users,
             sessions=sessions,
+            status_changer=status_changer,
             clock=clock,
             admin_emails=settings.admin_emails,
             session_ttl=timedelta(days=settings.session_ttl_days),

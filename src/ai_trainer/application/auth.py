@@ -4,6 +4,7 @@ from uuid import UUID
 
 from ai_trainer.application.ports.clock import ClockPort
 from ai_trainer.application.ports.sessions import SessionsRepositoryPort
+from ai_trainer.application.ports.user_status_changer import UserStatusChangerPort
 from ai_trainer.application.ports.users import UsersRepositoryPort
 from ai_trainer.domain.sessions import NewSession, Session
 from ai_trainer.domain.users import (
@@ -11,7 +12,9 @@ from ai_trainer.domain.users import (
     NewUser,
     User,
     UserAlreadyExistsError,
+    UserStatus,
     resolve_initial_status,
+    should_activate_on_sign_in,
 )
 
 
@@ -22,9 +25,12 @@ async def sign_in_with_google(
     session_ttl: timedelta,
     users: UsersRepositoryPort,
     sessions: SessionsRepositoryPort,
+    status_changer: UserStatusChangerPort,
     clock: ClockPort,
 ) -> tuple[User, Session]:
-    """Gets or creates the user by `sub`, then always opens a new session (ADR-0005)."""
+    """Gets or creates the user by `sub`, then always opens a new session (ADR-0005). An
+    existing `pending` or `disabled` account with a listed, verified email is activated first,
+    recorded with that admin as the actor (invariants 6 and 9)."""
     user = await users.get_by_sub(claims.sub)
     if user is None:
         status = resolve_initial_status(claims.email, claims.email_verified, admin_emails)
@@ -46,6 +52,10 @@ async def sign_in_with_google(
                 raise RuntimeError(
                     f"user {claims.sub!r} vanished after a concurrent create race"
                 ) from None
+    if should_activate_on_sign_in(user.status, claims.email, claims.email_verified, admin_emails):
+        user, _ = await status_changer.change(
+            target_user_id=user.id, new_status=UserStatus.ACTIVE, actor_user_id=user.id
+        )
     session = await sessions.create(
         NewSession(user_id=user.id, expires_at=clock.now() + session_ttl)
     )

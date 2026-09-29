@@ -12,6 +12,7 @@ class UserStatusChangerPort(Protocol):
     async def change(
         self, *, target_user_id: UUID, new_status: UserStatus, actor_user_id: UUID
     ) -> tuple[User, UserStatus]:
-        """Returns the updated user and their status before the change. Raises
-        `UserNotFoundError` if `target_user_id` doesn't exist."""
+        """Returns the updated user and their status before the change. Changing to the status
+        the user already has writes no audit row. Raises `UserNotFoundError` if `target_user_id`
+        doesn't exist."""
         ...

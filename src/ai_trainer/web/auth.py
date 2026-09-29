@@ -10,6 +10,7 @@ from fastapi.responses import RedirectResponse
 from ai_trainer.application.auth import sign_in_with_google, sign_out
 from ai_trainer.application.ports.clock import ClockPort
 from ai_trainer.application.ports.sessions import SessionsRepositoryPort
+from ai_trainer.application.ports.user_status_changer import UserStatusChangerPort
 from ai_trainer.application.ports.users import UsersRepositoryPort
 from ai_trainer.domain.users import GoogleClaims
 
@@ -42,6 +43,7 @@ def build_auth_router(
     oauth_client: GoogleOAuthClient,
     users: UsersRepositoryPort,
     sessions: SessionsRepositoryPort,
+    status_changer: UserStatusChangerPort,
     clock: ClockPort,
     admin_emails: Sequence[str],
     session_ttl: timedelta,
@@ -74,6 +76,7 @@ def build_auth_router(
             session_ttl=session_ttl,
             users=users,
             sessions=sessions,
+            status_changer=status_changer,
             clock=clock,
         )
         response = RedirectResponse(url="/", status_code=303)
