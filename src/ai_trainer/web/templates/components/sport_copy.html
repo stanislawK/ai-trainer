@@ -1,0 +1,9 @@
+{#- User-facing sport copy, keyed by the registry's `label_key` (G5). Import with
+    `{% from "components/sport_copy.html" import sport_copy, general_goal_example %}`. -#}
+{% set sport_copy = {
+  "sport.climbing.label": {"label": "Climbing", "hint": "Sport, bouldering, board", "goal_example": "Send a 7a"},
+  "sport.gym.label": {"label": "Gym", "hint": "Strength and conditioning", "goal_example": "Pull-up +10 kg"},
+  "sport.cycling.label": {"label": "Cycling", "hint": "Road, gravel, indoor", "goal_example": "Ride 100 km"},
+} %}
+{#- The example shown in an empty goal field on a card with no sport (General). -#}
+{% set general_goal_example = "Stay consistent" %}

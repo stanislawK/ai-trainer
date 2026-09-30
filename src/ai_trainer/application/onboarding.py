@@ -101,7 +101,15 @@ class GoalProblem(StrEnum):
 
 
 class NoGoalsError(Exception):
-    """Raised when the goals step is submitted without a single goal row."""
+    """Raised when the goals step is submitted without a single goal."""
+
+
+class UnknownGoalSportError(Exception):
+    """Raised when a goal names a sport that is not one of the user's own sports."""
+
+    def __init__(self, sport_id: str) -> None:
+        super().__init__(f"goal for sport {sport_id!r}, which the user did not pick")
+        self.sport_id = sport_id
 
 
 class InvalidGoalsError(Exception):
@@ -118,16 +126,14 @@ def earliest_today(clock: ClockPort) -> date:
     return clock.now().astimezone(_LAST_TIMEZONE).date()
 
 
-def _parse_goal(text: str, raw_date: str, today: date) -> Goal | GoalProblem:
-    # Postgres text cannot hold NUL; only a hand-crafted request sends one.
-    text = text.replace("\x00", "").strip()
+def _parse_goal(sport_id: str | None, text: str, raw_date: str, today: date) -> Goal | GoalProblem:
     if not text:
         return GoalProblem.BLANK
     if len(text) > MAX_GOAL_LENGTH:
         return GoalProblem.TOO_LONG
     raw_date = raw_date.strip()
     if not raw_date:
-        return Goal(text=text, target_date=None)
+        return Goal(text=text, target_date=None, sport_id=sport_id)
     # `date.fromisoformat` alone also takes "20270101" and ISO week dates.
     if not _ISO_DATE.fullmatch(raw_date):
         return GoalProblem.BAD_DATE
@@ -137,31 +143,41 @@ def _parse_goal(text: str, raw_date: str, today: date) -> Goal | GoalProblem:
         return GoalProblem.BAD_DATE
     if target_date < today:
         return GoalProblem.PAST_DATE
-    return Goal(text=text, target_date=target_date)
+    return Goal(text=text, target_date=target_date, sport_id=sport_id)
 
 
 async def set_goals(
     user_id: UUID,
-    rows: Sequence[tuple[str, str]],
+    rows: Sequence[tuple[str | None, str, str]],
     *,
     clock: ClockPort,
     repository: OnboardingRepositoryPort,
 ) -> None:
-    """Stores the athlete's goals (PRD-0003 B9, ADR-0006). Each row is the text typed and the
-    target date as `YYYY-MM-DD`, blank for none. Text is trimmed to 1-200 characters, and a
-    date may not be before `earliest_today`. Nothing is written unless every row is valid and
-    there is at least one."""
-    if not rows:
-        raise NoGoalsError
+    """Stores the athlete's goals (PRD-0003 B9, ADR-0006). Each row is the goal's sport (`None`
+    for a general goal), the text typed and the target date as `YYYY-MM-DD`, blank for none.
+    A sport must be one of the user's own `user_sports`. Text is trimmed to 1-200 characters,
+    and a date may not be before `earliest_today`. A row with neither text nor date is an empty
+    card slot and is skipped. Nothing is written unless every row is valid and at least one
+    goal remains; problems are keyed by the row's position among `rows`."""
+    picked = set(await repository.list_sports(user_id))
+    for sport_id, _, _ in rows:
+        if sport_id is not None and sport_id not in picked:
+            raise UnknownGoalSportError(sport_id)
     today = earliest_today(clock)
     goals: list[Goal] = []
     problems: dict[int, GoalProblem] = {}
-    for position, (text, raw_date) in enumerate(rows):
-        parsed = _parse_goal(text, raw_date, today)
+    for position, (sport_id, text, raw_date) in enumerate(rows):
+        # Postgres text cannot hold NUL; only a hand-crafted request sends one.
+        text = text.replace("\x00", "").strip()
+        if not text and not raw_date.strip():
+            continue
+        parsed = _parse_goal(sport_id, text, raw_date, today)
         if isinstance(parsed, GoalProblem):
             problems[position] = parsed
         else:
             goals.append(parsed)
     if problems:
         raise InvalidGoalsError(problems)
+    if not goals:
+        raise NoGoalsError
     await repository.replace_goals(user_id, goals)

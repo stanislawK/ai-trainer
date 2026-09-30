@@ -1,6 +1,6 @@
-// Wires the onboarding goals step's rows (ticket #76). "Add goal" appends a copy of the
-// row `<template>`; a row's remove button takes it out of the form, so it is never posted
-// and never stored. Listeners sit on `document`, so they survive htmx swapping the step.
+// Wires the onboarding goals step's cards (tickets #76 and #99). A card's "Add goal" appends
+// a copy of that card's row `<template>`, which already carries the card's sport; a row's
+// remove button takes it out of the form, so it is never posted and never stored. Listeners sit on `document`, so they survive htmx swapping the step.
 (function () {
   document.addEventListener("click", function (event) {
     var remove = event.target.closest("[data-goal-remove]");
@@ -10,7 +10,7 @@
       if (row) {
         row.remove();
       }
-      var next = list && list.querySelector("[data-goal-row] input");
+      var next = list && list.querySelector("[data-goal-row] input[name='goal_text']");
       if (next) {
         next.focus();
       }
@@ -21,9 +21,9 @@
     if (!add) {
       return;
     }
-    var form = add.closest("form");
-    var template = form && form.querySelector("template[data-goal-template]");
-    var goals = form && form.querySelector("[data-goal-list]");
+    var card = add.closest("[data-goal-card]");
+    var template = card && card.querySelector("template[data-goal-template]");
+    var goals = card && card.querySelector("[data-goal-list]");
     if (!template || !goals) {
       return;
     }

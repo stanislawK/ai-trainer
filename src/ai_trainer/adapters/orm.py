@@ -116,9 +116,9 @@ class WeeklyAvailabilityOrm(Base):
 
 
 class GoalOrm(Base):
-    """One row per goal the athlete set (ADR-0006): free text of 1-200 characters and an
-    optional target date. `position` keeps the order they were entered in. M4 plans (B9)
-    extend this table rather than replace it."""
+    """One row per goal the athlete set (ADR-0006): free text of 1-200 characters, an optional
+    target date and an optional sport. `position` keeps the order they were entered in. M4 plans
+    (B9) extend this table rather than replace it."""
 
     __tablename__ = "goals"
     __table_args__ = (
@@ -134,6 +134,9 @@ class GoalOrm(Base):
     text: Mapped[str] = mapped_column(String(200), nullable=False)
     # A calendar date, not a moment, so no timezone (ADR-0014 invariant 2 covers timestamps).
     target_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    # A `SportRegistry` ID stored as text and checked against `user_sports` in the application
+    # layer, never a database enum (ADR-0006); null is a general goal.
+    sport_id: Mapped[str | None] = mapped_column(nullable=True)
     # timestamptz, UTC (ADR-0004 invariant 5).
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now()

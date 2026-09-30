@@ -83,6 +83,7 @@ class SqlAlchemyOnboardingRepository:
                                 "position": position,
                                 "text": goal.text,
                                 "target_date": goal.target_date,
+                                "sport_id": goal.sport_id,
                             }
                             for position, goal in enumerate(goals)
                         ]
@@ -94,11 +95,14 @@ class SqlAlchemyOnboardingRepository:
     async def list_goals(self, user_id: UUID) -> Sequence[Goal]:
         async with self._session_factory() as session:
             rows = await session.execute(
-                select(GoalOrm.text, GoalOrm.target_date)
+                select(GoalOrm.text, GoalOrm.target_date, GoalOrm.sport_id)
                 .where(GoalOrm.user_id == user_id)
                 .order_by(GoalOrm.position)
             )
-            return [Goal(text=text, target_date=target_date) for text, target_date in rows]
+            return [
+                Goal(text=text, target_date=target_date, sport_id=sport_id)
+                for text, target_date, sport_id in rows
+            ]
 
     async def set_onboarded_at(self, user_id: UUID, when: datetime | None) -> None:
         async with self._session_factory() as session:
