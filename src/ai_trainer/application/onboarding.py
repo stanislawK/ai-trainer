@@ -1,7 +1,12 @@
+import re
 from collections.abc import Mapping, Sequence
+from datetime import date, timedelta, timezone
+from enum import StrEnum
 from uuid import UUID
 
+from ai_trainer.application.ports.clock import ClockPort
 from ai_trainer.application.ports.onboarding import OnboardingRepositoryPort
+from ai_trainer.domain.goals import Goal
 from ai_trainer.domain.sports.registry import SportRegistry
 
 
@@ -78,3 +83,85 @@ async def set_availability(
     if not trainable:
         raise NoAvailabilityError
     await repository.replace_availability(user_id, trainable)
+
+
+MAX_GOAL_LENGTH = 200
+# The last place on Earth to reach each calendar date. The athlete's timezone is only
+# confirmed on the step after goals, so a target date is "in the past" only once it is
+# past everywhere (ADR-0014).
+_LAST_TIMEZONE = timezone(timedelta(hours=-12))
+_ISO_DATE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
+
+
+class GoalProblem(StrEnum):
+    BLANK = "blank"
+    TOO_LONG = "too_long"
+    BAD_DATE = "bad_date"
+    PAST_DATE = "past_date"
+
+
+class NoGoalsError(Exception):
+    """Raised when the goals step is submitted without a single goal row."""
+
+
+class InvalidGoalsError(Exception):
+    """Raised when any goal row is invalid. `problems` maps each offending row's position
+    to what is wrong with it, so the form can flag every row at once."""
+
+    def __init__(self, problems: Mapping[int, GoalProblem]) -> None:
+        super().__init__(f"invalid goals at rows {sorted(problems)}")
+        self.problems = dict(problems)
+
+
+def earliest_today(clock: ClockPort) -> date:
+    """The earliest calendar date that is still "today" somewhere on Earth."""
+    return clock.now().astimezone(_LAST_TIMEZONE).date()
+
+
+def _parse_goal(text: str, raw_date: str, today: date) -> Goal | GoalProblem:
+    # Postgres text cannot hold NUL; only a hand-crafted request sends one.
+    text = text.replace("\x00", "").strip()
+    if not text:
+        return GoalProblem.BLANK
+    if len(text) > MAX_GOAL_LENGTH:
+        return GoalProblem.TOO_LONG
+    raw_date = raw_date.strip()
+    if not raw_date:
+        return Goal(text=text, target_date=None)
+    # `date.fromisoformat` alone also takes "20270101" and ISO week dates.
+    if not _ISO_DATE.fullmatch(raw_date):
+        return GoalProblem.BAD_DATE
+    try:
+        target_date = date.fromisoformat(raw_date)
+    except ValueError:
+        return GoalProblem.BAD_DATE
+    if target_date < today:
+        return GoalProblem.PAST_DATE
+    return Goal(text=text, target_date=target_date)
+
+
+async def set_goals(
+    user_id: UUID,
+    rows: Sequence[tuple[str, str]],
+    *,
+    clock: ClockPort,
+    repository: OnboardingRepositoryPort,
+) -> None:
+    """Stores the athlete's goals (PRD-0003 B9, ADR-0006). Each row is the text typed and the
+    target date as `YYYY-MM-DD`, blank for none. Text is trimmed to 1-200 characters, and a
+    date may not be before `earliest_today`. Nothing is written unless every row is valid and
+    there is at least one."""
+    if not rows:
+        raise NoGoalsError
+    today = earliest_today(clock)
+    goals: list[Goal] = []
+    problems: dict[int, GoalProblem] = {}
+    for position, (text, raw_date) in enumerate(rows):
+        parsed = _parse_goal(text, raw_date, today)
+        if isinstance(parsed, GoalProblem):
+            problems[position] = parsed
+        else:
+            goals.append(parsed)
+    if problems:
+        raise InvalidGoalsError(problems)
+    await repository.replace_goals(user_id, goals)

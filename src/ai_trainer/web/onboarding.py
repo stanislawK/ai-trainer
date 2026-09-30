@@ -1,3 +1,5 @@
+from collections.abc import Mapping, Sequence
+from itertools import zip_longest
 from typing import Annotated
 
 from fastapi import APIRouter, Form, HTTPException, Request, Response
@@ -5,27 +7,39 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from starlette.templating import Jinja2Templates
 
 from ai_trainer.application.onboarding import (
+    MAX_GOAL_LENGTH,
     WEEKDAYS,
     EmptySportSelectionError,
+    GoalProblem,
     InvalidAvailabilityError,
+    InvalidGoalsError,
     NoAvailabilityError,
+    NoGoalsError,
     choose_sports,
+    earliest_today,
     set_availability,
+    set_goals,
 )
+from ai_trainer.application.ports.clock import ClockPort
 from ai_trainer.application.ports.onboarding import OnboardingRepositoryPort
 from ai_trainer.domain.sports.registry import SportRegistry, UnknownSportError
 from ai_trainer.domain.users import User
 
 _NEXT_STEP_PATH = "/onboarding/availability"
 _GOALS_STEP_PATH = "/onboarding/goals"
+_TIMEZONE_STEP_PATH = "/onboarding/timezone"
 _UNPROCESSABLE = 422
 
 
 def build_onboarding_router(
-    templates: Jinja2Templates, *, registry: SportRegistry, onboarding: OnboardingRepositoryPort
+    templates: Jinja2Templates,
+    *,
+    registry: SportRegistry,
+    onboarding: OnboardingRepositoryPort,
+    clock: ClockPort,
 ) -> APIRouter:
-    """Wires the onboarding steps (PRD-0003 F6, ADR-0006, ticket #74): the sports step and
-    the availability step. `user_id` comes only from the authenticated session (ADR-0005)."""
+    """Wires the onboarding steps (PRD-0003 F6, ADR-0006, tickets #74-#76): sports,
+    availability and goals. `user_id` comes only from the authenticated session (ADR-0005)."""
     router = APIRouter(prefix="/onboarding")
 
     def render(
@@ -96,5 +110,56 @@ def build_onboarding_router(
                 status_code=_UNPROCESSABLE,
             )
         return next_step(request, _GOALS_STEP_PATH)
+
+    def render_goals(
+        request: Request,
+        rows: Sequence[tuple[str, str]],
+        *,
+        problems: Mapping[int, GoalProblem] | None = None,
+        no_goals: bool = False,
+        status_code: int = 200,
+    ) -> HTMLResponse:
+        return render(
+            request,
+            "goals",
+            {
+                # An empty row to start from, so the athlete never faces a blank card.
+                "rows": list(rows) or [("", "")],
+                "problems": problems or {},
+                "no_goals": no_goals,
+                "min_date": earliest_today(clock).isoformat(),
+                "max_length": MAX_GOAL_LENGTH,
+            },
+            status_code=status_code,
+        )
+
+    @router.get("/goals", response_class=HTMLResponse)
+    async def goals_step(request: Request) -> HTMLResponse:
+        user: User = request.state.user
+        saved = await onboarding.list_goals(user.id)
+        rows = [
+            (goal.text, goal.target_date.isoformat() if goal.target_date else "") for goal in saved
+        ]
+        return render_goals(request, rows)
+
+    @router.post("/goals")
+    async def set_goals_step(request: Request) -> Response:
+        user: User = request.state.user
+        form = await request.form()
+        texts = [value for value in form.getlist("goal_text") if isinstance(value, str)]
+        dates = [value for value in form.getlist("goal_date") if isinstance(value, str)]
+        # Each row posts one text and one date; a row missing its date field is undated.
+        rows = [
+            (text, raw_date or "")
+            for text, raw_date in zip_longest(texts, dates)
+            if text is not None
+        ]
+        try:
+            await set_goals(user.id, rows, clock=clock, repository=onboarding)
+        except NoGoalsError:
+            return render_goals(request, [], no_goals=True, status_code=_UNPROCESSABLE)
+        except InvalidGoalsError as exc:
+            return render_goals(request, rows, problems=exc.problems, status_code=_UNPROCESSABLE)
+        return next_step(request, _TIMEZONE_STEP_PATH)
 
     return router

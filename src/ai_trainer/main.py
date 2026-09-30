@@ -111,7 +111,9 @@ def create_app(settings: Settings) -> FastAPI:
     )
     app.include_router(build_settings_router(templates, users=users))
     app.include_router(
-        build_onboarding_router(templates, registry=app.state.sport_registry, onboarding=onboarding)
+        build_onboarding_router(
+            templates, registry=app.state.sport_registry, onboarding=onboarding, clock=clock
+        )
     )
     app.include_router(
         build_sign_in_router(templates=templates, users=users, sessions=sessions, clock=clock)

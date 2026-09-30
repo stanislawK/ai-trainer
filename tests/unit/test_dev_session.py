@@ -4,6 +4,7 @@ from uuid import UUID, uuid4
 
 import pytest
 
+from ai_trainer.domain.goals import Goal
 from ai_trainer.domain.sessions import NewSession, Session
 from ai_trainer.domain.users import NewUser, User, UserAlreadyExistsError, UserStatus
 from scripts.dev_session import (
@@ -56,6 +57,7 @@ class FakeOnboardingRepository:
     def __init__(self) -> None:
         self.onboarded_at: dict[UUID, datetime | None] = {}
         self.sports: dict[UUID, list[str]] = {}
+        self.goals: dict[UUID, list[Goal]] = {}
 
     async def replace_sports(self, user_id: UUID, sport_ids: Sequence[str]) -> None:
         self.sports[user_id] = list(sport_ids)
@@ -70,6 +72,12 @@ class FakeOnboardingRepository:
 
     async def list_availability(self, user_id: UUID) -> Mapping[int, int]:
         raise NotImplementedError
+
+    async def replace_goals(self, user_id: UUID, goals: Sequence[Goal]) -> None:
+        self.goals[user_id] = list(goals)
+
+    async def list_goals(self, user_id: UUID) -> Sequence[Goal]:
+        return self.goals.get(user_id, [])
 
     async def set_onboarded_at(self, user_id: UUID, when: datetime | None) -> None:
         self.onboarded_at[user_id] = when
@@ -280,6 +288,32 @@ async def test_not_onboarded_seed_resets_the_sports_of_an_earlier_run() -> None:
 
     assert onboarding.sports[first.user_id] == []
     assert onboarding.onboarded_at[first.user_id] is None
+
+
+async def test_not_onboarded_seed_resets_the_goals_of_an_earlier_run() -> None:
+    users = FakeUsersRepository()
+    onboarding = FakeOnboardingRepository()
+    sessions = FakeSessionsRepository()
+    first = await seed_dev_session(
+        users,
+        sessions,
+        FakeClock(),
+        onboarding=onboarding,
+        session_ttl=SESSION_TTL,
+        onboarded=False,
+    )
+    onboarding.goals[first.user_id] = [Goal(text="Climb 7a", target_date=None)]
+
+    await seed_dev_session(
+        users,
+        sessions,
+        FakeClock(),
+        onboarding=onboarding,
+        session_ttl=SESSION_TTL,
+        onboarded=False,
+    )
+
+    assert onboarding.goals[first.user_id] == []
 
 
 def test_parse_args_defaults_to_an_onboarded_user() -> None:

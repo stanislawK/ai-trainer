@@ -1,13 +1,14 @@
-"""Wires `GET`/`POST /onboarding/sports` and `/onboarding/availability` (PRD-0003 F6, B10,
-ADR-0006, tickets #74 and #75)."""
+"""Wires `GET`/`POST /onboarding/sports`, `/onboarding/availability` and `/onboarding/goals`
+(PRD-0003 F6, B9, B10, ADR-0006, tickets #74, #75 and #76)."""
 
 from collections.abc import Mapping, Sequence
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from uuid import UUID, uuid4
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from ai_trainer.domain.goals import Goal
 from ai_trainer.domain.sessions import NewSession, Session
 from ai_trainer.domain.sports.registry import default_sport_registry
 from ai_trainer.domain.users import NewUser, User, UserStatus
@@ -65,6 +66,7 @@ class FakeOnboardingRepository:
     def __init__(self) -> None:
         self.sports: dict[UUID, list[str]] = {}
         self.availability: dict[UUID, dict[int, int]] = {}
+        self.goals: dict[UUID, list[Goal]] = {}
 
     async def replace_sports(self, user_id: UUID, sport_ids: Sequence[str]) -> None:
         self.sports[user_id] = list(sport_ids)
@@ -79,6 +81,12 @@ class FakeOnboardingRepository:
 
     async def list_availability(self, user_id: UUID) -> Mapping[int, int]:
         return self.availability.get(user_id, {})
+
+    async def replace_goals(self, user_id: UUID, goals: Sequence[Goal]) -> None:
+        self.goals[user_id] = list(goals)
+
+    async def list_goals(self, user_id: UUID) -> Sequence[Goal]:
+        return self.goals.get(user_id, [])
 
     async def set_onboarded_at(self, user_id: UUID, when: datetime | None) -> None:
         raise NotImplementedError
@@ -105,7 +113,12 @@ def _client() -> tuple[TestClient, User, FakeOnboardingRepository]:
     templates = build_templates()
     app = FastAPI()
     app.include_router(
-        build_onboarding_router(templates, registry=default_sport_registry(), onboarding=onboarding)
+        build_onboarding_router(
+            templates,
+            registry=default_sport_registry(),
+            onboarding=onboarding,
+            clock=FakeClock(),
+        )
     )
     app.add_middleware(
         ActiveUserGateMiddleware,
@@ -426,3 +439,251 @@ def test_continuing_with_nothing_picked_leaves_an_earlier_choice_stored() -> Non
 
     assert response.status_code == 422
     assert onboarding.sports == {user.id: ["climbing", "gym"]}
+
+
+# Goals (ticket #76). FROZEN_NOW is 12:00 UTC on 2026-09-29, when UTC-12 has just reached the
+# 29th: the earliest "today" on Earth, so the 29th is the earliest target date accepted.
+
+
+def _goal_rows(html: str) -> list[str]:
+    """Each posted goal row's markup, in order; the row `<template>` is not a row."""
+    if "<template" in html:
+        html = html.split("<template", 1)[0] + html.split("</template>", 1)[1]
+    return html.split("data-goal-row")[1:]
+
+
+def test_goals_step_is_step_three_with_a_way_back_and_one_empty_row() -> None:
+    client, _, _ = _client()
+
+    response = client.get("/onboarding/goals")
+
+    assert response.status_code == 200
+    assert "<html" in response.text
+    assert "What are you working toward?" in response.text
+    assert "3 / 4" in response.text
+    assert 'href="/onboarding/availability"' in response.text
+    rows = _goal_rows(response.text)
+    assert len(rows) == 1
+    assert 'name="goal_text"' in rows[0]
+    assert 'name="goal_date"' in rows[0]
+    assert 'maxlength="200"' in rows[0]
+    assert 'min="2026-09-29"' in rows[0]
+
+
+def test_goals_step_carries_a_row_template_and_an_add_button() -> None:
+    client, _, _ = _client()
+
+    response = client.get("/onboarding/goals")
+
+    assert "<template" in response.text
+    assert "data-goal-add" in response.text
+    assert "data-goal-remove" in response.text
+    assert "/static/js/onboarding_goals.js" in response.text
+
+
+def test_goals_step_with_hx_request_returns_a_partial() -> None:
+    client, _, _ = _client()
+
+    response = client.get("/onboarding/goals", headers={"HX-Request": "true"})
+
+    assert response.status_code == 200
+    assert "<html" not in response.text
+    assert 'name="goal_text"' in response.text
+
+
+def test_revisiting_goals_shows_the_saved_goals() -> None:
+    client, user, onboarding = _client()
+    onboarding.goals[user.id] = [
+        Goal(text="Send 8a+ by spring", target_date=date(2027, 4, 30)),
+        Goal(text="Ride 100 km", target_date=None),
+    ]
+
+    rows = _goal_rows(client.get("/onboarding/goals").text)
+
+    assert len(rows) == 2
+    assert 'value="Send 8a+ by spring"' in rows[0]
+    assert 'value="2027-04-30"' in rows[0]
+    assert 'value="Ride 100 km"' in rows[1]
+    assert 'value=""' in rows[1]
+
+
+def test_one_goal_with_a_date_and_one_without_are_stored_and_the_flow_moves_to_timezone() -> None:
+    client, user, onboarding = _client()
+
+    response = client.post(
+        "/onboarding/goals",
+        data={
+            "goal_text": ["Send 8a+ by spring", "Ride 100 km in one go"],
+            "goal_date": ["2027-04-30", ""],
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/onboarding/timezone"
+    assert onboarding.goals == {
+        user.id: [
+            Goal(text="Send 8a+ by spring", target_date=date(2027, 4, 30)),
+            Goal(text="Ride 100 km in one go", target_date=None),
+        ]
+    }
+
+
+def test_saving_goals_through_htmx_redirects_with_hx_redirect() -> None:
+    client, _, _ = _client()
+
+    response = client.post(
+        "/onboarding/goals",
+        data={"goal_text": ["Climb 7a"], "goal_date": [""]},
+        headers={"HX-Request": "true"},
+    )
+
+    assert response.status_code == 200
+    assert response.headers["HX-Redirect"] == "/onboarding/timezone"
+
+
+def test_a_past_target_date_shows_an_inline_error_on_that_row_and_stores_nothing() -> None:
+    client, _, onboarding = _client()
+
+    response = client.post(
+        "/onboarding/goals",
+        data={"goal_text": ["Climb 7a", "Ride 100 km"], "goal_date": ["", "2026-09-28"]},
+    )
+
+    assert response.status_code == 422
+    rows = _goal_rows(response.text)
+    assert len(rows) == 2
+    assert "in the past" not in rows[0]
+    assert "in the past" in rows[1]
+    assert 'aria-invalid="true"' in rows[1]
+    assert 'value="Ride 100 km"' in rows[1]
+    assert 'value="2026-09-28"' in rows[1]
+    assert onboarding.goals == {}
+
+
+def test_a_past_target_date_through_htmx_returns_the_partial_with_the_row_error() -> None:
+    client, _, onboarding = _client()
+
+    response = client.post(
+        "/onboarding/goals",
+        data={"goal_text": ["Climb 7a"], "goal_date": ["2026-09-28"]},
+        headers={"HX-Request": "true"},
+    )
+
+    assert response.status_code == 422
+    assert "<html" not in response.text
+    assert "in the past" in _goal_rows(response.text)[0]
+    assert onboarding.goals == {}
+
+
+def test_todays_date_is_accepted() -> None:
+    client, user, onboarding = _client()
+
+    response = client.post(
+        "/onboarding/goals",
+        data={"goal_text": ["Climb 7a"], "goal_date": ["2026-09-29"]},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert onboarding.goals[user.id] == [Goal(text="Climb 7a", target_date=date(2026, 9, 29))]
+
+
+def test_no_goals_shows_an_inline_error_and_stores_nothing() -> None:
+    client, _, onboarding = _client()
+
+    response = client.post("/onboarding/goals", data={})
+
+    assert response.status_code == 422
+    assert 'role="alert"' in response.text
+    assert "Add at least one goal" in response.text
+    assert len(_goal_rows(response.text)) == 1
+    assert onboarding.goals == {}
+
+
+def test_a_blank_goal_shows_an_inline_error_on_that_row_and_stores_nothing() -> None:
+    client, _, onboarding = _client()
+
+    response = client.post(
+        "/onboarding/goals",
+        data={"goal_text": ["Climb 7a", "   "], "goal_date": ["", ""]},
+    )
+
+    assert response.status_code == 422
+    rows = _goal_rows(response.text)
+    assert "Write your goal" not in rows[0]
+    assert "Write your goal" in rows[1]
+    assert 'aria-invalid="true"' in rows[1]
+    assert onboarding.goals == {}
+
+
+def test_a_goal_over_200_characters_shows_an_inline_error() -> None:
+    client, _, onboarding = _client()
+
+    response = client.post("/onboarding/goals", data={"goal_text": ["x" * 201], "goal_date": [""]})
+
+    assert response.status_code == 422
+    assert "200 characters" in _goal_rows(response.text)[0]
+    assert onboarding.goals == {}
+
+
+def test_a_malformed_date_shows_an_inline_error() -> None:
+    client, _, onboarding = _client()
+
+    response = client.post(
+        "/onboarding/goals", data={"goal_text": ["Climb 7a"], "goal_date": ["someday"]}
+    )
+
+    assert response.status_code == 422
+    assert "Pick a valid date" in _goal_rows(response.text)[0]
+    assert onboarding.goals == {}
+
+
+def test_a_row_removed_before_continuing_is_not_stored() -> None:
+    # The page had three rows; the athlete removed the middle one, so the browser posts two.
+    client, user, onboarding = _client()
+    client.post(
+        "/onboarding/goals",
+        data={"goal_text": ["First", "Second", "Third"], "goal_date": ["", "", ""]},
+    )
+
+    client.post("/onboarding/goals", data={"goal_text": ["First", "Third"], "goal_date": ["", ""]})
+
+    assert onboarding.goals == {
+        user.id: [Goal(text="First", target_date=None), Goal(text="Third", target_date=None)]
+    }
+
+
+def test_a_row_without_a_date_field_is_treated_as_undated() -> None:
+    client, user, onboarding = _client()
+
+    client.post("/onboarding/goals", data={"goal_text": ["Climb 7a", "Ride 100 km"]})
+
+    assert onboarding.goals[user.id] == [
+        Goal(text="Climb 7a", target_date=None),
+        Goal(text="Ride 100 km", target_date=None),
+    ]
+
+
+def test_a_failed_goals_save_through_htmx_returns_the_partial() -> None:
+    client, _, onboarding = _client()
+
+    response = client.post(
+        "/onboarding/goals",
+        data={"goal_text": [""], "goal_date": [""]},
+        headers={"HX-Request": "true"},
+    )
+
+    assert response.status_code == 422
+    assert "<html" not in response.text
+    assert "Write your goal" in response.text
+    assert onboarding.goals == {}
+
+
+def test_a_failed_goals_save_leaves_earlier_goals_stored() -> None:
+    client, user, onboarding = _client()
+    onboarding.goals[user.id] = [Goal(text="Kept", target_date=None)]
+
+    client.post("/onboarding/goals", data={})
+
+    assert onboarding.goals == {user.id: [Goal(text="Kept", target_date=None)]}

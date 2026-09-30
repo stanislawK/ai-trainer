@@ -83,3 +83,33 @@ def test_migration_adds_and_removes_weekly_availability() -> None:
         assert _has_user_sports() == {"user_sports"}
     finally:
         command.upgrade(cfg, "head")
+
+
+def test_migration_adds_and_removes_goals_with_an_indexed_cascading_user_id() -> None:
+    cfg = _alembic_config()
+    command.upgrade(cfg, "head")
+    table = (
+        "SELECT table_name FROM information_schema.tables "
+        "WHERE table_schema = 'public' AND table_name = 'goals'"
+    )
+    cascade = (
+        "SELECT rc.delete_rule FROM information_schema.referential_constraints rc "
+        "JOIN information_schema.table_constraints tc ON tc.constraint_name = rc.constraint_name "
+        "WHERE tc.table_name = 'goals'"
+    )
+    index = (
+        "SELECT indexdef FROM pg_indexes WHERE tablename = 'goals' AND indexdef LIKE '%(user_id)'"
+    )
+
+    try:
+        assert _query(table) == {"goals"}
+        assert _query(cascade) == {"CASCADE"}
+        assert len(_query(index)) == 1
+        command.downgrade(cfg, "c81e4f2a7d16")
+        assert _query(table) == set()
+        assert _query(
+            "SELECT table_name FROM information_schema.tables "
+            "WHERE table_schema = 'public' AND table_name = 'weekly_availability'"
+        ) == {"weekly_availability"}
+    finally:
+        command.upgrade(cfg, "head")

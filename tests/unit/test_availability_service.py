@@ -12,6 +12,7 @@ from ai_trainer.application.onboarding import (
     NoAvailabilityError,
     set_availability,
 )
+from ai_trainer.domain.goals import Goal
 
 
 class FakeOnboardingRepository:
@@ -33,6 +34,12 @@ class FakeOnboardingRepository:
 
     async def list_availability(self, user_id: UUID) -> Mapping[int, int]:
         return self.availability.get(user_id, {})
+
+    async def replace_goals(self, user_id: UUID, goals: Sequence[Goal]) -> None:
+        raise NotImplementedError
+
+    async def list_goals(self, user_id: UUID) -> Sequence[Goal]:
+        raise NotImplementedError
 
     async def set_onboarded_at(self, user_id: UUID, when: datetime | None) -> None:
         raise NotImplementedError

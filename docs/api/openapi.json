@@ -295,6 +295,38 @@
         "summary": "Set Availability Step"
       }
     },
+    "/onboarding/goals": {
+      "get": {
+        "operationId": "goals_step_onboarding_goals_get",
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Goals Step"
+      },
+      "post": {
+        "operationId": "set_goals_step_onboarding_goals_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Set Goals Step"
+      }
+    },
     "/onboarding/sports": {
       "get": {
         "operationId": "sports_step_onboarding_sports_get",

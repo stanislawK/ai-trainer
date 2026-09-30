@@ -1,0 +1,9 @@
+{% extends "layouts/bare.html" %}
+
+{% block title %}Set up · AI Trainer{% endblock %}
+
+{% block bare_content %}
+  {% include "partials/onboarding/goals.html" %}
+  {#- Here, not in the partial: an htmx swap of the partial must not wire the listeners twice. -#}
+  <script src="/static/js/onboarding_goals.js" defer></script>
+{% endblock %}
