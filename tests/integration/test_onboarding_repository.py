@@ -412,3 +412,48 @@ async def test_replace_sports_goal_changes_never_touch_another_user(
         "gym",
         None,
     ]
+
+
+async def test_a_new_user_starts_on_utc(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    user = await SqlAlchemyUsersRepository(db_session_factory).create(
+        NewUser(
+            sub="sub-tz0", email="tz0@example.com", name=None, locale="en", status=UserStatus.ACTIVE
+        )
+    )
+
+    assert user.timezone == "UTC"
+    assert user.onboarded_at is None
+
+
+async def test_finish_onboarding_stores_the_zone_and_onboarded_at_together(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    repository = SqlAlchemyOnboardingRepository(db_session_factory)
+    users = SqlAlchemyUsersRepository(db_session_factory)
+    user_id = await _user(db_session_factory, "sub-tz1")
+    when = datetime(2026, 9, 30, 12, 0, tzinfo=UTC)
+
+    await repository.finish_onboarding(user_id, "Europe/Warsaw", when)
+
+    stored = await users.get(user_id)
+    assert stored is not None
+    assert stored.timezone == "Europe/Warsaw"
+    assert stored.onboarded_at == when
+
+
+async def test_finish_onboarding_only_touches_the_given_user(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    repository = SqlAlchemyOnboardingRepository(db_session_factory)
+    users = SqlAlchemyUsersRepository(db_session_factory)
+    mine = await _user(db_session_factory, "sub-tz2")
+    other = await _user(db_session_factory, "sub-tz3")
+
+    await repository.finish_onboarding(mine, "Asia/Tokyo", datetime(2026, 9, 30, tzinfo=UTC))
+
+    untouched = await users.get(other)
+    assert untouched is not None
+    assert untouched.timezone == "UTC"
+    assert untouched.onboarded_at is None

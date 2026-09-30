@@ -19,6 +19,7 @@ def _to_domain(row: UserOrm) -> User:
         status=UserStatus(row.status),
         created_at=row.created_at,
         onboarded_at=row.onboarded_at,
+        timezone=row.timezone,
     )
 
 

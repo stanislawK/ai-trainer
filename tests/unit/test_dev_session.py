@@ -89,6 +89,9 @@ class FakeOnboardingRepository:
     async def set_onboarded_at(self, user_id: UUID, when: datetime | None) -> None:
         self.onboarded_at[user_id] = when
 
+    async def finish_onboarding(self, user_id: UUID, timezone: str, when: datetime) -> None:
+        raise NotImplementedError
+
 
 class FakeSessionsRepository:
     def __init__(self) -> None:

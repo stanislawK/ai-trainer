@@ -15,13 +15,16 @@ from ai_trainer.application.onboarding import (
     InvalidAvailabilityError,
     InvalidGoalChoiceError,
     InvalidGoalsError,
+    InvalidTimezoneError,
     NoAvailabilityError,
     NoGoalsError,
     UnknownGoalSportError,
     choose_sports,
+    confirm_timezone,
     earliest_today,
     set_availability,
     set_goals,
+    timezone_names,
 )
 from ai_trainer.application.ports.clock import ClockPort
 from ai_trainer.application.ports.onboarding import OnboardingRepositoryPort
@@ -33,6 +36,9 @@ _NEXT_STEP_PATH = "/onboarding/availability"
 _GOALS_STEP_PATH = "/onboarding/goals"
 _TIMEZONE_STEP_PATH = "/onboarding/timezone"
 _UNPROCESSABLE = 422
+_HOME_PATH = "/"
+_FIRST_STEP_PATH = "/onboarding/sports"
+_DEFAULT_TIMEZONE = "UTC"
 _GOAL_CHOICE_PREFIX = "goals_"
 
 
@@ -52,9 +58,9 @@ def build_onboarding_router(
     onboarding: OnboardingRepositoryPort,
     clock: ClockPort,
 ) -> APIRouter:
-    """Wires the onboarding steps (PRD-0003 F6, ADR-0006, tickets #74-#76 and #99): sports,
-    availability and goals per sport. `user_id` comes only from the authenticated session
-    (ADR-0005)."""
+    """Wires the onboarding steps (PRD-0003 F6, ADR-0006, tickets #74-#77 and #99): sports,
+    availability, goals per sport and the timezone that finishes it. `user_id` comes only from
+    the authenticated session (ADR-0005)."""
     router = APIRouter(prefix="/onboarding")
 
     def render(
@@ -65,6 +71,12 @@ def build_onboarding_router(
         return templates.TemplateResponse(
             request, f"{prefix}/onboarding/{page}.html", context, status_code=status_code
         )
+
+    @router.get("")
+    async def start(request: Request) -> Response:
+        # A finished athlete has nothing to set up; everyone else starts at the first step.
+        user: User = request.state.user
+        return next_step(request, _HOME_PATH if user.onboarded_at else _FIRST_STEP_PATH)
 
     @router.get("/sports", response_class=HTMLResponse)
     async def sports_step(request: Request) -> HTMLResponse:
@@ -230,5 +242,33 @@ def build_onboarding_router(
                 request, rows, picked, problems=exc.problems, status_code=_UNPROCESSABLE
             )
         return next_step(request, _TIMEZONE_STEP_PATH)
+
+    def render_timezone(request: Request, *, error: bool = False) -> HTMLResponse:
+        return render(
+            request,
+            "timezone",
+            {"zones": timezone_names(), "selected": _DEFAULT_TIMEZONE, "error": error},
+            status_code=_UNPROCESSABLE if error else 200,
+        )
+
+    @router.get("/timezone")
+    async def timezone_step(request: Request) -> Response:
+        user: User = request.state.user
+        if user.onboarded_at:
+            return next_step(request, _HOME_PATH)
+        return render_timezone(request)
+
+    @router.post("/timezone")
+    async def confirm_timezone_step(request: Request) -> Response:
+        user: User = request.state.user
+        form = await request.form()
+        zone = form.get("timezone", "")
+        try:
+            await confirm_timezone(
+                user.id, zone if isinstance(zone, str) else "", clock=clock, repository=onboarding
+            )
+        except InvalidTimezoneError:
+            return render_timezone(request, error=True)
+        return next_step(request, _HOME_PATH)
 
     return router

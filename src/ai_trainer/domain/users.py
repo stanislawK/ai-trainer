@@ -68,6 +68,8 @@ class User(NewUser):
     # Null until onboarding finishes; an `active` user without it is sent to onboarding
     # (ADR-0006).
     onboarded_at: datetime | None = None
+    # IANA name; UTC until the athlete confirms one at onboarding (ADR-0014).
+    timezone: str = "UTC"
 
 
 class UserAlreadyExistsError(Exception):

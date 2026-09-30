@@ -129,3 +129,12 @@ class SqlAlchemyOnboardingRepository:
                 update(UserOrm).where(UserOrm.id == user_id).values(onboarded_at=when)
             )
             await session.commit()
+
+    async def finish_onboarding(self, user_id: UUID, timezone: str, when: datetime) -> None:
+        async with self._session_factory() as session:
+            await session.execute(
+                update(UserOrm)
+                .where(UserOrm.id == user_id)
+                .values(timezone=timezone, onboarded_at=when)
+            )
+            await session.commit()

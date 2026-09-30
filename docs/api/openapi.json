@@ -243,6 +243,22 @@
         "summary": "Health"
       }
     },
+    "/onboarding": {
+      "get": {
+        "operationId": "start_onboarding_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Start"
+      }
+    },
     "/onboarding/availability": {
       "get": {
         "operationId": "availability_step_onboarding_availability_get",
@@ -337,6 +353,36 @@
           }
         },
         "summary": "Choose Sports Step"
+      }
+    },
+    "/onboarding/timezone": {
+      "get": {
+        "operationId": "timezone_step_onboarding_timezone_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Timezone Step"
+      },
+      "post": {
+        "operationId": "confirm_timezone_step_onboarding_timezone_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Confirm Timezone Step"
       }
     },
     "/settings": {
