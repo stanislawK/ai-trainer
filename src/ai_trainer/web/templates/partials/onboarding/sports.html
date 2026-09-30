@@ -1,11 +1,6 @@
 {% from "components/icon.html" import icon %}
 {% from "components/onboarding_step.html" import header %}
-{#- User-facing sport copy lives here, keyed by the registry's `label_key` (G5). -#}
-{% set sport_copy = {
-  "sport.climbing.label": {"label": "Climbing", "hint": "Sport, bouldering, board"},
-  "sport.gym.label": {"label": "Gym", "hint": "Strength and conditioning"},
-  "sport.cycling.label": {"label": "Cycling", "hint": "Road, gravel, indoor"},
-} %}
+{% from "components/sport_copy.html" import sport_copy %}
 <main
   class="min-h-dvh flex flex-col px-4 pt-[max(3.5rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))] lg:grid lg:place-items-center"
   id="onboarding-step"

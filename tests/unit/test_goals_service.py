@@ -13,6 +13,7 @@ from ai_trainer.application.onboarding import (
     GoalProblem,
     InvalidGoalsError,
     NoGoalsError,
+    UnknownGoalSportError,
     earliest_today,
     set_goals,
 )
@@ -35,13 +36,14 @@ NOON_UTC = FakeClock(datetime(2026, 9, 29, 12, 0, tzinfo=UTC))
 class FakeOnboardingRepository:
     def __init__(self) -> None:
         self.goals: dict[UUID, list[Goal]] = {}
+        self.sports: dict[UUID, list[str]] = {}
         self.replace_calls = 0
 
     async def replace_sports(self, user_id: UUID, sport_ids: Sequence[str]) -> None:
         raise NotImplementedError
 
     async def list_sports(self, user_id: UUID) -> Sequence[str]:
-        raise NotImplementedError
+        return self.sports.get(user_id, [])
 
     async def replace_availability(
         self, user_id: UUID, minutes_by_weekday: Mapping[int, int]
@@ -68,7 +70,7 @@ async def test_one_goal_with_a_date_and_one_without_are_both_stored_in_order() -
 
     await set_goals(
         user_id,
-        [("Send 8a+ by spring", "2027-04-30"), ("Ride 100 km in one go", "")],
+        [(None, "Send 8a+ by spring", "2027-04-30"), (None, "Ride 100 km in one go", "")],
         clock=NOON_UTC,
         repository=repository,
     )
@@ -85,7 +87,9 @@ async def test_goal_text_is_trimmed() -> None:
     repository = FakeOnboardingRepository()
     user_id = uuid4()
 
-    await set_goals(user_id, [("  Stay consistent \n", " ")], clock=NOON_UTC, repository=repository)
+    await set_goals(
+        user_id, [(None, "  Stay consistent \n", " ")], clock=NOON_UTC, repository=repository
+    )
 
     assert repository.goals[user_id] == [Goal(text="Stay consistent", target_date=None)]
 
@@ -105,7 +109,10 @@ async def test_a_blank_goal_is_flagged_and_nothing_is_stored(blank: str) -> None
 
     with pytest.raises(InvalidGoalsError) as raised:
         await set_goals(
-            uuid4(), [("Climb 7a", ""), (blank, "")], clock=NOON_UTC, repository=repository
+            uuid4(),
+            [(None, "Climb 7a", ""), (None, blank, "2027-01-01")],
+            clock=NOON_UTC,
+            repository=repository,
         )
 
     assert raised.value.problems == {1: GoalProblem.BLANK}
@@ -116,7 +123,7 @@ async def test_a_blank_goal_with_a_date_is_still_blank() -> None:
     repository = FakeOnboardingRepository()
 
     with pytest.raises(InvalidGoalsError) as raised:
-        await set_goals(uuid4(), [("", "2027-01-01")], clock=NOON_UTC, repository=repository)
+        await set_goals(uuid4(), [(None, "", "2027-01-01")], clock=NOON_UTC, repository=repository)
 
     assert raised.value.problems == {0: GoalProblem.BLANK}
 
@@ -126,9 +133,9 @@ async def test_200_characters_is_accepted_and_201_is_flagged() -> None:
     user_id = uuid4()
     longest = "a" * MAX_GOAL_LENGTH
 
-    await set_goals(user_id, [(longest, "")], clock=NOON_UTC, repository=repository)
+    await set_goals(user_id, [(None, longest, "")], clock=NOON_UTC, repository=repository)
     with pytest.raises(InvalidGoalsError) as raised:
-        await set_goals(user_id, [(longest + "a", "")], clock=NOON_UTC, repository=repository)
+        await set_goals(user_id, [(None, longest + "a", "")], clock=NOON_UTC, repository=repository)
 
     assert MAX_GOAL_LENGTH == 200
     assert repository.goals[user_id] == [Goal(text=longest, target_date=None)]
@@ -141,7 +148,10 @@ async def test_length_is_judged_after_trimming() -> None:
     user_id = uuid4()
 
     await set_goals(
-        user_id, [("  " + "a" * MAX_GOAL_LENGTH + "  ", "")], clock=NOON_UTC, repository=repository
+        user_id,
+        [(None, "  " + "a" * MAX_GOAL_LENGTH + "  ", "")],
+        clock=NOON_UTC,
+        repository=repository,
     )
 
     assert repository.goals[user_id] == [Goal(text="a" * MAX_GOAL_LENGTH, target_date=None)]
@@ -153,7 +163,7 @@ async def test_a_past_target_date_is_flagged_and_nothing_is_stored() -> None:
     with pytest.raises(InvalidGoalsError) as raised:
         await set_goals(
             uuid4(),
-            [("Climb 7a", "2027-01-01"), ("Ride 100 km", "2026-09-28")],
+            [(None, "Climb 7a", "2027-01-01"), (None, "Ride 100 km", "2026-09-28")],
             clock=NOON_UTC,
             repository=repository,
         )
@@ -166,7 +176,9 @@ async def test_today_anywhere_on_earth_is_not_in_the_past() -> None:
     repository = FakeOnboardingRepository()
     user_id = uuid4()
 
-    await set_goals(user_id, [("Climb 7a", "2026-09-29")], clock=NOON_UTC, repository=repository)
+    await set_goals(
+        user_id, [(None, "Climb 7a", "2026-09-29")], clock=NOON_UTC, repository=repository
+    )
 
     assert repository.goals[user_id] == [Goal(text="Climb 7a", target_date=date(2026, 9, 29))]
 
@@ -178,9 +190,11 @@ async def test_just_after_utc_midnight_the_previous_utc_day_still_counts_as_toda
     clock = FakeClock(datetime(2026, 9, 30, 0, 30, tzinfo=UTC))
     user_id = uuid4()
 
-    await set_goals(user_id, [("Climb 7a", "2026-09-29")], clock=clock, repository=repository)
+    await set_goals(user_id, [(None, "Climb 7a", "2026-09-29")], clock=clock, repository=repository)
     with pytest.raises(InvalidGoalsError) as raised:
-        await set_goals(user_id, [("Climb 7a", "2026-09-28")], clock=clock, repository=repository)
+        await set_goals(
+            user_id, [(None, "Climb 7a", "2026-09-28")], clock=clock, repository=repository
+        )
 
     assert raised.value.problems == {0: GoalProblem.PAST_DATE}
 
@@ -202,7 +216,7 @@ async def test_a_date_that_is_not_an_iso_calendar_date_is_flagged(bad: str) -> N
     repository = FakeOnboardingRepository()
 
     with pytest.raises(InvalidGoalsError) as raised:
-        await set_goals(uuid4(), [("Climb 7a", bad)], clock=NOON_UTC, repository=repository)
+        await set_goals(uuid4(), [(None, "Climb 7a", bad)], clock=NOON_UTC, repository=repository)
 
     assert raised.value.problems == {0: GoalProblem.BAD_DATE}
     assert repository.replace_calls == 0
@@ -214,7 +228,12 @@ async def test_every_bad_row_is_flagged_at_once() -> None:
     with pytest.raises(InvalidGoalsError) as raised:
         await set_goals(
             uuid4(),
-            [("", ""), ("Fine", ""), ("x" * 201, ""), ("Late", "2020-01-01")],
+            [
+                (None, "", "2027-01-01"),
+                (None, "Fine", ""),
+                (None, "x" * 201, ""),
+                (None, "Late", "2020-01-01"),
+            ],
             clock=NOON_UTC,
             repository=repository,
         )
@@ -230,7 +249,7 @@ async def test_nul_characters_are_dropped_because_postgres_text_cannot_hold_them
     repository = FakeOnboardingRepository()
     user_id = uuid4()
 
-    await set_goals(user_id, [("Climb\x00 7a", "")], clock=NOON_UTC, repository=repository)
+    await set_goals(user_id, [(None, "Climb\x00 7a", "")], clock=NOON_UTC, repository=repository)
 
     assert repository.goals[user_id] == [Goal(text="Climb 7a", target_date=None)]
 
@@ -239,7 +258,9 @@ async def test_text_of_only_nul_characters_is_blank() -> None:
     repository = FakeOnboardingRepository()
 
     with pytest.raises(InvalidGoalsError) as raised:
-        await set_goals(uuid4(), [("\x00 \x00", "")], clock=NOON_UTC, repository=repository)
+        await set_goals(
+            uuid4(), [(None, "\x00 \x00", "2027-01-01")], clock=NOON_UTC, repository=repository
+        )
 
     assert raised.value.problems == {0: GoalProblem.BLANK}
 
@@ -247,8 +268,163 @@ async def test_text_of_only_nul_characters_is_blank() -> None:
 async def test_saving_again_replaces_the_earlier_goals() -> None:
     repository = FakeOnboardingRepository()
     user_id = uuid4()
-    await set_goals(user_id, [("Old", ""), ("Removed", "")], clock=NOON_UTC, repository=repository)
+    await set_goals(
+        user_id, [(None, "Old", ""), (None, "Removed", "")], clock=NOON_UTC, repository=repository
+    )
 
-    await set_goals(user_id, [("Old", "")], clock=NOON_UTC, repository=repository)
+    await set_goals(user_id, [(None, "Old", "")], clock=NOON_UTC, repository=repository)
 
     assert repository.goals[user_id] == [Goal(text="Old", target_date=None)]
+
+
+async def test_goals_are_stored_with_their_sports_in_order() -> None:
+    repository = FakeOnboardingRepository()
+    user_id = uuid4()
+    repository.sports[user_id] = ["climbing", "gym"]
+
+    await set_goals(
+        user_id,
+        [
+            ("climbing", "Send 8a+ by spring", ""),
+            ("gym", "Pull-up with +10 kg", "2027-06-30"),
+            (None, "Train consistently", ""),
+        ],
+        clock=NOON_UTC,
+        repository=repository,
+    )
+
+    assert repository.goals[user_id] == [
+        Goal(text="Send 8a+ by spring", sport_id="climbing"),
+        Goal(text="Pull-up with +10 kg", target_date=date(2027, 6, 30), sport_id="gym"),
+        Goal(text="Train consistently"),
+    ]
+
+
+async def test_a_goal_for_a_sport_the_user_did_not_pick_is_rejected_and_nothing_is_stored() -> None:
+    repository = FakeOnboardingRepository()
+    user_id = uuid4()
+    repository.sports[user_id] = ["climbing"]
+
+    with pytest.raises(UnknownGoalSportError) as raised:
+        await set_goals(
+            user_id,
+            [("climbing", "Send 8a+", ""), ("cycling", "Ride 100 km", "")],
+            clock=NOON_UTC,
+            repository=repository,
+        )
+
+    assert raised.value.sport_id == "cycling"
+    assert repository.replace_calls == 0
+
+
+async def test_a_goal_for_a_sport_that_is_not_in_the_registry_is_rejected() -> None:
+    repository = FakeOnboardingRepository()
+    user_id = uuid4()
+    repository.sports[user_id] = ["climbing"]
+
+    with pytest.raises(UnknownGoalSportError):
+        await set_goals(user_id, [("chess", "Win", "")], clock=NOON_UTC, repository=repository)
+
+    assert repository.replace_calls == 0
+
+
+async def test_the_sport_check_uses_the_sports_of_the_user_saving() -> None:
+    repository = FakeOnboardingRepository()
+    user_id = uuid4()
+    other = uuid4()
+    repository.sports[other] = ["climbing"]
+
+    with pytest.raises(UnknownGoalSportError):
+        await set_goals(
+            user_id, [("climbing", "Send 8a+", "")], clock=NOON_UTC, repository=repository
+        )
+
+    assert repository.replace_calls == 0
+
+
+async def test_rows_left_completely_empty_are_skipped() -> None:
+    repository = FakeOnboardingRepository()
+    user_id = uuid4()
+    repository.sports[user_id] = ["climbing", "gym"]
+
+    await set_goals(
+        user_id,
+        [("climbing", "", ""), ("gym", "  ", " "), (None, "Train consistently", "")],
+        clock=NOON_UTC,
+        repository=repository,
+    )
+
+    assert repository.goals[user_id] == [Goal(text="Train consistently")]
+
+
+async def test_every_row_empty_is_no_goals() -> None:
+    repository = FakeOnboardingRepository()
+    user_id = uuid4()
+    repository.sports[user_id] = ["climbing"]
+
+    with pytest.raises(NoGoalsError):
+        await set_goals(
+            user_id, [("climbing", "", ""), (None, "", "")], clock=NOON_UTC, repository=repository
+        )
+
+    assert repository.replace_calls == 0
+
+
+async def test_a_problem_is_reported_at_the_rows_posted_position_even_after_skipped_rows() -> None:
+    repository = FakeOnboardingRepository()
+    user_id = uuid4()
+    repository.sports[user_id] = ["climbing"]
+
+    with pytest.raises(InvalidGoalsError) as raised:
+        await set_goals(
+            user_id,
+            [("climbing", "", ""), (None, "Late", "2020-01-01")],
+            clock=NOON_UTC,
+            repository=repository,
+        )
+
+    assert raised.value.problems == {1: GoalProblem.PAST_DATE}
+
+
+async def test_a_forged_sport_on_an_otherwise_empty_row_is_still_rejected() -> None:
+    repository = FakeOnboardingRepository()
+    user_id = uuid4()
+    repository.sports[user_id] = ["climbing"]
+
+    with pytest.raises(UnknownGoalSportError):
+        await set_goals(
+            user_id,
+            [("climbing", "Send 8a+", ""), ("cycling", "", "")],
+            clock=NOON_UTC,
+            repository=repository,
+        )
+
+    assert repository.replace_calls == 0
+
+
+async def test_a_forged_sport_wins_over_other_row_problems() -> None:
+    repository = FakeOnboardingRepository()
+    user_id = uuid4()
+    repository.sports[user_id] = ["climbing"]
+
+    with pytest.raises(UnknownGoalSportError):
+        await set_goals(
+            user_id,
+            [("cycling", "Ride", ""), ("climbing", "Late", "2020-01-01")],
+            clock=NOON_UTC,
+            repository=repository,
+        )
+
+
+@pytest.mark.parametrize("sport_id", ["Climbing", " climbing", "climbing "])
+async def test_sport_ids_are_matched_exactly(sport_id: str) -> None:
+    repository = FakeOnboardingRepository()
+    user_id = uuid4()
+    repository.sports[user_id] = ["climbing"]
+
+    with pytest.raises(UnknownGoalSportError):
+        await set_goals(
+            user_id, [(sport_id, "Send 8a+", "")], clock=NOON_UTC, repository=repository
+        )
+
+    assert repository.replace_calls == 0

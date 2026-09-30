@@ -6,6 +6,7 @@ from ai_trainer.adapters.health import to_psycopg_dsn
 from ai_trainer.settings import Settings
 
 _PREVIOUS_REVISION = "f0ddfe1662db"
+_GOALS_REVISION = "1959a40c6d92"
 
 
 def _alembic_config() -> Config:
@@ -111,5 +112,42 @@ def test_migration_adds_and_removes_goals_with_an_indexed_cascading_user_id() ->
             "SELECT table_name FROM information_schema.tables "
             "WHERE table_schema = 'public' AND table_name = 'weekly_availability'"
         ) == {"weekly_availability"}
+    finally:
+        command.upgrade(cfg, "head")
+
+
+def test_migration_adds_a_nullable_goal_sport_and_keeps_existing_goals_general() -> None:
+    cfg = _alembic_config()
+    command.upgrade(cfg, "head")
+    column = (
+        "SELECT is_nullable FROM information_schema.columns "
+        "WHERE table_name = 'goals' AND column_name = 'sport_id'"
+    )
+    dsn = to_psycopg_dsn(str(Settings().database_url))
+
+    try:
+        assert _query(column) == {"YES"}
+        command.downgrade(cfg, _GOALS_REVISION)
+        assert _query(column) == set()
+        with psycopg.connect(dsn) as conn, conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO users (id, sub, email) "
+                "VALUES (gen_random_uuid(), 'sub-goal-migration', 'g@example.com') RETURNING id"
+            )
+            row = cur.fetchone()
+            assert row is not None
+            user_id = row[0]
+            cur.execute(
+                "INSERT INTO goals (id, user_id, position, text) "
+                "VALUES (gen_random_uuid(), %s, 0, 'Old goal')",
+                (user_id,),
+            )
+            conn.commit()
+        command.upgrade(cfg, "head")
+        with psycopg.connect(dsn) as conn, conn.cursor() as cur:
+            cur.execute("SELECT sport_id FROM goals WHERE user_id = %s", (user_id,))
+            assert cur.fetchall() == [(None,)]
+            cur.execute("DELETE FROM users WHERE id = %s", (user_id,))
+            conn.commit()
     finally:
         command.upgrade(cfg, "head")

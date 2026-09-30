@@ -1,6 +1,7 @@
 """Wires `GET`/`POST /onboarding/sports`, `/onboarding/availability` and `/onboarding/goals`
 (PRD-0003 F6, B9, B10, ADR-0006, tickets #74, #75 and #76)."""
 
+import re
 from collections.abc import Mapping, Sequence
 from datetime import UTC, date, datetime, timedelta
 from uuid import UUID, uuid4
@@ -441,19 +442,36 @@ def test_continuing_with_nothing_picked_leaves_an_earlier_choice_stored() -> Non
     assert onboarding.sports == {user.id: ["climbing", "gym"]}
 
 
-# Goals (ticket #76). FROZEN_NOW is 12:00 UTC on 2026-09-29, when UTC-12 has just reached the
-# 29th: the earliest "today" on Earth, so the 29th is the earliest target date accepted.
+# Goals (tickets #76 and #99). FROZEN_NOW is 12:00 UTC on 2026-09-29, when UTC-12 has just
+# reached the 29th: the earliest "today" on Earth, so the 29th is the earliest target date
+# accepted. Goals sit in one card per picked sport plus General; every row posts its own
+# `goal_sport` (empty for General), `goal_text` and `goal_date`.
+
+
+def _picked(onboarding: FakeOnboardingRepository, user: User, *sports: str) -> None:
+    onboarding.sports[user.id] = list(sports)
+
+
+def _cards(html: str) -> dict[str, str]:
+    """Each goal card's markup keyed by its sport ID ("" for General), in page order. The row
+    `<template>` is not part of a card."""
+    html = re.sub(r"<template.*?</template>", "", html, flags=re.DOTALL)
+    cards: dict[str, str] = {}
+    for chunk in html.split("data-goal-card")[1:]:
+        sport = chunk.split('data-sport="', 1)[1].split('"', 1)[0]
+        cards[sport] = chunk
+    return cards
 
 
 def _goal_rows(html: str) -> list[str]:
-    """Each posted goal row's markup, in order; the row `<template>` is not a row."""
-    if "<template" in html:
-        html = html.split("<template", 1)[0] + html.split("</template>", 1)[1]
+    """Each posted goal row's markup, in page order across all cards."""
+    html = re.sub(r"<template.*?</template>", "", html, flags=re.DOTALL)
     return html.split("data-goal-row")[1:]
 
 
-def test_goals_step_is_step_three_with_a_way_back_and_one_empty_row() -> None:
-    client, _, _ = _client()
+def test_goals_step_is_step_three_with_a_way_back() -> None:
+    client, user, onboarding = _client()
+    _picked(onboarding, user, "climbing")
 
     response = client.get("/onboarding/goals")
 
@@ -462,27 +480,61 @@ def test_goals_step_is_step_three_with_a_way_back_and_one_empty_row() -> None:
     assert "What are you working toward?" in response.text
     assert "3 / 4" in response.text
     assert 'href="/onboarding/availability"' in response.text
-    rows = _goal_rows(response.text)
-    assert len(rows) == 1
-    assert 'name="goal_text"' in rows[0]
-    assert 'name="goal_date"' in rows[0]
-    assert 'maxlength="200"' in rows[0]
-    assert 'min="2026-09-29"' in rows[0]
 
 
-def test_goals_step_carries_a_row_template_and_an_add_button() -> None:
-    client, _, _ = _client()
+def test_climbing_and_gym_picked_show_climbing_gym_and_general_cards_and_no_cycling() -> None:
+    client, user, onboarding = _client()
+    _picked(onboarding, user, "climbing", "gym")
+
+    response = client.get("/onboarding/goals")
+
+    cards = _cards(response.text)
+    assert list(cards) == ["climbing", "gym", ""]
+    assert "Climbing" in cards["climbing"]
+    assert "Gym" in cards["gym"]
+    assert "General" in cards[""]
+    assert "Cycling" not in response.text
+
+
+def test_cards_follow_the_registry_order_not_the_order_picked() -> None:
+    client, user, onboarding = _client()
+    _picked(onboarding, user, "cycling", "climbing")
+
+    cards = _cards(client.get("/onboarding/goals").text)
+
+    assert list(cards) == ["climbing", "cycling", ""]
+
+
+def test_each_empty_card_starts_with_one_row_carrying_its_sport() -> None:
+    client, user, onboarding = _client()
+    _picked(onboarding, user, "climbing")
+
+    cards = _cards(client.get("/onboarding/goals").text)
+
+    for sport, card in cards.items():
+        assert card.count("data-goal-row") == 1
+        assert f'name="goal_sport" value="{sport}"' in card
+        assert 'name="goal_text"' in card
+        assert 'name="goal_date"' in card
+        assert 'maxlength="200"' in card
+        assert 'min="2026-09-29"' in card
+        assert "data-goal-add" in card
+
+
+def test_goals_step_carries_a_row_template_and_the_script() -> None:
+    client, user, onboarding = _client()
+    _picked(onboarding, user, "climbing")
 
     response = client.get("/onboarding/goals")
 
     assert "<template" in response.text
-    assert "data-goal-add" in response.text
     assert "data-goal-remove" in response.text
     assert "/static/js/onboarding_goals.js" in response.text
 
 
 def test_goals_step_with_hx_request_returns_a_partial() -> None:
-    client, _, _ = _client()
+    client, user, onboarding = _client()
+    _picked(onboarding, user, "climbing")
 
     response = client.get("/onboarding/goals", headers={"HX-Request": "true"})
 
@@ -491,30 +543,60 @@ def test_goals_step_with_hx_request_returns_a_partial() -> None:
     assert 'name="goal_text"' in response.text
 
 
-def test_revisiting_goals_shows_the_saved_goals() -> None:
+def test_revisiting_goals_shows_each_saved_goal_in_its_card() -> None:
     client, user, onboarding = _client()
+    _picked(onboarding, user, "climbing", "gym")
     onboarding.goals[user.id] = [
-        Goal(text="Send 8a+ by spring", target_date=date(2027, 4, 30)),
-        Goal(text="Ride 100 km", target_date=None),
+        Goal(text="Send 8a+ by spring", target_date=date(2027, 4, 30), sport_id="climbing"),
+        Goal(text="Pull-up with +10 kg", sport_id="gym"),
+        Goal(text="Train consistently"),
     ]
 
-    rows = _goal_rows(client.get("/onboarding/goals").text)
+    cards = _cards(client.get("/onboarding/goals").text)
 
-    assert len(rows) == 2
-    assert 'value="Send 8a+ by spring"' in rows[0]
-    assert 'value="2027-04-30"' in rows[0]
-    assert 'value="Ride 100 km"' in rows[1]
-    assert 'value=""' in rows[1]
+    assert 'value="Send 8a+ by spring"' in cards["climbing"]
+    assert 'value="2027-04-30"' in cards["climbing"]
+    assert 'value="Pull-up with +10 kg"' in cards["gym"]
+    assert 'value="Train consistently"' in cards[""]
+    assert "Send 8a+" not in cards["gym"]
 
 
-def test_one_goal_with_a_date_and_one_without_are_stored_and_the_flow_moves_to_timezone() -> None:
+def test_goals_stored_before_sports_existed_appear_under_general() -> None:
+    # #76 stored goals with no sport; the migration leaves them NULL.
     client, user, onboarding = _client()
+    _picked(onboarding, user, "climbing", "gym")
+    onboarding.goals[user.id] = [Goal(text="Ride 100 km"), Goal(text="Stay consistent")]
+
+    cards = _cards(client.get("/onboarding/goals").text)
+
+    assert 'value="Ride 100 km"' in cards[""]
+    assert 'value="Stay consistent"' in cards[""]
+    assert 'value="Ride 100 km"' not in cards["climbing"]
+
+
+def test_a_saved_goal_of_a_sport_no_longer_picked_shows_under_general() -> None:
+    client, user, onboarding = _client()
+    _picked(onboarding, user, "gym")
+    onboarding.goals[user.id] = [Goal(text="Send 8a+", sport_id="climbing")]
+
+    cards = _cards(client.get("/onboarding/goals").text)
+
+    assert list(cards) == ["gym", ""]
+    assert 'value="Send 8a+"' in cards[""]
+
+
+def test_a_climbing_a_dated_gym_and_a_general_goal_are_stored_and_the_flow_moves_to_timezone() -> (
+    None
+):
+    client, user, onboarding = _client()
+    _picked(onboarding, user, "climbing", "gym")
 
     response = client.post(
         "/onboarding/goals",
         data={
-            "goal_text": ["Send 8a+ by spring", "Ride 100 km in one go"],
-            "goal_date": ["2027-04-30", ""],
+            "goal_sport": ["climbing", "gym", ""],
+            "goal_text": ["Send 8a+ by spring", "Pull-up with +10 kg", "Train consistently"],
+            "goal_date": ["", "2027-06-30", ""],
         },
         follow_redirects=False,
     )
@@ -523,18 +605,20 @@ def test_one_goal_with_a_date_and_one_without_are_stored_and_the_flow_moves_to_t
     assert response.headers["location"] == "/onboarding/timezone"
     assert onboarding.goals == {
         user.id: [
-            Goal(text="Send 8a+ by spring", target_date=date(2027, 4, 30)),
-            Goal(text="Ride 100 km in one go", target_date=None),
+            Goal(text="Send 8a+ by spring", sport_id="climbing"),
+            Goal(text="Pull-up with +10 kg", target_date=date(2027, 6, 30), sport_id="gym"),
+            Goal(text="Train consistently"),
         ]
     }
 
 
 def test_saving_goals_through_htmx_redirects_with_hx_redirect() -> None:
-    client, _, _ = _client()
+    client, user, onboarding = _client()
+    _picked(onboarding, user, "climbing")
 
     response = client.post(
         "/onboarding/goals",
-        data={"goal_text": ["Climb 7a"], "goal_date": [""]},
+        data={"goal_sport": ["climbing"], "goal_text": ["Climb 7a"], "goal_date": [""]},
         headers={"HX-Request": "true"},
     )
 
@@ -542,31 +626,125 @@ def test_saving_goals_through_htmx_redirects_with_hx_redirect() -> None:
     assert response.headers["HX-Redirect"] == "/onboarding/timezone"
 
 
-def test_a_past_target_date_shows_an_inline_error_on_that_row_and_stores_nothing() -> None:
-    client, _, onboarding = _client()
+def test_a_goal_for_an_unpicked_sport_returns_422_and_stores_nothing() -> None:
+    client, user, onboarding = _client()
+    _picked(onboarding, user, "climbing", "gym")
 
     response = client.post(
         "/onboarding/goals",
-        data={"goal_text": ["Climb 7a", "Ride 100 km"], "goal_date": ["", "2026-09-28"]},
+        data={
+            "goal_sport": ["climbing", "cycling"],
+            "goal_text": ["Send 8a+", "Ride 100 km"],
+            "goal_date": ["", ""],
+        },
     )
 
     assert response.status_code == 422
-    rows = _goal_rows(response.text)
-    assert len(rows) == 2
-    assert "in the past" not in rows[0]
-    assert "in the past" in rows[1]
-    assert 'aria-invalid="true"' in rows[1]
-    assert 'value="Ride 100 km"' in rows[1]
-    assert 'value="2026-09-28"' in rows[1]
+    assert onboarding.goals == {}
+
+
+def test_a_goal_for_an_unknown_sport_returns_422_and_stores_nothing() -> None:
+    client, user, onboarding = _client()
+    _picked(onboarding, user, "climbing")
+
+    response = client.post(
+        "/onboarding/goals",
+        data={"goal_sport": ["chess"], "goal_text": ["Win"], "goal_date": [""]},
+    )
+
+    assert response.status_code == 422
+    assert onboarding.goals == {}
+
+
+def test_a_row_without_a_sport_field_is_a_general_goal() -> None:
+    client, user, onboarding = _client()
+    _picked(onboarding, user, "climbing")
+
+    client.post("/onboarding/goals", data={"goal_text": ["Stay consistent"], "goal_date": [""]})
+
+    assert onboarding.goals[user.id] == [Goal(text="Stay consistent")]
+
+
+def test_all_cards_empty_shows_an_inline_error_and_stores_nothing() -> None:
+    client, user, onboarding = _client()
+    _picked(onboarding, user, "climbing", "gym")
+
+    response = client.post(
+        "/onboarding/goals",
+        data={
+            "goal_sport": ["climbing", "gym", ""],
+            "goal_text": ["", "", ""],
+            "goal_date": ["", "", ""],
+        },
+    )
+
+    assert response.status_code == 422
+    assert 'role="alert"' in response.text
+    assert "Add at least one goal" in response.text
+    assert list(_cards(response.text)) == ["climbing", "gym", ""]
+    assert onboarding.goals == {}
+
+
+def test_no_rows_posted_at_all_shows_the_inline_error() -> None:
+    client, user, onboarding = _client()
+    _picked(onboarding, user, "climbing")
+
+    response = client.post("/onboarding/goals", data={})
+
+    assert response.status_code == 422
+    assert "Add at least one goal" in response.text
+    assert list(_cards(response.text)) == ["climbing", ""]
+    assert onboarding.goals == {}
+
+
+def test_empty_rows_beside_a_filled_one_are_ignored() -> None:
+    client, user, onboarding = _client()
+    _picked(onboarding, user, "climbing", "gym")
+
+    response = client.post(
+        "/onboarding/goals",
+        data={
+            "goal_sport": ["climbing", "gym", ""],
+            "goal_text": ["", "", "Train consistently"],
+            "goal_date": ["", "", ""],
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert onboarding.goals[user.id] == [Goal(text="Train consistently")]
+
+
+def test_a_past_target_date_shows_an_inline_error_in_its_card_and_stores_nothing() -> None:
+    client, user, onboarding = _client()
+    _picked(onboarding, user, "climbing", "gym")
+
+    response = client.post(
+        "/onboarding/goals",
+        data={
+            "goal_sport": ["climbing", "gym"],
+            "goal_text": ["Climb 7a", "Pull-up"],
+            "goal_date": ["", "2026-09-28"],
+        },
+    )
+
+    assert response.status_code == 422
+    cards = _cards(response.text)
+    assert "in the past" not in cards["climbing"]
+    assert "in the past" in cards["gym"]
+    assert 'aria-invalid="true"' in cards["gym"]
+    assert 'value="Pull-up"' in cards["gym"]
+    assert 'value="2026-09-28"' in cards["gym"]
     assert onboarding.goals == {}
 
 
 def test_a_past_target_date_through_htmx_returns_the_partial_with_the_row_error() -> None:
-    client, _, onboarding = _client()
+    client, user, onboarding = _client()
+    _picked(onboarding, user, "climbing")
 
     response = client.post(
         "/onboarding/goals",
-        data={"goal_text": ["Climb 7a"], "goal_date": ["2026-09-28"]},
+        data={"goal_sport": ["climbing"], "goal_text": ["Climb 7a"], "goal_date": ["2026-09-28"]},
         headers={"HX-Request": "true"},
     )
 
@@ -578,99 +756,118 @@ def test_a_past_target_date_through_htmx_returns_the_partial_with_the_row_error(
 
 def test_todays_date_is_accepted() -> None:
     client, user, onboarding = _client()
+    _picked(onboarding, user, "climbing")
 
     response = client.post(
         "/onboarding/goals",
-        data={"goal_text": ["Climb 7a"], "goal_date": ["2026-09-29"]},
+        data={"goal_sport": ["climbing"], "goal_text": ["Climb 7a"], "goal_date": ["2026-09-29"]},
         follow_redirects=False,
     )
 
     assert response.status_code == 303
-    assert onboarding.goals[user.id] == [Goal(text="Climb 7a", target_date=date(2026, 9, 29))]
+    assert onboarding.goals[user.id] == [
+        Goal(text="Climb 7a", target_date=date(2026, 9, 29), sport_id="climbing")
+    ]
 
 
-def test_no_goals_shows_an_inline_error_and_stores_nothing() -> None:
-    client, _, onboarding = _client()
-
-    response = client.post("/onboarding/goals", data={})
-
-    assert response.status_code == 422
-    assert 'role="alert"' in response.text
-    assert "Add at least one goal" in response.text
-    assert len(_goal_rows(response.text)) == 1
-    assert onboarding.goals == {}
-
-
-def test_a_blank_goal_shows_an_inline_error_on_that_row_and_stores_nothing() -> None:
-    client, _, onboarding = _client()
+def test_a_goal_with_a_date_but_no_text_shows_an_inline_error_on_that_row() -> None:
+    client, user, onboarding = _client()
+    _picked(onboarding, user, "climbing")
 
     response = client.post(
         "/onboarding/goals",
-        data={"goal_text": ["Climb 7a", "   "], "goal_date": ["", ""]},
+        data={
+            "goal_sport": ["climbing", ""],
+            "goal_text": ["Climb 7a", "   "],
+            "goal_date": ["", "2027-01-01"],
+        },
     )
 
     assert response.status_code == 422
-    rows = _goal_rows(response.text)
-    assert "Write your goal" not in rows[0]
-    assert "Write your goal" in rows[1]
-    assert 'aria-invalid="true"' in rows[1]
+    cards = _cards(response.text)
+    assert "Write your goal" not in cards["climbing"]
+    assert "Write your goal" in cards[""]
+    assert 'aria-invalid="true"' in cards[""]
     assert onboarding.goals == {}
 
 
 def test_a_goal_over_200_characters_shows_an_inline_error() -> None:
-    client, _, onboarding = _client()
+    client, user, onboarding = _client()
+    _picked(onboarding, user, "climbing")
 
-    response = client.post("/onboarding/goals", data={"goal_text": ["x" * 201], "goal_date": [""]})
+    response = client.post(
+        "/onboarding/goals",
+        data={"goal_sport": ["climbing"], "goal_text": ["x" * 201], "goal_date": [""]},
+    )
 
     assert response.status_code == 422
-    assert "200 characters" in _goal_rows(response.text)[0]
+    assert "200 characters" in _cards(response.text)["climbing"]
     assert onboarding.goals == {}
 
 
 def test_a_malformed_date_shows_an_inline_error() -> None:
-    client, _, onboarding = _client()
+    client, user, onboarding = _client()
+    _picked(onboarding, user, "climbing")
 
     response = client.post(
-        "/onboarding/goals", data={"goal_text": ["Climb 7a"], "goal_date": ["someday"]}
+        "/onboarding/goals",
+        data={"goal_sport": [""], "goal_text": ["Climb 7a"], "goal_date": ["someday"]},
     )
 
     assert response.status_code == 422
-    assert "Pick a valid date" in _goal_rows(response.text)[0]
+    assert "Pick a valid date" in _cards(response.text)[""]
     assert onboarding.goals == {}
 
 
 def test_a_row_removed_before_continuing_is_not_stored() -> None:
     # The page had three rows; the athlete removed the middle one, so the browser posts two.
     client, user, onboarding = _client()
+    _picked(onboarding, user, "climbing")
     client.post(
         "/onboarding/goals",
-        data={"goal_text": ["First", "Second", "Third"], "goal_date": ["", "", ""]},
+        data={
+            "goal_sport": ["climbing", "climbing", ""],
+            "goal_text": ["First", "Second", "Third"],
+            "goal_date": ["", "", ""],
+        },
     )
 
-    client.post("/onboarding/goals", data={"goal_text": ["First", "Third"], "goal_date": ["", ""]})
+    client.post(
+        "/onboarding/goals",
+        data={
+            "goal_sport": ["climbing", ""],
+            "goal_text": ["First", "Third"],
+            "goal_date": ["", ""],
+        },
+    )
 
     assert onboarding.goals == {
-        user.id: [Goal(text="First", target_date=None), Goal(text="Third", target_date=None)]
+        user.id: [Goal(text="First", sport_id="climbing"), Goal(text="Third")]
     }
 
 
 def test_a_row_without_a_date_field_is_treated_as_undated() -> None:
     client, user, onboarding = _client()
+    _picked(onboarding, user, "climbing")
 
-    client.post("/onboarding/goals", data={"goal_text": ["Climb 7a", "Ride 100 km"]})
+    client.post(
+        "/onboarding/goals",
+        data={"goal_sport": ["climbing", ""], "goal_text": ["Climb 7a", "Ride 100 km"]},
+    )
 
     assert onboarding.goals[user.id] == [
-        Goal(text="Climb 7a", target_date=None),
-        Goal(text="Ride 100 km", target_date=None),
+        Goal(text="Climb 7a", sport_id="climbing"),
+        Goal(text="Ride 100 km"),
     ]
 
 
 def test_a_failed_goals_save_through_htmx_returns_the_partial() -> None:
-    client, _, onboarding = _client()
+    client, user, onboarding = _client()
+    _picked(onboarding, user, "climbing")
 
     response = client.post(
         "/onboarding/goals",
-        data={"goal_text": [""], "goal_date": [""]},
+        data={"goal_sport": [""], "goal_text": [""], "goal_date": ["2027-01-01"]},
         headers={"HX-Request": "true"},
     )
 
@@ -682,8 +879,66 @@ def test_a_failed_goals_save_through_htmx_returns_the_partial() -> None:
 
 def test_a_failed_goals_save_leaves_earlier_goals_stored() -> None:
     client, user, onboarding = _client()
-    onboarding.goals[user.id] = [Goal(text="Kept", target_date=None)]
+    _picked(onboarding, user, "climbing")
+    onboarding.goals[user.id] = [Goal(text="Kept")]
 
     client.post("/onboarding/goals", data={})
 
-    assert onboarding.goals == {user.id: [Goal(text="Kept", target_date=None)]}
+    assert onboarding.goals == {user.id: [Goal(text="Kept")]}
+
+
+def test_the_htmx_partial_shows_the_same_cards_as_the_full_page() -> None:
+    client, user, onboarding = _client()
+    _picked(onboarding, user, "climbing", "gym")
+
+    response = client.get("/onboarding/goals", headers={"HX-Request": "true"})
+
+    assert list(_cards(response.text)) == ["climbing", "gym", ""]
+
+
+def test_resaving_a_goal_of_a_dropped_sport_stores_it_as_a_general_goal() -> None:
+    client, user, onboarding = _client()
+    _picked(onboarding, user, "gym")
+    onboarding.goals[user.id] = [Goal(text="Send 8a+", sport_id="climbing")]
+    page = client.get("/onboarding/goals").text
+    assert 'value="Send 8a+"' in _cards(page)[""]
+
+    client.post(
+        "/onboarding/goals",
+        data={"goal_sport": [""], "goal_text": ["Send 8a+"], "goal_date": [""]},
+        follow_redirects=False,
+    )
+
+    assert onboarding.goals[user.id] == [Goal(text="Send 8a+")]
+
+
+def test_each_card_suggests_an_example_goal_for_its_own_sport() -> None:
+    client, user, onboarding = _client()
+    _picked(onboarding, user, "climbing", "gym", "cycling")
+
+    cards = _cards(client.get("/onboarding/goals").text)
+
+    assert 'placeholder="e.g. Send a 7a"' in cards["climbing"]
+    assert 'placeholder="e.g. Pull-up +10 kg"' in cards["gym"]
+    assert 'placeholder="e.g. Ride 100 km"' in cards["cycling"]
+    assert 'placeholder="e.g. Stay consistent"' in cards[""]
+
+
+def test_an_added_row_carries_its_cards_example_too() -> None:
+    client, user, onboarding = _client()
+    _picked(onboarding, user, "gym")
+
+    html = client.get("/onboarding/goals").text
+
+    template = re.search(r'data-sport="gym".*?<template[^>]*>(.*?)</template>', html, re.DOTALL)
+    assert template is not None
+    assert 'placeholder="e.g. Pull-up +10 kg"' in template.group(1)
+
+
+def test_an_example_only_shows_where_it_fits() -> None:
+    client, user, onboarding = _client()
+    _picked(onboarding, user, "climbing", "gym")
+
+    html = client.get("/onboarding/goals").text
+
+    assert "Ride 100 km" not in html  # the cycling example stays on the cycling card

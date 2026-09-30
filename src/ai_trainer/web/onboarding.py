@@ -1,4 +1,5 @@
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from itertools import zip_longest
 from typing import Annotated
 
@@ -15,6 +16,7 @@ from ai_trainer.application.onboarding import (
     InvalidGoalsError,
     NoAvailabilityError,
     NoGoalsError,
+    UnknownGoalSportError,
     choose_sports,
     earliest_today,
     set_availability,
@@ -22,6 +24,7 @@ from ai_trainer.application.onboarding import (
 )
 from ai_trainer.application.ports.clock import ClockPort
 from ai_trainer.application.ports.onboarding import OnboardingRepositoryPort
+from ai_trainer.domain.sports.base import SportPlugin
 from ai_trainer.domain.sports.registry import SportRegistry, UnknownSportError
 from ai_trainer.domain.users import User
 
@@ -31,6 +34,15 @@ _TIMEZONE_STEP_PATH = "/onboarding/timezone"
 _UNPROCESSABLE = 422
 
 
+@dataclass(frozen=True)
+class GoalCard:
+    """One card on the goals step: a picked sport, or General when `sport` is `None`. Each
+    row is (index among the posted rows, text, target date)."""
+
+    sport: SportPlugin | None
+    rows: Sequence[tuple[int, str, str]]
+
+
 def build_onboarding_router(
     templates: Jinja2Templates,
     *,
@@ -38,8 +50,9 @@ def build_onboarding_router(
     onboarding: OnboardingRepositoryPort,
     clock: ClockPort,
 ) -> APIRouter:
-    """Wires the onboarding steps (PRD-0003 F6, ADR-0006, tickets #74-#76): sports,
-    availability and goals. `user_id` comes only from the authenticated session (ADR-0005)."""
+    """Wires the onboarding steps (PRD-0003 F6, ADR-0006, tickets #74-#76 and #99): sports,
+    availability and goals per sport. `user_id` comes only from the authenticated session
+    (ADR-0005)."""
     router = APIRouter(prefix="/onboarding")
 
     def render(
@@ -113,18 +126,31 @@ def build_onboarding_router(
 
     def render_goals(
         request: Request,
-        rows: Sequence[tuple[str, str]],
+        rows: Sequence[tuple[str, str, str]],
+        picked: Sequence[str],
         *,
         problems: Mapping[int, GoalProblem] | None = None,
         no_goals: bool = False,
         status_code: int = 200,
     ) -> HTMLResponse:
+        # One card per picked sport in registry order, then General. A row keeps its position
+        # in `rows` as its index, so an error lands on the row it was found on. A row whose
+        # sport has no card (a sport dropped since the goal was saved) joins General.
+        sports = [sport for sport in registry.all() if sport.id in picked]
+        by_sport: dict[str, list[tuple[int, str, str]]] = {sport.id: [] for sport in sports}
+        by_sport[""] = []
+        for index, (sport_id, text, raw_date) in enumerate(rows):
+            by_sport[sport_id if sport_id in by_sport else ""].append((index, text, raw_date))
+        cards = [
+            GoalCard(sport=sport, rows=by_sport[sport.id] or [(-1, "", "")]) for sport in sports
+        ]
+        # An empty row to start from, so the athlete never faces a blank card.
+        cards.append(GoalCard(sport=None, rows=by_sport[""] or [(-1, "", "")]))
         return render(
             request,
             "goals",
             {
-                # An empty row to start from, so the athlete never faces a blank card.
-                "rows": list(rows) or [("", "")],
+                "cards": cards,
                 "problems": problems or {},
                 "no_goals": no_goals,
                 "min_date": earliest_today(clock).isoformat(),
@@ -136,30 +162,48 @@ def build_onboarding_router(
     @router.get("/goals", response_class=HTMLResponse)
     async def goals_step(request: Request) -> HTMLResponse:
         user: User = request.state.user
+        picked = await onboarding.list_sports(user.id)
         saved = await onboarding.list_goals(user.id)
         rows = [
-            (goal.text, goal.target_date.isoformat() if goal.target_date else "") for goal in saved
+            (
+                goal.sport_id or "",
+                goal.text,
+                goal.target_date.isoformat() if goal.target_date else "",
+            )
+            for goal in saved
         ]
-        return render_goals(request, rows)
+        return render_goals(request, rows, picked)
 
     @router.post("/goals")
     async def set_goals_step(request: Request) -> Response:
         user: User = request.state.user
+        picked = await onboarding.list_sports(user.id)
         form = await request.form()
         texts = [value for value in form.getlist("goal_text") if isinstance(value, str)]
         dates = [value for value in form.getlist("goal_date") if isinstance(value, str)]
-        # Each row posts one text and one date; a row missing its date field is undated.
+        sport_ids = [value for value in form.getlist("goal_sport") if isinstance(value, str)]
+        # Each row posts one sport, one text and one date; a row missing its sport is a
+        # general goal and one missing its date is undated.
         rows = [
-            (text, raw_date or "")
-            for text, raw_date in zip_longest(texts, dates)
+            (sport_id or "", text, raw_date or "")
+            for text, raw_date, sport_id in zip_longest(texts, dates, sport_ids)
             if text is not None
         ]
         try:
-            await set_goals(user.id, rows, clock=clock, repository=onboarding)
+            await set_goals(
+                user.id,
+                [(sport_id or None, text, raw_date) for sport_id, text, raw_date in rows],
+                clock=clock,
+                repository=onboarding,
+            )
+        except UnknownGoalSportError as exc:
+            raise HTTPException(status_code=_UNPROCESSABLE, detail=str(exc)) from exc
         except NoGoalsError:
-            return render_goals(request, [], no_goals=True, status_code=_UNPROCESSABLE)
+            return render_goals(request, rows, picked, no_goals=True, status_code=_UNPROCESSABLE)
         except InvalidGoalsError as exc:
-            return render_goals(request, rows, problems=exc.problems, status_code=_UNPROCESSABLE)
+            return render_goals(
+                request, rows, picked, problems=exc.problems, status_code=_UNPROCESSABLE
+            )
         return next_step(request, _TIMEZONE_STEP_PATH)
 
     return router

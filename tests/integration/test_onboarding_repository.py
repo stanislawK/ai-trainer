@@ -332,3 +332,19 @@ async def test_deleting_a_user_cascades_their_goals(
             text("SELECT count(*) FROM goals WHERE user_id = :user_id"), {"user_id": user_id}
         )
         assert count.scalar_one() == 0
+
+
+async def test_goals_round_trip_with_and_without_a_sport(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    repository = SqlAlchemyOnboardingRepository(db_session_factory)
+    user_id = await _user(db_session_factory, "sub-goal-sport")
+    goals = [
+        Goal(text="Send 8a+", sport_id="climbing"),
+        Goal(text="Pull-up with +10 kg", target_date=date(2027, 6, 30), sport_id="gym"),
+        Goal(text="Train consistently"),
+    ]
+
+    await repository.replace_goals(user_id, goals)
+
+    assert list(await repository.list_goals(user_id)) == goals
