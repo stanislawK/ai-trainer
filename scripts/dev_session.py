@@ -52,7 +52,8 @@ async def seed_dev_session(
     session for it, mirroring `application.auth.sign_in_with_google`'s get-or-create shape.
 
     By default the user is onboarded. With `onboarded=False` a separate fresh user is reset
-    to no `onboarded_at` and no sports on every run, so it always starts at the sports step.
+    to no `onboarded_at`, no sports and no goals on every run, so it always starts at the
+    sports step.
     """
     sub, email = (
         (DEV_SESSION_SUB, DEV_SESSION_EMAIL) if onboarded else (DEV_FRESH_SUB, DEV_FRESH_EMAIL)
@@ -81,6 +82,7 @@ async def seed_dev_session(
             await onboarding.set_onboarded_at(user.id, clock.now())
     else:
         await onboarding.replace_sports(user.id, [])
+        await onboarding.replace_goals(user.id, [])
         await onboarding.set_onboarded_at(user.id, None)
     return await sessions.create(NewSession(user_id=user.id, expires_at=clock.now() + session_ttl))
 

@@ -39,3 +39,4 @@ Logging is conversational, so most dates arrive relative: "yesterday", "Tuesday"
 - `.claude/rules/llm.md` carries the deps rule; `.claude/rules/python.md` carries invariant 1.
 - `/add-sport` (step 3) gains a relative-date case in every extraction eval dataset.
 - M1. The continuity question needs ADR-0015's choice card, so the two ship together.
+- Owner-directed 2026-09-30, ticket #76: onboarding asks for goals before the timezone, so no local day is known yet. At that point a goal's target date counts as in the past only when it is before today in UTC−12, the last place to reach each date. That date comes from `Clock.now()` (`earliest_today` in `application/onboarding.py`). No athlete is told their own today is in the past, and at most one day of "yesterday" gets through for some zones. Steps that come after the timezone is known use `User.timezone`.

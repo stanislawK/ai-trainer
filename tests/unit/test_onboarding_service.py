@@ -8,6 +8,7 @@ from uuid import UUID, uuid4
 import pytest
 
 from ai_trainer.application.onboarding import EmptySportSelectionError, choose_sports
+from ai_trainer.domain.goals import Goal
 from ai_trainer.domain.sports.registry import UnknownSportError, default_sport_registry
 
 
@@ -29,6 +30,12 @@ class FakeOnboardingRepository:
         raise NotImplementedError
 
     async def list_availability(self, user_id: UUID) -> Mapping[int, int]:
+        raise NotImplementedError
+
+    async def replace_goals(self, user_id: UUID, goals: Sequence[Goal]) -> None:
+        raise NotImplementedError
+
+    async def list_goals(self, user_id: UUID) -> Sequence[Goal]:
         raise NotImplementedError
 
     async def set_onboarded_at(self, user_id: UUID, when: datetime | None) -> None:

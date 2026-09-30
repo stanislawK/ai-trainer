@@ -6,7 +6,8 @@ from sqlalchemy import delete, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ai_trainer.adapters.orm import UserOrm, UserSportOrm, WeeklyAvailabilityOrm
+from ai_trainer.adapters.orm import GoalOrm, UserOrm, UserSportOrm, WeeklyAvailabilityOrm
+from ai_trainer.domain.goals import Goal
 
 
 class SqlAlchemyOnboardingRepository:
@@ -66,6 +67,38 @@ class SqlAlchemyOnboardingRepository:
                 )
             )
             return {weekday: minutes for weekday, minutes in rows}
+
+    async def replace_goals(self, user_id: UUID, goals: Sequence[Goal]) -> None:
+        async with self._session_factory() as session:
+            await session.execute(delete(GoalOrm).where(GoalOrm.user_id == user_id))
+            if goals:
+                # `ON CONFLICT DO NOTHING` on (user_id, position), as in `replace_sports`: a
+                # double-tapped Continue must neither 500 nor store every goal twice.
+                await session.execute(
+                    insert(GoalOrm)
+                    .values(
+                        [
+                            {
+                                "user_id": user_id,
+                                "position": position,
+                                "text": goal.text,
+                                "target_date": goal.target_date,
+                            }
+                            for position, goal in enumerate(goals)
+                        ]
+                    )
+                    .on_conflict_do_nothing()
+                )
+            await session.commit()
+
+    async def list_goals(self, user_id: UUID) -> Sequence[Goal]:
+        async with self._session_factory() as session:
+            rows = await session.execute(
+                select(GoalOrm.text, GoalOrm.target_date)
+                .where(GoalOrm.user_id == user_id)
+                .order_by(GoalOrm.position)
+            )
+            return [Goal(text=text, target_date=target_date) for text, target_date in rows]
 
     async def set_onboarded_at(self, user_id: UUID, when: datetime | None) -> None:
         async with self._session_factory() as session:

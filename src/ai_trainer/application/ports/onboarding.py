@@ -3,6 +3,8 @@ from datetime import datetime
 from typing import Protocol
 from uuid import UUID
 
+from ai_trainer.domain.goals import Goal
+
 
 class OnboardingRepositoryPort(Protocol):
     """Persists what onboarding collects about the athlete (ADR-0006). Every method is
@@ -22,5 +24,11 @@ class OnboardingRepositoryPort(Protocol):
         ...
 
     async def list_availability(self, user_id: UUID) -> Mapping[int, int]: ...
+
+    async def replace_goals(self, user_id: UUID, goals: Sequence[Goal]) -> None:
+        """Makes `goals` exactly the user's `goals` rows, keeping their order."""
+        ...
+
+    async def list_goals(self, user_id: UUID) -> Sequence[Goal]: ...
 
     async def set_onboarded_at(self, user_id: UUID, when: datetime | None) -> None: ...

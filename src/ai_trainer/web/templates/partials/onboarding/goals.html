@@ -1,0 +1,84 @@
+{% from "components/icon.html" import icon %}
+{% from "components/onboarding_step.html" import header %}
+{#- One goal card: free text and an optional target date. The server renders one per posted
+    row; the `<template>` copy below has no index and no error, and `onboarding_goals.js`
+    clones it for "Add goal". -#}
+{% macro goal_row(text="", target_date="", index=none, problem=none) -%}
+{% set text_bad = problem in ("blank", "too_long") %}
+{% set date_bad = problem in ("bad_date", "past_date") %}
+{% set error_id = "goal-" ~ index ~ "-error" if problem else "" %}
+<div data-goal-row class="glass-regular glass-rim relative rounded-box p-4 flex flex-col gap-2">
+  <div class="flex items-center justify-between gap-2">
+    <span class="flex items-center gap-2 text-[13px] font-medium text-base-content/70">{{ icon("target", "size-4") }}Goal</span>
+    <button type="button" data-goal-remove class="btn btn-circle btn-ghost -my-2 -mr-2" aria-label="Remove goal">{{ icon("x", "size-5") }}</button>
+  </div>
+  <input
+    type="text"
+    name="goal_text"
+    value="{{ text }}"
+    maxlength="{{ max_length }}"
+    placeholder="e.g. Ride 100 km in one go"
+    class="input w-full text-[16px] bg-base-100/50 {{ 'border-error' if text_bad else 'border-base-content/20' }}"
+    aria-label="Goal"
+    {% if text_bad %}aria-invalid="true" aria-describedby="{{ error_id }}"{% endif %}
+  />
+  <label class="flex items-center gap-3">
+    <span class="flex-1 text-[13px] text-base-content/70">Target date (optional)</span>
+    <input
+      type="date"
+      name="goal_date"
+      value="{{ target_date }}"
+      min="{{ min_date }}"
+      class="input w-44 text-[16px] bg-base-100/50 {{ 'border-error' if date_bad else 'border-base-content/20' }}"
+      {% if date_bad %}aria-invalid="true" aria-describedby="{{ error_id }}"{% endif %}
+    />
+  </label>
+  {% if problem %}
+  <p id="{{ error_id }}" class="text-[13px] text-error">
+    {%- if problem == "blank" %}Write your goal, or remove this row.
+    {%- elif problem == "too_long" %}Keep it to {{ max_length }} characters.
+    {%- elif problem == "past_date" %}That date is in the past. Pick today or later.
+    {%- else %}Pick a valid date.
+    {%- endif -%}
+  </p>
+  {% endif %}
+</div>
+{%- endmacro %}
+<main
+  class="min-h-dvh flex flex-col px-4 pt-[max(3.5rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))] lg:grid lg:place-items-center"
+  id="onboarding-step"
+>
+  {#- `novalidate`: a blank row or a past date gets the inline message below from the server,
+      not the browser's bubble; `min` still greys out past days in the date picker. -#}
+  <form
+    class="flex-1 flex flex-col gap-6 w-full lg:flex-none lg:w-[560px] lg:glass-regular lg:glass-rim lg:relative lg:rounded-[28px] lg:p-8"
+    hx-post="/onboarding/goals"
+    hx-target="#onboarding-step"
+    hx-swap="outerHTML"
+    novalidate
+  >
+    {{ header(3, "What are you working toward?", "In your own words, with a date if there is one. Add as many as you like.", back_href="/onboarding/availability") }}
+
+    <div class="flex flex-col gap-3">
+      <div data-goal-list class="flex flex-col gap-3">
+        {% for text, target_date in rows %}
+        {{ goal_row(text, target_date, index=loop.index0, problem=problems.get(loop.index0)) }}
+        {% endfor %}
+      </div>
+      <template data-goal-template>{{ goal_row() }}</template>
+      <button type="button" data-goal-add class="btn rounded-full glass-clear border-0 font-normal self-start">{{ icon("plus", "size-5") }}Add goal</button>
+    </div>
+
+    <div class="mt-auto flex flex-col gap-2">
+      {% if no_goals %}
+      <div role="alert" class="alert glass-regular border-0 text-[15px]">
+        {{ icon("circle-alert", "size-5 text-error") }}<span>Add at least one goal to continue.</span>
+      </div>
+      {% endif %}
+      <div class="flex justify-between gap-2">
+        <a href="/onboarding/availability" class="btn btn-ghost hidden lg:inline-flex">Back</a>
+        <button type="submit" class="btn btn-primary w-full lg:w-auto lg:px-8">Continue</button>
+      </div>
+    </div>
+  </form>
+</main>

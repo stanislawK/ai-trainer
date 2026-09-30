@@ -1,8 +1,18 @@
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import TIMESTAMP, CheckConstraint, ForeignKey, Numeric, SmallInteger, func
+from sqlalchemy import (
+    TIMESTAMP,
+    CheckConstraint,
+    Date,
+    ForeignKey,
+    Numeric,
+    SmallInteger,
+    String,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -99,6 +109,31 @@ class WeeklyAvailabilityOrm(Base):
     )
     weekday: Mapped[int] = mapped_column(SmallInteger, primary_key=True)
     minutes: Mapped[int] = mapped_column(SmallInteger)
+    # timestamptz, UTC (ADR-0004 invariant 5).
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now()
+    )
+
+
+class GoalOrm(Base):
+    """One row per goal the athlete set (ADR-0006): free text of 1-200 characters and an
+    optional target date. `position` keeps the order they were entered in. M4 plans (B9)
+    extend this table rather than replace it."""
+
+    __tablename__ = "goals"
+    __table_args__ = (
+        CheckConstraint("char_length(text) BETWEEN 1 AND 200", name="goals_text_length"),
+        UniqueConstraint("user_id", "position", name="goals_user_id_position_key"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    position: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    text: Mapped[str] = mapped_column(String(200), nullable=False)
+    # A calendar date, not a moment, so no timezone (ADR-0014 invariant 2 covers timestamps).
+    target_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     # timestamptz, UTC (ADR-0004 invariant 5).
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now()
