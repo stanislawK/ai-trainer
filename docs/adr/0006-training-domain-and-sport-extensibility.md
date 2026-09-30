@@ -39,7 +39,7 @@ Each plugin also owns an extraction prompt template (`src/ai_trainer/llm/prompts
 - `users.timezone` (ADR-0014) and `users.onboarded_at`, a `timestamptz` that stays null until onboarding finishes. An `active` user without it is sent to onboarding.
 - `user_sports`: one row per sport the athlete trains. `sport_id` is a registry ID stored as text and validated against `SportRegistry` in the application layer, never a database enum, so a new sport needs no migration (invariant 2).
 - `weekly_availability`: one row per weekday the athlete can train, with the minutes available.
-- `goals`: free text and an optional `target_date`. M4 plans (B9) extend this table rather than replace it.
+- `goals`: free text, an optional `target_date` and an optional `sport_id`. A goal with a sport belongs to one of the athlete's `user_sports`. A goal without one is a general goal, such as "stay consistent" or "lose 5 kg". `sport_id` is a registry ID stored as text, as in `user_sports`. Onboarding shows one card per picked sport plus a *General* card, and needs at least one goal in total. M4 plans (B9) extend this table rather than replace it.
 
 **Common load vocabulary** (`TrainingLoad`, one row per session): session-RPE load = RPE × duration in minutes, plus a strain score for each body system — `aerobic`, `anaerobic`, `max_strength`, `finger_forearm`, `upper_pull`, `upper_push`, `lower_body`, `core`. Each plugin's load calculator computes these; this is how a board session plus a back day is flagged (B12).
 
@@ -62,3 +62,8 @@ Each plugin also owns an extraction prompt template (`src/ai_trainer/llm/prompts
   - Payloads, normalizers, load calculators and extraction templates arrive with M1 logging. `/add-sport` applies once they exist.
   - The athlete-profile tables are added in the same change.
 - M2 may refine the load formulas through a new ADR once real data exists.
+- Sport-specific goals, owner-directed 2026-09-30 at #76's acceptance gate:
+  - `goals` gains a nullable `sport_id`. #76 shipped goals with no sport; those rows stay as general goals, so the migration needs no backfill.
+  - A goal's sport is validated against `SportRegistry` and against the athlete's own `user_sports` in the application layer, never by a database enum (invariant 2).
+  - Dropping a sport that has goals, in Settings or by redoing onboarding step 1, opens a dialog. It lists that sport's goals and offers *Keep as general goals* or *Delete them*. Nothing changes until the athlete chooses. Cancelling keeps the sport and its goals (owner-directed 2026-09-30).
+  - The Onboarding mock's step 3 in Claude Design already shows one card per sport. It needs a target date and add/remove rows in each card, a *General* card and a desktop frame before the UI is built (ADR-0019).
