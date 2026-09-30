@@ -279,6 +279,20 @@
           }
         },
         "summary": "Availability Step"
+      },
+      "post": {
+        "operationId": "set_availability_step_onboarding_availability_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Set Availability Step"
       }
     },
     "/onboarding/sports": {

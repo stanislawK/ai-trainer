@@ -1,4 +1,4 @@
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime
 from uuid import UUID
 
@@ -6,7 +6,7 @@ from sqlalchemy import delete, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ai_trainer.adapters.orm import UserOrm, UserSportOrm
+from ai_trainer.adapters.orm import UserOrm, UserSportOrm, WeeklyAvailabilityOrm
 
 
 class SqlAlchemyOnboardingRepository:
@@ -36,6 +36,36 @@ class SqlAlchemyOnboardingRepository:
                 .order_by(UserSportOrm.created_at, UserSportOrm.sport_id)
             )
             return list(rows)
+
+    async def replace_availability(
+        self, user_id: UUID, minutes_by_weekday: Mapping[int, int]
+    ) -> None:
+        async with self._session_factory() as session:
+            await session.execute(
+                delete(WeeklyAvailabilityOrm).where(WeeklyAvailabilityOrm.user_id == user_id)
+            )
+            if minutes_by_weekday:
+                # `ON CONFLICT DO NOTHING`, as in `replace_sports`: a double-tapped Continue.
+                await session.execute(
+                    insert(WeeklyAvailabilityOrm)
+                    .values(
+                        [
+                            {"user_id": user_id, "weekday": weekday, "minutes": minutes}
+                            for weekday, minutes in minutes_by_weekday.items()
+                        ]
+                    )
+                    .on_conflict_do_nothing()
+                )
+            await session.commit()
+
+    async def list_availability(self, user_id: UUID) -> Mapping[int, int]:
+        async with self._session_factory() as session:
+            rows = await session.execute(
+                select(WeeklyAvailabilityOrm.weekday, WeeklyAvailabilityOrm.minutes).where(
+                    WeeklyAvailabilityOrm.user_id == user_id
+                )
+            )
+            return {weekday: minutes for weekday, minutes in rows}
 
     async def set_onboarded_at(self, user_id: UUID, when: datetime | None) -> None:
         async with self._session_factory() as session:

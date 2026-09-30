@@ -4,21 +4,28 @@ from fastapi import APIRouter, Form, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
 from starlette.templating import Jinja2Templates
 
-from ai_trainer.application.onboarding import EmptySportSelectionError, choose_sports
+from ai_trainer.application.onboarding import (
+    WEEKDAYS,
+    EmptySportSelectionError,
+    InvalidAvailabilityError,
+    NoAvailabilityError,
+    choose_sports,
+    set_availability,
+)
 from ai_trainer.application.ports.onboarding import OnboardingRepositoryPort
 from ai_trainer.domain.sports.registry import SportRegistry, UnknownSportError
 from ai_trainer.domain.users import User
 
 _NEXT_STEP_PATH = "/onboarding/availability"
+_GOALS_STEP_PATH = "/onboarding/goals"
 _UNPROCESSABLE = 422
 
 
 def build_onboarding_router(
     templates: Jinja2Templates, *, registry: SportRegistry, onboarding: OnboardingRepositoryPort
 ) -> APIRouter:
-    """Wires the onboarding steps (PRD-0003 F6, ADR-0006, ticket #74): the sports step, and
-    a placeholder for step 2 until the availability step lands. `user_id` comes only from the
-    authenticated session (ADR-0005)."""
+    """Wires the onboarding steps (PRD-0003 F6, ADR-0006, ticket #74): the sports step and
+    the availability step. `user_id` comes only from the authenticated session (ADR-0005)."""
     router = APIRouter(prefix="/onboarding")
 
     def render(
@@ -54,14 +61,40 @@ def build_onboarding_router(
                 status_code=_UNPROCESSABLE,
             )
 
+        return next_step(request, _NEXT_STEP_PATH)
+
+    def next_step(request: Request, path: str) -> Response:
         # htmx never processes redirect headers on a 3xx, so an htmx request gets
-        # `HX-Redirect` on a 2xx instead (same shape as `/settings/delete-account`).
+        # `HX-Redirect` on a 2xx instead.
         if request.headers.get("HX-Request") == "true":
-            return Response(status_code=200, headers={"HX-Redirect": _NEXT_STEP_PATH})
-        return RedirectResponse(url=_NEXT_STEP_PATH, status_code=303)
+            return Response(status_code=200, headers={"HX-Redirect": path})
+        return RedirectResponse(url=path, status_code=303)
 
     @router.get("/availability", response_class=HTMLResponse)
     async def availability_step(request: Request) -> HTMLResponse:
-        return render(request, "availability", {})
+        user: User = request.state.user
+        saved = await onboarding.list_availability(user.id)
+        minutes = {weekday: str(saved.get(weekday, 0)) for weekday in WEEKDAYS}
+        return render(request, "availability", {"minutes": minutes, "invalid": frozenset()})
+
+    @router.post("/availability")
+    async def set_availability_step(request: Request) -> Response:
+        user: User = request.state.user
+        form = await request.form()
+        typed = {
+            weekday: value if isinstance(value := form.get(f"minutes_{weekday}", ""), str) else ""
+            for weekday in WEEKDAYS
+        }
+        try:
+            await set_availability(user.id, typed, repository=onboarding)
+        except (InvalidAvailabilityError, NoAvailabilityError) as exc:
+            invalid = exc.weekdays if isinstance(exc, InvalidAvailabilityError) else frozenset()
+            return render(
+                request,
+                "availability",
+                {"minutes": typed, "invalid": invalid, "no_days": not invalid},
+                status_code=_UNPROCESSABLE,
+            )
+        return next_step(request, _GOALS_STEP_PATH)
 
     return router

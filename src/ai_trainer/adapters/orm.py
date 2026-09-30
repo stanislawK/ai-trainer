@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import TIMESTAMP, ForeignKey, Numeric, func
+from sqlalchemy import TIMESTAMP, CheckConstraint, ForeignKey, Numeric, SmallInteger, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -78,6 +78,27 @@ class UserSportOrm(Base):
         ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
     )
     sport_id: Mapped[str] = mapped_column(primary_key=True)
+    # timestamptz, UTC (ADR-0004 invariant 5).
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now()
+    )
+
+
+class WeeklyAvailabilityOrm(Base):
+    """One row per weekday the athlete can train (ADR-0006): weekday 0 is Monday, minutes is
+    what they have that day (1-600). A day they cannot train has no row."""
+
+    __tablename__ = "weekly_availability"
+    __table_args__ = (
+        CheckConstraint("weekday BETWEEN 0 AND 6", name="weekly_availability_weekday_range"),
+        CheckConstraint("minutes BETWEEN 1 AND 600", name="weekly_availability_minutes_range"),
+    )
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    weekday: Mapped[int] = mapped_column(SmallInteger, primary_key=True)
+    minutes: Mapped[int] = mapped_column(SmallInteger)
     # timestamptz, UTC (ADR-0004 invariant 5).
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now()

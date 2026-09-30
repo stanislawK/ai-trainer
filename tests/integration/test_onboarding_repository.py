@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai_trainer.adapters.onboarding_repository import SqlAlchemyOnboardingRepository
@@ -114,3 +115,88 @@ async def test_replace_sports_with_nothing_clears_the_users_sports(
     await repository.replace_sports(user_id, [])
 
     assert list(await repository.list_sports(user_id)) == []
+
+
+async def test_replace_availability_stores_exactly_the_given_days(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    repository = SqlAlchemyOnboardingRepository(db_session_factory)
+    user_id = await _user(db_session_factory, "sub-h")
+
+    await repository.replace_availability(user_id, {0: 60, 2: 90, 5: 180})
+
+    assert dict(await repository.list_availability(user_id)) == {0: 60, 2: 90, 5: 180}
+
+
+async def test_replace_availability_drops_days_no_longer_given(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    repository = SqlAlchemyOnboardingRepository(db_session_factory)
+    user_id = await _user(db_session_factory, "sub-i")
+    await repository.replace_availability(user_id, {0: 60, 2: 90})
+
+    await repository.replace_availability(user_id, {2: 45, 6: 120})
+
+    assert dict(await repository.list_availability(user_id)) == {2: 45, 6: 120}
+
+
+async def test_replace_availability_only_touches_the_given_user(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    repository = SqlAlchemyOnboardingRepository(db_session_factory)
+    first = await _user(db_session_factory, "sub-j")
+    second = await _user(db_session_factory, "sub-k")
+    await repository.replace_availability(first, {0: 60})
+
+    await repository.replace_availability(second, {1: 30})
+
+    assert dict(await repository.list_availability(first)) == {0: 60}
+    assert dict(await repository.list_availability(second)) == {1: 30}
+
+
+async def test_list_availability_of_a_user_with_none_is_empty(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    repository = SqlAlchemyOnboardingRepository(db_session_factory)
+
+    assert dict(await repository.list_availability(uuid4())) == {}
+
+
+async def test_the_database_rejects_minutes_outside_1_to_600(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    user_id = await _user(db_session_factory, "sub-l")
+
+    for minutes in (0, 601, -1):
+        async with db_session_factory() as session:
+            try:
+                await session.execute(
+                    text(
+                        "INSERT INTO weekly_availability (user_id, weekday, minutes) "
+                        "VALUES (:user_id, 0, :minutes)"
+                    ),
+                    {"user_id": user_id, "minutes": minutes},
+                )
+                await session.commit()
+            except IntegrityError:
+                await session.rollback()
+            else:
+                raise AssertionError(f"{minutes} minutes was accepted")
+
+
+async def test_deleting_a_user_cascades_their_weekly_availability(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    repository = SqlAlchemyOnboardingRepository(db_session_factory)
+    users = SqlAlchemyUsersRepository(db_session_factory)
+    user_id = await _user(db_session_factory, "sub-m")
+    await repository.replace_availability(user_id, {0: 60, 2: 90, 5: 180})
+
+    await users.delete(user_id)
+
+    async with db_session_factory() as session:
+        count = await session.execute(
+            text("SELECT count(*) FROM weekly_availability WHERE user_id = :user_id"),
+            {"user_id": user_id},
+        )
+        assert count.scalar_one() == 0

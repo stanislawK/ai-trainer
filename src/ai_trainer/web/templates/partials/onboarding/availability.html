@@ -1,13 +1,60 @@
+{% from "components/icon.html" import icon %}
 {% from "components/onboarding_step.html" import header %}
+{#- User-facing weekday names live here (G5); weekday 0 is Monday. -#}
+{% set weekday_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"] %}
+{#- "1 h 30 min" for 90; 0 is a rest day. -#}
+{% macro duration(m) -%}
+  {%- if m == 0 -%}Rest day
+  {%- else -%}{{ (m // 60) ~ " h" if m >= 60 }}{{ " " if m >= 60 and m % 60 }}{{ (m % 60) ~ " min" if m % 60 }}
+  {%- endif -%}
+{%- endmacro %}
 <main
   class="min-h-dvh flex flex-col px-4 pt-[max(3.5rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))] lg:grid lg:place-items-center"
   id="onboarding-step"
 >
-  <div class="flex-1 flex flex-col gap-6 w-full lg:flex-none lg:w-[560px] lg:glass-regular lg:glass-rim lg:relative lg:rounded-[28px] lg:p-8">
-    {{ header(2, "When can you train?", "Your usual days and session length. Plans fit around this.", back_href="/onboarding/sports") }}
-    <p class="text-[15px] text-base-content/70 px-1">This step is coming soon.</p>
-    <div class="hidden lg:flex">
-      <a href="/onboarding/sports" class="btn btn-ghost">Back</a>
+  <form
+    class="flex-1 flex flex-col gap-6 w-full lg:flex-none lg:w-[560px] lg:glass-regular lg:glass-rim lg:relative lg:rounded-[28px] lg:p-8"
+    hx-post="/onboarding/availability"
+    hx-target="#onboarding-step"
+    hx-swap="outerHTML"
+      >
+    {{ header(2, "When can you train?", "How long you can train on each day. Leave a day as Rest day if you can't. Plans fit around this.", back_href="/onboarding/sports") }}
+
+    <fieldset class="glass-regular glass-rim relative rounded-box p-4 flex flex-col gap-3">
+      <legend class="sr-only">Minutes available each day</legend>
+      {% for weekday in range(7) %}
+      {% set bad = weekday in invalid %}
+      <div class="flex flex-col gap-1">
+        <div class="flex items-center gap-3">
+          <label for="minutes-{{ weekday }}" class="flex-1 text-[17px] font-medium">{{ weekday_names[weekday] }}</label>
+          <select
+            id="minutes-{{ weekday }}"
+            name="minutes_{{ weekday }}"
+            class="select w-40 text-[16px] bg-base-100/50 {{ 'border-error' if bad else 'border-base-content/20' }}"
+            {% if bad %}aria-invalid="true" aria-describedby="minutes-{{ weekday }}-error"{% endif %}
+          >
+            {% for m in range(0, 601, 15) %}
+            <option value="{{ m }}"{% if minutes[weekday] | string == m | string %} selected{% endif %}>{{ duration(m) }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        {% if bad %}
+        <p id="minutes-{{ weekday }}-error" class="text-[13px] text-error text-right">Choose a time between 0 and 10 hours.</p>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </fieldset>
+
+    <div class="mt-auto flex flex-col gap-2">
+      {% if no_days is defined and no_days %}
+      <div role="alert" class="alert glass-regular border-0 text-[15px]">
+        {{ icon("circle-alert", "size-5 text-error") }}<span>Pick at least one day you can train to continue.</span>
+      </div>
+      {% endif %}
+      <div class="flex justify-between gap-2">
+        <a href="/onboarding/sports" class="btn btn-ghost hidden lg:inline-flex">Back</a>
+        <button type="submit" class="btn btn-primary w-full lg:w-auto lg:px-8">Continue</button>
+      </div>
     </div>
-  </div>
+  </form>
 </main>

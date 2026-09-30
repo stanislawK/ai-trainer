@@ -1,7 +1,7 @@
 """`choose_sports` stores exactly the picked sports, validated against `SportRegistry`
 (ADR-0006, ticket #74)."""
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import datetime
 from uuid import UUID, uuid4
 
@@ -22,6 +22,14 @@ class FakeOnboardingRepository:
 
     async def list_sports(self, user_id: UUID) -> Sequence[str]:
         return self.sports.get(user_id, [])
+
+    async def replace_availability(
+        self, user_id: UUID, minutes_by_weekday: Mapping[int, int]
+    ) -> None:
+        raise NotImplementedError
+
+    async def list_availability(self, user_id: UUID) -> Mapping[int, int]:
+        raise NotImplementedError
 
     async def set_onboarded_at(self, user_id: UUID, when: datetime | None) -> None:
         raise NotImplementedError
