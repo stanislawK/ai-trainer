@@ -1,18 +1,19 @@
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from itertools import zip_longest
-from typing import Annotated
 
-from fastapi import APIRouter, Form, HTTPException, Request, Response
+from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
 from starlette.templating import Jinja2Templates
 
 from ai_trainer.application.onboarding import (
     MAX_GOAL_LENGTH,
     WEEKDAYS,
+    DroppedSportsHaveGoalsError,
     EmptySportSelectionError,
     GoalProblem,
     InvalidAvailabilityError,
+    InvalidGoalChoiceError,
     InvalidGoalsError,
     NoAvailabilityError,
     NoGoalsError,
@@ -32,6 +33,7 @@ _NEXT_STEP_PATH = "/onboarding/availability"
 _GOALS_STEP_PATH = "/onboarding/goals"
 _TIMEZONE_STEP_PATH = "/onboarding/timezone"
 _UNPROCESSABLE = 422
+_GOAL_CHOICE_PREFIX = "goals_"
 
 
 @dataclass(frozen=True)
@@ -71,14 +73,26 @@ def build_onboarding_router(
         return render(request, "sports", {"sports": registry.all(), "selected": selected})
 
     @router.post("/sports")
-    async def choose_sports_step(
-        request: Request, sports: Annotated[list[str] | None, Form()] = None
-    ) -> Response:
+    async def choose_sports_step(request: Request) -> Response:
         user: User = request.state.user
-        picked = sports or []
+        form = await request.form()
+        picked = [value for value in form.getlist("sports") if isinstance(value, str)]
+        # Only the dialog's Confirm carries `confirm_drop`; without it, dropping a sport that
+        # has goals asks first, and with it every such sport needs its own valid choice.
+        choices: dict[str, str] | None = None
+        if form.get("confirm_drop") == "1":
+            choices = {}
+            for key in {key for key in form if key.startswith(_GOAL_CHOICE_PREFIX)}:
+                values = form.getlist(key)
+                # A repeated key would let a bad value hide behind a good one.
+                if len(values) != 1 or not isinstance(values[0], str):
+                    raise HTTPException(status_code=_UNPROCESSABLE, detail=f"one choice for {key}")
+                choices[key.removeprefix(_GOAL_CHOICE_PREFIX)] = values[0]
         try:
-            await choose_sports(user.id, picked, registry=registry, repository=onboarding)
-        except UnknownSportError as exc:
+            await choose_sports(
+                user.id, picked, registry=registry, repository=onboarding, goal_choices=choices
+            )
+        except (UnknownSportError, InvalidGoalChoiceError) as exc:
             raise HTTPException(status_code=_UNPROCESSABLE, detail=str(exc)) from exc
         except EmptySportSelectionError:
             return render(
@@ -86,6 +100,17 @@ def build_onboarding_router(
                 "sports",
                 {"sports": registry.all(), "selected": [], "error": True},
                 status_code=_UNPROCESSABLE,
+            )
+        except DroppedSportsHaveGoalsError as exc:
+            dropped = [
+                (sport, exc.dropped[sport.id])
+                for sport in registry.all()
+                if sport.id in exc.dropped
+            ]
+            return render(
+                request,
+                "sports",
+                {"sports": registry.all(), "selected": picked, "dropped": dropped},
             )
 
         return next_step(request, _NEXT_STEP_PATH)

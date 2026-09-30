@@ -16,8 +16,27 @@ class SqlAlchemyOnboardingRepository:
     def __init__(self, session_factory: Callable[[], AsyncSession]) -> None:
         self._session_factory = session_factory
 
-    async def replace_sports(self, user_id: UUID, sport_ids: Sequence[str]) -> None:
+    async def replace_sports(
+        self,
+        user_id: UUID,
+        sport_ids: Sequence[str],
+        *,
+        general_goals_of: Sequence[str] = (),
+        delete_goals_of: Sequence[str] = (),
+    ) -> None:
         async with self._session_factory() as session:
+            if general_goals_of:
+                await session.execute(
+                    update(GoalOrm)
+                    .where(GoalOrm.user_id == user_id, GoalOrm.sport_id.in_(general_goals_of))
+                    .values(sport_id=None)
+                )
+            if delete_goals_of:
+                await session.execute(
+                    delete(GoalOrm).where(
+                        GoalOrm.user_id == user_id, GoalOrm.sport_id.in_(delete_goals_of)
+                    )
+                )
             await session.execute(delete(UserSportOrm).where(UserSportOrm.user_id == user_id))
             if sport_ids:
                 # `ON CONFLICT DO NOTHING`: a double-tapped Continue runs two of these at once,

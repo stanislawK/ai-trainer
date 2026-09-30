@@ -1,0 +1,65 @@
+{% from "components/icon.html" import icon %}
+{% from "components/sport_copy.html" import sport_copy %}
+{#- The dialog that asks what happens to the goals of sports the athlete unticked. Render it
+    inside the form that posts the sports: each group's radios post `goals_<sport id>` as
+    `keep` or `delete`, and `confirm_drop` marks the post as the answer. `groups` is a list of
+    (sport, goals). Cancel reloads the saved step, so nothing changes. `cancel_url` is that
+    step's GET URL and `target` the element it replaces. -#}
+{% macro drop_sport_dialog(groups, cancel_url, target) -%}
+{% if groups | length == 1 %}
+  {% set title = "Drop " ~ sport_copy[groups[0][0].label_key].label ~ "?" %}
+  {% set lede = sport_copy[groups[0][0].label_key].label ~ " has goals. Choose what happens to them." %}
+{% else %}
+  {% set title = "Drop " ~ (groups | length) ~ " sports?" %}
+  {% set lede = ("Both" if groups | length == 2 else "All") ~ " have goals. Choose what happens to each sport's goals." %}
+{% endif %}
+<div class="fixed inset-0 z-50">
+  <div class="absolute inset-0 bg-base-300/60"></div>
+  <div
+    role="dialog"
+    aria-modal="true"
+    aria-label="{{ title }}"
+    class="glass-thick glass-rim absolute inset-x-4 top-1/2 -translate-y-1/2 max-h-[min(720px,90dvh)] rounded-[28px] flex flex-col overflow-hidden lg:inset-x-auto lg:left-1/2 lg:-translate-x-1/2 lg:w-[520px] lg:max-h-[min(780px,90dvh)]"
+  >
+    <input type="hidden" name="confirm_drop" value="1" />
+    <div class="flex flex-col gap-1.5 px-5 pt-5 pb-3 lg:px-6 lg:pt-6 lg:pb-4">
+      <h2 class="text-[20px]/[26px] font-semibold tracking-tight lg:text-[22px]/[28px]">{{ title }}</h2>
+      <p class="text-[14px] leading-5 text-base-content/80 lg:text-[15px] lg:leading-6">{{ lede }}</p>
+    </div>
+    <div class="flex flex-col gap-3 px-5 py-1 overflow-y-auto lg:px-6">
+      {% for sport, goals in groups %}
+      <div role="group" aria-label="{{ sport_copy[sport.label_key].label }}" class="rounded-box bg-base-content/10 p-3 flex flex-col gap-3 lg:p-4">
+        <div class="flex items-center gap-2 text-[15px] font-semibold">
+          <span class="size-8 rounded-[22%] bg-base-content/10 grid place-items-center">{{ icon(sport.icon, "size-4") }}</span>{{ sport_copy[sport.label_key].label }}
+        </div>
+        <ul class="flex flex-col gap-1.5 text-[14px] leading-5 text-base-content/80">
+          {% for goal in goals %}
+          <li class="flex gap-2"><span aria-hidden="true" class="mt-2 size-1.5 shrink-0 rounded-full bg-base-content/40"></span><span class="min-w-0 break-words">{{ goal.text }}</span></li>
+          {% endfor %}
+        </ul>
+        <div role="radiogroup" aria-label="What happens to these goals" class="flex flex-col gap-1.5 lg:grid lg:grid-cols-2 lg:gap-2">
+          <label class="flex items-center gap-3 min-h-11 px-3 py-2 rounded-2xl cursor-pointer bg-base-content/10 has-[:checked]:bg-primary/20">
+            <input type="radio" class="radio radio-primary radio-sm" name="goals_{{ sport.id }}" value="keep" checked />
+            <span class="text-[15px]">Keep as general goals</span>
+          </label>
+          <label class="flex items-center gap-3 min-h-11 px-3 py-2 rounded-2xl cursor-pointer bg-base-content/10 text-error has-[:checked]:bg-error/20">
+            <input type="radio" class="radio radio-error radio-sm" name="goals_{{ sport.id }}" value="delete" />
+            {{ icon("trash-2", "size-4") }}<span class="text-[15px] font-medium">Delete them</span>
+          </label>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    <div class="flex gap-2 px-5 pt-3 pb-5 lg:justify-end lg:px-6 lg:pt-4 lg:pb-6">
+      <button
+        type="button"
+        class="btn btn-ghost flex-1 lg:flex-none"
+        hx-get="{{ cancel_url }}"
+        hx-target="{{ target }}"
+        hx-swap="outerHTML"
+      >Cancel</button>
+      <button type="submit" class="btn btn-primary flex-1 lg:flex-none lg:px-8">Confirm</button>
+    </div>
+  </div>
+</div>
+{%- endmacro %}

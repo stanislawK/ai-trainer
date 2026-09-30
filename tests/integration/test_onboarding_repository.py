@@ -348,3 +348,67 @@ async def test_goals_round_trip_with_and_without_a_sport(
     await repository.replace_goals(user_id, goals)
 
     assert list(await repository.list_goals(user_id)) == goals
+
+
+async def _seeded_goals(
+    factory: Callable[[], AsyncSession], sub: str
+) -> tuple[SqlAlchemyOnboardingRepository, UUID]:
+    repository = SqlAlchemyOnboardingRepository(factory)
+    user_id = await _user(factory, sub)
+    await repository.replace_sports(user_id, ["climbing", "gym"])
+    await repository.replace_goals(
+        user_id,
+        [
+            Goal(text="Send 8a+", sport_id="climbing"),
+            Goal(text="Pull-up +10 kg", target_date=date(2027, 6, 30), sport_id="gym"),
+            Goal(text="Stay consistent"),
+        ],
+    )
+    return repository, user_id
+
+
+async def test_replace_sports_can_turn_a_dropped_sports_goals_into_general_goals(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    repository, user_id = await _seeded_goals(db_session_factory, "sub-keep-goals")
+
+    await repository.replace_sports(user_id, ["climbing"], general_goals_of=["gym"])
+
+    assert list(await repository.list_sports(user_id)) == ["climbing"]
+    assert list(await repository.list_goals(user_id)) == [
+        Goal(text="Send 8a+", sport_id="climbing"),
+        Goal(text="Pull-up +10 kg", target_date=date(2027, 6, 30)),
+        Goal(text="Stay consistent"),
+    ]
+
+
+async def test_replace_sports_can_delete_a_dropped_sports_goals(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    repository, user_id = await _seeded_goals(db_session_factory, "sub-delete-goals")
+
+    await repository.replace_sports(user_id, ["climbing"], delete_goals_of=["gym"])
+
+    assert list(await repository.list_sports(user_id)) == ["climbing"]
+    assert list(await repository.list_goals(user_id)) == [
+        Goal(text="Send 8a+", sport_id="climbing"),
+        Goal(text="Stay consistent"),
+    ]
+
+
+async def test_replace_sports_goal_changes_never_touch_another_user(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    repository, user_id = await _seeded_goals(db_session_factory, "sub-goals-mine")
+    other_repository, other_id = await _seeded_goals(db_session_factory, "sub-goals-theirs")
+
+    await repository.replace_sports(
+        user_id, ["climbing"], general_goals_of=["climbing"], delete_goals_of=["gym"]
+    )
+
+    assert len(await other_repository.list_goals(other_id)) == 3
+    assert [goal.sport_id for goal in await other_repository.list_goals(other_id)] == [
+        "climbing",
+        "gym",
+        None,
+    ]

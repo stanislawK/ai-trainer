@@ -20,7 +20,14 @@ class FakeOnboardingRepository:
         self.availability: dict[UUID, dict[int, int]] = {}
         self.replace_calls = 0
 
-    async def replace_sports(self, user_id: UUID, sport_ids: Sequence[str]) -> None:
+    async def replace_sports(
+        self,
+        user_id: UUID,
+        sport_ids: Sequence[str],
+        *,
+        general_goals_of: Sequence[str] = (),
+        delete_goals_of: Sequence[str] = (),
+    ) -> None:
         raise NotImplementedError
 
     async def list_sports(self, user_id: UUID) -> Sequence[str]:

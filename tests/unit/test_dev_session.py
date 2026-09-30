@@ -59,7 +59,14 @@ class FakeOnboardingRepository:
         self.sports: dict[UUID, list[str]] = {}
         self.goals: dict[UUID, list[Goal]] = {}
 
-    async def replace_sports(self, user_id: UUID, sport_ids: Sequence[str]) -> None:
+    async def replace_sports(
+        self,
+        user_id: UUID,
+        sport_ids: Sequence[str],
+        *,
+        general_goals_of: Sequence[str] = (),
+        delete_goals_of: Sequence[str] = (),
+    ) -> None:
         self.sports[user_id] = list(sport_ids)
 
     async def list_sports(self, user_id: UUID) -> Sequence[str]:

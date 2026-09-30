@@ -14,22 +14,88 @@ class EmptySportSelectionError(Exception):
     """Raised when the sports step is submitted with nothing picked."""
 
 
+class GoalChoice(StrEnum):
+    """What happens to a dropped sport's goals: they stay as general goals, or go."""
+
+    KEEP = "keep"
+    DELETE = "delete"
+
+
+class DroppedSportsHaveGoalsError(Exception):
+    """Raised when the pick would drop sports that still have goals and no choice was made.
+    `dropped` maps each such sport to its goals, so the athlete can be asked."""
+
+    def __init__(self, dropped: Mapping[str, Sequence[Goal]]) -> None:
+        super().__init__(f"dropped sports with goals: {sorted(dropped)}")
+        self.dropped = dict(dropped)
+
+
+class InvalidGoalChoiceError(Exception):
+    """Raised when a dropped sport with goals has no choice, or one that is not a `GoalChoice`."""
+
+    def __init__(self, sport_ids: frozenset[str]) -> None:
+        super().__init__(f"no valid goal choice for sports {sorted(sport_ids)}")
+        self.sport_ids = sport_ids
+
+
 async def choose_sports(
     user_id: UUID,
     sport_ids: Sequence[str],
     *,
     registry: SportRegistry,
     repository: OnboardingRepositoryPort,
+    goal_choices: Mapping[str, str] | None = None,
 ) -> None:
     """Stores exactly the picked sports (ADR-0006). Every ID is checked against
     `SportRegistry` before anything is written, so a bad request stores nothing; an unknown
-    ID raises `UnknownSportError`."""
+    ID raises `UnknownSportError`.
+
+    Dropping a sport that has goals needs a choice for it: `goal_choices` maps the sport to
+    `keep` (its goals become general goals) or `delete`. With `goal_choices=None` nothing is
+    written and `DroppedSportsHaveGoalsError` says what to ask; with choices, a dropped sport
+    that lacks a valid one raises `InvalidGoalChoiceError`. Sports and goals change together."""
     picked = list(dict.fromkeys(sport_ids))
     if not picked:
         raise EmptySportSelectionError
     for sport_id in picked:
         registry.get(sport_id)
-    await repository.replace_sports(user_id, picked)
+    dropped = [sport for sport in await repository.list_sports(user_id) if sport not in picked]
+    goals = await repository.list_goals(user_id)
+    with_goals = {
+        sport: goals_of
+        for sport in dropped
+        if (goals_of := [goal for goal in goals if goal.sport_id == sport])
+    }
+    if goal_choices is not None:
+        # Any value that is not a `GoalChoice` is a bad request, even one for a sport that
+        # needs no choice.
+        unknown = frozenset(
+            sport for sport, raw in goal_choices.items() if _parse_choice(raw) is None
+        )
+        if unknown:
+            raise InvalidGoalChoiceError(unknown)
+    if not with_goals:
+        await repository.replace_sports(user_id, picked)
+        return
+    if goal_choices is None:
+        raise DroppedSportsHaveGoalsError(with_goals)
+    choices = {sport: _parse_choice(goal_choices.get(sport)) for sport in with_goals}
+    unanswered = frozenset(sport for sport, choice in choices.items() if choice is None)
+    if unanswered:
+        raise InvalidGoalChoiceError(unanswered)
+    await repository.replace_sports(
+        user_id,
+        picked,
+        general_goals_of=[s for s, choice in choices.items() if choice is GoalChoice.KEEP],
+        delete_goals_of=[s for s, choice in choices.items() if choice is GoalChoice.DELETE],
+    )
+
+
+def _parse_choice(raw: str | None) -> GoalChoice | None:
+    try:
+        return GoalChoice(raw) if raw is not None else None
+    except ValueError:
+        return None
 
 
 WEEKDAYS = range(7)
