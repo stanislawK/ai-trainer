@@ -1,7 +1,7 @@
-"""Wires `GET`/`POST /onboarding/sports` and the step-2 placeholder (PRD-0003 F6, ADR-0006,
-ticket #74)."""
+"""Wires `GET`/`POST /onboarding/sports` and `/onboarding/availability` (PRD-0003 F6, B10,
+ADR-0006, tickets #74 and #75)."""
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
@@ -64,12 +64,21 @@ class FakeSessionsRepository:
 class FakeOnboardingRepository:
     def __init__(self) -> None:
         self.sports: dict[UUID, list[str]] = {}
+        self.availability: dict[UUID, dict[int, int]] = {}
 
     async def replace_sports(self, user_id: UUID, sport_ids: Sequence[str]) -> None:
         self.sports[user_id] = list(sport_ids)
 
     async def list_sports(self, user_id: UUID) -> Sequence[str]:
         return self.sports.get(user_id, [])
+
+    async def replace_availability(
+        self, user_id: UUID, minutes_by_weekday: Mapping[int, int]
+    ) -> None:
+        self.availability[user_id] = dict(minutes_by_weekday)
+
+    async def list_availability(self, user_id: UUID) -> Mapping[int, int]:
+        return self.availability.get(user_id, {})
 
     async def set_onboarded_at(self, user_id: UUID, when: datetime | None) -> None:
         raise NotImplementedError
@@ -228,23 +237,185 @@ def test_an_unknown_sport_id_is_rejected_with_422_and_stores_nothing() -> None:
     assert onboarding.sports == {}
 
 
-def test_availability_placeholder_is_step_two_with_a_way_back() -> None:
+def test_availability_step_is_step_two_with_a_way_back_and_a_row_per_weekday() -> None:
     client, _, _ = _client()
 
     response = client.get("/onboarding/availability")
 
     assert response.status_code == 200
+    assert "<html" in response.text
+    assert "When can you train?" in response.text
     assert "2 / 4" in response.text
     assert 'href="/onboarding/sports"' in response.text
+    for weekday in range(7):
+        assert f'name="minutes_{weekday}"' in response.text
+    for label in ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"):
+        assert label in response.text
 
 
-def test_availability_placeholder_with_hx_request_returns_a_partial() -> None:
+def test_availability_step_with_hx_request_returns_a_partial() -> None:
     client, _, _ = _client()
 
     response = client.get("/onboarding/availability", headers={"HX-Request": "true"})
 
     assert response.status_code == 200
     assert "<html" not in response.text
+    assert 'name="minutes_0"' in response.text
+
+
+def _select(html: str, weekday: int) -> str:
+    start = html.index(f'name="minutes_{weekday}"')
+    return html[html.rindex("<select", 0, start) : html.index("</select>", start)]
+
+
+def _input_value(html: str, weekday: int) -> str | None:
+    """The `value` of the option selected for `weekday`, or None when none is."""
+    for option in _select(html, weekday).split("<option")[1:]:
+        if " selected" in option.split(">", 1)[0]:
+            return option.split('value="', 1)[1].split('"', 1)[0]
+    return None
+
+
+def test_each_day_offers_15_minute_steps_from_rest_day_to_ten_hours() -> None:
+    client, _, _ = _client()
+
+    html = _select(client.get("/onboarding/availability").text, 2)
+
+    values = [int(v.split('"', 1)[0]) for v in html.split('value="')[1:]]
+    assert values == list(range(0, 601, 15))
+    for label in ("Rest day", "15 min", "1 h", "1 h 30 min", "1 h 45 min", "10 h"):
+        assert f">{label}<" in html.replace("\n", "").replace("  ", "")
+
+
+def test_availability_step_starts_every_day_at_zero() -> None:
+    client, _, _ = _client()
+
+    response = client.get("/onboarding/availability")
+
+    assert [_input_value(response.text, d) for d in range(7)] == ["0"] * 7
+
+
+def test_revisiting_availability_shows_the_saved_minutes() -> None:
+    client, user, onboarding = _client()
+    onboarding.availability[user.id] = {0: 60, 2: 90, 5: 180}
+
+    response = client.get("/onboarding/availability")
+
+    assert [_input_value(response.text, d) for d in range(7)] == [
+        "60",
+        "0",
+        "90",
+        "0",
+        "0",
+        "180",
+        "0",
+    ]
+
+
+def test_saving_mon_wed_sat_stores_three_rows_and_moves_to_goals() -> None:
+    client, user, onboarding = _client()
+
+    response = client.post(
+        "/onboarding/availability",
+        data={
+            "minutes_0": "60",
+            "minutes_1": "0",
+            "minutes_2": "90",
+            "minutes_3": "0",
+            "minutes_4": "0",
+            "minutes_5": "180",
+            "minutes_6": "0",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/onboarding/goals"
+    assert onboarding.availability == {user.id: {0: 60, 2: 90, 5: 180}}
+
+
+def test_saving_availability_through_htmx_redirects_with_hx_redirect() -> None:
+    client, _, _ = _client()
+
+    response = client.post(
+        "/onboarding/availability", data={"minutes_0": "45"}, headers={"HX-Request": "true"}
+    )
+
+    assert response.status_code == 200
+    assert response.headers["HX-Redirect"] == "/onboarding/goals"
+
+
+def test_zero_on_every_day_shows_an_inline_error_and_stores_nothing() -> None:
+    client, _, onboarding = _client()
+
+    response = client.post("/onboarding/availability", data={f"minutes_{d}": "0" for d in range(7)})
+
+    assert response.status_code == 422
+    assert 'role="alert"' in response.text
+    assert "at least one day" in response.text
+    assert onboarding.availability == {}
+
+
+def test_a_failed_save_leaves_earlier_availability_stored() -> None:
+    client, user, onboarding = _client()
+    onboarding.availability[user.id] = {0: 60}
+
+    client.post("/onboarding/availability", data={f"minutes_{d}": "0" for d in range(7)})
+
+    assert onboarding.availability == {user.id: {0: 60}}
+
+
+def test_601_minutes_shows_an_inline_error_on_that_day_and_keeps_the_other_days() -> None:
+    client, _, onboarding = _client()
+
+    response = client.post("/onboarding/availability", data={"minutes_0": "60", "minutes_3": "601"})
+
+    assert response.status_code == 422
+    assert "between 0 and 10 hours" in response.text
+    assert 'aria-invalid="true"' in response.text
+    assert _input_value(response.text, 0) == "60"
+    assert onboarding.availability == {}
+
+
+def test_a_negative_value_shows_an_inline_error() -> None:
+    client, _, onboarding = _client()
+
+    response = client.post("/onboarding/availability", data={"minutes_1": "-15"})
+
+    assert response.status_code == 422
+    assert "between 0 and 10 hours" in response.text
+    assert onboarding.availability == {}
+
+
+def test_a_failed_save_through_htmx_returns_the_partial() -> None:
+    client, _, onboarding = _client()
+
+    response = client.post(
+        "/onboarding/availability", data={"minutes_1": "-15"}, headers={"HX-Request": "true"}
+    )
+
+    assert response.status_code == 422
+    assert "<html" not in response.text
+    assert "between 0 and 10 hours" in response.text
+    assert onboarding.availability == {}
+
+
+def test_availability_is_stored_for_the_signed_in_user_only() -> None:
+    client, user, onboarding = _client()
+    other = uuid4()
+    onboarding.availability[other] = {4: 30}
+
+    client.post("/onboarding/availability", data={"minutes_0": "60"})
+
+    assert onboarding.availability == {other: {4: 30}, user.id: {0: 60}}
+
+
+def test_a_missing_field_counts_as_zero() -> None:
+    client, user, onboarding = _client()
+
+    client.post("/onboarding/availability", data={"minutes_2": "30"})
+
+    assert onboarding.availability == {user.id: {2: 30}}
 
 
 def test_continuing_with_nothing_picked_leaves_an_earlier_choice_stored() -> None:

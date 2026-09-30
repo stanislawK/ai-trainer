@@ -66,3 +66,20 @@ def test_upgrade_head_run_twice_is_a_noop() -> None:
         assert _has_user_sports() == {"user_sports"}
     finally:
         command.upgrade(cfg, "head")
+
+
+def test_migration_adds_and_removes_weekly_availability() -> None:
+    cfg = _alembic_config()
+    command.upgrade(cfg, "head")
+    query = (
+        "SELECT table_name FROM information_schema.tables "
+        "WHERE table_schema = 'public' AND table_name = 'weekly_availability'"
+    )
+
+    try:
+        assert _query(query) == {"weekly_availability"}
+        command.downgrade(cfg, "a7c3d91e5b20")
+        assert _query(query) == set()
+        assert _has_user_sports() == {"user_sports"}
+    finally:
+        command.upgrade(cfg, "head")
