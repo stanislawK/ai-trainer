@@ -14,26 +14,6 @@
         "title": "Body_admin_update_user_status_admin_users__user_id__status_post",
         "type": "object"
       },
-      "Body_choose_sports_step_onboarding_sports_post": {
-        "properties": {
-          "sports": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Sports"
-          }
-        },
-        "title": "Body_choose_sports_step_onboarding_sports_post",
-        "type": "object"
-      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -346,15 +326,6 @@
       },
       "post": {
         "operationId": "choose_sports_step_onboarding_sports_post",
-        "requestBody": {
-          "content": {
-            "application/x-www-form-urlencoded": {
-              "schema": {
-                "$ref": "#/components/schemas/Body_choose_sports_step_onboarding_sports_post"
-              }
-            }
-          }
-        },
         "responses": {
           "200": {
             "content": {
@@ -363,16 +334,6 @@
               }
             },
             "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
           }
         },
         "summary": "Choose Sports Step"

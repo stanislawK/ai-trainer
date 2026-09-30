@@ -1,6 +1,7 @@
 {% from "components/icon.html" import icon %}
 {% from "components/onboarding_step.html" import header %}
 {% from "components/sport_copy.html" import sport_copy %}
+{% from "components/drop_sport_dialog.html" import drop_sport_dialog %}
 <main
   class="min-h-dvh flex flex-col px-4 pt-[max(3.5rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))] lg:grid lg:place-items-center"
   id="onboarding-step"
@@ -13,7 +14,7 @@
   >
     {{ header(1, "What do you train?", "Pick one or more. You can change this later in Settings.") }}
 
-    <fieldset class="flex flex-col gap-3">
+    <fieldset class="flex flex-col gap-3" {% if dropped is defined and dropped %}inert{% endif %}>
       <legend class="sr-only">Sports</legend>
       {% for sport in sports %}
       <label class="glass-regular glass-rim relative rounded-box flex items-center gap-4 p-4 min-h-16 cursor-pointer has-[:checked]:bg-primary/20">
@@ -33,7 +34,7 @@
       {% endfor %}
     </fieldset>
 
-    <div class="mt-auto flex flex-col gap-2">
+    <div class="mt-auto flex flex-col gap-2" {% if dropped is defined and dropped %}inert{% endif %}>
       {% if error is defined and error %}
       <div role="alert" class="alert glass-regular border-0 text-[15px]">
         {{ icon("circle-alert", "size-5 text-error") }}<span>Pick at least one sport to continue.</span>
@@ -41,5 +42,8 @@
       {% endif %}
       <button type="submit" class="btn btn-primary w-full">Continue</button>
     </div>
+    {% if dropped is defined and dropped %}
+    {{ drop_sport_dialog(dropped, "/onboarding/sports", "#onboarding-step") }}
+    {% endif %}
   </form>
 </main>

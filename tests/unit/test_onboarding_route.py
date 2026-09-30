@@ -6,6 +6,7 @@ from collections.abc import Mapping, Sequence
 from datetime import UTC, date, datetime, timedelta
 from uuid import UUID, uuid4
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -69,8 +70,22 @@ class FakeOnboardingRepository:
         self.availability: dict[UUID, dict[int, int]] = {}
         self.goals: dict[UUID, list[Goal]] = {}
 
-    async def replace_sports(self, user_id: UUID, sport_ids: Sequence[str]) -> None:
+    async def replace_sports(
+        self,
+        user_id: UUID,
+        sport_ids: Sequence[str],
+        *,
+        general_goals_of: Sequence[str] = (),
+        delete_goals_of: Sequence[str] = (),
+    ) -> None:
         self.sports[user_id] = list(sport_ids)
+        self.goals[user_id] = [
+            goal.model_copy(update={"sport_id": None})
+            if goal.sport_id in general_goals_of
+            else goal
+            for goal in self.goals.get(user_id, [])
+            if goal.sport_id not in delete_goals_of
+        ]
 
     async def list_sports(self, user_id: UUID) -> Sequence[str]:
         return self.sports.get(user_id, [])
@@ -249,6 +264,189 @@ def test_an_unknown_sport_id_is_rejected_with_422_and_stores_nothing() -> None:
 
     assert response.status_code == 422
     assert onboarding.sports == {}
+
+
+def _client_with_gym_goals() -> tuple[TestClient, User, FakeOnboardingRepository]:
+    client, user, onboarding = _client()
+    onboarding.sports[user.id] = ["climbing", "gym"]
+    onboarding.goals[user.id] = [
+        Goal(text="Send 8a+", sport_id="climbing"),
+        Goal(text="Pull-up +10 kg", sport_id="gym"),
+        Goal(text="Deadlift 150 kg", sport_id="gym"),
+    ]
+    return client, user, onboarding
+
+
+def test_unticking_a_sport_with_goals_opens_the_dialog_listing_them_and_saves_nothing() -> None:
+    client, user, onboarding = _client_with_gym_goals()
+
+    response = client.post("/onboarding/sports", data={"sports": ["climbing"]})
+
+    assert response.status_code == 200
+    assert 'role="dialog"' in response.text
+    assert "Drop Gym?" in response.text
+    assert "Pull-up +10 kg" in response.text
+    assert "Deadlift 150 kg" in response.text
+    assert "Send 8a+" not in response.text
+    assert 'name="goals_gym"' in response.text
+    assert 'value="keep"' in response.text
+    assert 'value="delete"' in response.text
+    assert 'name="confirm_drop"' in response.text
+    assert onboarding.sports[user.id] == ["climbing", "gym"]
+    assert len(onboarding.goals[user.id]) == 3
+
+
+def test_the_dialog_keeps_the_athletes_ticks_and_preselects_keep() -> None:
+    client, _, _ = _client_with_gym_goals()
+
+    response = client.post(
+        "/onboarding/sports", data={"sports": ["climbing"]}, headers={"HX-Request": "true"}
+    )
+
+    assert "<html" not in response.text
+    dialog = response.text[response.text.index('role="dialog"') :]
+    keep_at = dialog.index('value="keep"')
+    assert " checked" in dialog[keep_at : dialog.index(">", keep_at)]
+    delete_at = dialog.index('value="delete"')
+    assert " checked" not in dialog[delete_at : dialog.index(">", delete_at)]
+    form = response.text[: response.text.index('role="dialog"')]
+    gym_at = form.index('value="gym"')
+    assert " checked" not in form[gym_at : form.index(">", gym_at)]
+    climbing_at = form.index('value="climbing"')
+    assert " checked" in form[climbing_at : form.index(">", climbing_at)]
+
+
+def test_the_sports_and_continue_behind_the_dialog_cannot_be_reached() -> None:
+    client, _, _ = _client_with_gym_goals()
+
+    open_ = client.post("/onboarding/sports", data={"sports": ["climbing"]})
+    plain = client.get("/onboarding/sports")
+
+    assert open_.text.count("inert") == 2
+    assert "inert" not in plain.text
+
+
+def test_dropping_two_sports_with_goals_gets_one_choice_each() -> None:
+    client, _, _ = _client_with_gym_goals()
+
+    response = client.post("/onboarding/sports", data={"sports": ["cycling"]})
+
+    assert "Drop 2 sports?" in response.text
+    assert 'name="goals_climbing"' in response.text
+    assert 'name="goals_gym"' in response.text
+
+
+def test_the_dialogs_cancel_reloads_the_saved_step_without_posting() -> None:
+    client, _, _ = _client_with_gym_goals()
+
+    response = client.post("/onboarding/sports", data={"sports": ["climbing"]})
+
+    cancel_at = response.text.index("Cancel")
+    button = response.text[response.text.rindex("<button", 0, cancel_at) : cancel_at]
+    assert 'hx-get="/onboarding/sports"' in button
+    assert 'hx-target="#onboarding-step"' in button
+    saved = client.get("/onboarding/sports")
+    assert 'role="dialog"' not in saved.text
+    gym_at = saved.text.index('value="gym"')
+    assert " checked" in saved.text[gym_at : saved.text.index(">", gym_at)]
+
+
+def test_confirming_keep_drops_the_sport_and_its_goals_move_to_general() -> None:
+    client, user, onboarding = _client_with_gym_goals()
+
+    response = client.post(
+        "/onboarding/sports",
+        data={"sports": ["climbing"], "confirm_drop": "1", "goals_gym": "keep"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/onboarding/availability"
+    assert onboarding.sports[user.id] == ["climbing"]
+    assert onboarding.goals[user.id] == [
+        Goal(text="Send 8a+", sport_id="climbing"),
+        Goal(text="Pull-up +10 kg"),
+        Goal(text="Deadlift 150 kg"),
+    ]
+    goals = client.get("/onboarding/goals")
+    general = goals.text[goals.text.index("General") :]
+    assert "Pull-up +10 kg" in general
+    assert "Deadlift 150 kg" in general
+
+
+def test_confirming_delete_drops_the_sport_and_its_goals_only() -> None:
+    client, user, onboarding = _client_with_gym_goals()
+
+    response = client.post(
+        "/onboarding/sports",
+        data={"sports": ["climbing"], "confirm_drop": "1", "goals_gym": "delete"},
+        headers={"HX-Request": "true"},
+    )
+
+    assert response.status_code == 200
+    assert response.headers["HX-Redirect"] == "/onboarding/availability"
+    assert onboarding.sports[user.id] == ["climbing"]
+    assert onboarding.goals[user.id] == [Goal(text="Send 8a+", sport_id="climbing")]
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        {"sports": ["climbing"], "confirm_drop": "1"},
+        {"sports": ["climbing"], "confirm_drop": "1", "goals_gym": "archive"},
+        {"sports": ["climbing"], "confirm_drop": "1", "goals_gym": ""},
+        {"sports": ["cycling"], "confirm_drop": "1", "goals_gym": "keep"},
+    ],
+)
+def test_a_missing_or_unknown_choice_returns_422_and_changes_nothing(
+    data: dict[str, str | list[str]],
+) -> None:
+    client, user, onboarding = _client_with_gym_goals()
+
+    response = client.post("/onboarding/sports", data=data)
+
+    assert response.status_code == 422
+    assert onboarding.sports[user.id] == ["climbing", "gym"]
+    assert len(onboarding.goals[user.id]) == 3
+    assert [goal.sport_id for goal in onboarding.goals[user.id]] == ["climbing", "gym", "gym"]
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "sports=climbing&sports=gym&confirm_drop=1&goals_gym=archive",
+        "sports=climbing&confirm_drop=1&goals_gym=archive&goals_gym=keep",
+        "sports=climbing&confirm_drop=1&goals_gym=keep&goals_gym=archive",
+        "sports=climbing&confirm_drop=1&goals_gym=keep&goals_cycling=KEEP",
+    ],
+)
+def test_any_bad_or_repeated_choice_returns_422_even_for_a_sport_that_needs_none(
+    body: str,
+) -> None:
+    client, user, onboarding = _client_with_gym_goals()
+
+    response = client.post(
+        "/onboarding/sports",
+        content=body,
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+    )
+
+    assert response.status_code == 422
+    assert onboarding.sports[user.id] == ["climbing", "gym"]
+    assert [goal.sport_id for goal in onboarding.goals[user.id]] == ["climbing", "gym", "gym"]
+
+
+def test_unticking_a_sport_without_goals_goes_straight_to_step_two() -> None:
+    client, user, onboarding = _client_with_gym_goals()
+    onboarding.goals[user.id] = [Goal(text="Send 8a+", sport_id="climbing")]
+
+    response = client.post(
+        "/onboarding/sports", data={"sports": ["climbing"]}, follow_redirects=False
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/onboarding/availability"
+    assert onboarding.sports[user.id] == ["climbing"]
 
 
 def test_availability_step_is_step_two_with_a_way_back_and_a_row_per_weekday() -> None:

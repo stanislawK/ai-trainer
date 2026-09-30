@@ -10,8 +10,17 @@ class OnboardingRepositoryPort(Protocol):
     """Persists what onboarding collects about the athlete (ADR-0006). Every method is
     scoped to one `user_id`, which comes from the authenticated session (ADR-0005)."""
 
-    async def replace_sports(self, user_id: UUID, sport_ids: Sequence[str]) -> None:
-        """Makes `sport_ids` exactly the user's `user_sports` rows."""
+    async def replace_sports(
+        self,
+        user_id: UUID,
+        sport_ids: Sequence[str],
+        *,
+        general_goals_of: Sequence[str] = (),
+        delete_goals_of: Sequence[str] = (),
+    ) -> None:
+        """Makes `sport_ids` exactly the user's `user_sports` rows. In the same transaction,
+        the user's goals of the sports in `general_goals_of` lose their sport and the goals
+        of those in `delete_goals_of` are deleted; every other goal is untouched."""
         ...
 
     async def list_sports(self, user_id: UUID) -> Sequence[str]: ...
