@@ -106,7 +106,7 @@ It's foreground on purpose (`docker compose watch` can't run detached), so use a
 
 ## End-to-end tests
 
-`tests/e2e/` (pytest-playwright, ADR-0013) runs against the full running app, not a test client, so it needs `make up` (or `make up-build`) first, and `make e2e-install` once to download the Chromium browser. Signed-in pages are reached through `scripts/dev_session.py`, a dev-only script that seeds an active user and a session directly in the database and prints the cookie — never a real Google sign-in, and never a route. Specs are excluded from a bare `uv run pytest` / `make test`; run them explicitly with `make e2e`.
+`tests/e2e/` (pytest-playwright, ADR-0013) runs against the full running app, not a test client, so it needs `make up` (or `make up-build`) first, and `make e2e-install` once to download the Chromium browser. Signed-in pages are reached through `scripts/dev_session.py`, a dev-only script that seeds an active user and a session directly in the database and prints the cookie — never a real Google sign-in, and never a route. It seeds an onboarded user; `uv run python scripts/dev_session.py --not-onboarded` seeds a separate fresh user (reset on every run) who lands on the onboarding sports step. Specs are excluded from a bare `uv run pytest` / `make test`; run them explicitly with `make e2e`.
 
 ## Running locally without Docker
 

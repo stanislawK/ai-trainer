@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
@@ -6,9 +7,12 @@ import pytest
 from ai_trainer.domain.sessions import NewSession, Session
 from ai_trainer.domain.users import NewUser, User, UserAlreadyExistsError, UserStatus
 from scripts.dev_session import (
+    DEV_FRESH_EMAIL,
+    DEV_FRESH_SUB,
     DEV_SESSION_EMAIL,
     DEV_SESSION_SUB,
     build_cookie_payload,
+    parse_args,
     seed_dev_session,
 )
 
@@ -46,6 +50,21 @@ class FakeUsersRepository:
 
     async def delete(self, user_id: UUID) -> None:
         raise NotImplementedError
+
+
+class FakeOnboardingRepository:
+    def __init__(self) -> None:
+        self.onboarded_at: dict[UUID, datetime | None] = {}
+        self.sports: dict[UUID, list[str]] = {}
+
+    async def replace_sports(self, user_id: UUID, sport_ids: Sequence[str]) -> None:
+        self.sports[user_id] = list(sport_ids)
+
+    async def list_sports(self, user_id: UUID) -> Sequence[str]:
+        return self.sports.get(user_id, [])
+
+    async def set_onboarded_at(self, user_id: UUID, when: datetime | None) -> None:
+        self.onboarded_at[user_id] = when
 
 
 class FakeSessionsRepository:
@@ -87,7 +106,9 @@ async def test_first_run_creates_an_active_seeded_user_and_a_session() -> None:
     users = FakeUsersRepository()
     sessions = FakeSessionsRepository()
 
-    session = await seed_dev_session(users, sessions, FakeClock(), session_ttl=SESSION_TTL)
+    session = await seed_dev_session(
+        users, sessions, FakeClock(), onboarding=FakeOnboardingRepository(), session_ttl=SESSION_TTL
+    )
 
     seeded_user = await users.get_by_sub(DEV_SESSION_SUB)
     assert seeded_user is not None
@@ -101,8 +122,12 @@ async def test_second_run_reuses_the_seeded_user_but_opens_a_new_session() -> No
     users = FakeUsersRepository()
     sessions = FakeSessionsRepository()
 
-    first = await seed_dev_session(users, sessions, FakeClock(), session_ttl=SESSION_TTL)
-    second = await seed_dev_session(users, sessions, FakeClock(), session_ttl=SESSION_TTL)
+    first = await seed_dev_session(
+        users, sessions, FakeClock(), onboarding=FakeOnboardingRepository(), session_ttl=SESSION_TTL
+    )
+    second = await seed_dev_session(
+        users, sessions, FakeClock(), onboarding=FakeOnboardingRepository(), session_ttl=SESSION_TTL
+    )
 
     assert users.create_calls == 1
     assert second.user_id == first.user_id
@@ -113,7 +138,9 @@ async def test_concurrent_run_recovers_by_fetching_the_race_winner() -> None:
     users = RacingUsersRepository()
     sessions = FakeSessionsRepository()
 
-    session = await seed_dev_session(users, sessions, FakeClock(), session_ttl=SESSION_TTL)
+    session = await seed_dev_session(
+        users, sessions, FakeClock(), onboarding=FakeOnboardingRepository(), session_ttl=SESSION_TTL
+    )
 
     assert users.create_calls == 1
     seeded_user = await users.get_by_sub(DEV_SESSION_SUB)
@@ -127,7 +154,13 @@ async def test_concurrent_run_raises_if_the_race_winner_is_not_found() -> None:
     sessions = FakeSessionsRepository()
 
     with pytest.raises(RuntimeError, match="vanished"):
-        await seed_dev_session(users, sessions, FakeClock(), session_ttl=SESSION_TTL)
+        await seed_dev_session(
+            users,
+            sessions,
+            FakeClock(),
+            onboarding=FakeOnboardingRepository(),
+            session_ttl=SESSION_TTL,
+        )
 
 
 def test_build_cookie_payload_matches_the_real_sign_in_cookie_shape() -> None:
@@ -160,3 +193,90 @@ def test_build_cookie_payload_carries_through_secure_false() -> None:
     payload = build_cookie_payload(session, secure=False)
 
     assert payload["secure"] is False
+
+
+async def test_default_seed_marks_the_user_onboarded_now() -> None:
+    users = FakeUsersRepository()
+    onboarding = FakeOnboardingRepository()
+
+    session = await seed_dev_session(
+        users, FakeSessionsRepository(), FakeClock(), onboarding=onboarding, session_ttl=SESSION_TTL
+    )
+
+    assert onboarding.onboarded_at == {session.user_id: FROZEN_NOW}
+
+
+async def test_default_seed_marks_an_already_seeded_but_not_onboarded_user_onboarded() -> None:
+    """A dev database created before onboarding existed has the seeded user with a null
+    `onboarded_at`; the e2e specs must not suddenly land on the sports step."""
+    users = FakeUsersRepository()
+    onboarding = FakeOnboardingRepository()
+    sessions = FakeSessionsRepository()
+    first = await seed_dev_session(
+        users, sessions, FakeClock(), onboarding=onboarding, session_ttl=SESSION_TTL
+    )
+    onboarding.onboarded_at.clear()
+
+    await seed_dev_session(
+        users, sessions, FakeClock(), onboarding=onboarding, session_ttl=SESSION_TTL
+    )
+
+    assert onboarding.onboarded_at == {first.user_id: FROZEN_NOW}
+
+
+async def test_not_onboarded_seed_uses_a_separate_user_left_without_onboarded_at() -> None:
+    users = FakeUsersRepository()
+    onboarding = FakeOnboardingRepository()
+
+    session = await seed_dev_session(
+        users,
+        FakeSessionsRepository(),
+        FakeClock(),
+        onboarding=onboarding,
+        session_ttl=SESSION_TTL,
+        onboarded=False,
+    )
+
+    fresh = await users.get_by_sub(DEV_FRESH_SUB)
+    assert fresh is not None
+    assert fresh.email == DEV_FRESH_EMAIL
+    assert fresh.status is UserStatus.ACTIVE
+    assert session.user_id == fresh.id
+    assert await users.get_by_sub(DEV_SESSION_SUB) is None
+    assert onboarding.onboarded_at == {fresh.id: None}
+
+
+async def test_not_onboarded_seed_resets_the_sports_of_an_earlier_run() -> None:
+    users = FakeUsersRepository()
+    onboarding = FakeOnboardingRepository()
+    sessions = FakeSessionsRepository()
+    first = await seed_dev_session(
+        users,
+        sessions,
+        FakeClock(),
+        onboarding=onboarding,
+        session_ttl=SESSION_TTL,
+        onboarded=False,
+    )
+    onboarding.sports[first.user_id] = ["climbing"]
+    onboarding.onboarded_at[first.user_id] = FROZEN_NOW
+
+    await seed_dev_session(
+        users,
+        sessions,
+        FakeClock(),
+        onboarding=onboarding,
+        session_ttl=SESSION_TTL,
+        onboarded=False,
+    )
+
+    assert onboarding.sports[first.user_id] == []
+    assert onboarding.onboarded_at[first.user_id] is None
+
+
+def test_parse_args_defaults_to_an_onboarded_user() -> None:
+    assert parse_args([]).not_onboarded is False
+
+
+def test_parse_args_not_onboarded_flag() -> None:
+    assert parse_args(["--not-onboarded"]).not_onboarded is True

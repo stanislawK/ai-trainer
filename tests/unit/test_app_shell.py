@@ -78,6 +78,7 @@ def _client(*, admin_emails: list[str]) -> TestClient:
         locale="en",
         status=UserStatus.ACTIVE,
         created_at=FROZEN_NOW,
+        onboarded_at=FROZEN_NOW,
     )
     session = Session(
         id=uuid4(),

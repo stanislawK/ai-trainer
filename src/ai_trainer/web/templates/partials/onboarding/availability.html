@@ -1,0 +1,13 @@
+{% from "components/onboarding_step.html" import header %}
+<main
+  class="min-h-dvh flex flex-col px-4 pt-[max(3.5rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))] lg:grid lg:place-items-center"
+  id="onboarding-step"
+>
+  <div class="flex-1 flex flex-col gap-6 w-full lg:flex-none lg:w-[560px] lg:glass-regular lg:glass-rim lg:relative lg:rounded-[28px] lg:p-8">
+    {{ header(2, "When can you train?", "Your usual days and session length. Plans fit around this.", back_href="/onboarding/sports") }}
+    <p class="text-[15px] text-base-content/70 px-1">This step is coming soon.</p>
+    <div class="hidden lg:flex">
+      <a href="/onboarding/sports" class="btn btn-ghost">Back</a>
+    </div>
+  </div>
+</main>

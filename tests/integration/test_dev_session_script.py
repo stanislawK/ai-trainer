@@ -13,7 +13,7 @@ from sqlalchemy import text
 from ai_trainer.adapters.db import build_engine
 from ai_trainer.settings import Settings
 from ai_trainer.web.auth import SESSION_COOKIE_NAME
-from scripts.dev_session import DEV_SESSION_EMAIL, DEV_SESSION_SUB, main
+from scripts.dev_session import DEV_FRESH_SUB, DEV_SESSION_EMAIL, DEV_SESSION_SUB, main
 
 
 @pytest.fixture
@@ -77,4 +77,41 @@ async def test_main_seeds_the_dev_session_user_as_active() -> None:
         status, email = result.one()
         assert status == "active"
         assert email == DEV_SESSION_EMAIL
+    await engine.dispose()
+
+
+@pytest.mark.usefixtures("_cleanup_dev_session_rows")
+async def test_main_seeds_the_default_user_as_onboarded() -> None:
+    await main(output=io.StringIO())
+
+    engine = build_engine(str(Settings().database_url))
+    async with engine.begin() as connection:
+        result = await connection.execute(
+            text("SELECT onboarded_at IS NOT NULL FROM users WHERE sub = :sub"),
+            {"sub": DEV_SESSION_SUB},
+        )
+        assert result.scalar_one() is True
+    await engine.dispose()
+
+
+@pytest.fixture
+async def _cleanup_fresh_dev_session_rows() -> AsyncIterator[None]:
+    yield
+    engine = build_engine(str(Settings().database_url))
+    async with engine.begin() as connection:
+        await connection.execute(text("DELETE FROM users WHERE sub = :sub"), {"sub": DEV_FRESH_SUB})
+    await engine.dispose()
+
+
+@pytest.mark.usefixtures("_cleanup_fresh_dev_session_rows")
+async def test_main_with_not_onboarded_seeds_a_user_without_onboarded_at() -> None:
+    await main(output=io.StringIO(), not_onboarded=True)
+
+    engine = build_engine(str(Settings().database_url))
+    async with engine.begin() as connection:
+        result = await connection.execute(
+            text("SELECT onboarded_at IS NULL FROM users WHERE sub = :sub"),
+            {"sub": DEV_FRESH_SUB},
+        )
+        assert result.scalar_one() is True
     await engine.dispose()

@@ -1,0 +1,50 @@
+{% from "components/icon.html" import icon %}
+{% from "components/onboarding_step.html" import header %}
+{#- User-facing sport copy lives here, keyed by the registry's `label_key` (G5). -#}
+{% set sport_copy = {
+  "sport.climbing.label": {"label": "Climbing", "hint": "Sport, bouldering, board"},
+  "sport.gym.label": {"label": "Gym", "hint": "Strength and conditioning"},
+  "sport.cycling.label": {"label": "Cycling", "hint": "Road, gravel, indoor"},
+} %}
+<main
+  class="min-h-dvh flex flex-col px-4 pt-[max(3.5rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))] lg:grid lg:place-items-center"
+  id="onboarding-step"
+>
+  <form
+    class="flex-1 flex flex-col gap-6 w-full lg:flex-none lg:w-[560px] lg:glass-regular lg:glass-rim lg:relative lg:rounded-[28px] lg:p-8"
+    hx-post="/onboarding/sports"
+    hx-target="#onboarding-step"
+    hx-swap="outerHTML"
+  >
+    {{ header(1, "What do you train?", "Pick one or more. You can change this later in Settings.") }}
+
+    <fieldset class="flex flex-col gap-3">
+      <legend class="sr-only">Sports</legend>
+      {% for sport in sports %}
+      <label class="glass-regular glass-rim relative rounded-box flex items-center gap-4 p-4 min-h-16 cursor-pointer has-[:checked]:bg-primary/20">
+        <span class="size-11 rounded-[22%] bg-base-content/10 grid place-items-center">{{ icon(sport.icon, "size-5") }}</span>
+        <span class="flex flex-col flex-1">
+          <span class="text-[17px] font-semibold">{{ sport_copy[sport.label_key].label }}</span>
+          <span class="text-[13px] text-base-content/70">{{ sport_copy[sport.label_key].hint }}</span>
+        </span>
+        <input
+          type="checkbox"
+          name="sports"
+          value="{{ sport.id }}"
+          class="checkbox checkbox-primary"
+          {% if sport.id in selected %}checked{% endif %}
+        />
+      </label>
+      {% endfor %}
+    </fieldset>
+
+    <div class="mt-auto flex flex-col gap-2">
+      {% if error is defined and error %}
+      <div role="alert" class="alert glass-regular border-0 text-[15px]">
+        {{ icon("circle-alert", "size-5 text-error") }}<span>Pick at least one sport to continue.</span>
+      </div>
+      {% endif %}
+      <button type="submit" class="btn btn-primary w-full">Continue</button>
+    </div>
+  </form>
+</main>

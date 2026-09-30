@@ -20,6 +20,7 @@ from ai_trainer.adapters.clock import UtcClock
 from ai_trainer.adapters.db import build_engine, build_session_factory
 from ai_trainer.adapters.google_oauth import AuthlibGoogleOAuthClient
 from ai_trainer.adapters.health import PsycopgDatabaseHealth
+from ai_trainer.adapters.onboarding_repository import SqlAlchemyOnboardingRepository
 from ai_trainer.adapters.sessions_repository import SqlAlchemySessionsRepository
 from ai_trainer.adapters.user_status_changer import SqlAlchemyUserStatusChanger
 from ai_trainer.adapters.users_repository import SqlAlchemyUsersRepository
@@ -32,6 +33,7 @@ from ai_trainer.web.csrf import CsrfMiddleware
 from ai_trainer.web.errors import register_error_handlers
 from ai_trainer.web.health import build_health_router
 from ai_trainer.web.home import build_home_router
+from ai_trainer.web.onboarding import build_onboarding_router
 from ai_trainer.web.settings import build_settings_router
 from ai_trainer.web.sign_in import build_sign_in_router
 from ai_trainer.web.templating import STATIC_DIR, build_templates
@@ -74,6 +76,7 @@ def create_app(settings: Settings) -> FastAPI:
     users = SqlAlchemyUsersRepository(session_factory)
     sessions = SqlAlchemySessionsRepository(session_factory)
     status_changer = SqlAlchemyUserStatusChanger(session_factory)
+    onboarding = SqlAlchemyOnboardingRepository(session_factory)
     clock = UtcClock()
     templates = build_templates()
     register_error_handlers(app, templates)
@@ -107,6 +110,9 @@ def create_app(settings: Settings) -> FastAPI:
         )
     )
     app.include_router(build_settings_router(templates, users=users))
+    app.include_router(
+        build_onboarding_router(templates, registry=app.state.sport_registry, onboarding=onboarding)
+    )
     app.include_router(
         build_sign_in_router(templates=templates, users=users, sessions=sessions, clock=clock)
     )

@@ -1,11 +1,13 @@
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
+from uuid import UUID
 
 from fastapi import FastAPI, Request
 from fastapi.responses import RedirectResponse
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ai_trainer.adapters.onboarding_repository import SqlAlchemyOnboardingRepository
 from ai_trainer.adapters.orm import UserOrm
 from ai_trainer.adapters.sessions_repository import SqlAlchemySessionsRepository
 from ai_trainer.adapters.user_status_changer import SqlAlchemyUserStatusChanger
@@ -20,6 +22,12 @@ from ai_trainer.web.sign_in import build_sign_in_router
 from ai_trainer.web.templating import build_templates
 
 FROZEN_NOW = datetime(2026, 9, 22, 12, 0, tzinfo=UTC)
+
+
+async def _mark_onboarded(session_factory: Callable[[], AsyncSession], user_id: UUID) -> None:
+    """These tests are about the gate's status handling, not onboarding: they need users who
+    have already finished it, or `/` would redirect to the sports step (ticket #74)."""
+    await SqlAlchemyOnboardingRepository(session_factory).set_onboarded_at(user_id, FROZEN_NOW)
 
 
 class _NoOpHealth:
@@ -136,6 +144,7 @@ async def test_activating_a_pending_user_lets_the_next_request_through_with_no_n
         row = await write_session.get(UserOrm, user.id)
         assert row is not None
         row.status = UserStatus.ACTIVE.value
+        row.onboarded_at = FROZEN_NOW
         await write_session.commit()
 
     allowed = client.get("/")
@@ -152,6 +161,7 @@ async def test_disabling_an_active_user_mid_session_blocks_their_next_request(
     user = await users.create(
         NewUser(sub="sub-3", email="c@example.com", name="C", locale="en", status=UserStatus.ACTIVE)
     )
+    await _mark_onboarded(db_session_factory, user.id)
     session = await sessions.create(
         NewSession(user_id=user.id, expires_at=FROZEN_NOW + timedelta(days=1))
     )
@@ -394,9 +404,10 @@ async def _sign_in_then_get_home(
 ) -> str:
     users = SqlAlchemyUsersRepository(db_session_factory)
     sessions = SqlAlchemySessionsRepository(db_session_factory)
-    await users.create(
+    created = await users.create(
         NewUser(sub="sub-3", email="c@example.com", name="C", locale="en", status=status)
     )
+    await _mark_onboarded(db_session_factory, created.id)
     client = _client(
         db_session_factory,
         users=users,
