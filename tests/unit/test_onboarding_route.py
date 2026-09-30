@@ -475,28 +475,93 @@ def test_availability_step_with_hx_request_returns_a_partial() -> None:
     assert 'name="minutes_0"' in response.text
 
 
-def _select(html: str, weekday: int) -> str:
-    start = html.index(f'name="minutes_{weekday}"')
-    return html[html.rindex("<select", 0, start) : html.index("</select>", start)]
-
-
 def _input_value(html: str, weekday: int) -> str | None:
-    """The `value` of the option selected for `weekday`, or None when none is."""
-    for option in _select(html, weekday).split("<option")[1:]:
-        if " selected" in option.split(">", 1)[0]:
-            return option.split('value="', 1)[1].split('"', 1)[0]
-    return None
+    """The `value` of the hidden field posted as `minutes_<weekday>`, or None when absent."""
+    marker = f'name="minutes_{weekday}"'
+    if marker not in html:
+        return None
+    tag = html[html.rindex("<input", 0, html.index(marker)) :]
+    tag = tag[: tag.index(">")]
+    return tag.split('value="', 1)[1].split('"', 1)[0]
 
 
-def test_each_day_offers_15_minute_steps_from_rest_day_to_ten_hours() -> None:
+def _chip(html: str, weekday: int) -> str:
+    """The text of the day chip for `weekday`, whitespace collapsed."""
+    start = html.index(f'data-day-chip="{weekday}"')
+    inner = html[html.index(">", start) + 1 : html.index("</button>", start)]
+    return " ".join(re.sub(r"<[^>]+>", " ", inner).split())
+
+
+def _slider(html: str) -> str:
+    start = html.index('type="range"')
+    return html[html.rindex("<input", 0, start) : html.index(">", start)]
+
+
+def test_one_slider_covers_rest_to_ten_hours_in_15_minute_steps() -> None:
     client, _, _ = _client()
 
-    html = _select(client.get("/onboarding/availability").text, 2)
+    slider = _slider(client.get("/onboarding/availability").text)
 
-    values = [int(v.split('"', 1)[0]) for v in html.split('value="')[1:]]
-    assert values == list(range(0, 601, 15))
-    for label in ("Rest day", "15 min", "1 h", "1 h 30 min", "1 h 45 min", "10 h"):
-        assert f">{label}<" in html.replace("\n", "").replace("  ", "")
+    assert 'min="0"' in slider
+    assert 'max="600"' in slider
+    assert 'step="15"' in slider
+    assert "name=" not in slider
+
+
+def test_the_slider_starts_on_monday_when_nothing_is_saved() -> None:
+    client, _, _ = _client()
+
+    html = client.get("/onboarding/availability").text
+
+    assert 'value="0"' in _slider(html)
+    assert 'data-day-chip="0"' in html
+    assert re.search(r'data-day-chip="0"[^>]*aria-pressed="true"', html)
+    assert not re.search(r'data-day-chip="[1-6]"[^>]*aria-pressed="true"', html)
+
+
+def test_each_chip_shows_its_own_duration_or_rest() -> None:
+    client, user, onboarding = _client()
+    onboarding.availability[user.id] = {0: 60, 2: 90, 4: 45, 5: 180}
+
+    html = client.get("/onboarding/availability").text
+
+    assert [_chip(html, d) for d in range(7)] == [
+        "Mon 1h",
+        "Tue Rest",
+        "Wed 1h30",
+        "Thu Rest",
+        "Fri 45m",
+        "Sat 3h",
+        "Sun Rest",
+    ]
+
+
+def test_the_summary_counts_days_and_weekly_hours() -> None:
+    client, user, onboarding = _client()
+    onboarding.availability[user.id] = {0: 60, 2: 90, 5: 180}
+
+    html = client.get("/onboarding/availability").text
+
+    assert "3 days · 5 h 30 min a week" in " ".join(html.split())
+
+
+def test_the_summary_with_one_day_is_singular() -> None:
+    client, user, onboarding = _client()
+    onboarding.availability[user.id] = {3: 60}
+
+    html = client.get("/onboarding/availability").text
+
+    assert "1 day · 1 h a week" in " ".join(html.split())
+
+
+def test_the_slider_and_selected_chip_start_on_the_first_saved_day() -> None:
+    client, user, onboarding = _client()
+    onboarding.availability[user.id] = {2: 90, 5: 180}
+
+    html = client.get("/onboarding/availability").text
+
+    assert 'value="90"' in _slider(html)
+    assert re.search(r'data-day-chip="2"[^>]*aria-pressed="true"', html)
 
 
 def test_availability_step_starts_every_day_at_zero() -> None:

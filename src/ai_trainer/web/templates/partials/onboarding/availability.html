@@ -2,12 +2,39 @@
 {% from "components/onboarding_step.html" import header %}
 {#- User-facing weekday names live here (G5); weekday 0 is Monday. -#}
 {% set weekday_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"] %}
-{#- "1 h 30 min" for 90; 0 is a rest day. -#}
-{% macro duration(m) -%}
-  {%- if m == 0 -%}Rest day
+{#- "1 h 30 min" for 90, "Rest" for 0. -#}
+{% macro long(m) -%}
+  {%- if m == 0 -%}Rest
   {%- else -%}{{ (m // 60) ~ " h" if m >= 60 }}{{ " " if m >= 60 and m % 60 }}{{ (m % 60) ~ " min" if m % 60 }}
   {%- endif -%}
 {%- endmacro %}
+{#- The chip's own duration: "1h30" for 90, "45m" for 45, "Rest" for 0. -#}
+{% macro short(m) -%}
+  {%- if m == 0 -%}Rest
+  {%- elif m < 60 -%}{{ m }}m
+  {%- else -%}{{ m // 60 }}h{{ m % 60 if m % 60 }}
+  {%- endif -%}
+{%- endmacro %}
+{% macro summary(count, total) -%}
+  {%- if count == 0 -%}No days yet
+  {%- else -%}{{ count }} {{ "day" if count == 1 else "days" }} · {{ long(total) }} a week
+  {%- endif -%}
+{%- endmacro %}
+{#- The minutes on each day as clamped ints, plus the day the slider starts on: the first day
+    with an error, else the first day with time, else Monday. -#}
+{% set ns = namespace(selected=-1, first_time=-1, count=0, total=0) %}
+{% set mins = {} %}
+{% for weekday in range(7) %}
+  {% set m = [[minutes[weekday] | int(0), 0] | max, 600] | min %}
+  {% set _ = mins.update({weekday: m}) %}
+  {% if m > 0 %}
+    {% set ns.count = ns.count + 1 %}
+    {% set ns.total = ns.total + m %}
+    {% if ns.first_time < 0 %}{% set ns.first_time = weekday %}{% endif %}
+  {% endif %}
+  {% if weekday in invalid and ns.selected < 0 %}{% set ns.selected = weekday %}{% endif %}
+{% endfor %}
+{% if ns.selected < 0 %}{% set ns.selected = ns.first_time if ns.first_time >= 0 else 0 %}{% endif %}
 <main
   class="min-h-dvh flex flex-col px-4 pt-[max(3.5rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))] lg:grid lg:place-items-center"
   id="onboarding-step"
@@ -17,33 +44,69 @@
     hx-post="/onboarding/availability"
     hx-target="#onboarding-step"
     hx-swap="outerHTML"
-      >
-    {{ header(2, "When can you train?", "How long you can train on each day. Leave a day as Rest day if you can't. Plans fit around this.", back_href="/onboarding/sports") }}
+    data-availability
+    data-fmt-rest="Rest"
+    data-fmt-hour="h"
+    data-fmt-minute="min"
+    data-fmt-short-hour="h"
+    data-fmt-short-minute="m"
+    data-fmt-none="No days yet"
+    data-fmt-one="{days} day · {time} a week"
+    data-fmt-many="{days} days · {time} a week"
+  >
+    {{ header(2, "When can you train?", "Tap a day, then set how long you can train. Plans fit around this.", back_href="/onboarding/sports") }}
 
-    <fieldset class="glass-regular glass-rim relative rounded-box p-4 flex flex-col gap-3">
-      <legend class="sr-only">Minutes available each day</legend>
-      {% for weekday in range(7) %}
-      {% set bad = weekday in invalid %}
-      <div class="flex flex-col gap-1">
-        <div class="flex items-center gap-3">
-          <label for="minutes-{{ weekday }}" class="flex-1 text-[17px] font-medium">{{ weekday_names[weekday] }}</label>
-          <select
-            id="minutes-{{ weekday }}"
-            name="minutes_{{ weekday }}"
-            class="select w-40 text-[16px] bg-base-100/50 {{ 'border-error' if bad else 'border-base-content/20' }}"
+    <div class="glass-regular glass-rim relative rounded-box p-3 flex flex-col gap-5 lg:contents">
+      <fieldset class="flex flex-col gap-3">
+        <legend class="text-[13px] font-medium text-base-content/70 mb-3 lg:sr-only">Days</legend>
+        <div class="grid grid-cols-7 gap-1 lg:gap-2">
+          {% for weekday in range(7) %}
+          {% set bad = weekday in invalid %}
+          <button
+            type="button"
+            data-day-chip="{{ weekday }}"
+            data-day-name="{{ weekday_names[weekday] }}"
+            aria-pressed="{{ 'true' if weekday == ns.selected else 'false' }}"
+            aria-label="{{ weekday_names[weekday] }}, {{ long(mins[weekday]) }}"
             {% if bad %}aria-invalid="true" aria-describedby="minutes-{{ weekday }}-error"{% endif %}
+            class="flex flex-col items-center justify-center gap-0.5 h-14 min-w-0 rounded-2xl cursor-pointer {{ 'bg-primary/20' if mins[weekday] > 0 else 'bg-base-content/10 text-base-content/70' }}{{ ' ring-2 ring-primary' if weekday == ns.selected }}{{ ' outline outline-2 outline-error' if bad }}"
           >
-            {% for m in range(0, 601, 15) %}
-            <option value="{{ m }}"{% if minutes[weekday] | string == m | string %} selected{% endif %}>{{ duration(m) }}</option>
-            {% endfor %}
-          </select>
+            <span class="text-[14px] font-medium">{{ weekday_names[weekday][:3] }}</span>
+            <span data-day-short class="text-[11px] tabular-nums">{{ short(mins[weekday]) }}</span>
+          </button>
+          <input type="hidden" name="minutes_{{ weekday }}" value="{{ mins[weekday] }}" data-day-input="{{ weekday }}">
+          {% endfor %}
         </div>
-        {% if bad %}
-        <p id="minutes-{{ weekday }}-error" class="text-[13px] text-error text-right">Choose a time between 0 and 10 hours.</p>
-        {% endif %}
-      </div>
-      {% endfor %}
-    </fieldset>
+        {% for weekday in invalid | sort %}
+        <p id="minutes-{{ weekday }}-error" class="text-[13px] text-error">{{ weekday_names[weekday] }}: Choose a time between 0 and 10 hours.</p>
+        {% endfor %}
+      </fieldset>
+
+      <fieldset class="flex flex-col gap-2">
+        <legend class="sr-only">Time on the selected day</legend>
+        <span data-slider-name class="text-[13px] font-medium text-base-content/70 lg:hidden">{{ weekday_names[ns.selected] }}</span>
+        <div class="flex items-baseline justify-between">
+          <span data-slider-name class="hidden lg:inline text-[13px] font-medium text-base-content/70">{{ weekday_names[ns.selected] }}</span>
+          <span data-slider-value class="text-[28px]/[34px] font-semibold tabular-nums lg:text-[17px]/[24px]">{{ long(mins[ns.selected]) }}</span>
+          <span data-summary class="text-[13px] text-base-content/70 lg:hidden">{{ summary(ns.count, ns.total) }}</span>
+        </div>
+        <input
+          type="range"
+          min="0"
+          max="600"
+          step="15"
+          value="{{ mins[ns.selected] }}"
+          data-day-slider
+          class="range range-primary range-sm w-full"
+          aria-label="Minutes on the selected day"
+        >
+        <div class="flex justify-between text-[12px] text-base-content/70 tabular-nums">
+          <span>Rest</span>
+          <span data-summary class="hidden lg:inline">{{ summary(ns.count, ns.total) }}</span>
+          <span>10 h</span>
+        </div>
+      </fieldset>
+    </div>
 
     <div class="mt-auto flex flex-col gap-2">
       {% if no_days is defined and no_days %}

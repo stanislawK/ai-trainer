@@ -4,4 +4,6 @@
 
 {% block bare_content %}
   {% include "partials/onboarding/availability.html" %}
+  {#- Here, not in the partial: an htmx swap of the partial must not wire the listeners twice. -#}
+  <script src="/static/js/onboarding_availability.js" defer></script>
 {% endblock %}
