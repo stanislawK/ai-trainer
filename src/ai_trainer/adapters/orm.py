@@ -38,6 +38,8 @@ class UserOrm(Base):
     )
     # timestamptz, UTC; null until onboarding finishes (ADR-0006).
     onboarded_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
+    # IANA name, e.g. Europe/Warsaw; UTC until the athlete confirms one (ADR-0014).
+    timezone: Mapped[str] = mapped_column(nullable=False, server_default="UTC")
 
 
 class SessionOrm(Base):

@@ -16,6 +16,7 @@ from ai_trainer.domain.sports.registry import default_sport_registry
 from ai_trainer.domain.users import NewUser, User, UserStatus
 from ai_trainer.web.active_user_gate import ActiveUserGateMiddleware
 from ai_trainer.web.auth import SESSION_COOKIE_NAME
+from ai_trainer.web.home import build_home_router
 from ai_trainer.web.onboarding import build_onboarding_router
 from ai_trainer.web.templating import build_templates
 
@@ -30,6 +31,9 @@ class FakeClock:
 class FakeUsersRepository:
     def __init__(self, *users: User) -> None:
         self._users = {user.id: user for user in users}
+
+    def replace(self, user: User) -> None:
+        self._users[user.id] = user
 
     async def get_by_sub(self, sub: str) -> User | None:
         raise NotImplementedError
@@ -65,7 +69,8 @@ class FakeSessionsRepository:
 
 
 class FakeOnboardingRepository:
-    def __init__(self) -> None:
+    def __init__(self, users: FakeUsersRepository | None = None) -> None:
+        self.users = users
         self.sports: dict[UUID, list[str]] = {}
         self.availability: dict[UUID, dict[int, int]] = {}
         self.goals: dict[UUID, list[Goal]] = {}
@@ -107,8 +112,14 @@ class FakeOnboardingRepository:
     async def set_onboarded_at(self, user_id: UUID, when: datetime | None) -> None:
         raise NotImplementedError
 
+    async def finish_onboarding(self, user_id: UUID, timezone: str, when: datetime) -> None:
+        assert self.users is not None
+        user = await self.users.get(user_id)
+        assert user is not None
+        self.users.replace(user.model_copy(update={"timezone": timezone, "onboarded_at": when}))
 
-def _client() -> tuple[TestClient, User, FakeOnboardingRepository]:
+
+def _client(*, onboarded: bool = False) -> tuple[TestClient, User, FakeOnboardingRepository]:
     user = User(
         id=uuid4(),
         sub="google-sub-1",
@@ -117,6 +128,7 @@ def _client() -> tuple[TestClient, User, FakeOnboardingRepository]:
         locale="en",
         status=UserStatus.ACTIVE,
         created_at=FROZEN_NOW,
+        onboarded_at=FROZEN_NOW if onboarded else None,
     )
     session = Session(
         id=uuid4(),
@@ -125,9 +137,10 @@ def _client() -> tuple[TestClient, User, FakeOnboardingRepository]:
         created_at=FROZEN_NOW,
     )
     users = FakeUsersRepository(user)
-    onboarding = FakeOnboardingRepository()
+    onboarding = FakeOnboardingRepository(users)
     templates = build_templates()
     app = FastAPI()
+    app.include_router(build_home_router(templates))
     app.include_router(
         build_onboarding_router(
             templates,
@@ -1205,3 +1218,151 @@ def test_an_example_only_shows_where_it_fits() -> None:
     html = client.get("/onboarding/goals").text
 
     assert "Ride 100 km" not in html  # the cycling example stays on the cycling card
+
+
+async def _stored(onboarding: FakeOnboardingRepository, user: User) -> User:
+    assert onboarding.users is not None
+    stored = await onboarding.users.get(user.id)
+    assert stored is not None
+    return stored
+
+
+def test_timezone_step_is_a_full_page_prefilled_with_utc() -> None:
+    client, _, _ = _client()
+
+    response = client.get("/onboarding/timezone")
+
+    assert response.status_code == 200
+    assert "<html" in response.text
+    assert "4 / 4" in response.text
+    assert 'name="timezone"' in response.text
+    assert 'value="UTC"' in response.text
+    assert "/static/js/onboarding_timezone.js" in response.text
+
+
+def test_timezone_step_offers_iana_names_and_leaves_out_the_grade_scale() -> None:
+    client, _, _ = _client()
+
+    response = client.get("/onboarding/timezone")
+
+    assert 'value="Europe/Warsaw"' in response.text
+    assert "Climbing grades" not in response.text
+    assert "Grade scale" not in response.text
+
+
+def test_timezone_step_with_hx_request_returns_a_partial() -> None:
+    client, _, _ = _client()
+
+    response = client.get("/onboarding/timezone", headers={"HX-Request": "true"})
+
+    assert response.status_code == 200
+    assert "<html" not in response.text
+    assert 'name="timezone"' in response.text
+
+
+async def test_confirming_a_zone_stores_it_finishes_onboarding_and_lands_on_home() -> None:
+    client, user, onboarding = _client()
+
+    response = client.post(
+        "/onboarding/timezone", data={"timezone": "Europe/Warsaw"}, follow_redirects=False
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/"
+    stored = await _stored(onboarding, user)
+    assert stored.timezone == "Europe/Warsaw"
+    assert stored.onboarded_at == FROZEN_NOW
+
+
+def test_confirming_through_htmx_redirects_with_hx_redirect() -> None:
+    client, _, _ = _client()
+
+    response = client.post(
+        "/onboarding/timezone",
+        data={"timezone": "Europe/Warsaw"},
+        headers={"HX-Request": "true"},
+    )
+
+    assert response.status_code == 200
+    assert response.headers["HX-Redirect"] == "/"
+
+
+async def test_a_posted_unknown_zone_shows_an_inline_error_and_changes_nothing() -> None:
+    client, user, onboarding = _client()
+
+    response = client.post("/onboarding/timezone", data={"timezone": "Mars/Olympus"})
+
+    assert response.status_code == 422
+    assert "Choose a timezone from the list" in response.text
+    assert 'aria-invalid="true"' in response.text
+    assert "Mars/Olympus" not in response.text
+    stored = await _stored(onboarding, user)
+    assert stored.timezone == "UTC"
+    assert stored.onboarded_at is None
+
+
+def test_a_missing_zone_field_is_the_same_inline_error() -> None:
+    client, _, _ = _client()
+
+    response = client.post("/onboarding/timezone", data={})
+
+    assert response.status_code == 422
+    assert "Choose a timezone from the list" in response.text
+
+
+def test_a_failed_timezone_post_through_htmx_returns_the_partial() -> None:
+    client, _, _ = _client()
+
+    response = client.post(
+        "/onboarding/timezone", data={"timezone": "Nope"}, headers={"HX-Request": "true"}
+    )
+
+    assert response.status_code == 422
+    assert "<html" not in response.text
+    assert "Choose a timezone from the list" in response.text
+
+
+def test_after_finishing_home_no_longer_redirects_to_onboarding() -> None:
+    client, _, _ = _client()
+    assert client.get("/", follow_redirects=False).status_code == 303
+    client.post("/onboarding/timezone", data={"timezone": "UTC"})
+
+    response = client.get("/", follow_redirects=False)
+
+    assert response.status_code != 303
+
+
+def test_a_finished_athlete_opening_onboarding_is_sent_home() -> None:
+    client, _, _ = _client(onboarded=True)
+
+    response = client.get("/onboarding", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/"
+
+
+def test_a_finished_athlete_opening_the_timezone_step_is_sent_home() -> None:
+    client, _, _ = _client(onboarded=True)
+
+    response = client.get("/onboarding/timezone", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/"
+
+
+def test_a_finished_athlete_is_sent_home_through_htmx_with_hx_redirect() -> None:
+    client, _, _ = _client(onboarded=True)
+
+    response = client.get("/onboarding", headers={"HX-Request": "true"})
+
+    assert response.status_code == 200
+    assert response.headers["HX-Redirect"] == "/"
+
+
+def test_an_unfinished_athlete_opening_onboarding_starts_at_the_sports_step() -> None:
+    client, _, _ = _client()
+
+    response = client.get("/onboarding", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/onboarding/sports"

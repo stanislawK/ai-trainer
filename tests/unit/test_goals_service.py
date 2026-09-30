@@ -70,6 +70,9 @@ class FakeOnboardingRepository:
     async def set_onboarded_at(self, user_id: UUID, when: datetime | None) -> None:
         raise NotImplementedError
 
+    async def finish_onboarding(self, user_id: UUID, timezone: str, when: datetime) -> None:
+        raise NotImplementedError
+
 
 async def test_one_goal_with_a_date_and_one_without_are_both_stored_in_order() -> None:
     repository = FakeOnboardingRepository()

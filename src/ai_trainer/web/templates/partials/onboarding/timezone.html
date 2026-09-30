@@ -1,0 +1,44 @@
+{% from "components/icon.html" import icon %}
+{% from "components/onboarding_step.html" import header %}
+<main
+  class="min-h-dvh flex flex-col px-4 pt-[max(3.5rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))] lg:grid lg:place-items-center"
+  id="onboarding-step"
+>
+  <form
+    class="flex-1 flex flex-col gap-6 w-full lg:flex-none lg:w-[560px] lg:glass-regular lg:glass-rim lg:relative lg:rounded-[28px] lg:p-8"
+    hx-post="/onboarding/timezone"
+    hx-target="#onboarding-step"
+    hx-swap="outerHTML"
+    data-timezone
+    data-detected-suffix="detected"
+  >
+    {{ header(4, "Last details", "So dates read the way you expect.", back_href="/onboarding/goals") }}
+
+    <div class="glass-regular glass-rim relative rounded-box p-4 flex flex-col gap-4 lg:contents">
+      <fieldset class="fieldset">
+        <legend class="fieldset-legend text-[13px]">Timezone</legend>
+        <select
+          name="timezone"
+          data-timezone-select
+          class="select w-full text-[16px] bg-base-100/50 {{ 'border-error' if error else 'border-base-content/20' }}"
+          {% if error %}aria-invalid="true" aria-describedby="timezone-error"{% endif %}
+        >
+          {% for zone in zones %}
+          <option value="{{ zone }}"{{ " selected" if zone == selected }}>{{ zone }}</option>
+          {% endfor %}
+        </select>
+        {% if error %}
+        <p id="timezone-error" class="text-[12px] text-error">Choose a timezone from the list.</p>
+        {% endif %}
+        <p class="label text-[13px] text-base-content/70">Used for "today", "yesterday" and your weekly plan.</p>
+      </fieldset>
+    </div>
+
+    <div class="mt-auto flex flex-col gap-2">
+      <div class="flex justify-between gap-2">
+        <a href="/onboarding/goals" class="btn btn-ghost hidden lg:inline-flex">Back</a>
+        <button type="submit" class="btn btn-primary w-full lg:w-auto lg:px-8">Start chatting</button>
+      </div>
+    </div>
+  </form>
+</main>

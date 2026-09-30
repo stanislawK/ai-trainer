@@ -3,6 +3,7 @@ from collections.abc import Mapping, Sequence
 from datetime import date, timedelta, timezone
 from enum import StrEnum
 from uuid import UUID
+from zoneinfo import available_timezones
 
 from ai_trainer.application.ports.clock import ClockPort
 from ai_trainer.application.ports.onboarding import OnboardingRepositoryPort
@@ -247,3 +248,30 @@ async def set_goals(
     if not goals:
         raise NoGoalsError
     await repository.replace_goals(user_id, goals)
+
+
+class InvalidTimezoneError(Exception):
+    """Raised when the timezone step is submitted with something that is not an IANA zone."""
+
+
+def timezone_names() -> tuple[str, ...]:
+    """The IANA zones an athlete can pick, sorted: `Region/City` names plus `UTC`. The
+    bare legacy aliases `zoneinfo` also knows (`Poland`, `Factory`, `EST`) are left out."""
+    return tuple(sorted(name for name in available_timezones() if "/" in name or name == "UTC"))
+
+
+async def confirm_timezone(
+    user_id: UUID,
+    raw_zone: str,
+    *,
+    clock: ClockPort,
+    repository: OnboardingRepositoryPort,
+) -> None:
+    """Stores the athlete's IANA timezone and finishes onboarding (PRD-0003 F6, G9,
+    ADR-0014). `onboarded_at` comes from the `Clock` port. The name must be one of
+    `timezone_names()`, exactly as spelled; anything else raises `InvalidTimezoneError` and
+    writes nothing."""
+    zone = raw_zone.strip()
+    if zone not in timezone_names():
+        raise InvalidTimezoneError
+    await repository.finish_onboarding(user_id, zone, clock.now())

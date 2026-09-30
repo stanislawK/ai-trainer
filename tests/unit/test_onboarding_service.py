@@ -62,6 +62,9 @@ class FakeOnboardingRepository:
     async def set_onboarded_at(self, user_id: UUID, when: datetime | None) -> None:
         raise NotImplementedError
 
+    async def finish_onboarding(self, user_id: UUID, timezone: str, when: datetime) -> None:
+        raise NotImplementedError
+
 
 async def test_choose_sports_stores_exactly_the_picked_sports() -> None:
     repository = FakeOnboardingRepository()
