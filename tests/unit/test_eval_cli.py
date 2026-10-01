@@ -205,3 +205,16 @@ def test_main_wires_real_settings_and_openrouter_before_reaching_the_dataset(
 
     with pytest.raises(FileNotFoundError):
         cli_module.main(["run", "sample", "--model", "under-test/model"])
+
+
+def test_default_registry_registers_the_router_template() -> None:
+    template = cli_module._default_registry().get("router", 1)
+
+    assert template.model_settings_key == "router_model"
+
+
+def test_router_evals_use_the_router_evaluators() -> None:
+    from ai_trainer.llm.router import IntentKindsMatch, LogSessionSportMatch
+
+    assert set(cli_module._evaluators_for("router")) == {IntentKindsMatch, LogSessionSportMatch}
+    assert cli_module._evaluators_for("sample") == ()

@@ -135,3 +135,42 @@ def test_unknown_key_in_env_file_is_rejected(
         Settings(_env_file=env_file)
 
     assert [error["loc"] for error in excinfo.value.errors()] == [("databse_pool_size",)]
+
+
+def test_router_settings_default_to_ten_turns_and_a_named_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DATABASE_URL", DATABASE_URL)
+    monkeypatch.setenv("OPENROUTER_API_KEY", OPENROUTER_API_KEY)
+    monkeypatch.setenv("EVAL_JUDGE_MODEL", EVAL_JUDGE_MODEL)
+
+    monkeypatch.setenv("ROUTER_MODEL", "test/router-model")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.chat_history_turns == 10
+    assert settings.router_model == "test/router-model"
+
+
+def test_missing_router_model_raises_naming_it(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", DATABASE_URL)
+    monkeypatch.setenv("OPENROUTER_API_KEY", OPENROUTER_API_KEY)
+    monkeypatch.setenv("EVAL_JUDGE_MODEL", EVAL_JUDGE_MODEL)
+    monkeypatch.delenv("ROUTER_MODEL", raising=False)
+
+    with pytest.raises(ValidationError) as excinfo:
+        Settings(_env_file=None)
+
+    assert [error["loc"] for error in excinfo.value.errors()] == [("router_model",)]
+
+
+def test_chat_history_turns_must_be_positive(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", DATABASE_URL)
+    monkeypatch.setenv("OPENROUTER_API_KEY", OPENROUTER_API_KEY)
+    monkeypatch.setenv("EVAL_JUDGE_MODEL", EVAL_JUDGE_MODEL)
+    monkeypatch.setenv("CHAT_HISTORY_TURNS", "0")
+
+    with pytest.raises(ValidationError) as excinfo:
+        Settings(_env_file=None)
+
+    assert [error["loc"] for error in excinfo.value.errors()] == [("chat_history_turns",)]

@@ -6,7 +6,7 @@ An AI training companion for amateur athletes (climbing, gym, cycling). Document
 
 **M0 (Foundations) is complete; M1 (the clickable skeleton) is in progress.** So far: a typed Python/FastAPI skeleton, a `docker compose` stack (app + PostgreSQL/pgvector) with a `GET /health` endpoint that reports database reachability without needing a session, a styled base layout built with Jinja2 + htmx 4 + Tailwind CSS v4/daisyUI 5 (htmx is vendored under `static/`, the stylesheet is compiled at image build time with no Node.js anywhere), Google sign-in (`/auth/login`, `/auth/callback`, `/auth/logout`) with approval-gated accounts and a minimal admin user list at `/admin`, every other route gated on an active account, CSRF protection on non-GET requests (ADR-0005), account deletion, and the Liquid Glass `trainer-dark`/`trainer-light` themes and glass utilities (ADR-0019), dark by default and remembered per browser with no flash on reload.
 
-The eval harness (`make evals` / `ai-trainer-evals`, ADR-0009) is wired up but has no datasets to run yet — those ship with the first M1 specialist templates. See [CLAUDE.md](CLAUDE.md) for the current status, [docs/prd/README.md](docs/prd/README.md) and [docs/adr/README.md](docs/adr/README.md) for the product requirements and the architecture decisions that govern the stack.
+The eval harness (`make evals` / `ai-trainer-evals`, ADR-0009) is wired up; the first dataset is the `router` template's (`make evals template=router`), and each M1 specialist template adds its own. See [CLAUDE.md](CLAUDE.md) for the current status, [docs/prd/README.md](docs/prd/README.md) and [docs/adr/README.md](docs/adr/README.md) for the product requirements and the architecture decisions that govern the stack.
 
 ## Continuous integration
 
@@ -84,7 +84,7 @@ Run `make` targets from the repo root; see the [Makefile](Makefile) for the comp
 | `make check` | Everything CI runs: lint, format check, typecheck, import-lint, openapi-check, tests |
 | `make evals template=<id>` | Run a prompt template's eval dataset (ADR-0009) — costs money, no default CI job runs it |
 
-`test`, `test-integration`, `coverage` and `e2e` run `make migrate` first, so the `vector` extension always exists before the suite runs. `make evals` takes an optional `version=` and `model=` to override the template version or the model under test; it needs `EVAL_JUDGE_MODEL` set in `.env` (ADR-0009) and a dataset at `evals/datasets/<id>.yaml`, which the first M1 specialist template ships.
+`test`, `test-integration`, `coverage` and `e2e` run `make migrate` first, so the `vector` extension always exists before the suite runs. `make evals` takes an optional `version=` and `model=` to override the template version or the model under test; it needs `EVAL_JUDGE_MODEL` set in `.env` (ADR-0009) and a dataset at `evals/datasets/<id>.yaml`. The router's model comes from the required `ROUTER_MODEL` and must differ from `EVAL_JUDGE_MODEL`; `CHAT_HISTORY_TURNS` sets how many recent messages it sees.
 
 ## Dev loop
 

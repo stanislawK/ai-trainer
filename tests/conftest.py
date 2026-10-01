@@ -14,6 +14,7 @@ os.environ["GOOGLE_CLIENT_ID"] = "test-client-id.apps.googleusercontent.com"
 os.environ["GOOGLE_CLIENT_SECRET"] = "test-client-secret"
 os.environ["SESSION_SECRET_KEY"] = "test-session-secret-key"
 os.environ["CSRF_SECRET_KEY"] = "test-csrf-secret-key"
+os.environ["ROUTER_MODEL"] = "test/router-model"
 
 
 @pytest.fixture(autouse=True)
