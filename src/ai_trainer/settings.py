@@ -1,6 +1,6 @@
 from typing import Annotated, Any, Literal
 
-from pydantic import BeforeValidator, PostgresDsn, SecretStr, ValidationInfo, field_validator
+from pydantic import BeforeValidator, Field, PostgresDsn, SecretStr, ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
@@ -25,6 +25,11 @@ class Settings(BaseSettings):
     database_url: PostgresDsn
     openrouter_api_key: SecretStr
     llm_call_timeout_seconds: float = 30.0
+    # Router and every specialist see the same last N chat messages (ADR-0008).
+    chat_history_turns: int = Field(default=10, ge=1)
+    # One model per template (ADR-0007). No default: a stable/GA OpenRouter id (never a
+    # preview) and its cost are an operator choice, like `eval_judge_model` below.
+    router_model: str
     # Evals (ADR-0009): pinned, distinct from the model under test, set explicitly on every
     # eval run with `set_default_judge_model`. No default here — a stable/GA OpenRouter model
     # id is an operator choice, not a code default (`.claude/rules/llm.md`).

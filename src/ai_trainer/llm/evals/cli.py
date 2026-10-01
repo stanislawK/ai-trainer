@@ -20,12 +20,14 @@ from pydantic_ai.models.openrouter import OpenRouterModel
 from pydantic_ai.providers.openrouter import OpenRouterProvider
 from pydantic_evals.evaluators import Evaluator
 
+from ai_trainer.domain.sports.registry import default_sport_registry
 from ai_trainer.llm.evals.runner import (
     EvalCaseInputs,
     JudgeModelMatchesModelUnderTestError,
     run_eval,
 )
 from ai_trainer.llm.prompts.registry import PromptRegistry
+from ai_trainer.llm.router import IntentKindsMatch, LogSessionSportMatch, router_template
 from ai_trainer.settings import Settings
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
@@ -34,9 +36,22 @@ _PROMPTS_ROOT = Path(__file__).resolve().parent.parent / "prompts"
 
 
 def _default_registry() -> PromptRegistry:
-    """No specialist templates are registered yet — M1 adds `registry.register(...)` calls
-    here as real templates ship; the harness waits for them (ADR-0009)."""
-    return PromptRegistry(root=_PROMPTS_ROOT)
+    """M1 adds a `registry.register(...)` call here as each real template ships (ADR-0009)."""
+    registry = PromptRegistry(root=_PROMPTS_ROOT)
+    registry.register(router_template(default_sport_registry()))
+    return registry
+
+
+_EVALUATORS: dict[str, tuple[type[Evaluator[EvalCaseInputs, BaseModel, object]], ...]] = {
+    "router": (IntentKindsMatch, LogSessionSportMatch),
+}
+
+
+def _evaluators_for(
+    template_id: str,
+) -> tuple[type[Evaluator[EvalCaseInputs, BaseModel, object]], ...]:
+    """The custom `Evaluator` types a template's dataset references by name."""
+    return _EVALUATORS.get(template_id, ())
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -119,6 +134,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             model_id=model_id,
             judge_model=judge_model,
             judge_model_id=judge_model_id,
+            custom_evaluator_types=_evaluators_for(args.template_id),
         )
     )
 
