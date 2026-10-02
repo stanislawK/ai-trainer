@@ -1,6 +1,7 @@
 """The status/error card's action buttons (`components/status_card.html`, #58): a secondary
-action on its own is `btn-outline` so "Sign out" doesn't read as a bare link; beside a primary
-button it stays `btn-ghost`, per the Status and errors mock."""
+action on its own is `btn-outline` so it doesn't read as a bare link; beside a primary
+button it stays `btn-ghost`, per the Status and errors mock. The status screens pair a plain
+"Sign in again" link (#88) with "Sign out"."""
 
 import re
 
@@ -18,13 +19,18 @@ def _buttons(html: str) -> list[str]:
 
 
 @pytest.mark.parametrize("status", ["pending", "disabled"])
-def test_status_page_sign_out_is_an_outline_button(status: str) -> None:
+def test_status_page_offers_sign_in_again_above_a_ghost_sign_out(status: str) -> None:
     html = _render("partials/auth/status.html", status=status, email="athlete@example.com")
 
-    [sign_out] = _buttons(html)
+    sign_in_again, sign_out = _buttons(html)
+    assert "Sign in again" in sign_in_again
+    assert "btn-primary" in sign_in_again
+    assert sign_in_again.startswith("<a ")
+    assert 'href="/auth/login"' in sign_in_again
+    assert "hx-" not in sign_in_again
     assert "Sign out" in sign_out
-    assert "btn-outline" in sign_out
-    assert "btn-ghost" not in sign_out
+    assert "btn-ghost" in sign_out
+    assert "btn-outline" not in sign_out
 
 
 def test_500_page_keeps_a_ghost_secondary_beside_its_primary() -> None:
