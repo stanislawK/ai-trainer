@@ -10,5 +10,5 @@ def test_reaches_signed_in_home_page_using_dev_session_cookie(signed_in_page: Pa
 
     assert response is not None
     assert response.status == 200
-    expect(signed_in_page.locator("#home-content")).to_be_visible()
-    expect(signed_in_page.locator("h1")).to_have_text("AI Trainer")
+    expect(signed_in_page.locator("#chat-content")).to_be_visible()
+    expect(signed_in_page.locator("h1")).to_have_text("Chat")

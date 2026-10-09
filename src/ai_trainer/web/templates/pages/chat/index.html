@@ -1,0 +1,10 @@
+{% extends "layouts/app.html" %}
+
+{% block title %}Chat · AI Trainer{% endblock %}
+
+{%- block nav_variant -%}chat{%- endblock -%}
+
+{% block app_content %}
+  {% include "partials/chat/index.html" %}
+  <script src="/static/js/chat.js" defer></script>
+{% endblock %}

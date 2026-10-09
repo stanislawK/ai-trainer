@@ -1,0 +1,18 @@
+{% from "components/icon.html" import icon %}
+<div
+  class="group/chat mx-auto w-full max-w-[720px] px-4 flex flex-col min-h-[calc(100dvh-4.75rem)] lg:min-h-[calc(100dvh-3rem)]"
+  id="chat-content"
+>
+  <h1 class="hidden lg:flex items-center h-14 text-[17px] font-semibold">Chat</h1>
+  <div id="chat-history" class="flex-1 flex flex-col justify-end gap-4 py-4" aria-live="polite">
+    <div class="flex-1 flex flex-col items-center justify-center text-center gap-3 px-6 group-has-[.chat-message]/chat:hidden" id="chat-empty">
+      <span class="size-14 rounded-[22%] grid place-items-center bg-[radial-gradient(120%_120%_at_22%_0%,color-mix(in_oklch,var(--color-primary)_38%,var(--color-base-100)),var(--color-base-300))]" aria-hidden="true">{{ icon("mountain", "size-8") }}</span>
+      <h2 class="text-[22px]/[28px] font-semibold tracking-tight">Good {{ part_of_day }}{% if first_name %}, {{ first_name }}{% endif %}</h2>
+      <p class="text-[16px] leading-6 text-base-content/80">Tell me what you trained, or ask anything about your week.</p>
+    </div>
+    {% for message in history %}
+    {% include "partials/chat/message.html" %}
+    {% endfor %}
+  </div>
+  {% include "partials/chat/composer.html" %}
+</div>

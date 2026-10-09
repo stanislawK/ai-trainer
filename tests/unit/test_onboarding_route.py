@@ -16,9 +16,9 @@ from ai_trainer.domain.sports.registry import default_sport_registry
 from ai_trainer.domain.users import NewUser, User, UserStatus
 from ai_trainer.web.active_user_gate import ActiveUserGateMiddleware
 from ai_trainer.web.auth import SESSION_COOKIE_NAME
-from ai_trainer.web.home import build_home_router
 from ai_trainer.web.onboarding import build_onboarding_router
 from ai_trainer.web.templating import build_templates
+from tests.chat_support import include_chat
 
 FROZEN_NOW = datetime(2026, 9, 29, 12, 0, tzinfo=UTC)
 
@@ -140,7 +140,7 @@ def _client(*, onboarded: bool = False) -> tuple[TestClient, User, FakeOnboardin
     onboarding = FakeOnboardingRepository(users)
     templates = build_templates()
     app = FastAPI()
-    app.include_router(build_home_router(templates))
+    include_chat(app, templates)
     app.include_router(
         build_onboarding_router(
             templates,

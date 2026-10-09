@@ -7,15 +7,17 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from ai_trainer.web.home import build_home_router
 from ai_trainer.web.templating import STATIC_DIR, build_templates
+from tests.chat_support import include_chat, sign_in_as
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
 
 def _client() -> TestClient:
     app = FastAPI()
-    app.include_router(build_home_router(build_templates()))
+    templates = build_templates()
+    include_chat(app, templates)
+    sign_in_as(app)
     return TestClient(app)
 
 

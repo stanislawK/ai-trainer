@@ -12,10 +12,12 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ai_trainer.adapters.chat_repository import SqlAlchemyChatRepository
 from ai_trainer.adapters.llm_calls_repository import SqlAlchemyLlmCallsRepository
 from ai_trainer.adapters.orm import SessionOrm, UserStatusChangeOrm
 from ai_trainer.adapters.sessions_repository import SqlAlchemySessionsRepository
 from ai_trainer.adapters.users_repository import SqlAlchemyUsersRepository
+from ai_trainer.domain.chat import ChatRole
 from ai_trainer.domain.llm_calls import LlmCallOutcome, NewLlmCall
 from ai_trainer.domain.sessions import NewSession
 from ai_trainer.domain.users import NewUser, User, UserStatus
@@ -118,6 +120,7 @@ async def test_no_user_owned_row_references_the_deleted_user_id(
     users = SqlAlchemyUsersRepository(db_session_factory)
     sessions = SqlAlchemySessionsRepository(db_session_factory)
     llm_calls = SqlAlchemyLlmCallsRepository(db_session_factory)
+    chat = SqlAlchemyChatRepository(db_session_factory)
     admin = await _create_active_user(users, sub="delete-me-audit-actor")
     target = await _create_active_user(users, sub="delete-me-audit-target")
     session_id = await _create_session(sessions, admin)
@@ -147,6 +150,9 @@ async def test_no_user_owned_row_references_the_deleted_user_id(
             outcome=LlmCallOutcome.SUCCESS,
         )
     )
+    sent_at = datetime(2026, 10, 2, tzinfo=UTC)
+    await chat.add(admin.id, ChatRole.USER, "gone with the account", sent_at)
+    await chat.add(target.id, ChatRole.USER, "stays", sent_at)
     client = _client(users=users, sessions=sessions)
     client.cookies.set(SESSION_COOKIE_NAME, str(session_id))
     token = _csrf_token(client)
@@ -171,6 +177,8 @@ async def test_no_user_owned_row_references_the_deleted_user_id(
     assert session_rows == []
     assert status_change_rows == []
     assert await llm_calls.list_for_user(admin.id) == []
+    assert await chat.list_recent(admin.id, 50) == []
+    assert [m.text for m in await chat.list_recent(target.id, 50)] == ["stays"]
 
 
 async def test_deleting_one_user_leaves_another_users_rows_intact(

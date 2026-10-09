@@ -17,9 +17,9 @@ from ai_trainer.domain.users import GoogleClaims, NewUser, UserStatus
 from ai_trainer.web.active_user_gate import ActiveUserGateMiddleware
 from ai_trainer.web.auth import SESSION_COOKIE_NAME, build_auth_router
 from ai_trainer.web.health import build_health_router
-from ai_trainer.web.home import build_home_router
 from ai_trainer.web.sign_in import build_sign_in_router
 from ai_trainer.web.templating import build_templates
+from tests.chat_support import include_chat
 
 FROZEN_NOW = datetime(2026, 9, 22, 12, 0, tzinfo=UTC)
 
@@ -78,7 +78,7 @@ def _client(
         admin_emails=admin_emails or [],
     )
     app.include_router(build_health_router(_NoOpHealth()))
-    app.include_router(build_home_router(templates))
+    include_chat(app, templates)
     app.include_router(
         build_sign_in_router(templates=templates, users=users, sessions=sessions, clock=FakeClock())
     )
@@ -117,7 +117,7 @@ async def test_a_pending_user_requesting_the_home_route_lands_on_the_status_scre
     response = client.get("/")
 
     assert response.status_code == 200
-    assert "AI Trainer</h1>" not in response.text
+    assert "Tell me what you trained" not in response.text
     assert "on the list" in response.text
 
 
@@ -150,7 +150,7 @@ async def test_activating_a_pending_user_lets_the_next_request_through_with_no_n
     allowed = client.get("/")
 
     assert allowed.status_code == 200
-    assert "AI Trainer</h1>" in allowed.text
+    assert "Tell me what you trained" in allowed.text
 
 
 async def test_disabling_an_active_user_mid_session_blocks_their_next_request(
@@ -169,7 +169,7 @@ async def test_disabling_an_active_user_mid_session_blocks_their_next_request(
     client.cookies.set(SESSION_COOKIE_NAME, str(session.id))
     allowed = client.get("/")
     assert allowed.status_code == 200
-    assert "AI Trainer</h1>" in allowed.text
+    assert "Tell me what you trained" in allowed.text
 
     async with db_session_factory() as write_session:
         row = await write_session.get(UserOrm, user.id)
@@ -180,7 +180,7 @@ async def test_disabling_an_active_user_mid_session_blocks_their_next_request(
     blocked = client.get("/")
 
     assert blocked.status_code == 200
-    assert "AI Trainer</h1>" not in blocked.text
+    assert "Tell me what you trained" not in blocked.text
     assert "This account is paused" in blocked.text
 
 
@@ -430,7 +430,7 @@ async def test_a_listed_pending_account_signs_in_and_reaches_home(
         db_session_factory, status=UserStatus.PENDING, admin_emails=["C@Example.com"]
     )
 
-    assert "AI Trainer</h1>" in text
+    assert "Tell me what you trained" in text
     assert "on the list" not in text
 
 
@@ -441,5 +441,5 @@ async def test_an_unlisted_pending_account_signs_in_and_sees_the_status_screen(
         db_session_factory, status=UserStatus.PENDING, admin_emails=["someone-else@example.com"]
     )
 
-    assert "AI Trainer</h1>" not in text
+    assert "Tell me what you trained" not in text
     assert "on the list" in text
