@@ -84,7 +84,7 @@ Run `make` targets from the repo root; see the [Makefile](Makefile) for the comp
 | `make check` | Everything CI runs: lint, format check, typecheck, import-lint, openapi-check, tests |
 | `make evals template=<id>` | Run a prompt template's eval dataset (ADR-0009) — costs money, no default CI job runs it |
 
-`test`, `test-integration`, `coverage` and `e2e` run `make migrate` first, so the `vector` extension always exists before the suite runs. `make evals` takes an optional `version=` and `model=` to override the template version or the model under test; it needs `EVAL_JUDGE_MODEL` set in `.env` (ADR-0009) and a dataset at `evals/datasets/<id>.yaml`. The router's model comes from the required `ROUTER_MODEL` and must differ from `EVAL_JUDGE_MODEL`; `CHAT_HISTORY_TURNS` sets how many recent messages it sees.
+`test`, `test-integration`, `coverage` and `e2e` run `make migrate` first, so the `vector` extension always exists before the suite runs. `make evals` takes an optional `version=` and `model=` to override the template version or the model under test, and `repeat=N` to run every case N times (the baseline averages over all runs, so one noisy reply doesn't decide it); it needs `EVAL_JUDGE_MODEL` set in `.env` (ADR-0009) and a dataset at `evals/datasets/<id>.yaml`. The router's model comes from the required `ROUTER_MODEL` and the `chitchat` specialist's from the required `CHITCHAT_MODEL`; each must differ from `EVAL_JUDGE_MODEL`. `CHAT_HISTORY_TURNS` sets how many recent messages both see.
 
 ## Dev loop
 

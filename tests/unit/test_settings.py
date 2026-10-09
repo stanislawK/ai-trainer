@@ -174,3 +174,24 @@ def test_chat_history_turns_must_be_positive(monkeypatch: pytest.MonkeyPatch) ->
         Settings(_env_file=None)
 
     assert [error["loc"] for error in excinfo.value.errors()] == [("chat_history_turns",)]
+
+
+def test_chitchat_model_is_read_from_its_own_setting(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", DATABASE_URL)
+    monkeypatch.setenv("OPENROUTER_API_KEY", OPENROUTER_API_KEY)
+    monkeypatch.setenv("EVAL_JUDGE_MODEL", EVAL_JUDGE_MODEL)
+    monkeypatch.setenv("CHITCHAT_MODEL", "test/chitchat-model")
+
+    assert Settings(_env_file=None).chitchat_model == "test/chitchat-model"
+
+
+def test_missing_chitchat_model_raises_naming_it(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", DATABASE_URL)
+    monkeypatch.setenv("OPENROUTER_API_KEY", OPENROUTER_API_KEY)
+    monkeypatch.setenv("EVAL_JUDGE_MODEL", EVAL_JUDGE_MODEL)
+    monkeypatch.delenv("CHITCHAT_MODEL", raising=False)
+
+    with pytest.raises(ValidationError) as excinfo:
+        Settings(_env_file=None)
+
+    assert [error["loc"] for error in excinfo.value.errors()] == [("chitchat_model",)]

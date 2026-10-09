@@ -218,3 +218,50 @@ def test_router_evals_use_the_router_evaluators() -> None:
 
     assert set(cli_module._evaluators_for("router")) == {IntentKindsMatch, LogSessionSportMatch}
     assert cli_module._evaluators_for("sample") == ()
+
+
+def test_default_registry_registers_the_chitchat_template() -> None:
+    template = cli_module._default_registry().get("chitchat", 1)
+
+    assert template.model_settings_key == "chitchat_model"
+    assert template.output_type is str
+
+
+def test_chitchat_evals_use_only_built_in_judges() -> None:
+    assert cli_module._evaluators_for("chitchat") == ()
+
+
+def test_parser_takes_a_repeat_count_defaulting_to_one() -> None:
+    parser = _build_parser()
+
+    assert parser.parse_args(["run", "sample"]).repeat == 1
+    assert parser.parse_args(["run", "sample", "--repeat", "3"]).repeat == 3
+
+
+@pytest.mark.parametrize("value", ["0", "-1", "x"])
+def test_parser_rejects_a_repeat_below_one(value: str) -> None:
+    with pytest.raises(SystemExit):
+        _build_parser().parse_args(["run", "sample", "--repeat", value])
+
+
+async def test_execute_runs_every_case_repeat_times(tmp_path: Path) -> None:
+    _write_sample_dataset(tmp_path / "datasets" / "sample.yaml")
+    args = _build_parser().parse_args(["run", "sample", "--repeat", "3"])
+
+    exit_code = await execute(
+        args,
+        settings=_settings(),
+        registry=_registry(),
+        datasets_root=tmp_path / "datasets",
+        baselines_root=tmp_path / "baselines",
+        reports_root=tmp_path / "reports",
+        model=FunctionModel(_reply_response),
+        model_id="under-test/model",
+        judge_model=FunctionModel(_reply_response),
+        judge_model_id="judge/model",
+        custom_evaluator_types=[_MentionsNameScore],
+    )
+
+    assert exit_code == 0
+    report = (tmp_path / "reports" / "sample.json").read_text()
+    assert report.count('"name": "greet_alex') == 3

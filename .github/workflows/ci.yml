@@ -21,6 +21,7 @@ env:
   EVAL_JUDGE_MODEL: ci-placeholder-not-a-real-model
   # Settings() requires this too (ADR-0008); no test calls a real model, so a placeholder is enough.
   ROUTER_MODEL: ci-placeholder-not-a-real-router-model
+  CHITCHAT_MODEL: ci-placeholder-not-a-real-chitchat-model
   # Settings() rejects a blank Google sign-in key at startup (ADR-0005). CI never signs in with
   # Google (tests fake the OAuth client, e2e seeds sessions), so placeholders are enough.
   GOOGLE_CLIENT_ID: ci-placeholder.apps.googleusercontent.com

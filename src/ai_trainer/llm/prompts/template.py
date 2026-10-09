@@ -2,10 +2,14 @@ from dataclasses import dataclass
 
 from pydantic import BaseModel
 
+# A template's output: a Pydantic model, or `str` for a reply that streams as text (ADR-0008).
+type TemplateOutput = BaseModel | str
+
 
 @dataclass(frozen=True, slots=True)
-class PromptTemplate[DepsT: BaseModel, OutputT: BaseModel]:
-    """A registered prompt: a body file, its typed variables and its typed output (ADR-0008)."""
+class PromptTemplate[DepsT: BaseModel, OutputT: TemplateOutput]:
+    """A registered prompt: a body file, its typed variables and its typed output (ADR-0008).
+    A reply template declares `str` output, so its text can stream to the athlete."""
 
     id: str
     version: int
