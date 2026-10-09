@@ -21,7 +21,9 @@ from ai_trainer.web.sign_in import build_sign_in_router
 from ai_trainer.web.templating import build_templates
 from tests.chat_support import include_chat
 
-FROZEN_NOW = datetime(2026, 9, 22, 12, 0, tzinfo=UTC)
+# Far in the future: the session cookie carries `expires=FROZEN_NOW + ttl`, and the test client
+# drops a cookie that is already past against the real clock.
+FROZEN_NOW = datetime(2099, 9, 22, 12, 0, tzinfo=UTC)
 
 
 async def _mark_onboarded(session_factory: Callable[[], AsyncSession], user_id: UUID) -> None:
