@@ -1,0 +1,11 @@
+{
+  "template_id": "chitchat",
+  "version": 1,
+  "model": "z-ai/glm-5.3-flash",
+  "assertions": 0.9670138888888888,
+  "scores": {},
+  "thresholds": {
+    "max_assertions_drop": 0.0,
+    "max_score_drop": 0.05
+  }
+}

@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 from pydantic import BaseModel
-from pydantic_ai import ModelMessage, ModelResponse, TextPart
+from pydantic_ai import ModelMessage, ModelResponse, TextPart, ToolCallPart
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 from pydantic_evals.evaluators import EqualsExpected, Evaluator, EvaluatorContext
 
@@ -251,3 +251,98 @@ async def test_fails_fast_when_judge_model_matches_model_under_test(tmp_path: Pa
         await _run(tmp_path, model_id="same/model", judge_model_id="same/model")
 
     assert "same/model" in str(exc_info.value)
+
+
+_TEXT_TEMPLATE = PromptTemplate(
+    id="sample",
+    version=1,
+    locale="en",
+    deps_type=_Deps,
+    output_type=str,
+    model_settings_key="sample_template_model",
+)
+
+
+def _judge_passes(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+    return ModelResponse(
+        parts=[
+            ToolCallPart(
+                info.output_tools[0].name, {"reason": "warm and safe", "pass": True, "score": 1.0}
+            )
+        ]
+    )
+
+
+async def test_a_text_output_template_is_graded_by_a_named_llm_judge(tmp_path: Path) -> None:
+    """A reply template returns plain text (ADR-0008 amendment, #81); its dataset grades it
+    with `LLMJudge` through the judge model set by `run_eval`, never a real model."""
+    from pydantic_evals import Case, Dataset
+    from pydantic_evals.evaluators import LLMJudge
+
+    dataset = Dataset[EvalCaseInputs, str, object](
+        name="sample",
+        cases=[
+            Case(
+                name="greet_alex",
+                inputs=EvalCaseInputs(prompt="hi", deps={"name": "Alex", "sport": "climbing"}),
+            )
+        ],
+        evaluators=[
+            LLMJudge(rubric="Warm", include_input=True, assertion={"evaluation_name": "tone"})
+        ],
+    )
+    (tmp_path / "datasets").mkdir()
+    dataset.to_file(tmp_path / "datasets" / "sample.yaml")
+    registry = PromptRegistry(root=_FIXTURES_ROOT)
+    registry.register(_TEXT_TEMPLATE)
+
+    def reply(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        return ModelResponse(parts=[TextPart("Hi Alex!")])
+
+    result = await run_eval(
+        registry=registry,
+        template_id="sample",
+        version=1,
+        model=FunctionModel(reply),
+        model_id=_MODEL_UNDER_TEST_ID,
+        judge_model=FunctionModel(_judge_passes),
+        judge_model_id=_JUDGE_MODEL_ID,
+        datasets_root=tmp_path / "datasets",
+        baselines_root=tmp_path / "baselines",
+        reports_root=tmp_path / "reports",
+    )
+
+    case = result.report.cases[0]
+    assert case.output == "Hi Alex!"
+    assert case.assertions["tone"].value is True
+    assert result.baseline.assertions == 1.0
+    assert (tmp_path / "baselines" / "sample.json").exists()
+
+
+async def test_repeat_runs_each_case_n_times_and_averages_them_into_the_baseline(
+    tmp_path: Path,
+) -> None:
+    """Single replies are noisy; `repeat` samples each case several times (#81)."""
+    _write_sample_dataset(tmp_path / "datasets" / "sample.yaml")
+    replies = iter(['{"reply": "hi Alex"}', '{"reply": "hello"}'])
+
+    def alternating(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        return ModelResponse(parts=[TextPart(next(replies))])
+
+    result = await run_eval(
+        registry=_registry(),
+        template_id="sample",
+        version=1,
+        model=FunctionModel(alternating),
+        model_id=_MODEL_UNDER_TEST_ID,
+        judge_model=FunctionModel(_reply_response),
+        judge_model_id=_JUDGE_MODEL_ID,
+        datasets_root=tmp_path / "datasets",
+        baselines_root=tmp_path / "baselines",
+        reports_root=tmp_path / "reports",
+        custom_evaluator_types=[_MentionsNameScore],
+        repeat=2,
+    )
+
+    assert len(result.report.cases) == 2
+    assert result.baseline.scores["_MentionsNameScore"] == 0.5

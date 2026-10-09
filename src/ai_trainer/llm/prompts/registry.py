@@ -9,6 +9,7 @@ from pydantic_handlebars import TemplateSchemaError
 from ai_trainer.llm.prompts.template import (
     PromptTemplate,
     PromptTemplateVariableError,
+    TemplateOutput,
     UnknownPromptTemplateError,
 )
 
@@ -20,20 +21,20 @@ class PromptRegistry:
 
     def __init__(self, *, root: Path) -> None:
         self._root = root
-        self._templates: dict[tuple[str, int], PromptTemplate[BaseModel, BaseModel]] = {}
+        self._templates: dict[tuple[str, int], PromptTemplate[BaseModel, TemplateOutput]] = {}
 
-    def register[DepsT: BaseModel, OutputT: BaseModel](
+    def register[DepsT: BaseModel, OutputT: TemplateOutput](
         self, template: PromptTemplate[DepsT, OutputT]
     ) -> None:
         self._templates[(template.id, template.version)] = template
 
-    def get(self, template_id: str, version: int) -> PromptTemplate[BaseModel, BaseModel]:
+    def get(self, template_id: str, version: int) -> PromptTemplate[BaseModel, TemplateOutput]:
         try:
             return self._templates[(template_id, version)]
         except KeyError:
             raise UnknownPromptTemplateError(template_id, version) from None
 
-    def load_body(self, template: PromptTemplate[BaseModel, BaseModel]) -> str:
+    def load_body(self, template: PromptTemplate[BaseModel, TemplateOutput]) -> str:
         return self._body_path(template.id, template.version, template.locale).read_text()
 
     def load_persona(self, *, version: int = 1, locale: str = "en") -> str:
@@ -44,7 +45,7 @@ class PromptRegistry:
 
     def build_agent(
         self, template_id: str, version: int, *, persona_version: int = 1
-    ) -> Agent[BaseModel, BaseModel]:
+    ) -> Agent[BaseModel, TemplateOutput]:
         """Composes persona + template into an `Agent` (ADR-0008).
 
         Built with a placeholder `TestModel`, the same convention `OpenRouterGateway` uses

@@ -1,6 +1,6 @@
 """`ai-trainer-evals` — runs a prompt template's eval dataset against a model (ADR-0009).
 
-    uv run ai-trainer-evals run <template-id> [--version N] [--model MODEL_ID]
+    uv run ai-trainer-evals run <template-id> [--version N] [--model MODEL_ID] [--repeat N]
 
 Real OpenRouter calls cost money; this is never invoked by `pytest` or by push/pull_request
 CI (ADR-0013), only on demand — locally or through the `workflow_dispatch`-only GitHub
@@ -21,6 +21,7 @@ from pydantic_ai.providers.openrouter import OpenRouterProvider
 from pydantic_evals.evaluators import Evaluator
 
 from ai_trainer.domain.sports.registry import default_sport_registry
+from ai_trainer.llm.chitchat import chitchat_template
 from ai_trainer.llm.evals.runner import (
     EvalCaseInputs,
     JudgeModelMatchesModelUnderTestError,
@@ -39,6 +40,7 @@ def _default_registry() -> PromptRegistry:
     """M1 adds a `registry.register(...)` call here as each real template ships (ADR-0009)."""
     registry = PromptRegistry(root=_PROMPTS_ROOT)
     registry.register(router_template(default_sport_registry()))
+    registry.register(chitchat_template())
     return registry
 
 
@@ -54,6 +56,13 @@ def _evaluators_for(
     return _EVALUATORS.get(template_id, ())
 
 
+def _positive_int(value: str) -> int:
+    number = int(value)
+    if number < 1:
+        raise argparse.ArgumentTypeError(f"must be at least 1, got {number}")
+    return number
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="ai-trainer-evals")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -62,6 +71,12 @@ def _build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("template_id")
     run_parser.add_argument("--version", type=int, default=1)
     run_parser.add_argument("--model", default=None, help="Overrides the model under test")
+    run_parser.add_argument(
+        "--repeat",
+        type=_positive_int,
+        default=1,
+        help="Runs every case N times; the baseline averages over all runs",
+    )
 
     return parser
 
@@ -95,6 +110,7 @@ async def execute(
             baselines_root=baselines_root,
             reports_root=reports_root,
             custom_evaluator_types=custom_evaluator_types,
+            repeat=args.repeat,
         )
     except JudgeModelMatchesModelUnderTestError as exc:
         print(str(exc), file=sys.stderr)

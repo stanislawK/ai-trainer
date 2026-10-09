@@ -30,6 +30,9 @@ class Settings(BaseSettings):
     # One model per template (ADR-0007). No default: a stable/GA OpenRouter id (never a
     # preview) and its cost are an operator choice, like `eval_judge_model` below.
     router_model: str
+    # The `chitchat` specialist's model (ADR-0008): answers chitchat, unclear and wellbeing
+    # messages in the persona. Required, no default, for the same reason as `router_model`.
+    chitchat_model: str
     # Evals (ADR-0009): pinned, distinct from the model under test, set explicitly on every
     # eval run with `set_default_judge_model`. No default here — a stable/GA OpenRouter model
     # id is an operator choice, not a code default (`.claude/rules/llm.md`).

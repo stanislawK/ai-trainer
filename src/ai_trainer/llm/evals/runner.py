@@ -17,6 +17,7 @@ from ai_trainer.llm.evals.baseline import (
     save_baseline,
 )
 from ai_trainer.llm.prompts.registry import PromptRegistry
+from ai_trainer.llm.prompts.template import TemplateOutput
 
 
 class EvalCaseInputs(BaseModel):
@@ -66,14 +67,14 @@ class EvaluatorFailedError(RuntimeError):
 
 @dataclass(frozen=True, slots=True)
 class EvalRunResult:
-    report: EvaluationReport[EvalCaseInputs, BaseModel, object]
+    report: EvaluationReport[EvalCaseInputs, TemplateOutput, object]
     baseline: Baseline
     previous_baseline: Baseline | None
     regressions: list[str]
 
 
 def summarize_report(
-    report: EvaluationReport[EvalCaseInputs, BaseModel, object],
+    report: EvaluationReport[EvalCaseInputs, TemplateOutput, object],
 ) -> EvalReportSummary:
     return EvalReportSummary(
         name=report.name,
@@ -95,7 +96,7 @@ def summarize_report(
 
 
 def _evaluator_failures(
-    report: EvaluationReport[EvalCaseInputs, BaseModel, object],
+    report: EvaluationReport[EvalCaseInputs, TemplateOutput, object],
 ) -> list[str]:
     return [
         f"{case.name} / {failure.name}: {failure.error_message}"
@@ -117,6 +118,7 @@ async def run_eval(
     baselines_root: Path,
     reports_root: Path,
     custom_evaluator_types: Sequence[type[Evaluator[EvalCaseInputs, BaseModel, object]]] = (),
+    repeat: int = 1,
 ) -> EvalRunResult:
     """Runs `template_id`'s dataset against `model`, writes a report and a baseline, and
     reports any regression against the previously committed baseline (ADR-0009).
@@ -125,7 +127,10 @@ async def run_eval(
     decides whether they're real `OpenRouterModel`s or, in a test, a scripted `FunctionModel`
     — this function never reaches a real model itself. `custom_evaluator_types` lets a
     template's dataset reference custom `Evaluator` subclasses beyond Pydantic Evals' built-ins
-    (e.g. `LLMJudge`), since the dataset YAML only stores evaluator names.
+    (e.g. `LLMJudge`), since the dataset YAML only stores evaluator names. They grade
+    structured output only; a text-output template is graded by built-ins such as `LLMJudge`.
+    `repeat` runs every case that many times: one model reply per case is noisy, so the
+    baseline averages over all of them.
     """
     if judge_model_id == model_id:
         raise JudgeModelMatchesModelUnderTestError(model_id)
@@ -135,13 +140,13 @@ async def run_eval(
     template = registry.get(template_id, version)
     agent = registry.build_agent(template_id, version)
 
-    async def task(inputs: EvalCaseInputs) -> BaseModel:
+    async def task(inputs: EvalCaseInputs) -> TemplateOutput:
         deps = template.deps_type.model_validate(inputs.deps)
         result = await agent.run(inputs.prompt, deps=deps, model=model)
         return result.output
 
-    # Subscripted with `template.output_type` (the template's real, runtime output model), not
-    # the `BaseModel` this function is statically typed against: Pydantic Evals deserializes
+    # Subscripted with `template.output_type` (the template's real, runtime output type), not
+    # the `TemplateOutput` this function is statically typed against: Pydantic Evals deserializes
     # `Case.expected_output` and validates it against this generic parameter, and built-ins
     # like `EqualsExpected` compare real model instances — subscripting with bare `BaseModel`
     # would build an uninstantiable `expected_output` and crash every evaluator that touches
@@ -151,14 +156,16 @@ async def run_eval(
     # for "whatever this template's output_type happens to be") — `output_type` is a real
     # class object at runtime, which is all `Dataset.__class_getitem__` needs.
     output_type = template.output_type
-    dataset: Dataset[EvalCaseInputs, BaseModel, object] = Dataset[
+    dataset: Dataset[EvalCaseInputs, TemplateOutput, object] = Dataset[
         EvalCaseInputs, output_type, object  # type: ignore[valid-type]
     ].from_file(
         datasets_root / f"{template_id}.yaml",
         custom_evaluator_types=custom_evaluator_types,
     )
 
-    report = await dataset.evaluate(task, name=f"{template_id} v{version} ({model_id})")
+    report = await dataset.evaluate(
+        task, name=f"{template_id} v{version} ({model_id})", repeat=repeat
+    )
     report.print(include_input=True, include_output=True)
 
     reports_root.mkdir(parents=True, exist_ok=True)

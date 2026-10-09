@@ -15,6 +15,10 @@ on:
       model:
         description: Overrides the model under test (defaults to the template's configured model)
         required: false
+      repeat:
+        description: Runs every case N times; the baseline averages over all runs
+        required: false
+        default: "1"
 
 permissions:
   contents: read
@@ -45,6 +49,7 @@ jobs:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           EVAL_JUDGE_MODEL: ${{ secrets.EVAL_JUDGE_MODEL }}
           ROUTER_MODEL: ${{ secrets.ROUTER_MODEL }}
+          CHITCHAT_MODEL: ${{ secrets.CHITCHAT_MODEL }}
           # Settings() also rejects a blank Google sign-in key (ADR-0005); the eval CLI never
           # signs anyone in, so placeholders are enough.
           GOOGLE_CLIENT_ID: ci-placeholder.apps.googleusercontent.com
@@ -52,7 +57,7 @@ jobs:
           SESSION_SECRET_KEY: ci-placeholder-session-secret-key
           CSRF_SECRET_KEY: ci-placeholder-csrf-secret-key
         run: |
-          args=(run "${{ inputs.template_id }}" --version "${{ inputs.version }}")
+          args=(run "${{ inputs.template_id }}" --version "${{ inputs.version }}" --repeat "${{ inputs.repeat }}")
           if [ -n "${{ inputs.model }}" ]; then
             args+=(--model "${{ inputs.model }}")
           fi
