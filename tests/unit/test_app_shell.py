@@ -13,8 +13,8 @@ from ai_trainer.domain.users import NewUser, User, UserStatus
 from ai_trainer.web.active_user_gate import ActiveUserGateMiddleware
 from ai_trainer.web.admin import build_admin_router
 from ai_trainer.web.auth import SESSION_COOKIE_NAME
-from ai_trainer.web.home import build_home_router
 from ai_trainer.web.templating import build_templates
+from tests.chat_support import include_chat
 
 FROZEN_NOW = datetime(2026, 9, 24, 12, 0, tzinfo=UTC)
 USER_EMAIL = "athlete@example.com"
@@ -98,7 +98,7 @@ def _client(*, admin_emails: list[str]) -> TestClient:
         templates=templates,
         admin_emails=admin_emails,
     )
-    app.include_router(build_home_router(templates))
+    include_chat(app, templates)
     app.include_router(
         build_admin_router(
             templates=templates,

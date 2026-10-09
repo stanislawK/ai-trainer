@@ -94,7 +94,7 @@
   "paths": {
     "/": {
       "get": {
-        "operationId": "home__get",
+        "operationId": "index__get",
         "responses": {
           "200": {
             "content": {
@@ -107,7 +107,7 @@
             "description": "Successful Response"
           }
         },
-        "summary": "Home"
+        "summary": "Index"
       }
     },
     "/admin": {
@@ -241,6 +241,24 @@
           }
         },
         "summary": "Health"
+      }
+    },
+    "/messages": {
+      "post": {
+        "operationId": "post_message_messages_post",
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Post Message"
       }
     },
     "/onboarding": {

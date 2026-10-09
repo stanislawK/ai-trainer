@@ -1,0 +1,29 @@
+{% from "components/icon.html" import icon %}
+<div id="chat-composer" class="sticky bottom-0 pt-2 pb-[max(1.25rem,env(safe-area-inset-bottom))] lg:pb-4 flex flex-col gap-2">
+  <form
+    class="glass-thick glass-rim relative rounded-[26px] flex flex-col gap-1 p-1.5 pl-4"
+    hx-post="/messages"
+    hx-target="#chat-composer"
+    hx-swap="outerHTML"
+    data-chat-form
+  >
+    <div class="flex items-end gap-2">
+    <textarea
+      name="message"
+      class="flex-1 min-h-11 h-11 max-h-40 resize-none bg-transparent border-0 py-2.5 text-[16px] leading-6 outline-none placeholder:text-base-content/60"
+      rows="1"
+      placeholder="Log a session or ask anything"
+      aria-label="Message"
+      {% if error %}aria-invalid="true" aria-describedby="chat-error"{% endif %}
+      data-chat-input
+    >{{ text }}</textarea>
+    <button type="submit" class="btn btn-primary btn-circle" aria-label="Send" data-chat-send>{{ icon("arrow-up", "size-5") }}</button>
+    </div>
+    <span class="hidden lg:flex items-center gap-1 pb-1 text-[12px] text-base-content/70"><kbd class="kbd kbd-xs">⏎</kbd> send · <kbd class="kbd kbd-xs">⇧</kbd><kbd class="kbd kbd-xs">⏎</kbd> new line</span>
+  </form>
+  {% if error == "too_long" %}
+  <p id="chat-error" class="px-4 text-[13px] text-error" role="alert">That message is too long. Keep it under {{ max_length }} characters.</p>
+  {% elif error == "empty" %}
+  <p id="chat-error" class="px-4 text-[13px] text-error" role="alert">Write a message first.</p>
+  {% endif %}
+</div>

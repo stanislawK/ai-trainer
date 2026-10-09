@@ -16,6 +16,7 @@ from opentelemetry.util.re import parse_env_headers
 from pydantic_ai import Agent, InstrumentationSettings
 from starlette.middleware.sessions import SessionMiddleware
 
+from ai_trainer.adapters.chat_repository import SqlAlchemyChatRepository
 from ai_trainer.adapters.clock import UtcClock
 from ai_trainer.adapters.db import build_engine, build_session_factory
 from ai_trainer.adapters.google_oauth import AuthlibGoogleOAuthClient
@@ -29,10 +30,10 @@ from ai_trainer.settings import Settings
 from ai_trainer.web.active_user_gate import ActiveUserGateMiddleware
 from ai_trainer.web.admin import build_admin_router
 from ai_trainer.web.auth import build_auth_router
+from ai_trainer.web.chat import build_chat_router
 from ai_trainer.web.csrf import CsrfMiddleware
 from ai_trainer.web.errors import register_error_handlers
 from ai_trainer.web.health import build_health_router
-from ai_trainer.web.home import build_home_router
 from ai_trainer.web.onboarding import build_onboarding_router
 from ai_trainer.web.settings import build_settings_router
 from ai_trainer.web.sign_in import build_sign_in_router
@@ -77,6 +78,7 @@ def create_app(settings: Settings) -> FastAPI:
     sessions = SqlAlchemySessionsRepository(session_factory)
     status_changer = SqlAlchemyUserStatusChanger(session_factory)
     onboarding = SqlAlchemyOnboardingRepository(session_factory)
+    chat = SqlAlchemyChatRepository(session_factory)
     clock = UtcClock()
     templates = build_templates()
     register_error_handlers(app, templates)
@@ -103,7 +105,7 @@ def create_app(settings: Settings) -> FastAPI:
 
     health_port = PsycopgDatabaseHealth(str(settings.database_url))
     app.include_router(build_health_router(health_port))
-    app.include_router(build_home_router(templates))
+    app.include_router(build_chat_router(templates, chat=chat, clock=clock))
     app.include_router(
         build_admin_router(
             templates=templates, users=users, sessions=sessions, status_changer=status_changer

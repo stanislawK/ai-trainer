@@ -13,6 +13,7 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -162,6 +163,30 @@ class LlmCallOrm(Base):
     cost: Mapped[Decimal | None] = mapped_column(Numeric(12, 6))
     latency_ms: Mapped[int] = mapped_column(nullable=False)
     outcome: Mapped[str] = mapped_column(nullable=False)
+    # timestamptz, UTC (ADR-0004 invariant 5).
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now()
+    )
+
+
+class ChatMessageOrm(Base):
+    """One row per chat turn (ADR-0008). `sports` (the sports a reply is about, PRD-0003 F15)
+    and the template ID and version that produced a reply are null on an athlete's message."""
+
+    __tablename__ = "chat_messages"
+    __table_args__ = (CheckConstraint("role IN ('user', 'assistant')", name="chat_messages_role"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    # ChatRole value: user / assistant.
+    role: Mapped[str] = mapped_column(nullable=False)
+    text: Mapped[str] = mapped_column(nullable=False)
+    # `SportRegistry` IDs stored as text, never a database enum (ADR-0006).
+    sports: Mapped[list[str] | None] = mapped_column(ARRAY(String), nullable=True)
+    template_id: Mapped[str | None] = mapped_column(nullable=True)
+    template_version: Mapped[int | None] = mapped_column(nullable=True)
     # timestamptz, UTC (ADR-0004 invariant 5).
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now()

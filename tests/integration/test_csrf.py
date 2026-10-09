@@ -17,8 +17,8 @@ from ai_trainer.domain.users import GoogleClaims, NewUser, UserStatus
 from ai_trainer.web.active_user_gate import ActiveUserGateMiddleware
 from ai_trainer.web.auth import SESSION_COOKIE_NAME, build_auth_router
 from ai_trainer.web.csrf import CSRF_HEADER_NAME, CsrfMiddleware
-from ai_trainer.web.home import build_home_router
 from ai_trainer.web.templating import build_templates
+from tests.chat_support import include_chat
 
 FROZEN_NOW = datetime(2026, 9, 22, 12, 0, tzinfo=UTC)
 SECRET = b"integration-test-secret"
@@ -57,7 +57,7 @@ def _client(
     middleware at all)."""
     app = FastAPI()
     templates = build_templates()
-    app.include_router(build_home_router(templates))
+    include_chat(app, templates)
     app.include_router(
         build_auth_router(
             oauth_client=_UnusedOAuthClient(),

@@ -18,7 +18,9 @@ from ai_trainer.adapters.users_repository import SqlAlchemyUsersRepository
 from ai_trainer.domain.users import GoogleClaims, NewUser, UserStatus
 from ai_trainer.web.auth import build_auth_router
 
-FROZEN_NOW = datetime(2026, 9, 22, 12, 0, tzinfo=UTC)
+# Far in the future: the session cookie carries `expires=FROZEN_NOW + ttl`, and the test client
+# drops a cookie that is already past against the real clock.
+FROZEN_NOW = datetime(2099, 9, 22, 12, 0, tzinfo=UTC)
 SESSION_TTL = timedelta(days=14)
 
 
