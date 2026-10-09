@@ -86,6 +86,8 @@ def _client(
 
 
 async def _count_users(session_factory: Callable[[], AsyncSession]) -> int:
+    # Unscoped on purpose ("creates no user" means no user at all), so callers compare against
+    # a count taken first: the shared database may hold the developer's own users (ADR-0013).
     async with session_factory() as session:
         rows = await session.scalars(select(UserOrm))
         return len(list(rows))
@@ -101,10 +103,14 @@ async def _seed_user(
 
 
 async def _status_changes(
-    session_factory: Callable[[], AsyncSession],
+    session_factory: Callable[[], AsyncSession], user_id: UUID
 ) -> list[UserStatusChangeOrm]:
     async with session_factory() as session:
-        return list(await session.scalars(select(UserStatusChangeOrm)))
+        return list(
+            await session.scalars(
+                select(UserStatusChangeOrm).where(UserStatusChangeOrm.target_user_id == user_id)
+            )
+        )
 
 
 async def _sign_in_as(
@@ -148,7 +154,7 @@ async def test_callback_reactivates_a_listed_disabled_account_with_one_audit_row
     user_id = await _sign_in_as(db_session_factory, UserStatus.DISABLED)
 
     assert await _status_of(db_session_factory, user_id) is UserStatus.ACTIVE
-    (change,) = await _status_changes(db_session_factory)
+    (change,) = await _status_changes(db_session_factory, user_id)
     assert (change.actor_user_id, change.target_user_id) == (user_id, user_id)
     assert (change.old_status, change.new_status) == ("disabled", "active")
 
@@ -159,7 +165,7 @@ async def test_callback_leaves_an_unlisted_pending_account_pending(
     user_id = await _sign_in_as(db_session_factory, UserStatus.PENDING, email="athlete@example.com")
 
     assert await _status_of(db_session_factory, user_id) is UserStatus.PENDING
-    assert await _status_changes(db_session_factory) == []
+    assert await _status_changes(db_session_factory, user_id) == []
 
 
 async def test_callback_never_promotes_a_listed_but_unverified_email(
@@ -168,15 +174,15 @@ async def test_callback_never_promotes_a_listed_but_unverified_email(
     user_id = await _sign_in_as(db_session_factory, UserStatus.PENDING, email_verified=False)
 
     assert await _status_of(db_session_factory, user_id) is UserStatus.PENDING
-    assert await _status_changes(db_session_factory) == []
+    assert await _status_changes(db_session_factory, user_id) == []
 
 
 async def test_callback_writes_no_audit_row_for_an_already_active_admin(
     db_session_factory: Callable[[], AsyncSession],
 ) -> None:
-    await _sign_in_as(db_session_factory, UserStatus.ACTIVE)
+    user_id = await _sign_in_as(db_session_factory, UserStatus.ACTIVE)
 
-    assert await _status_changes(db_session_factory) == []
+    assert await _status_changes(db_session_factory, user_id) == []
 
 
 async def test_login_redirects_through_the_oauth_client(
@@ -232,18 +238,19 @@ async def test_callback_with_verified_admin_email_creates_active_user(
     user = await users.get_by_sub("google-sub-1")
     assert user is not None
     assert user.status is UserStatus.ACTIVE
-    assert await _status_changes(db_session_factory) == []
+    assert await _status_changes(db_session_factory, user.id) == []
 
 
 async def test_second_callback_with_the_same_sub_reuses_the_user(
     db_session_factory: Callable[[], AsyncSession],
 ) -> None:
     client = _client(db_session_factory, oauth_client=FakeGoogleOAuthClient(claims=_claims()))
+    users_before = await _count_users(db_session_factory)
 
     client.get("/auth/callback", follow_redirects=False)
     client.get("/auth/callback", follow_redirects=False)
 
-    assert await _count_users(db_session_factory) == 1
+    assert await _count_users(db_session_factory) == users_before + 1
 
 
 async def test_callback_with_mismatched_state_returns_to_sign_in_with_the_error_and_creates_no_user(
@@ -253,13 +260,14 @@ async def test_callback_with_mismatched_state_returns_to_sign_in_with_the_error_
         db_session_factory,
         oauth_client=FakeGoogleOAuthClient(error=MismatchingStateError()),
     )
+    users_before = await _count_users(db_session_factory)
 
     response = client.get("/auth/callback", follow_redirects=False)
 
     assert response.status_code == 303
     assert response.headers["location"] == "/sign-in?error=google"
     assert "session_id" not in response.cookies
-    assert await _count_users(db_session_factory) == 0
+    assert await _count_users(db_session_factory) == users_before
 
 
 async def test_callback_failure_logs_its_reason_and_nothing_sensitive(
@@ -311,12 +319,13 @@ async def test_callback_after_the_user_cancels_at_google_returns_to_sign_in_with
         db_session_factory,
         oauth_client=FakeGoogleOAuthClient(error=OAuthError(error="access_denied")),
     )
+    users_before = await _count_users(db_session_factory)
 
     response = client.get("/auth/callback?error=access_denied", follow_redirects=False)
 
     assert response.status_code == 303
     assert response.headers["location"] == "/sign-in?error=google"
-    assert await _count_users(db_session_factory) == 0
+    assert await _count_users(db_session_factory) == users_before
 
 
 async def test_logout_deletes_the_session_and_the_cookie_stops_working(

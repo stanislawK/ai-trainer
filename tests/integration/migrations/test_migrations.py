@@ -1,3 +1,5 @@
+from uuid import uuid4
+
 import psycopg
 from alembic import command
 from alembic.config import Config
@@ -37,6 +39,30 @@ def test_downgrade_base_reverses_the_vector_extension_cleanly() -> None:
         assert _vector_extension_installed() is False
     finally:
         command.upgrade(cfg, "head")  # leave the database at head even if the assert fails
+
+
+def test_round_trip_leaves_the_shared_database_untouched(shared_database_url: str) -> None:
+    # A downgrade to base on the shared database dropped every table, signing the developer
+    # out of `make start` on every test run (ADR-0013 amendment, 2026-10-09).
+    shared_dsn = to_psycopg_dsn(shared_database_url)
+    probe_id = uuid4()
+    with psycopg.connect(shared_dsn, autocommit=True) as conn:
+        conn.execute(
+            "INSERT INTO users (id, sub, email) VALUES (%s, %s, %s)",
+            (probe_id, f"migration-probe-{probe_id}", "migration-probe@example.com"),
+        )
+
+    try:
+        cfg = _alembic_config()
+        command.downgrade(cfg, "base")
+        command.upgrade(cfg, "head")
+        with psycopg.connect(shared_dsn) as conn:
+            row = conn.execute("SELECT 1 FROM users WHERE id = %s", (probe_id,)).fetchone()
+        assert row is not None
+    finally:
+        command.upgrade(cfg, "head")  # leave the database at head even if the assert fails
+        with psycopg.connect(shared_dsn, autocommit=True) as conn:
+            conn.execute("DELETE FROM users WHERE id = %s", (probe_id,))
 
 
 def test_upgrade_head_run_twice_is_a_noop() -> None:
