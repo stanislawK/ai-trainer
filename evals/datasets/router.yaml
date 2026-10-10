@@ -115,6 +115,10 @@ cases:
       span: ''
       sport: gym
 - name: log ambiguous two sports
+  metadata:
+    acceptable_sports:
+    - climbing
+    - gym
   inputs:
     prompt: Had a great session today, about 90 minutes
     deps:

@@ -18,11 +18,13 @@ def _intent(kind: str, **extra: Any) -> dict[str, Any]:
     return {"kind": kind, "confidence": 0.9, "span": "x", **extra}
 
 
-def _ctx(output: BaseModel, expected: BaseModel) -> EvaluatorContext[EvalCaseInputs, BaseModel]:
+def _ctx(
+    output: BaseModel, expected: BaseModel, metadata: dict[str, Any] | None = None
+) -> EvaluatorContext[EvalCaseInputs, BaseModel]:
     return EvaluatorContext(
         name="case",
         inputs=EvalCaseInputs(prompt="x"),
-        metadata=None,
+        metadata=metadata,
         expected_output=expected,
         output=output,
         duration=0.0,
@@ -58,3 +60,33 @@ def test_sport_match_is_full_marks_when_no_log_session_is_expected() -> None:
     expected = _output(_intent("chitchat"))
 
     assert LogSessionSportMatch().evaluate(_ctx(_output(_intent("chitchat")), expected)) == 1.0
+
+
+def test_kinds_match_collapses_repeated_update_profile() -> None:
+    expected = _output(_intent("update_profile"))
+    split = _output(_intent("update_profile"), _intent("update_profile"))
+
+    assert IntentKindsMatch().evaluate(_ctx(split, expected)) is True
+
+
+def test_kinds_match_keeps_repeated_log_session() -> None:
+    expected = _output(_intent("log_session", sport="gym"))
+    twice = _output(_intent("log_session", sport="gym"), _intent("log_session", sport="gym"))
+
+    assert IntentKindsMatch().evaluate(_ctx(twice, expected)) is False
+
+
+def test_sport_match_accepts_any_sport_listed_in_the_metadata() -> None:
+    expected = _output(_intent("log_session", sport="climbing"))
+    gym = _output(_intent("log_session", sport="gym"))
+    meta = {"acceptable_sports": ["climbing", "gym"]}
+
+    assert LogSessionSportMatch().evaluate(_ctx(gym, expected, meta)) == 1.0
+
+
+def test_sport_match_without_metadata_scores_a_wrong_sport_as_a_miss() -> None:
+    expected = _output(_intent("log_session", sport="climbing"))
+    gym = _output(_intent("log_session", sport="gym"))
+
+    assert LogSessionSportMatch().evaluate(_ctx(gym, expected)) == 0.0
+    assert LogSessionSportMatch().evaluate(_ctx(gym, expected, {})) == 0.0

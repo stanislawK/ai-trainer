@@ -111,18 +111,34 @@ def _logged_sports(output: BaseModel) -> list[str]:
     return [intent.sport for intent in _intents(output) if intent.kind == _SPORT_INTENT_KIND]
 
 
+def _collapse_repeats(kinds: list[str]) -> list[str]:
+    """Consecutive repeats of one kind are one intent, except `log_session`, which can
+    legitimately repeat in a message (B1)."""
+    collapsed: list[str] = []
+    for kind in kinds:
+        if collapsed and collapsed[-1] == kind and kind != _SPORT_INTENT_KIND:
+            continue
+        collapsed.append(kind)
+    return collapsed
+
+
 @dataclass
 class IntentKindsMatch(Evaluator[EvalCaseInputs, BaseModel]):
-    """Code-graded: the same intent kinds in the same order (pain first, then message order)."""
+    """Code-graded: the same intent kinds in the same order (pain first, then message order),
+    with consecutive repeats of any kind but `log_session` collapsed."""
 
     def evaluate(self, ctx: EvaluatorContext[EvalCaseInputs, BaseModel]) -> bool:
         assert ctx.expected_output is not None
-        return _kinds(ctx.output) == _kinds(ctx.expected_output)
+        return _collapse_repeats(_kinds(ctx.output)) == _collapse_repeats(
+            _kinds(ctx.expected_output)
+        )
 
 
 @dataclass
 class LogSessionSportMatch(Evaluator[EvalCaseInputs, BaseModel]):
-    """Code-graded (B23): the share of expected `log_session` sports the router got right."""
+    """Code-graded (B23): the share of expected `log_session` sports the router got right.
+    A case may list `metadata.acceptable_sports`; any of them is a hit. Without it, grading is
+    strict."""
 
     def evaluate(self, ctx: EvaluatorContext[EvalCaseInputs, BaseModel]) -> float:
         assert ctx.expected_output is not None
@@ -130,5 +146,10 @@ class LogSessionSportMatch(Evaluator[EvalCaseInputs, BaseModel]):
         if not expected:
             return 1.0
         actual = _logged_sports(ctx.output)
-        hits = sum(1 for want, got in zip(expected, actual, strict=False) if want == got)
+        acceptable = (ctx.metadata or {}).get("acceptable_sports")
+        hits = sum(
+            1
+            for want, got in zip(expected, actual, strict=False)
+            if got == want or (acceptable is not None and got in acceptable)
+        )
         return hits / len(expected)
