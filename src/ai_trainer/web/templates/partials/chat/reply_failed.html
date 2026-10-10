@@ -1,0 +1,12 @@
+{#- Ends a reply that timed out or failed: nothing was saved, and Retry asks for a fresh placeholder, which streams a fresh reply. -#}
+{%- from "components/icon.html" import icon -%}
+<template hx type="partial" hx-target="#reply-{{ message_id }}" hx-swap="innerHTML">
+<div class="flex gap-2.5" role="alert">
+  <span class="size-7 shrink-0 rounded-[22%] glass-regular grid place-items-center text-primary" aria-hidden="true">{{ icon("mountain", "size-4") }}</span>
+  <div class="flex flex-wrap items-center gap-2 min-h-7 text-[13px]">
+    {{ icon("circle-alert", "size-4 text-error") }}
+    <span class="text-base-content/70">{% if timed_out %}The reply took too long.{% else %}The reply didn't come through.{% endif %}</span>
+    <button type="button" class="btn btn-xs h-7 rounded-full glass-regular border-0 relative after:absolute after:-inset-2.5 after:content-['']" hx-get="/messages/{{ message_id }}/retry" hx-target="#reply-{{ message_id }}" hx-swap="outerHTML">Retry</button>
+  </div>
+</div>
+</template>

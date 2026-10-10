@@ -4,6 +4,7 @@ import mimetypes
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import timedelta
+from pathlib import Path
 
 from authlib.integrations.starlette_client import OAuth
 from fastapi import FastAPI
@@ -21,11 +22,15 @@ from ai_trainer.adapters.clock import UtcClock
 from ai_trainer.adapters.db import build_engine, build_session_factory
 from ai_trainer.adapters.google_oauth import AuthlibGoogleOAuthClient
 from ai_trainer.adapters.health import PsycopgDatabaseHealth
+from ai_trainer.adapters.llm_calls_repository import SqlAlchemyLlmCallsRepository
 from ai_trainer.adapters.onboarding_repository import SqlAlchemyOnboardingRepository
 from ai_trainer.adapters.sessions_repository import SqlAlchemySessionsRepository
 from ai_trainer.adapters.user_status_changer import SqlAlchemyUserStatusChanger
 from ai_trainer.adapters.users_repository import SqlAlchemyUsersRepository
+from ai_trainer.application.reply import ReplyServices
 from ai_trainer.domain.sports.registry import default_sport_registry
+from ai_trainer.llm.conversation import LlmConversation, build_prompt_registry
+from ai_trainer.llm.gateway import OpenRouterGateway
 from ai_trainer.settings import Settings
 from ai_trainer.web.active_user_gate import ActiveUserGateMiddleware
 from ai_trainer.web.admin import build_admin_router
@@ -38,6 +43,8 @@ from ai_trainer.web.onboarding import build_onboarding_router
 from ai_trainer.web.settings import build_settings_router
 from ai_trainer.web.sign_in import build_sign_in_router
 from ai_trainer.web.templating import STATIC_DIR, build_templates
+
+_PROMPTS_ROOT = Path(__file__).resolve().parent / "llm" / "prompts"
 
 # Bounds a single export attempt (including its retries) so a request that later flushes or
 # shuts down the provider is never stalled for long by an unreachable collector (ADR-0018).
@@ -105,7 +112,23 @@ def create_app(settings: Settings) -> FastAPI:
 
     health_port = PsycopgDatabaseHealth(str(settings.database_url))
     app.include_router(build_health_router(health_port))
-    app.include_router(build_chat_router(templates, chat=chat, clock=clock))
+    sport_registry = app.state.sport_registry
+    conversation = LlmConversation(
+        registry=build_prompt_registry(_PROMPTS_ROOT, sport_registry),
+        gateway=OpenRouterGateway(settings, SqlAlchemyLlmCallsRepository(session_factory)),
+        sports=sport_registry,
+        router_model=settings.router_model,
+        chitchat_model=settings.chitchat_model,
+        history_turns=settings.chat_history_turns,
+    )
+    replies = ReplyServices(
+        chat=chat,
+        profile=onboarding,
+        conversation=conversation,
+        clock=clock,
+        history_turns=settings.chat_history_turns,
+    )
+    app.include_router(build_chat_router(templates, chat=chat, replies=replies))
     app.include_router(
         build_admin_router(
             templates=templates, users=users, sessions=sessions, status_changer=status_changer

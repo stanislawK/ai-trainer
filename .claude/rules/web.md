@@ -5,7 +5,7 @@ paths:
 
 # Web rules (ADR-0012, ADR-0015, ADR-0019)
 
-- **htmx 4 syntax only.** Look up the docs through context7 at `/bigskysoftware/htmx/v4.0.0`; don't copy htmx 2 examples. In htmx 4, attribute inheritance needs `:inherited`, 4xx/5xx responses are swapped by default, and SSE is in core (`hx-sse:connect`).
+- **htmx 4 syntax only.** Look up the docs through context7 at `/bigskysoftware/htmx/v4.0.0`; don't copy htmx 2 examples. In htmx 4, attribute inheritance needs `:inherited` and 4xx/5xx responses are swapped by default. SSE (`hx-sse:connect`) is a core extension, vendored as `static/vendor/hx-sse-4.0.0.min.js` and loaded in `layouts/base.html`, not part of `htmx.min.js` (ADR-0012).
 - Requests with the `HX-Request` header get a partial from `templates/partials/<feature>/`; other requests get a full page from `templates/pages/<feature>/`.
 - Templates are organized type first, then feature. Layouts go in `layouts/` (`base.html`, `app.html` for the signed-in shell, `bare.html` for sign-in, status and errors). Jinja macros go in `components/`. Name a partial for what it renders (`partials/chat/message.html`), never `<page>_content.html`.
 - Style with daisyUI 5 components and Tailwind utilities. Custom CSS only in `static/css/theme.css` (the `trainer-dark` and `trainer-light` themes) and the glass utilities in `static/css/glass.css`. No Node, no runtime CDN, no web fonts.
@@ -14,7 +14,7 @@ paths:
 - `trainer-dark` is the default theme. The theme is applied in `<head>` before first paint from `localStorage["theme"]`; never store it server-side.
 - Icons come from the `icon()` macro (vendored Lucide), never inline copies. A sport's icon comes from `SportRegistry`, never a hard-coded name; an assistant reply shows the glyph of its one sport, or the app mark for several sports or none (F15). Client JS is small hand-written files in `static/js/`.
 - Every region filled asynchronously gets a skeleton of the same size and layout. The chat shows the thinking indicator from send until the first streamed token; it shows the server's SSE phase when there is one. The words it cycles through live in a template.
-- Stream with `fastapi.sse.EventSourceResponse`.
+- Stream with `fastapi.sse.EventSourceResponse`. Set `hx-config="sse.reconnect:false sse.pauseOnBackground:false"` on a stream that ends on its own, so neither its end nor a backgrounded tab reconnects it, and keep the element that owns `hx-sse:connect` in the DOM until the stream ends: swap its contents (`<template hx type="partial">`), never the element itself (ADR-0012).
 - User-facing strings live in templates, never in Python (G5).
 - Every non-GET request carries a CSRF token (ADR-0005).
 - AI-made changes render as confirm / edit / discard cards (F2); never save them automatically.

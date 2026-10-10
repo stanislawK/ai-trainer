@@ -1,6 +1,6 @@
 import asyncio
 import time
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Coroutine
 from dataclasses import dataclass
 from decimal import Decimal
 from uuid import UUID
@@ -53,6 +53,8 @@ class OpenRouterGateway:
         self._provider = OpenRouterProvider(api_key=settings.openrouter_api_key.get_secret_value())
         self._timeout_seconds = settings.llm_call_timeout_seconds
         self._calls_repository = calls_repository
+        # Rows still being written after their caller was cancelled; held so they finish.
+        self._writes: set[asyncio.Task[None]] = set()
         # A placeholder model: every real call overrides it via `model=` below. Tests substitute
         # TestModel/FunctionModel through `agent.override()` (ADR-0007) on this same instance.
         self.agent: Agent[None, str] = Agent(TestModel())
@@ -99,6 +101,10 @@ class OpenRouterGateway:
             )
         except TimeoutError:
             return await _fail(LlmCallOutcome.TIMEOUT, TIMEOUT_MESSAGE)
+        except asyncio.CancelledError:
+            # The caller went away mid-call, e.g. a browser that closed the reply stream.
+            await _fail(LlmCallOutcome.CANCELLED, ERROR_MESSAGE)
+            raise
         except Exception:
             # Every model/provider failure becomes a friendly message, never a stack trace
             # (ADR-0007).
@@ -168,24 +174,17 @@ class OpenRouterGateway:
                 parts.append(item)
                 yield TextChunk(item)
         finally:
-            producer.cancel()
-            await asyncio.gather(producer, return_exceptions=True)
-            input_tokens = output_tokens = 0
-            cost: Decimal | None = None
-            if state.streamed is not None:
-                input_tokens = state.streamed.usage.input_tokens
-                output_tokens = state.streamed.usage.output_tokens
-                cost = _sum_cost(state.streamed.all_messages())
-            await self._record(
-                user_id,
-                template_id,
-                template_version,
-                model_id,
-                input_tokens=input_tokens,
-                output_tokens=output_tokens,
-                cost=cost,
-                latency_ms=_elapsed_ms(started),
-                outcome=outcome,
+            await self._shielded(
+                self._finish_stream(
+                    producer,
+                    state,
+                    user_id,
+                    template_id,
+                    template_version,
+                    model_id,
+                    started=started,
+                    outcome=outcome,
+                )
             )
 
         output = "".join(parts) if outcome is LlmCallOutcome.SUCCESS else None
@@ -219,7 +218,76 @@ class OpenRouterGateway:
             return
         await queue.put(_DONE)
 
+    async def _finish_stream(
+        self,
+        producer: asyncio.Task[None],
+        state: _StreamState,
+        user_id: UUID,
+        template_id: str,
+        template_version: int,
+        model_id: str,
+        *,
+        started: float,
+        outcome: LlmCallOutcome,
+    ) -> None:
+        producer.cancel()
+        await asyncio.gather(producer, return_exceptions=True)
+        input_tokens = output_tokens = 0
+        cost: Decimal | None = None
+        if state.streamed is not None:
+            input_tokens = state.streamed.usage.input_tokens
+            output_tokens = state.streamed.usage.output_tokens
+            cost = _sum_cost(state.streamed.all_messages())
+        await self._write(
+            user_id,
+            template_id,
+            template_version,
+            model_id,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            cost=cost,
+            latency_ms=_elapsed_ms(started),
+            outcome=outcome,
+        )
+
+    async def _shielded(self, write: Coroutine[None, None, None]) -> None:
+        """Runs `write` in its own task, so cancelling the caller never cancels the row's
+        write. anyio, which FastAPI's streaming responses run in, re-delivers a cancellation
+        at every await of the cancelled caller; a plain `finally` would be cut short at its
+        first await and the call would go unrecorded (ADR-0018 invariant 1, found at #82)."""
+        task = asyncio.create_task(write)
+        self._writes.add(task)
+        task.add_done_callback(self._writes.discard)
+        await asyncio.shield(task)
+
     async def _record(
+        self,
+        user_id: UUID,
+        template_id: str,
+        template_version: int,
+        model_id: str,
+        *,
+        input_tokens: int,
+        output_tokens: int,
+        cost: Decimal | None,
+        latency_ms: int,
+        outcome: LlmCallOutcome,
+    ) -> None:
+        await self._shielded(
+            self._write(
+                user_id,
+                template_id,
+                template_version,
+                model_id,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                cost=cost,
+                latency_ms=latency_ms,
+                outcome=outcome,
+            )
+        )
+
+    async def _write(
         self,
         user_id: UUID,
         template_id: str,

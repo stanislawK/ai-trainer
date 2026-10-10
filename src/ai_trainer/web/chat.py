@@ -1,10 +1,16 @@
-"""Wires the chat, the main screen: `GET /` and `POST /messages` (PRD-0003 F1, B13, ADR-0008,
-ticket #78). `user_id` comes only from the authenticated session (ADR-0005)."""
+"""Wires the chat, the main screen: `GET /`, `POST /messages` and the streamed reply,
+`GET /messages/{id}/reply` (PRD-0003 F1, B13, ADR-0008, ADR-0012, tickets #78 and #82).
+`user_id` comes only from the authenticated session (ADR-0005)."""
 
+from collections.abc import AsyncGenerator, AsyncIterable
+from contextlib import aclosing
+from typing import Annotated, Any
+from uuid import UUID
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse
+from fastapi.sse import EventSourceResponse, ServerSentEvent
 from starlette.templating import Jinja2Templates
 
 from ai_trainer.application.chat import (
@@ -15,10 +21,20 @@ from ai_trainer.application.chat import (
     send_message,
 )
 from ai_trainer.application.ports.chat import ChatRepositoryPort
-from ai_trainer.application.ports.clock import ClockPort
+from ai_trainer.application.reply import (
+    MessageNotFoundError,
+    ReplyChunk,
+    ReplyDone,
+    ReplyEvent,
+    ReplyServices,
+    find_message,
+    start_reply,
+)
+from ai_trainer.domain.llm_calls import LlmCallOutcome
 from ai_trainer.domain.users import User
 
 _UNPROCESSABLE = 422
+_NOT_FOUND = 404
 _MORNING_FROM = 5
 _AFTERNOON_FROM = 12
 _EVENING_FROM = 18
@@ -33,9 +49,38 @@ def _part_of_day(hour: int) -> str:
 
 
 def build_chat_router(
-    templates: Jinja2Templates, *, chat: ChatRepositoryPort, clock: ClockPort
+    templates: Jinja2Templates, *, chat: ChatRepositoryPort, replies: ReplyServices
 ) -> APIRouter:
     router = APIRouter()
+    clock = replies.clock
+
+    def render(template_name: str, **context: Any) -> str:
+        return templates.get_template(template_name).render(**context)
+
+    def reply_event(message_id: UUID, event: ReplyEvent) -> ServerSentEvent:
+        """Each event is an htmx partial: chunks append to the streaming text, and the last
+        event swaps the whole placeholder for the saved reply or the error row (ADR-0012)."""
+        if isinstance(event, ReplyChunk):
+            html = render("partials/chat/reply_chunk.html", message_id=message_id, text=event.text)
+        elif isinstance(event, ReplyDone):
+            html = render(
+                "partials/chat/reply_done.html", message_id=message_id, messages=event.messages
+            )
+        else:
+            html = render(
+                "partials/chat/reply_failed.html",
+                message_id=message_id,
+                timed_out=event.outcome is LlmCallOutcome.TIMEOUT,
+            )
+        return ServerSentEvent(raw_data=html)
+
+    async def reply_events(request: Request, message_id: UUID) -> AsyncGenerator[ReplyEvent]:
+        """Resolved before the response starts, so another user's message is a plain 404."""
+        user: User = request.state.user
+        try:
+            return await start_reply(user.id, message_id, timezone=user.timezone, services=replies)
+        except MessageNotFoundError:
+            raise HTTPException(status_code=_NOT_FOUND) from None
 
     def is_htmx(request: Request) -> bool:
         return request.headers.get("HX-Request") == "true"
@@ -82,5 +127,26 @@ def build_chat_router(
             "partials/chat/sent.html",
             {"message": message, "text": "", "error": None, "max_length": MAX_MESSAGE_LENGTH},
         )
+
+    @router.get("/messages/{message_id}/reply", response_class=EventSourceResponse)
+    async def stream_reply(
+        message_id: UUID,
+        events: Annotated[AsyncGenerator[ReplyEvent], Depends(reply_events)],
+    ) -> AsyncIterable[ServerSentEvent]:
+        # Closing the reply closes the model stream too, so a reader who leaves mid-reply
+        # still leaves its `llm_calls` row, as `cancelled` (ADR-0018).
+        async with aclosing(events):
+            async for event in events:
+                yield reply_event(message_id, event)
+
+    @router.get("/messages/{message_id}/retry", response_class=HTMLResponse)
+    async def retry_reply(request: Request, message_id: UUID) -> HTMLResponse:
+        """A fresh placeholder for the error row's Retry: it connects to the stream again."""
+        user: User = request.state.user
+        try:
+            message = await find_message(user.id, message_id, chat=chat)
+        except MessageNotFoundError:
+            raise HTTPException(status_code=_NOT_FOUND) from None
+        return templates.TemplateResponse(request, "partials/chat/reply.html", {"message": message})
 
     return router
