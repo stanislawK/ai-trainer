@@ -3,12 +3,21 @@ from pathlib import Path
 
 import pytest
 from pydantic import BaseModel
-from pydantic_ai import ModelMessage, ModelResponse, TextPart, ToolCallPart
+from pydantic_ai import (
+    ModelMessage,
+    ModelRequest,
+    ModelResponse,
+    TextPart,
+    ToolCallPart,
+    UserPromptPart,
+)
+from pydantic_ai.exceptions import ModelHTTPError
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 from pydantic_evals.evaluators import EqualsExpected, Evaluator, EvaluatorContext
 
 from ai_trainer.llm.evals.baseline import Baseline, save_baseline
 from ai_trainer.llm.evals.runner import (
+    CaseFailedError,
     EvalCaseInputs,
     EvalRunResult,
     EvaluatorFailedError,
@@ -243,6 +252,85 @@ async def test_a_crashing_evaluator_raises_instead_of_writing_a_baseline(
 
     assert "_CrashingEvaluator" in str(exc_info.value)
     assert "boom" in str(exc_info.value)
+    assert not (tmp_path / "baselines" / "sample.json").exists()
+
+
+def _write_two_case_dataset(path: Path) -> None:
+    from pydantic_evals import Case, Dataset
+
+    cases = [
+        Case(
+            name=name,
+            inputs=EvalCaseInputs(prompt=prompt, deps={"name": "Alex", "sport": "climbing"}),
+            expected_output=_Output(reply="hi Alex"),
+        )
+        for name, prompt in (("greet_alex", "hi"), ("unreachable", "fail"))
+    ]
+    dataset = Dataset[EvalCaseInputs, _Output, object](
+        name="sample", cases=cases, evaluators=[EqualsExpected()]
+    )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    dataset.to_file(path)
+
+
+def _prompt_of(messages: list[ModelMessage]) -> str:
+    request = messages[-1]
+    assert isinstance(request, ModelRequest)
+    return next(str(part.content) for part in request.parts if isinstance(part, UserPromptPart))
+
+
+def _unauthorized(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+    raise ModelHTTPError(
+        status_code=401, model_name=_MODEL_UNDER_TEST_ID, body={"message": "No auth credentials"}
+    )
+
+
+def _fails_on_fail_prompt(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+    if _prompt_of(messages) == "fail":
+        return _unauthorized(messages, info)
+    return _reply_response(messages, info)
+
+
+async def _run_two_cases(tmp_path: Path, respond: FunctionModel) -> EvalRunResult:
+    _write_two_case_dataset(tmp_path / "datasets" / "sample.yaml")
+    return await run_eval(
+        registry=_registry(),
+        template_id="sample",
+        version=1,
+        model=respond,
+        model_id=_MODEL_UNDER_TEST_ID,
+        judge_model=FunctionModel(_reply_response),
+        judge_model_id=_JUDGE_MODEL_ID,
+        datasets_root=tmp_path / "datasets",
+        baselines_root=tmp_path / "baselines",
+        reports_root=tmp_path / "reports",
+    )
+
+
+async def test_cases_that_all_fail_raise_instead_of_writing_a_perfect_baseline(
+    tmp_path: Path,
+) -> None:
+    """A wrong API key fails every case. A failed case drops out of
+    `report.averages()`, so without this guard the run wrote `assertions: 1.0` and exited 0
+    (found at #109)."""
+    with pytest.raises(CaseFailedError) as exc_info:
+        await _run_two_cases(tmp_path, FunctionModel(_unauthorized))
+
+    assert "2 of 2 cases failed" in str(exc_info.value)
+    assert "401" in str(exc_info.value)
+    assert not (tmp_path / "baselines" / "sample.json").exists()
+    assert (tmp_path / "reports" / "sample.json").exists()
+
+
+async def test_one_failed_case_raises_instead_of_writing_an_inflated_baseline(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(CaseFailedError) as exc_info:
+        await _run_two_cases(tmp_path, FunctionModel(_fails_on_fail_prompt))
+
+    assert "1 of 2 cases failed" in str(exc_info.value)
+    assert "unreachable" in str(exc_info.value)
+    assert exc_info.value.failures == ["unreachable"]
     assert not (tmp_path / "baselines" / "sample.json").exists()
 
 

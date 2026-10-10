@@ -65,6 +65,20 @@ class EvaluatorFailedError(RuntimeError):
         self.failures = failures
 
 
+class CaseFailedError(RuntimeError):
+    """A case's task raised (a 401 from a wrong key, a timeout). A failed case drops
+    out of `report.averages()`, so a baseline computed from the rest would overstate the pass
+    rate (all failed gave `assertions: 1.0`, found at #109), and `run_eval` refuses to write
+    one."""
+
+    def __init__(self, *, failed: int, total: int, failures: list[str], first_error: str) -> None:
+        super().__init__(
+            f"{failed} of {total} cases failed; no baseline written. "
+            f"First: {failures[0]}: {first_error}"
+        )
+        self.failures = failures
+
+
 @dataclass(frozen=True, slots=True)
 class EvalRunResult:
     report: EvaluationReport[EvalCaseInputs, TemplateOutput, object]
@@ -172,6 +186,13 @@ async def run_eval(
     summary = summarize_report(report)
     (reports_root / f"{template_id}.json").write_text(summary.model_dump_json(indent=2) + "\n")
 
+    if report.failures:
+        raise CaseFailedError(
+            failed=len(report.failures),
+            total=len(report.failures) + len(report.cases),
+            failures=[failure.name for failure in report.failures],
+            first_error=report.failures[0].error_message,
+        )
     if evaluator_failures := _evaluator_failures(report):
         raise EvaluatorFailedError(evaluator_failures)
 

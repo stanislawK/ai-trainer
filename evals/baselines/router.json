@@ -1,0 +1,13 @@
+{
+  "template_id": "router",
+  "version": 1,
+  "model": "z-ai/glm-5.3-flash",
+  "assertions": 0.7666666666666667,
+  "scores": {
+    "LogSessionSportMatch": 0.8333333333333334
+  },
+  "thresholds": {
+    "max_assertions_drop": 0.0,
+    "max_score_drop": 0.05
+  }
+}
