@@ -83,3 +83,86 @@ async def test_deleting_a_user_cascades_their_chat_messages(db_session: AsyncSes
         text("SELECT count(*) FROM chat_messages WHERE user_id = :id"), {"id": user_id}
     )
     assert remaining.scalar_one() == 0
+
+
+async def test_a_reply_is_stored_with_its_sports_and_template(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    repository = SqlAlchemyChatRepository(db_session_factory)
+    user_id = await _user(db_session_factory, "chat-f")
+
+    stored = await repository.add(
+        user_id,
+        ChatRole.ASSISTANT,
+        "Not yet!",
+        _START,
+        sports=("cycling",),
+        template_id="not_yet",
+        template_version=1,
+    )
+
+    assert await repository.list_recent(user_id, 50) == [stored]
+    assert (stored.sports, stored.template_id, stored.template_version) == (
+        ("cycling",),
+        "not_yet",
+        1,
+    )
+
+
+async def test_get_finds_only_the_owners_message(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    repository = SqlAlchemyChatRepository(db_session_factory)
+    owner = await _user(db_session_factory, "chat-g")
+    stranger = await _user(db_session_factory, "chat-h")
+    stored = await repository.add(owner, ChatRole.USER, "hi!", _START)
+
+    assert await repository.get(owner, stored.id) == stored
+    assert await repository.get(stranger, stored.id) is None
+
+
+async def test_list_before_returns_the_latest_earlier_messages_oldest_first(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    repository = SqlAlchemyChatRepository(db_session_factory)
+    user_id = await _user(db_session_factory, "chat-i")
+    other = await _user(db_session_factory, "chat-j")
+    await repository.add(other, ChatRole.USER, "not mine", _START)
+    stored = [
+        await repository.add(user_id, ChatRole.USER, f"m{index}", _START + timedelta(minutes=index))
+        for index in range(5)
+    ]
+
+    before = await repository.list_before(user_id, stored[3], 2)
+
+    assert [message.text for message in before] == ["m1", "m2"]
+
+
+async def test_list_replies_returns_the_answers_up_to_the_next_message(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    repository = SqlAlchemyChatRepository(db_session_factory)
+    user_id = await _user(db_session_factory, "chat-k")
+    other = await _user(db_session_factory, "chat-l")
+    asked = await repository.add(user_id, ChatRole.USER, "hi!", _START)
+    first = await repository.add(
+        user_id, ChatRole.ASSISTANT, "part 1", _START + timedelta(seconds=1)
+    )
+    second = await repository.add(
+        user_id, ChatRole.ASSISTANT, "part 2", _START + timedelta(seconds=2)
+    )
+    await repository.add(other, ChatRole.ASSISTANT, "not mine", _START + timedelta(seconds=3))
+    await repository.add(user_id, ChatRole.USER, "next", _START + timedelta(seconds=4))
+    await repository.add(user_id, ChatRole.ASSISTANT, "later", _START + timedelta(seconds=5))
+
+    assert await repository.list_replies(user_id, asked) == [first, second]
+
+
+async def test_list_replies_is_empty_for_an_unanswered_message(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    repository = SqlAlchemyChatRepository(db_session_factory)
+    user_id = await _user(db_session_factory, "chat-m")
+    asked = await repository.add(user_id, ChatRole.USER, "hi!", _START)
+
+    assert await repository.list_replies(user_id, asked) == []

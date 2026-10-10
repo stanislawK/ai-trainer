@@ -10,12 +10,12 @@ from pydantic import BaseModel, ValidationError
 from pydantic_ai import ModelMessage, ModelResponse, TextPart, ToolCallPart, UnexpectedModelBehavior
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 
+from ai_trainer.domain.conversation import INTENT_KINDS
 from ai_trainer.domain.sports.base import SportPlugin
 from ai_trainer.domain.sports.registry import SportRegistry, default_sport_registry
 from ai_trainer.llm.prompts.registry import PromptRegistry
 from ai_trainer.llm.prompts.template import PromptTemplate, PromptTemplateVariableError
 from ai_trainer.llm.router import (
-    INTENT_KINDS,
     ROUTER_TEMPLATE_ID,
     ChatTurn,
     RouterDeps,

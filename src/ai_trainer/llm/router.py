@@ -2,31 +2,19 @@
 
 from dataclasses import dataclass
 from datetime import date, datetime
-from typing import Annotated, Any, Literal, Union, get_args
+from typing import Annotated, Any, Literal, Union
 from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, Field, create_model
 from pydantic_evals.evaluators import Evaluator, EvaluatorContext
 
+from ai_trainer.domain.conversation import INTENT_KINDS
 from ai_trainer.domain.sports.registry import SportRegistry
 from ai_trainer.llm.evals.runner import EvalCaseInputs
 from ai_trainer.llm.prompts.template import PromptTemplate
 
 ROUTER_TEMPLATE_ID = "router"
 
-IntentKind = Literal[
-    "log_session",
-    "edit_session",
-    "ask_training_question",
-    "request_plan",
-    "adjust_plan",
-    "request_report",
-    "update_profile",
-    "wellbeing_or_injury",
-    "chitchat",
-    "unclear",
-]
-INTENT_KINDS: tuple[str, ...] = get_args(IntentKind)
 
 _SPORT_INTENT_KIND = "log_session"
 

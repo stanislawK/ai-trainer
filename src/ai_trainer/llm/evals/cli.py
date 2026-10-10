@@ -21,14 +21,14 @@ from pydantic_ai.providers.openrouter import OpenRouterProvider
 from pydantic_evals.evaluators import Evaluator
 
 from ai_trainer.domain.sports.registry import default_sport_registry
-from ai_trainer.llm.chitchat import chitchat_template
+from ai_trainer.llm.conversation import build_prompt_registry
 from ai_trainer.llm.evals.runner import (
     EvalCaseInputs,
     JudgeModelMatchesModelUnderTestError,
     run_eval,
 )
 from ai_trainer.llm.prompts.registry import PromptRegistry
-from ai_trainer.llm.router import IntentKindsMatch, LogSessionSportMatch, router_template
+from ai_trainer.llm.router import IntentKindsMatch, LogSessionSportMatch
 from ai_trainer.settings import Settings
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
@@ -37,11 +37,8 @@ _PROMPTS_ROOT = Path(__file__).resolve().parent.parent / "prompts"
 
 
 def _default_registry() -> PromptRegistry:
-    """M1 adds a `registry.register(...)` call here as each real template ships (ADR-0009)."""
-    registry = PromptRegistry(root=_PROMPTS_ROOT)
-    registry.register(router_template(default_sport_registry()))
-    registry.register(chitchat_template())
-    return registry
+    """The app's own templates (`build_prompt_registry`), so evals run what the app runs."""
+    return build_prompt_registry(_PROMPTS_ROOT, default_sport_registry())
 
 
 _EVALUATORS: dict[str, tuple[type[Evaluator[EvalCaseInputs, BaseModel, object]], ...]] = {

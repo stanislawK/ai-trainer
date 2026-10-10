@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
 
+import anyio
 from pydantic import BaseModel, PostgresDsn, SecretStr
 from pydantic_ai import ModelMessage, ModelResponse, TextPart
 from pydantic_ai.models.function import AgentInfo, FunctionModel
@@ -435,4 +436,86 @@ async def test_gateway_stream_consumer_task_cancelled_between_chunks_leaves_one_
         await _wait_for_rows(repository, 1)
         await asyncio.sleep(0.05)
 
+    assert [c.outcome for c in repository.recorded] == [LlmCallOutcome.CANCELLED]
+
+
+async def _chunk_then_stall(messages: list[ModelMessage], info: AgentInfo) -> AsyncIterator[str]:
+    yield "Hel"
+    await asyncio.sleep(10)
+    yield "lo"
+
+
+async def test_gateway_stream_disconnect_through_an_anyio_scope_still_leaves_one_row() -> None:
+    """FastAPI's SSE route runs the reply in an anyio task group and cancels its scope when
+    the browser leaves (#82). anyio re-delivers that cancellation at every await, so the
+    bookkeeping in the stream's `finally` must not be cancelled with it (ADR-0018)."""
+    repository = FakeLlmCallsRepository()
+    gateway = OpenRouterGateway(_settings(), repository)
+
+    async def consume() -> None:
+        async for _ in _stream(gateway, uuid4()):
+            pass
+
+    with gateway.agent.override(model=FunctionModel(stream_function=_chunk_then_stall)):
+        async with anyio.create_task_group() as group:
+            group.start_soon(consume)
+            await anyio.sleep(0.1)
+            group.cancel_scope.cancel()
+        await _wait_for_rows(repository, 1)
+
+    assert [c.outcome for c in repository.recorded] == [LlmCallOutcome.CANCELLED]
+
+
+async def test_gateway_run_disconnect_through_an_anyio_scope_still_leaves_one_row() -> None:
+    repository = FakeLlmCallsRepository()
+    gateway = OpenRouterGateway(_settings(), repository)
+    user_id = uuid4()
+
+    async def route() -> None:
+        await gateway.run(
+            user_id=user_id,
+            template_id="router",
+            template_version=1,
+            model_id="openai/gpt-5-mini",
+            output_type=Greeting,
+            instructions="Be brief.",
+            prompt="hi",
+        )
+
+    with gateway.agent.override(model=FunctionModel(_hanging_response)):
+        async with anyio.create_task_group() as group:
+            group.start_soon(route)
+            await anyio.sleep(0.1)
+            group.cancel_scope.cancel()
+        await _wait_for_rows(repository, 1)
+
+    [recorded] = repository.recorded
+    assert (recorded.outcome, recorded.user_id, recorded.template_id) == (
+        LlmCallOutcome.CANCELLED,
+        user_id,
+        "router",
+    )
+
+
+async def test_gateway_run_cancelled_once_records_the_call_and_stays_cancelled() -> None:
+    repository = FakeLlmCallsRepository()
+    gateway = OpenRouterGateway(_settings(), repository)
+
+    with gateway.agent.override(model=FunctionModel(_hanging_response)):
+        task = asyncio.create_task(
+            gateway.run(
+                user_id=uuid4(),
+                template_id="router",
+                template_version=1,
+                model_id="openai/gpt-5-mini",
+                output_type=Greeting,
+                instructions="Be brief.",
+                prompt="hi",
+            )
+        )
+        await asyncio.sleep(0.05)
+        task.cancel()
+        results = await asyncio.gather(task, return_exceptions=True)
+
+    assert isinstance(results[0], asyncio.CancelledError)
     assert [c.outcome for c in repository.recorded] == [LlmCallOutcome.CANCELLED]

@@ -1,6 +1,6 @@
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import FastAPI, Request
 from fastapi.responses import RedirectResponse
@@ -197,6 +197,19 @@ async def test_an_anonymous_visit_to_the_home_route_redirects_to_sign_in(
 
     assert response.status_code == 303
     assert response.headers["location"] == "/sign-in"
+
+
+async def test_an_anonymous_reply_stream_is_refused_before_anything_streams(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    users = SqlAlchemyUsersRepository(db_session_factory)
+    sessions = SqlAlchemySessionsRepository(db_session_factory)
+    client = _client(db_session_factory, users=users, sessions=sessions)
+
+    response = client.get(f"/messages/{uuid4()}/reply", follow_redirects=False)
+
+    assert response.status_code == 401
+    assert "text/event-stream" not in response.headers.get("content-type", "")
 
 
 async def test_an_anonymous_htmx_request_to_the_home_route_gets_an_hx_redirect_to_sign_in(

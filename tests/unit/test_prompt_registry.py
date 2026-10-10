@@ -118,3 +118,35 @@ def test_model_settings_key_resolves_the_configured_model_id() -> None:
     model_id = getattr(_SettingsStub(), _SAMPLE_TEMPLATE.model_settings_key)
 
     assert model_id == "openai/gpt-5-mini"
+
+
+async def test_render_instructions_matches_what_the_agent_sends_the_model() -> None:
+    """The gateway takes plain instructions (ADR-0007), so the app must send exactly what the
+    eval runs sent through `build_agent`: persona, then the rendered template."""
+    registry = _registry()
+    deps = SampleDeps(name="Alex", sport="climbing")
+    seen: list[str] = []
+
+    def respond(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        request = messages[0]
+        assert isinstance(request, ModelRequest)
+        seen.append(str(request.instructions))
+        return _reply_response(messages, info)
+
+    agent = registry.build_agent("sample", 1)
+    await agent.run("hi", deps=deps, model=FunctionModel(respond))
+
+    assert registry.render_instructions("sample", 1, deps) == seen[0]
+    assert "Greet Alex, who trains climbing." in seen[0]
+
+
+def test_render_instructions_rejects_deps_of_another_type() -> None:
+    class OtherDeps(BaseModel):
+        name: str
+
+    with pytest.raises(TypeError):
+        _registry().render_instructions("sample", 1, OtherDeps(name="Alex"))
+
+
+def test_load_fixed_reply_reads_a_reply_file_by_id_and_version() -> None:
+    assert _registry().load_fixed_reply("fixed_reply", 1) == "Coming soon."

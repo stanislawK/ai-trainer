@@ -13,6 +13,10 @@
     {% for message in history %}
     {% include "partials/chat/message.html" %}
     {% endfor %}
+    {%- if history and history[-1].role == "user" %}
+    {#- Its reply hadn't come through before this page load: ask for it again. #}
+    {% with message = history[-1] %}{% include "partials/chat/reply.html" %}{% endwith %}
+    {%- endif %}
   </div>
   {% include "partials/chat/composer.html" %}
 </div>

@@ -40,6 +40,28 @@ class PromptRegistry:
     def load_persona(self, *, version: int = 1, locale: str = "en") -> str:
         return self._body_path(_PERSONA_ID, version, locale).read_text()
 
+    def load_fixed_reply(self, reply_id: str, version: int, *, locale: str = "en") -> str:
+        """A reply sent as written, with no model call: ADR-0008's "not yet" reply. It lives
+        beside the templates, so a saved reply records its ID and version like any other."""
+        return self._body_path(reply_id, version, locale).read_text().strip()
+
+    def render_instructions(
+        self, template_id: str, version: int, deps: BaseModel, *, persona_version: int = 1
+    ) -> str:
+        """The instructions `build_agent`'s agent sends the model, as one string: persona, then
+        the template rendered with `deps`. The gateway takes plain instructions (ADR-0007), so
+        the app sends the model exactly what the template's eval runs sent it (ADR-0009)."""
+        template = self.get(template_id, version)
+        if not isinstance(deps, template.deps_type):
+            raise TypeError(
+                f"Template {template_id!r} v{version} takes {template.deps_type.__name__}, "
+                f"not {type(deps).__name__}"
+            )
+        persona = self.load_persona(version=persona_version, locale=template.locale)
+        body = TemplateStr(self.load_body(template), deps_type=template.deps_type).render(deps)
+        # Pydantic AI's own joining of an instructions list (`InstructionPart.join`).
+        return "\n\n".join(part.strip() for part in (persona, body) if part.strip())
+
     def _body_path(self, template_id: str, version: int, locale: str) -> Path:
         return self._root / template_id / f"v{version}.{locale}.md"
 
