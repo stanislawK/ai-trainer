@@ -28,6 +28,7 @@ from ai_trainer.domain.chat import ChatMessage, ChatRole
 from ai_trainer.domain.conversation import Intent
 from ai_trainer.domain.goals import Goal
 from ai_trainer.domain.llm_calls import LlmCallOutcome
+from ai_trainer.domain.sports.registry import default_sport_registry
 from ai_trainer.domain.users import User, UserStatus
 from ai_trainer.web.chat import build_chat_router
 
@@ -217,7 +218,11 @@ def include_chat(
     returns the repository."""
     repository = chat or InMemoryChatRepository()
     services = reply_services(repository, profile=profile, conversation=conversation)
-    app.include_router(build_chat_router(templates, chat=repository, replies=services))
+    app.include_router(
+        build_chat_router(
+            templates, chat=repository, replies=services, sports=default_sport_registry()
+        )
+    )
     return repository
 
 

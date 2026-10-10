@@ -127,7 +127,11 @@ def _app(
         history_turns=settings.chat_history_turns,
     )
     app = FastAPI()
-    app.include_router(build_chat_router(build_templates(), chat=chat, replies=replies))
+    app.include_router(
+        build_chat_router(
+            build_templates(), chat=chat, replies=replies, sports=default_sport_registry()
+        )
+    )
     sign_in_as(app, user)
     return app, gateway
 

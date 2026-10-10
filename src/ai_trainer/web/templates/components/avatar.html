@@ -1,0 +1,5 @@
+{#- The assistant's avatar tile (PRD-0003 F15). `glyph` is a `SportRegistry` icon name, or "app-mark" for a reply about no sport or several; the default is the app mark, for rows that have no stored sports yet. -#}
+{%- from "components/icon.html" import icon -%}
+{% macro avatar(glyph="app-mark") -%}
+<span data-avatar="{{ glyph }}" class="size-7 shrink-0 rounded-[22%] glass-regular grid place-items-center text-primary" aria-hidden="true">{{ icon("trending-up" if glyph == "app-mark" else glyph, "size-4") }}</span>
+{%- endmacro %}

@@ -129,7 +129,9 @@ def create_app(settings: Settings) -> FastAPI:
         clock=clock,
         history_turns=settings.chat_history_turns,
     )
-    app.include_router(build_chat_router(templates, chat=chat, replies=replies))
+    app.include_router(
+        build_chat_router(templates, chat=chat, replies=replies, sports=app.state.sport_registry)
+    )
     app.include_router(
         build_admin_router(
             templates=templates, users=users, sessions=sessions, status_changer=status_changer
