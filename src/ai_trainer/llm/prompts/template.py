@@ -20,6 +20,15 @@ class PromptTemplate[DepsT: BaseModel, OutputT: TemplateOutput]:
     # resolves it with `getattr(settings, template.model_settings_key)` before building the
     # `Model` it passes to the agent's `run`/`run_sync` (ADR-0007).
     model_settings_key: str
+    # The `Settings` field naming the OpenRouter upstream to pin, resolved like
+    # `model_settings_key`. `None` leaves OpenRouter's own load balancing.
+    provider_settings_key: str | None = None
+    # Sampling temperature for a template whose output the app reads (the router pins 0, so a
+    # message routes the same way twice). `None` leaves the model's default.
+    temperature: float | None = None
+    # How often a reply that fails the output schema is sent back to the model. `None` leaves
+    # Pydantic AI's default of 1.
+    output_retries: int | None = None
 
 
 class UnknownPromptTemplateError(LookupError):

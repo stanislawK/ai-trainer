@@ -13,9 +13,11 @@ from pydantic_ai.models.function import AgentInfo, FunctionModel
 from ai_trainer.domain.conversation import INTENT_KINDS
 from ai_trainer.domain.sports.base import SportPlugin
 from ai_trainer.domain.sports.registry import SportRegistry, default_sport_registry
+from ai_trainer.llm.conversation import build_prompt_registry
 from ai_trainer.llm.prompts.registry import PromptRegistry
 from ai_trainer.llm.prompts.template import PromptTemplate, PromptTemplateVariableError
 from ai_trainer.llm.router import (
+    ACTIVE_ROUTER_VERSION,
     ROUTER_TEMPLATE_ID,
     ChatTurn,
     RouterDeps,
@@ -94,10 +96,29 @@ def test_output_rejects_an_empty_intent_list() -> None:
         router_output_type(default_sport_registry()).model_validate({"intents": []})
 
 
-async def test_the_agent_rejects_and_retries_an_unknown_intent_kind() -> None:
+def test_every_intent_names_its_kind_before_its_span_and_confidence() -> None:
+    schema = router_output_type(default_sport_registry()).model_json_schema()
+
+    for name, variant in schema["$defs"].items():
+        fields = list(variant["properties"])
+        assert fields[0] == "kind", name
+        assert fields[-1] == "confidence", name
+    assert list(schema["$defs"]["LogSessionIntent"]["properties"]) == [
+        "kind",
+        "sport",
+        "span",
+        "confidence",
+    ]
+
+
+def test_the_router_allows_two_output_retries() -> None:
+    assert router_template(default_sport_registry()).output_retries == 2
+
+
+async def test_the_agent_rejects_and_retries_an_unknown_intent_kind_twice() -> None:
     registry = PromptRegistry(root=_PROMPTS_ROOT)
     registry.register(router_template(default_sport_registry()))
-    agent = registry.build_agent(ROUTER_TEMPLATE_ID, 1)
+    agent = registry.build_agent(ROUTER_TEMPLATE_ID, ACTIVE_ROUTER_VERSION)
     calls = 0
 
     def respond(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
@@ -115,7 +136,7 @@ async def test_the_agent_rejects_and_retries_an_unknown_intent_kind() -> None:
     with pytest.raises(UnexpectedModelBehavior):
         await agent.run("x", deps=_deps(), model=FunctionModel(respond))
 
-    assert calls == 2
+    assert calls == 3
 
 
 @pytest.mark.parametrize("confidence", [-0.1, 1.1])
@@ -158,7 +179,7 @@ def test_a_fourth_sport_reaches_the_router_options_without_a_template_edit() -> 
 async def test_the_fourth_sport_is_part_of_the_schema_the_model_is_given() -> None:
     registry = PromptRegistry(root=_PROMPTS_ROOT)
     registry.register(router_template(_fourth_sport_registry()))
-    agent = registry.build_agent(ROUTER_TEMPLATE_ID, 1)
+    agent = registry.build_agent(ROUTER_TEMPLATE_ID, ACTIVE_ROUTER_VERSION)
     seen: list[str] = []
 
     def respond(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
@@ -175,7 +196,7 @@ def test_the_router_agent_builds_from_the_real_template_file() -> None:
     registry = PromptRegistry(root=_PROMPTS_ROOT)
     registry.register(router_template(default_sport_registry()))
 
-    agent = registry.build_agent(ROUTER_TEMPLATE_ID, 1)
+    agent = registry.build_agent(ROUTER_TEMPLATE_ID, ACTIVE_ROUTER_VERSION)
 
     assert agent is not None
 
@@ -202,23 +223,27 @@ def test_a_router_variable_missing_from_the_deps_model_fails_the_build() -> None
 def test_a_typo_in_the_real_router_template_fails_the_build(tmp_path: Path) -> None:
     root = tmp_path / "prompts"
     shutil.copytree(_PROMPTS_ROOT, root)
-    body = root / ROUTER_TEMPLATE_ID / "v1.en.md"
+    body = root / ROUTER_TEMPLATE_ID / f"v{ACTIVE_ROUTER_VERSION}.en.md"
     body.write_text(body.read_text().replace("{{message}}", "{{mesage}}"))
     registry = PromptRegistry(root=root)
     registry.register(router_template(default_sport_registry()))
 
     with pytest.raises(PromptTemplateVariableError):
-        registry.build_agent(ROUTER_TEMPLATE_ID, 1)
+        registry.build_agent(ROUTER_TEMPLATE_ID, ACTIVE_ROUTER_VERSION)
 
 
 def test_the_router_template_reads_its_model_from_the_router_model_setting() -> None:
     assert router_template(default_sport_registry()).model_settings_key == "router_model"
 
 
+def test_the_router_template_reads_its_upstream_from_the_router_provider_setting() -> None:
+    assert router_template(default_sport_registry()).provider_settings_key == "router_provider"
+
+
 async def test_the_rendered_instructions_carry_history_sports_and_time() -> None:
     registry = PromptRegistry(root=_PROMPTS_ROOT)
     registry.register(router_template(default_sport_registry()))
-    agent = registry.build_agent(ROUTER_TEMPLATE_ID, 1)
+    agent = registry.build_agent(ROUTER_TEMPLATE_ID, ACTIVE_ROUTER_VERSION)
     seen: list[str] = []
 
     def respond(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
@@ -261,3 +286,33 @@ def test_build_router_deps_resolves_today_and_now_local_in_the_user_timezone() -
     assert deps.timezone == "Europe/Warsaw"
     assert [turn.text for turn in deps.history] == [str(index) for index in range(2, 12)]
     assert deps.athlete_sports == ["gym"]
+
+
+def test_the_active_router_version_is_two() -> None:
+    assert ACTIVE_ROUTER_VERSION == 2
+    assert router_template(default_sport_registry()).version == ACTIVE_ROUTER_VERSION
+
+
+def test_an_earlier_router_version_can_still_be_built_for_comparison() -> None:
+    assert router_template(default_sport_registry(), version=1).version == 1
+
+
+def test_the_prompt_registry_holds_every_router_version_with_a_body() -> None:
+    registry = build_prompt_registry(_PROMPTS_ROOT, default_sport_registry())
+
+    for version in (1, 2):
+        assert registry.get(ROUTER_TEMPLATE_ID, version).version == version
+        assert registry.build_agent(ROUTER_TEMPLATE_ID, version) is not None
+
+
+def test_the_router_samples_at_temperature_zero_so_a_message_routes_the_same_way_twice() -> None:
+    assert router_template(default_sport_registry()).temperature == 0
+
+
+def test_the_eval_agent_carries_the_templates_temperature() -> None:
+    registry = build_prompt_registry(_PROMPTS_ROOT, default_sport_registry())
+
+    agent = registry.build_agent(ROUTER_TEMPLATE_ID, ACTIVE_ROUTER_VERSION)
+
+    assert isinstance(agent.model_settings, dict)
+    assert agent.model_settings.get("temperature") == 0

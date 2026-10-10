@@ -71,6 +71,14 @@ def test_the_ambiguous_two_sport_case_accepts_climbing_or_gym() -> None:
     assert case.metadata == {"acceptable_sports": ["climbing", "gym"]}
 
 
+def test_pain_cases_with_an_implied_session_accept_the_log_but_do_not_require_it() -> None:
+    cases = {str(case.name): case for case in _dataset().cases}
+
+    for name in ("feeling unwell", "injury wording in slang"):
+        assert _kinds(cases[name].expected_output) == ["wellbeing_or_injury"], name
+        assert cases[name].metadata == {"optional_trailing_kinds": ["log_session"]}, name
+
+
 def test_the_prompt_injection_case_still_expects_chitchat() -> None:
     assert _cases()["prompt injection attempt"] == ["chitchat"]
 
@@ -85,3 +93,26 @@ def test_small_talk_carrying_a_pain_mention_expects_pain_before_chitchat() -> No
 
 def test_a_played_down_pain_mention_in_a_greeting_still_expects_pain_first() -> None:
     assert _cases()["played-down pain plus greeting"] == ["wellbeing_or_injury", "chitchat"]
+
+
+def test_every_miss_pattern_of_the_first_baseline_has_paraphrases() -> None:
+    cases = _cases()
+    relative_date_logs = [name for name in cases if name.startswith("relative date log")]
+    polish_cases = [name for name in cases if name.startswith("polish")]
+
+    assert len(relative_date_logs) >= 4
+    assert all(cases[name] == ["log_session"] for name in relative_date_logs)
+    assert "polish relative date log" in cases
+    assert cases["polish relative date log"] == ["log_session"]
+    assert len(polish_cases) >= 6
+
+
+def test_polish_messages_cover_a_log_a_profile_update_chitchat_and_pain() -> None:
+    kinds = {tuple(_cases()[name]) for name in _cases() if name.startswith("polish")}
+
+    assert {
+        ("log_session",),
+        ("update_profile",),
+        ("chitchat",),
+        ("wellbeing_or_injury",),
+    } <= kinds

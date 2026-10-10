@@ -519,3 +519,78 @@ async def test_gateway_run_cancelled_once_records_the_call_and_stays_cancelled()
 
     assert isinstance(results[0], asyncio.CancelledError)
     assert [c.outcome for c in repository.recorded] == [LlmCallOutcome.CANCELLED]
+
+
+async def test_run_sends_the_requested_temperature_to_the_model() -> None:
+    seen: list[float | None] = []
+
+    def respond(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        seen.append((info.model_settings or {}).get("temperature"))
+        return _success_response(messages, info)
+
+    gateway = OpenRouterGateway(_settings(), FakeLlmCallsRepository())
+
+    with gateway.agent.override(model=FunctionModel(respond)):
+        await gateway.run(
+            user_id=uuid4(),
+            template_id="greeter",
+            template_version=1,
+            model_id="openai/gpt-5-mini",
+            output_type=Greeting,
+            instructions="Greet the user.",
+            prompt="Say hello",
+            temperature=0,
+        )
+
+    assert seen == [0]
+
+
+async def test_run_pins_the_requested_upstream_provider_and_keeps_fallbacks() -> None:
+    seen: list[object] = []
+
+    def respond(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        seen.append((info.model_settings or {}).get("openrouter_provider"))
+        return _success_response(messages, info)
+
+    gateway = OpenRouterGateway(_settings(), FakeLlmCallsRepository())
+
+    with gateway.agent.override(model=FunctionModel(respond)):
+        for upstream in ("z-ai", None):
+            await gateway.run(
+                user_id=uuid4(),
+                template_id="greeter",
+                template_version=1,
+                model_id="openai/gpt-5-mini",
+                output_type=Greeting,
+                instructions="Greet the user.",
+                prompt="Say hello",
+                upstream_provider=upstream,
+            )
+
+    assert seen == [{"order": ["z-ai"], "allow_fallbacks": True}, None]
+
+
+async def test_run_retries_an_invalid_output_as_often_as_requested() -> None:
+    calls = 0
+
+    def respond(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        nonlocal calls
+        calls += 1
+        return ModelResponse(parts=[TextPart('{"wrong": "shape"}')])
+
+    gateway = OpenRouterGateway(_settings(), FakeLlmCallsRepository())
+
+    with gateway.agent.override(model=FunctionModel(respond)):
+        result = await gateway.run(
+            user_id=uuid4(),
+            template_id="greeter",
+            template_version=1,
+            model_id="openai/gpt-5-mini",
+            output_type=Greeting,
+            instructions="Greet the user.",
+            prompt="Say hello",
+            output_retries=2,
+        )
+
+    assert result.outcome is LlmCallOutcome.ERROR
+    assert calls == 3

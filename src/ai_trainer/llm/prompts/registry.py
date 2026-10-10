@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from pydantic import BaseModel
-from pydantic_ai import Agent, TemplateStr
+from pydantic_ai import Agent, AgentRetries, TemplateStr
 from pydantic_ai.models.openrouter import OpenRouterModelSettings
 from pydantic_ai.models.test import TestModel
 from pydantic_handlebars import TemplateSchemaError
@@ -90,10 +90,19 @@ class PromptRegistry:
                 version=version,
             ) from exc
 
+        model_settings = OpenRouterModelSettings(openrouter_cache_instructions=True)
+        if template.temperature is not None:
+            model_settings["temperature"] = template.temperature
+
         return Agent(
             TestModel(),
             deps_type=template.deps_type,
             output_type=template.output_type,
             instructions=[persona, body_template],
-            model_settings=OpenRouterModelSettings(openrouter_cache_instructions=True),
+            model_settings=model_settings,
+            retries=_retries(template.output_retries),
         )
+
+
+def _retries(output_retries: int | None) -> AgentRetries | None:
+    return AgentRetries(output=output_retries) if output_retries is not None else None

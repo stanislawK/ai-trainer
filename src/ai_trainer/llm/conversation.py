@@ -16,7 +16,7 @@ from ai_trainer.domain.conversation import Intent
 from ai_trainer.domain.sports.registry import SportRegistry
 from ai_trainer.llm.chitchat import build_chitchat_deps, chitchat_template
 from ai_trainer.llm.prompts.registry import PromptRegistry
-from ai_trainer.llm.router import ChatTurn, build_router_deps, router_template
+from ai_trainer.llm.router import ROUTER_VERSIONS, ChatTurn, build_router_deps, router_template
 
 NOT_YET_REPLY_ID = "not_yet"
 _NOT_YET_VERSION = 1
@@ -25,7 +25,8 @@ _NOT_YET_VERSION = 1
 def build_prompt_registry(root: Path, sports: SportRegistry) -> PromptRegistry:
     """Every template the app runs, each at its active version (ADR-0008 invariant 2)."""
     registry = PromptRegistry(root=root)
-    registry.register(router_template(sports))
+    for version in ROUTER_VERSIONS:
+        registry.register(router_template(sports, version=version))
     registry.register(chitchat_template())
     return registry
 
@@ -51,12 +52,14 @@ class LlmConversation:
         router_model: str,
         chitchat_model: str,
         history_turns: int,
+        router_provider: str | None = None,
     ) -> None:
         self._registry = registry
         self._gateway = gateway
         self._router = router_template(sports)
         self._chitchat = chitchat_template()
         self._router_model = router_model
+        self._router_provider = router_provider
         self._chitchat_model = chitchat_model
         self._history_turns = history_turns
 
@@ -83,6 +86,9 @@ class LlmConversation:
                 self._router.id, self._router.version, deps
             ),
             prompt=context.message,
+            temperature=self._router.temperature,
+            output_retries=self._router.output_retries,
+            upstream_provider=self._router_provider,
         )
         if result.output is None:
             return Routing(intents=(), outcome=result.outcome)
