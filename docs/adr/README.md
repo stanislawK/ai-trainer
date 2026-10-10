@@ -23,5 +23,6 @@ ADRs own the *how*: stack, architecture, testing and agent workflow. The current
 | 0017 | [Geographic lookup (outline)](0017-geographic-lookup.md) | Proposed | 2026-09-16 |
 | 0018 | [Observability and LLM call accounting](0018-observability-and-llm-call-accounting.md) | Accepted | 2026-09-21 |
 | 0019 | [Visual design system and design handoff](0019-visual-design-system.md) | Accepted | 2026-09-23 |
+| 0020 | [Decision models (System One)](0020-decision-models.md) | Proposed | 2026-10-10 |
 
 How to add an ADR: [docs/templates/README.md](../templates/README.md).
