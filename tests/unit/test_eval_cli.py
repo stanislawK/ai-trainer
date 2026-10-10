@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 from pydantic import BaseModel, PostgresDsn, SecretStr
 from pydantic_ai import ModelMessage, ModelResponse, TextPart
+from pydantic_ai.exceptions import ModelHTTPError
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 from pydantic_evals import Case, Dataset
 from pydantic_evals.evaluators import EqualsExpected, Evaluator, EvaluatorContext
@@ -118,6 +119,79 @@ async def test_execute_returns_zero_on_a_clean_run(tmp_path: Path) -> None:
     assert exit_code == 0
 
 
+def _unauthorized(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+    raise ModelHTTPError(
+        status_code=401, model_name="under-test/model", body={"message": "No auth credentials"}
+    )
+
+
+async def test_execute_returns_one_and_writes_no_baseline_when_cases_fail(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _write_sample_dataset(tmp_path / "datasets" / "sample.yaml")
+    args = _build_parser().parse_args(["run", "sample"])
+
+    exit_code = await execute(
+        args,
+        settings=_settings(),
+        registry=_registry(),
+        datasets_root=tmp_path / "datasets",
+        baselines_root=tmp_path / "baselines",
+        reports_root=tmp_path / "reports",
+        model=FunctionModel(_unauthorized),
+        model_id="under-test/model",
+        judge_model=FunctionModel(_reply_response),
+        judge_model_id="judge/model",
+        custom_evaluator_types=[_MentionsNameScore],
+    )
+
+    assert exit_code == 1
+    stderr = capsys.readouterr().err
+    assert "1 of 1 cases failed" in stderr
+    assert "no baseline written" in stderr
+    assert "401" in stderr
+    assert not (tmp_path / "baselines" / "sample.json").exists()
+
+
+@dataclass
+class _CrashingEvaluator(Evaluator[EvalCaseInputs, BaseModel]):
+    def evaluate(self, ctx: EvaluatorContext[EvalCaseInputs, BaseModel]) -> float:
+        raise RuntimeError("boom")
+
+
+async def test_execute_returns_one_when_an_evaluator_crashes(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    case = Case(
+        name="greet_alex",
+        inputs=EvalCaseInputs(prompt="hi", deps={"name": "Alex", "sport": "climbing"}),
+        expected_output=_Output(reply="hi Alex"),
+    )
+    path = tmp_path / "datasets" / "sample.yaml"
+    path.parent.mkdir(parents=True)
+    Dataset[EvalCaseInputs, _Output, object](
+        name="sample", cases=[case], evaluators=[_CrashingEvaluator()]
+    ).to_file(path)
+    args = _build_parser().parse_args(["run", "sample"])
+
+    exit_code = await execute(
+        args,
+        settings=_settings(),
+        registry=_registry(),
+        datasets_root=tmp_path / "datasets",
+        baselines_root=tmp_path / "baselines",
+        reports_root=tmp_path / "reports",
+        model=FunctionModel(_reply_response),
+        model_id="under-test/model",
+        judge_model=FunctionModel(_reply_response),
+        judge_model_id="judge/model",
+        custom_evaluator_types=[_CrashingEvaluator],
+    )
+
+    assert exit_code == 1
+    assert "boom" in capsys.readouterr().err
+
+
 async def test_execute_returns_one_when_the_judge_model_matches_the_model_under_test(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -205,6 +279,25 @@ def test_main_wires_real_settings_and_openrouter_before_reaching_the_dataset(
 
     with pytest.raises(FileNotFoundError):
         cli_module.main(["run", "sample", "--model", "under-test/model"])
+
+
+@pytest.mark.parametrize("blank", ["", "   "])
+def test_main_returns_one_with_a_clear_message_when_the_api_key_is_blank(
+    blank: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A blank key used to crash in `OpenRouterProvider` with a traceback, before any case ran
+    (found by #109's skeptic review). It now stops before the provider is built."""
+    monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://u:p@localhost:5432/db")
+    monkeypatch.setenv("OPENROUTER_API_KEY", blank)
+    monkeypatch.setenv("EVAL_JUDGE_MODEL", "judge/model")
+    monkeypatch.setattr(cli_module, "_default_registry", _registry)
+
+    exit_code = cli_module.main(["run", "sample", "--model", "under-test/model"])
+
+    assert exit_code == 1
+    stderr = capsys.readouterr().err
+    assert "OPENROUTER_API_KEY is blank" in stderr
+    assert ".env" in stderr
 
 
 def test_default_registry_registers_the_router_template() -> None:

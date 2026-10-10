@@ -23,7 +23,9 @@ from pydantic_evals.evaluators import Evaluator
 from ai_trainer.domain.sports.registry import default_sport_registry
 from ai_trainer.llm.conversation import build_prompt_registry
 from ai_trainer.llm.evals.runner import (
+    CaseFailedError,
     EvalCaseInputs,
+    EvaluatorFailedError,
     JudgeModelMatchesModelUnderTestError,
     run_eval,
 )
@@ -109,7 +111,7 @@ async def execute(
             custom_evaluator_types=custom_evaluator_types,
             repeat=args.repeat,
         )
-    except JudgeModelMatchesModelUnderTestError as exc:
+    except (JudgeModelMatchesModelUnderTestError, CaseFailedError, EvaluatorFailedError) as exc:
         print(str(exc), file=sys.stderr)
         return 1
 
@@ -129,7 +131,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     model_id = args.model or getattr(settings, template.model_settings_key)
     judge_model_id = settings.eval_judge_model
 
-    provider = OpenRouterProvider(api_key=settings.openrouter_api_key.get_secret_value())
+    api_key = settings.openrouter_api_key.get_secret_value()
+    if not api_key.strip():
+        # `OpenRouterProvider` would raise a bare `UserError` traceback here (found at #109).
+        print(
+            "OPENROUTER_API_KEY is blank: set it in .env to your OpenRouter key, then re-run.",
+            file=sys.stderr,
+        )
+        return 1
+    provider = OpenRouterProvider(api_key=api_key)
     model = OpenRouterModel(model_id, provider=provider)
     judge_model = OpenRouterModel(
         judge_model_id, provider=provider, settings=ModelSettings(temperature=0)
