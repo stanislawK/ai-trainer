@@ -13,5 +13,6 @@ Precondition: the current PRD includes this sport. If it doesn't, stop and propo
 2. Register the plugin in `src/ai_trainer/domain/sports/registry.py` — the only change allowed outside the plugin folder, prompts, evals and tests.
 3. Write the eval dataset first: `evals/datasets/<sport>.extract.yaml` with at least 20 cases, covering ambiguous input, several activities in one message, a mixed-sport message, unusual units, and a relative date such as "yesterday" or "Tuesday" (ADR-0014).
 4. Add the extraction template `src/ai_trainer/llm/prompts/<sport>.extract/v1.en.md` and create its baseline with `/tune-prompt <sport>.extract`.
-5. Tests: payload validation, every normalizer, the load calculator, and registry wiring.
-6. Prove core is untouched: `git diff --stat main...HEAD` shows changes only in the plugin folder, the registry, prompts, evals and tests.
+5. Decision sets: the sport's options in Jev decision sets (for example its description in `router_fast`'s sport question) gain an entry. Extend those sets' datasets with cases for the new sport and re-run `/tune-prompt <decision-id>`. If the plugin needs a pick, such as mapping an exercise name onto its catalogue, add it with `/add-decision` rather than an LLM template (ADR-0020).
+6. Tests: payload validation, every normalizer, the load calculator, and registry wiring.
+7. Prove core is untouched: `git diff --stat main...HEAD` shows changes only in the plugin folder, the registry, prompts, decision sets, evals and tests.

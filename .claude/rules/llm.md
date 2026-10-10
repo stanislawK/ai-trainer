@@ -6,11 +6,12 @@ paths:
   - "evals/**"
 ---
 
-# LLM, tools and knowledge rules (ADR-0007 – ADR-0011, ADR-0014 – ADR-0018)
+# LLM, tools and knowledge rules (ADR-0007 – ADR-0011, ADR-0014 – ADR-0018, ADR-0020)
 
 - **Prompts:** only through the registry. Bodies are files at `src/ai_trainer/llm/prompts/<id>/v<N>.<locale>.md`, loaded as `TemplateStr`. Never prompt text in Python strings outside tests (ADR-0008, invariant 1) — test fixtures may hold literal text to script `FunctionModel` responses.
 - **Versions:** never edit a template version that has a committed baseline; add `v<N+1>` and switch the registry.
-- **Models:** model IDs and keys come from `Settings`, one model per template. Default `Settings` values are stable/GA OpenRouter model IDs only — a preview or beta model is used only inside a `/tune-prompt` comparison run, never promoted as the default.
+- **Models:** model IDs and keys come from `Settings`, one model per template. Default `Settings` values are stable/GA OpenRouter model IDs only — a preview or beta model is used only inside a `/tune-prompt` comparison run, never promoted as the default. The one exception is `DECISION_MODEL`: a pinned, versioned Jev ID (never `jev-latest` or `jev-preview`), allowed because every decision has a fallback (ADR-0020).
+- **Decision models (ADR-0020):** use Jev (`TypeSafeModel`) through `DecisionGatewayPort` when a step only picks: classify, route, gate or score. Never use it to produce text, extracted values or arithmetic. Question sets are files at `src/ai_trainer/llm/decisions/<id>/v<N>.en.yaml`, never strings. Every option needs a description, because Jev never sees field names. Compute numbers and dates in code and pass them in the state. Read probabilities, not the library's 0.5 `bool` cut, and compare them with thresholds from `Settings` that were calibrated on the set's eval dataset. Index distributions by option name. Every decision has a deterministic fallback (the LLM path or the safe side of the gate). A safety decision only adds the safety intent. No athlete text goes to TypeSafe until ADR-0020 records TypeSafe's retention terms. Add a set with `/add-decision`.
 - **Evals:** a change to a template, a model ID or the router goes through `/tune-prompt` — eval run, no regression, new baseline in the same change. Set the judge model explicitly with `set_default_judge_model(OpenRouterModel(settings.eval_judge_model))`.
 - **Accounting:** every gateway call writes exactly one `llm_calls` row — acting user, template ID, version, model, tokens, cost, latency, outcome — on success, timeout and error alike. Tokens and cost come from the provider response, never estimated in code (ADR-0018).
 - **Telemetry:** traces are OpenTelemetry over OTLP, off by default, wired only in the composition root, with `include_content=False` so no prompt, completion or athlete message reaches a trace store. No vendor SDK in application code (ADR-0018).

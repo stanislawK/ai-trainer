@@ -49,6 +49,7 @@ Locked by the ADRs cited below; `docs/adr/README.md` carries each ADR's current 
 - Geographic lookup, provider deferred to an M5 spike — ADR-0017
 - `llm_calls` accounting in Postgres; OpenTelemetry over OTLP, backend from settings — ADR-0018
 - Liquid Glass daisyUI themes (`trainer-dark` default), glass utilities, Claude Design handoff and Playwright parity — ADR-0019
+- Jev decision model (TypeSafe, via Pydantic AI `TypeSafeModel`) behind `DecisionGatewayPort` for classify/route/gate/score — ADR-0020 (Proposed)
 
 ## Commands (available once M0 lands)
 
@@ -80,8 +81,9 @@ uv run ai-trainer-evals run <template-id>   # evals (costs money — run on purp
 - External lookups are cached and attributed, and carry no user data — only a route, crag or place name (ADR-0016).
 - Look up library APIs with context7 (`.claude/rules/context7.md`) before using them. Several libraries here are newer than most training data: htmx 4, Pydantic AI v2, FastMCP 3.
 - Only stable/GA OpenRouter model IDs are used outside `/tune-prompt` experiments — no preview or beta models in default `Settings`.
+- Jev only picks: it classifies, routes, gates or scores, never writes text or does arithmetic. It runs through the decision gateway with a pinned version, question sets as files, thresholds from evals, and a fallback. No athlete text goes to TypeSafe until ADR-0020 records its retention terms.
 - UI is built from its Claude Design mock with `/implement-design`; custom CSS lives only in the daisyUI theme and the glass utilities (ADR-0019).
 
 ## Status
 
-M0 is complete: #2–#17, the design foundation #36–#44 with its fixes #58–#59, and the `make start` dev loop #62–#64 are merged. PRD 0003 (v0.4, sport inference and the sport glyph on replies) is Approved and supersedes PRD 0002 (v0.3, design and installability), which superseded PRD 0001. Accepted: 0001–0009, 0012–0014, 0018, 0019. 0010, 0011 and 0015–0017 stay Proposed until their milestones. The Claude Design design system and screens exist ([docs/design/README.md](docs/design/README.md)). The M1 skeleton decisions are recorded in ADR-0005, ADR-0006 and ADR-0008. Next: ticket real Google sign-in and the clickable M1 skeleton (onboarding, chat).
+M0 is complete: #2–#17, the design foundation #36–#44 with its fixes #58–#59, and the `make start` dev loop #62–#64 are merged. PRD 0003 (v0.4, sport inference and the sport glyph on replies) is Approved and supersedes PRD 0002 (v0.3, design and installability), which superseded PRD 0001. Accepted: 0001–0009, 0012–0014, 0018, 0019. 0010, 0011 and 0015–0017 stay Proposed until their milestones; 0020 (Jev decision models) is Proposed. The Claude Design design system and screens exist ([docs/design/README.md](docs/design/README.md)). The M1 skeleton decisions are recorded in ADR-0005, ADR-0006 and ADR-0008. Next: ticket real Google sign-in and the clickable M1 skeleton (onboarding, chat).

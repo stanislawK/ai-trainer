@@ -44,3 +44,6 @@ Unit tests with fake models prove the plumbing but say nothing about the quality
 
 - M0 builds the harness and the CLI.
 - The `/tune-prompt` skill runs the eval loop; `.claude/rules/llm.md` carries the invariants.
+- Owner-directed amendment, 2026-10-10 ([ADR-0020](0020-decision-models.md)):
+  - **Decision sets** are evaluated like templates. Each has `evals/datasets/<decision_id>.yaml`, graded in code against expected labels, and its baseline also records the calibrated thresholds plus each case's probability. A threshold change goes through `/tune-prompt` like a model change (invariant 1).
+  - **`JevCheck`** is an auxiliary evaluator that asks Jev a yes/no rubric question about the output. It runs next to `LLMJudge`, which stays the judge of record (invariant 3). Its agreement with the judge is reported, and it gates a baseline only once the owner promotes it at a `/tune-prompt` gate.

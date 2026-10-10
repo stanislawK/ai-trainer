@@ -11,6 +11,7 @@ Skills are step-by-step checklists for complex, recurring tasks. Invoke with `/s
 | [implement-design](implement-design/SKILL.md) | Turn a Claude Design mock into daisyUI/Jinja and prove parity with Playwright | Any web ticket that builds or changes a designed screen (ADR-0019) | `/implement-design <screen>` |
 | [add-endpoint](add-endpoint/SKILL.md) | Checklist for adding or changing a web route | Adding a page, form, API endpoint, or SSE stream | `/add-endpoint` |
 | [add-mcp-tool](add-mcp-tool/SKILL.md) | Add a tool or resource to the MCP server | Exposing app behavior to Claude or other agents | `/add-mcp-tool <tool-name>` |
+| [add-decision](add-decision/SKILL.md) | Add a Jev decision set (classify, route, gate, score) | A step only picks a label, a yes/no or a level and an LLM call would be overkill (ADR-0020) | `/add-decision <decision-id>` |
 | [add-sport](add-sport/SKILL.md) | Add a new sport as a plugin | Extending training domain without touching core (ADR-0006) | `/add-sport <sport-key>` |
 | [coverage](coverage/SKILL.md) | Raise line coverage to 100% in touched modules | After tests pass, before committing | `/coverage` |
 | [run-tdd](run-tdd/SKILL.md) | Test-first development loop | When coding features with TDD (red → green → refactor) | `/run-tdd` |
