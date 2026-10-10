@@ -38,6 +38,13 @@ class MessageNotFoundError(Exception):
 
 
 @dataclass(frozen=True, slots=True)
+class ReplyPhase:
+    """The step the reply is on, so the chat can name it before the first token (F14)."""
+
+    phase: Literal["routing", "replying"]
+
+
+@dataclass(frozen=True, slots=True)
 class ReplyChunk:
     text: str
 
@@ -56,7 +63,7 @@ class ReplyFailed:
     outcome: LlmCallOutcome
 
 
-type ReplyEvent = ReplyChunk | ReplyDone | ReplyFailed
+type ReplyEvent = ReplyPhase | ReplyChunk | ReplyDone | ReplyFailed
 
 
 @dataclass(frozen=True, slots=True)
@@ -136,10 +143,13 @@ async def _reply(
         now=services.clock.now(),
         timezone=timezone,
     )
+    yield ReplyPhase("routing")
     routing = await services.conversation.route(context)
     if routing.outcome is not LlmCallOutcome.SUCCESS:
         yield ReplyFailed(outcome=routing.outcome)
         return
+
+    yield ReplyPhase("replying")
 
     answers: list[_Answer] = []
     for part in _plan(routing.intents):

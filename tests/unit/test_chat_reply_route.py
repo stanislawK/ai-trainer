@@ -68,7 +68,7 @@ async def test_hi_streams_chunks_then_swaps_in_the_saved_reply() -> None:
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/event-stream")
-    *chunks, final = _sse_data(response.text)
+    _routing, _replying, *chunks, final = _sse_data(response.text)
     for chunk, text in zip(chunks, ["Hey! ", "Good to hear from you."], strict=True):
         assert f'hx-target="#reply-{asked.id}-text"' in chunk
         assert 'hx-swap="beforeend"' in chunk
@@ -199,3 +199,70 @@ async def test_history_shows_a_reply_as_the_assistants_text_without_a_bubble() -
     assert reply is not None
     assert "Hey there." in reply.group(0)
     assert "bg-primary/20" not in reply.group(0)
+
+
+def test_a_sent_message_shows_the_thinking_indicator_until_its_first_token() -> None:
+    client, _, chat = _client()
+
+    response = client.post("/messages", data={"message": "hi!"}, headers=_HTMX)
+
+    [(_, asked)] = chat.rows
+    indicator = re.search(r"<div[^>]*data-thinking[^>]*>.*?Thinking…", response.text, re.DOTALL)
+    assert indicator is not None
+    assert 'role="status"' in indicator.group(0)
+    assert f'id="reply-{asked.id}-phase"' in response.text
+    # The streaming text row stays hidden until the first chunk lands in its text span.
+    assert f'id="reply-{asked.id}-text" data-reply-text></span>' in response.text
+    # A static selector: Tailwind can only generate classes it can read from the source.
+    assert "group-has-[[data-reply-text]:not(:empty)]/reply:hidden" in response.text
+    assert "group-has-[[data-reply-text]:not(:empty)]/reply:flex" in response.text
+
+
+def test_the_thinking_indicator_stays_still_under_reduced_motion() -> None:
+    client, _, _ = _client()
+
+    html = client.post("/messages", data={"message": "hi!"}, headers=_HTMX).text
+
+    animated = re.findall(r'class="[^"]*animate-\[[^"]*"', html)
+    assert animated
+    assert all("motion-reduce:animate-none" in element for element in animated)
+
+
+def test_the_thinking_indicator_carries_a_hidden_elapsed_hint() -> None:
+    client, _, _ = _client()
+
+    html = client.post("/messages", data={"message": "hi!"}, headers=_HTMX).text
+
+    assert re.search(r"<span[^>]*data-thinking-hint[^>]* hidden[^>]*>", html)
+    assert "data-thinking-elapsed" in html
+
+
+def test_the_chat_page_loads_the_thinking_script() -> None:
+    client, _, _ = _client()
+
+    assert "/static/js/thinking.js" in client.get("/").text
+
+
+async def test_a_phase_event_switches_the_indicators_label() -> None:
+    client, user_id, chat = _client()
+    asked = await _asked(chat, user_id)
+
+    routing, replying, *_ = _sse_data(client.get(f"/messages/{asked.id}/reply").text)
+
+    for event, label in ((routing, "Reading your message…"), (replying, "Writing your reply…")):
+        assert f'hx-target="#reply-{asked.id}-phase"' in event
+        assert 'hx-swap="innerHTML"' in event
+        assert label in event
+
+
+async def test_an_error_before_any_token_replaces_the_indicator_with_the_error_row() -> None:
+    conversation = ScriptedConversation(route_outcomes=[LlmCallOutcome.ERROR])
+    client, user_id, chat = _client(conversation)
+    asked = await _asked(chat, user_id)
+
+    routing, final = _sse_data(client.get(f"/messages/{asked.id}/reply").text)
+
+    assert "Reading your message…" in routing
+    assert f'hx-target="#reply-{asked.id}"' in final
+    assert 'role="alert"' in final
+    assert "data-thinking" not in final

@@ -26,6 +26,7 @@ from ai_trainer.application.reply import (
     ReplyChunk,
     ReplyDone,
     ReplyEvent,
+    ReplyPhase,
     ReplyServices,
     find_message,
     start_reply,
@@ -65,9 +66,14 @@ def build_chat_router(
         return templates.get_template(template_name).render(**context)
 
     def reply_event(message_id: UUID, event: ReplyEvent) -> ServerSentEvent:
-        """Each event is an htmx partial: chunks append to the streaming text, and the last
-        event swaps the whole placeholder for the saved reply or the error row (ADR-0012)."""
-        if isinstance(event, ReplyChunk):
+        """Each event is an htmx partial: a phase relabels the thinking indicator, chunks append
+        to the streaming text, and the last event swaps the whole placeholder for the saved
+        reply or the error row (ADR-0012)."""
+        if isinstance(event, ReplyPhase):
+            html = render(
+                "partials/chat/reply_phase.html", message_id=message_id, phase=event.phase
+            )
+        elif isinstance(event, ReplyChunk):
             html = render("partials/chat/reply_chunk.html", message_id=message_id, text=event.text)
         elif isinstance(event, ReplyDone):
             html = render(

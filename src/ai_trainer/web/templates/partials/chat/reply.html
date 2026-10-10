@@ -1,8 +1,13 @@
-{#- The reply to `message` while it streams (ticket #82). The wrapper owns the one SSE connection and stays in place: chunks append before the caret, and the last event swaps in the saved reply or the error row, after which the server ends the stream. -#}
+{#- The reply to `message` while it streams (tickets #82 and #83). The wrapper owns the one SSE connection and stays in place. Until the first chunk lands in the text span it shows the thinking indicator, whose label phase events replace; then the text row takes over by CSS alone. The last event swaps in the saved reply or the error row, after which the server ends the stream. -#}
 {%- from "components/avatar.html" import avatar -%}
-<div id="reply-{{ message.id }}" class="flex flex-col gap-4" hx-sse:connect="/messages/{{ message.id }}/reply" hx-config="sse.reconnect:false sse.pauseOnBackground:false">
-  <div class="flex gap-2.5">
+<div id="reply-{{ message.id }}" class="group/reply flex flex-col gap-4" hx-sse:connect="/messages/{{ message.id }}/reply" hx-config="sse.reconnect:false sse.pauseOnBackground:false">
+  <div data-thinking class="flex flex-wrap items-center gap-x-2.5 gap-y-1 min-h-7 group-has-[[data-reply-text]:not(:empty)]/reply:hidden" role="status" aria-live="polite">
+    <span class="relative size-7 shrink-0 rounded-full glass-regular overflow-hidden" aria-hidden="true"><span class="absolute -inset-1 bg-[conic-gradient(from_0deg,var(--color-primary),transparent_35%,var(--color-primary)_65%,transparent)] blur-[5px] opacity-80 animate-[spin_3.2s_linear_infinite] motion-reduce:animate-none"></span><span class="absolute inset-[6px] rounded-full bg-base-100/60"></span></span>
+    <span id="reply-{{ message.id }}-phase" class="skeleton skeleton-text bg-transparent bg-[linear-gradient(105deg,color-mix(in_oklch,var(--color-base-content)_70%,transparent)_0%_40%,var(--color-base-content)_50%,color-mix(in_oklch,var(--color-base-content)_70%,transparent)_60%_100%)] rounded-none text-[16px] leading-6 font-medium motion-reduce:animate-none">Thinking…</span>
+    <span data-thinking-hint hidden class="text-[13px] text-base-content/70">Still working · <span data-thinking-elapsed class="tabular-nums">8</span> s</span>
+  </div>
+  <div class="hidden group-has-[[data-reply-text]:not(:empty)]/reply:flex gap-2.5">
     {{ avatar() }}
-    <p class="min-w-0 max-w-[65ch] text-[16px] leading-6 whitespace-pre-wrap break-words" aria-live="polite"><span id="reply-{{ message.id }}-text"></span><span class="inline-block w-2 h-5 ml-0.5 align-text-bottom rounded-sm bg-primary animate-pulse motion-reduce:animate-none" aria-hidden="true"></span></p>
+    <p class="min-w-0 max-w-[65ch] text-[16px] leading-6 whitespace-pre-wrap break-words" aria-live="polite"><span id="reply-{{ message.id }}-text" data-reply-text></span><span class="inline-block w-2 h-5 ml-0.5 align-text-bottom rounded-sm bg-primary animate-pulse motion-reduce:animate-none" aria-hidden="true"></span></p>
   </div>
 </div>

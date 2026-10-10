@@ -1,0 +1,3 @@
+{#- The thinking indicator's label for the step the server reports (F14). The words live here, not in Python (G5). -#}
+{%- set labels = {"routing": "Reading your message…", "replying": "Writing your reply…"} -%}
+<template hx type="partial" hx-target="#reply-{{ message_id }}-phase" hx-swap="innerHTML">{{ labels[phase] }}</template>
