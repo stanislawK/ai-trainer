@@ -593,6 +593,90 @@ cases:
     - kind: chitchat
       confidence: 0.5
       span: ''
+- name: pain plus greeting
+  inputs:
+    prompt: My knee hurts, also hi
+    deps:
+      message: My knee hurts, also hi
+      history: []
+      athlete_sports:
+      - climbing
+      - gym
+      - cycling
+      today: '2026-09-30'
+      now_local: '2026-09-30T18:30:00+02:00'
+      timezone: Europe/Warsaw
+  expected_output:
+    intents:
+    - kind: wellbeing_or_injury
+      confidence: 0.9
+      span: ''
+    - kind: chitchat
+      confidence: 0.9
+      span: ''
+- name: pain plus thanks
+  inputs:
+    prompt: Thanks for the plan! My wrist has been sore since Monday
+    deps:
+      message: Thanks for the plan! My wrist has been sore since Monday
+      history: []
+      athlete_sports:
+      - climbing
+      - gym
+      - cycling
+      today: '2026-09-30'
+      now_local: '2026-09-30T18:30:00+02:00'
+      timezone: Europe/Warsaw
+  expected_output:
+    intents:
+    - kind: wellbeing_or_injury
+      confidence: 0.9
+      span: ''
+    - kind: chitchat
+      confidence: 0.9
+      span: ''
+- name: "pain plus how's it going"
+  inputs:
+    prompt: "Hey, how's it going? My lower back is killing me"
+    deps:
+      message: "Hey, how's it going? My lower back is killing me"
+      history: []
+      athlete_sports:
+      - climbing
+      - gym
+      - cycling
+      today: '2026-09-30'
+      now_local: '2026-09-30T18:30:00+02:00'
+      timezone: Europe/Warsaw
+  expected_output:
+    intents:
+    - kind: wellbeing_or_injury
+      confidence: 0.9
+      span: ''
+    - kind: chitchat
+      confidence: 0.9
+      span: ''
+- name: played-down pain plus greeting
+  inputs:
+    prompt: "knee's a bit sore lol, anyway hi"
+    deps:
+      message: "knee's a bit sore lol, anyway hi"
+      history: []
+      athlete_sports:
+      - climbing
+      - gym
+      - cycling
+      today: '2026-09-30'
+      now_local: '2026-09-30T18:30:00+02:00'
+      timezone: Europe/Warsaw
+  expected_output:
+    intents:
+    - kind: wellbeing_or_injury
+      confidence: 0.9
+      span: ''
+    - kind: chitchat
+      confidence: 0.9
+      span: ''
 evaluators:
 - IntentKindsMatch
 - LogSessionSportMatch
