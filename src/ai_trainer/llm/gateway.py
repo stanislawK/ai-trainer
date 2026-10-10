@@ -6,8 +6,12 @@ from decimal import Decimal
 from uuid import UUID
 
 from pydantic import BaseModel
-from pydantic_ai import Agent, ModelMessage, ModelResponse
-from pydantic_ai.models.openrouter import OpenRouterModel, OpenRouterModelSettings
+from pydantic_ai import Agent, AgentRetries, ModelMessage, ModelResponse
+from pydantic_ai.models.openrouter import (
+    OpenRouterModel,
+    OpenRouterModelSettings,
+    OpenRouterProviderConfig,
+)
 from pydantic_ai.models.test import TestModel
 from pydantic_ai.providers.openrouter import OpenRouterProvider
 from pydantic_ai.result import StreamedRunResult
@@ -69,9 +73,16 @@ class OpenRouterGateway:
         output_type: type[OutputT],
         instructions: str,
         prompt: str,
+        temperature: float | None = None,
+        output_retries: int | None = None,
+        upstream_provider: str | None = None,
     ) -> LlmGatewayResult[OutputT]:
         model = OpenRouterModel(model_id, provider=self._provider)
         model_settings = OpenRouterModelSettings(openrouter_cache_instructions=True)
+        if temperature is not None:
+            model_settings["temperature"] = temperature
+        if upstream_provider is not None:
+            model_settings["openrouter_provider"] = pinned_upstream(upstream_provider)
         started = time.monotonic()
 
         async def _fail(outcome: LlmCallOutcome, message: str) -> LlmGatewayResult[OutputT]:
@@ -96,6 +107,9 @@ class OpenRouterGateway:
                     output_type=output_type,
                     instructions=instructions,
                     model_settings=model_settings,
+                    retries=(
+                        AgentRetries(output=output_retries) if output_retries is not None else None
+                    ),
                 ),
                 timeout=self._timeout_seconds,
             )
@@ -313,6 +327,12 @@ class OpenRouterGateway:
                 outcome=outcome,
             )
         )
+
+
+def pinned_upstream(slug: str) -> OpenRouterProviderConfig:
+    """OpenRouter tries `slug` first and falls back to its other endpoints only when that one
+    fails, so one template sees one serving stack instead of a random quantization per call."""
+    return OpenRouterProviderConfig(order=[slug], allow_fallbacks=True)
 
 
 def _elapsed_ms(started: float) -> int:

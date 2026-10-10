@@ -30,6 +30,10 @@ class Settings(BaseSettings):
     # One model per template (ADR-0007). No default: a stable/GA OpenRouter id (never a
     # preview) and its cost are an operator choice, like `eval_judge_model` below.
     router_model: str
+    # The OpenRouter upstream slug the router prefers (e.g. "z-ai"), fallbacks still allowed.
+    # Unset lets OpenRouter balance across every endpoint, which made one prompt route the
+    # same message differently from call to call (#127).
+    router_provider: str | None = None
     # The `chitchat` specialist's model (ADR-0008): answers chitchat, unclear and wellbeing
     # messages in the persona. Required, no default, for the same reason as `router_model`.
     chitchat_model: str
@@ -71,3 +75,8 @@ class Settings(BaseSettings):
         if not raw.strip():
             raise ValueError(f"{(info.field_name or '').upper()} must not be blank")
         return value
+
+    @field_validator("router_provider")
+    @classmethod
+    def _blank_is_unset(cls, value: str | None) -> str | None:
+        return value.strip() or None if value is not None else None

@@ -6,6 +6,7 @@ from pydantic import BaseModel, PostgresDsn, SecretStr
 from pydantic_ai import ModelMessage, ModelResponse, TextPart
 from pydantic_ai.exceptions import ModelHTTPError
 from pydantic_ai.models.function import AgentInfo, FunctionModel
+from pydantic_ai.providers.openrouter import OpenRouterProvider
 from pydantic_evals import Case, Dataset
 from pydantic_evals.evaluators import EqualsExpected, Evaluator, EvaluatorContext
 
@@ -300,8 +301,36 @@ def test_main_returns_one_with_a_clear_message_when_the_api_key_is_blank(
     assert ".env" in stderr
 
 
+def test_the_model_under_test_pins_the_templates_upstream_provider() -> None:
+    settings = _settings().model_copy(update={"router_provider": "z-ai"})
+    template = cli_module._default_registry().get("router", 2)
+
+    pinned = cli_module._model_under_test(
+        template, settings, model_override=None, provider=OpenRouterProvider(api_key="k")
+    )
+
+    assert pinned.model_name == settings.router_model
+    assert (pinned.settings or {}).get("openrouter_provider") == {
+        "order": ["z-ai"],
+        "allow_fallbacks": True,
+    }
+
+
+def test_a_model_override_drops_the_upstream_pin() -> None:
+    """The pinned upstream may not serve another model, so `--model` runs unpinned."""
+    settings = _settings().model_copy(update={"router_provider": "z-ai"})
+    template = cli_module._default_registry().get("router", 2)
+
+    other = cli_module._model_under_test(
+        template, settings, model_override="openai/gpt-5", provider=OpenRouterProvider(api_key="k")
+    )
+
+    assert other.model_name == "openai/gpt-5"
+    assert "openrouter_provider" not in (other.settings or {})
+
+
 def test_default_registry_registers_the_router_template() -> None:
-    template = cli_module._default_registry().get("router", 1)
+    template = cli_module._default_registry().get("router", 2)
 
     assert template.model_settings_key == "router_model"
 

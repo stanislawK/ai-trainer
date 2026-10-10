@@ -14,6 +14,10 @@ from ai_trainer.llm.evals.runner import EvalCaseInputs
 from ai_trainer.llm.prompts.template import PromptTemplate
 
 ROUTER_TEMPLATE_ID = "router"
+# Every version with a body file stays registered so evals can compare them (ADR-0008
+# invariant 2); the app runs the active one.
+ROUTER_VERSIONS = (1, 2)
+ACTIVE_ROUTER_VERSION = 2
 
 
 _SPORT_INTENT_KIND = "log_session"
@@ -62,14 +66,17 @@ def build_router_deps(
     )
 
 
-class _IntentBase(BaseModel):
-    confidence: float = Field(ge=0, le=1)
-    span: str
-
-
-def _intent_model(kind: str, **fields: Any) -> type[_IntentBase]:
+def _intent_model(kind: str, **fields: Any) -> type[BaseModel]:
+    """Fields in the order the model should decide them: `kind` first, `confidence` last, so
+    the number is written after the intent is chosen."""
     name = "".join(part.capitalize() for part in kind.split("_")) + "Intent"
-    return create_model(name, __base__=_IntentBase, kind=(Literal[kind], ...), **fields)
+    return create_model(
+        name,
+        kind=(Literal[kind], ...),
+        **fields,
+        span=(str, ...),
+        confidence=(float, Field(ge=0, le=1)),
+    )
 
 
 def router_output_type(registry: SportRegistry) -> type[BaseModel]:
@@ -87,14 +94,20 @@ def router_output_type(registry: SportRegistry) -> type[BaseModel]:
     return create_model("RouterOutput", intents=(Annotated[list[intent], Field(min_length=1)], ...))
 
 
-def router_template(registry: SportRegistry) -> PromptTemplate[RouterDeps, BaseModel]:
+def router_template(
+    registry: SportRegistry, *, version: int = ACTIVE_ROUTER_VERSION
+) -> PromptTemplate[RouterDeps, BaseModel]:
     return PromptTemplate(
         id=ROUTER_TEMPLATE_ID,
-        version=1,
+        version=version,
         locale="en",
         deps_type=RouterDeps,
         output_type=router_output_type(registry),
         model_settings_key="router_model",
+        provider_settings_key="router_provider",
+        temperature=0,
+        # One malformed reply in a 132-call eval run aborted the baseline write (#127).
+        output_retries=2,
     )
 
 
@@ -111,6 +124,13 @@ def _logged_sports(output: BaseModel) -> list[str]:
     return [intent.sport for intent in _intents(output) if intent.kind == _SPORT_INTENT_KIND]
 
 
+def _strip_trailing(kinds: list[str], optional: list[str]) -> list[str]:
+    end = len(kinds)
+    while end > 0 and kinds[end - 1] in optional:
+        end -= 1
+    return kinds[:end]
+
+
 def _collapse_repeats(kinds: list[str]) -> list[str]:
     """Consecutive repeats of one kind are one intent, except `log_session`, which can
     legitimately repeat in a message (B1)."""
@@ -125,12 +145,15 @@ def _collapse_repeats(kinds: list[str]) -> list[str]:
 @dataclass
 class IntentKindsMatch(Evaluator[EvalCaseInputs, BaseModel]):
     """Code-graded: the same intent kinds in the same order (pain first, then message order),
-    with consecutive repeats of any kind but `log_session` collapsed."""
+    with consecutive repeats of any kind but `log_session` collapsed. A case may list
+    `metadata.optional_trailing_kinds`; those kinds at the end of the output are ignored, so a
+    pain case can pass with or without the log that follows it."""
 
     def evaluate(self, ctx: EvaluatorContext[EvalCaseInputs, BaseModel]) -> bool:
         assert ctx.expected_output is not None
-        return _collapse_repeats(_kinds(ctx.output)) == _collapse_repeats(
-            _kinds(ctx.expected_output)
+        optional = (ctx.metadata or {}).get("optional_trailing_kinds", [])
+        return _collapse_repeats(_strip_trailing(_kinds(ctx.output), optional)) == (
+            _collapse_repeats(_kinds(ctx.expected_output))
         )
 
 

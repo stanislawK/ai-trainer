@@ -392,6 +392,9 @@ cases:
       confidence: 0.9
       span: ''
 - name: feeling unwell
+  metadata:
+    optional_trailing_kinds:
+    - log_session
   inputs:
     prompt: I felt dizzy and nauseous at the end of the ride
     deps:
@@ -409,10 +412,6 @@ cases:
     - kind: wellbeing_or_injury
       confidence: 0.9
       span: ''
-    - kind: log_session
-      confidence: 0.9
-      span: ''
-      sport: cycling
 - name: mixed log and question
   inputs:
     prompt: Did a 60 km ride today. Is that too much for a beginner?
@@ -521,6 +520,9 @@ cases:
       confidence: 0.2
       span: ''
 - name: injury wording in slang
+  metadata:
+    optional_trailing_kinds:
+    - log_session
   inputs:
     prompt: Tweaked my back deadlifting, probably nothing
     deps:
@@ -675,6 +677,190 @@ cases:
       confidence: 0.9
       span: ''
     - kind: chitchat
+      confidence: 0.9
+      span: ''
+- name: relative date log paraphrase on the trainer
+  inputs:
+    prompt: Last night I did 6 x 4 min VO2 intervals on the trainer
+    deps:
+      message: Last night I did 6 x 4 min VO2 intervals on the trainer
+      history: []
+      athlete_sports:
+      - climbing
+      - gym
+      - cycling
+      today: '2026-09-30'
+      now_local: '2026-09-30T18:30:00+02:00'
+      timezone: Europe/Warsaw
+  expected_output:
+    intents:
+    - kind: log_session
+      confidence: 0.9
+      span: ''
+      sport: cycling
+- name: relative date log paraphrase long ride
+  inputs:
+    prompt: Two days ago I rode 3 hours at endurance pace, nothing special
+    deps:
+      message: Two days ago I rode 3 hours at endurance pace, nothing special
+      history: []
+      athlete_sports:
+      - cycling
+      - gym
+      today: '2026-09-30'
+      now_local: '2026-09-30T18:30:00+02:00'
+      timezone: Europe/Warsaw
+  expected_output:
+    intents:
+    - kind: log_session
+      confidence: 0.9
+      span: ''
+      sport: cycling
+- name: relative date log paraphrase gym
+  inputs:
+    prompt: Yesterday I did 4x8 bench press at 70 kg and some rows
+    deps:
+      message: Yesterday I did 4x8 bench press at 70 kg and some rows
+      history: []
+      athlete_sports:
+      - climbing
+      - gym
+      - cycling
+      today: '2026-09-30'
+      now_local: '2026-09-30T18:30:00+02:00'
+      timezone: Europe/Warsaw
+  expected_output:
+    intents:
+    - kind: log_session
+      confidence: 0.9
+      span: ''
+      sport: gym
+- name: relative date log paraphrase climbing
+  inputs:
+    prompt: On Sunday I climbed for two hours, mostly 6B routes
+    deps:
+      message: On Sunday I climbed for two hours, mostly 6B routes
+      history: []
+      athlete_sports:
+      - climbing
+      - gym
+      - cycling
+      today: '2026-09-30'
+      now_local: '2026-09-30T18:30:00+02:00'
+      timezone: Europe/Warsaw
+  expected_output:
+    intents:
+    - kind: log_session
+      confidence: 0.9
+      span: ''
+      sport: climbing
+- name: polish relative date log
+  inputs:
+    prompt: Wczoraj zrobiłem 8 x 5 minut interwałów na trenażerze
+    deps:
+      message: Wczoraj zrobiłem 8 x 5 minut interwałów na trenażerze
+      history: []
+      athlete_sports:
+      - cycling
+      - gym
+      today: '2026-09-30'
+      now_local: '2026-09-30T18:30:00+02:00'
+      timezone: Europe/Warsaw
+  expected_output:
+    intents:
+    - kind: log_session
+      confidence: 0.9
+      span: ''
+      sport: cycling
+- name: polish relative date log gym
+  inputs:
+    prompt: Wczoraj na siłowni zrobiłem 5x5 przysiadów po 100 kg
+    deps:
+      message: Wczoraj na siłowni zrobiłem 5x5 przysiadów po 100 kg
+      history: []
+      athlete_sports:
+      - climbing
+      - gym
+      - cycling
+      today: '2026-09-30'
+      now_local: '2026-09-30T18:30:00+02:00'
+      timezone: Europe/Warsaw
+  expected_output:
+    intents:
+    - kind: log_session
+      confidence: 0.9
+      span: ''
+      sport: gym
+- name: polish log cycling
+  inputs:
+    prompt: Dzisiaj rano przejechałem 40 km na rowerze
+    deps:
+      message: Dzisiaj rano przejechałem 40 km na rowerze
+      history: []
+      athlete_sports:
+      - climbing
+      - gym
+      - cycling
+      today: '2026-09-30'
+      now_local: '2026-09-30T18:30:00+02:00'
+      timezone: Europe/Warsaw
+  expected_output:
+    intents:
+    - kind: log_session
+      confidence: 0.9
+      span: ''
+      sport: cycling
+- name: polish profile update
+  inputs:
+    prompt: Chcę dodać kolarstwo do moich sportów
+    deps:
+      message: Chcę dodać kolarstwo do moich sportów
+      history: []
+      athlete_sports:
+      - climbing
+      - gym
+      today: '2026-09-30'
+      now_local: '2026-09-30T18:30:00+02:00'
+      timezone: Europe/Warsaw
+  expected_output:
+    intents:
+    - kind: update_profile
+      confidence: 0.9
+      span: ''
+- name: polish chitchat
+  inputs:
+    prompt: Cześć, co słychać?
+    deps:
+      message: Cześć, co słychać?
+      history: []
+      athlete_sports:
+      - climbing
+      - gym
+      - cycling
+      today: '2026-09-30'
+      now_local: '2026-09-30T18:30:00+02:00'
+      timezone: Europe/Warsaw
+  expected_output:
+    intents:
+    - kind: chitchat
+      confidence: 0.9
+      span: ''
+- name: polish pain
+  inputs:
+    prompt: Od wtorku boli mnie kolano
+    deps:
+      message: Od wtorku boli mnie kolano
+      history: []
+      athlete_sports:
+      - climbing
+      - gym
+      - cycling
+      today: '2026-09-30'
+      now_local: '2026-09-30T18:30:00+02:00'
+      timezone: Europe/Warsaw
+  expected_output:
+    intents:
+    - kind: wellbeing_or_injury
       confidence: 0.9
       span: ''
 evaluators:

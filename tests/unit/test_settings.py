@@ -152,6 +152,24 @@ def test_router_settings_default_to_ten_turns_and_a_named_model(
     assert settings.router_model == "test/router-model"
 
 
+def test_the_router_provider_is_unpinned_unless_set(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", DATABASE_URL)
+    monkeypatch.setenv("OPENROUTER_API_KEY", OPENROUTER_API_KEY)
+    monkeypatch.setenv("EVAL_JUDGE_MODEL", EVAL_JUDGE_MODEL)
+    monkeypatch.setenv("ROUTER_MODEL", "test/router-model")
+    monkeypatch.delenv("ROUTER_PROVIDER", raising=False)
+
+    assert Settings(_env_file=None).router_provider is None
+
+    monkeypatch.setenv("ROUTER_PROVIDER", "z-ai")
+
+    assert Settings(_env_file=None).router_provider == "z-ai"
+
+    monkeypatch.setenv("ROUTER_PROVIDER", "  ")  # as copied from .env.example
+
+    assert Settings(_env_file=None).router_provider is None
+
+
 def test_missing_router_model_raises_naming_it(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DATABASE_URL", DATABASE_URL)
     monkeypatch.setenv("OPENROUTER_API_KEY", OPENROUTER_API_KEY)

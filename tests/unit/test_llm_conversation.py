@@ -86,6 +86,7 @@ def _conversation(gateway: RecordingGateway) -> LlmConversation:
         gateway=gateway,
         sports=default_sport_registry(),
         router_model="test/router-model",
+        router_provider="test-upstream",
         chitchat_model="test/chitchat-model",
         history_turns=10,
     )
@@ -115,10 +116,13 @@ async def test_route_runs_the_router_template_and_returns_its_intents_in_order()
     [call] = gateway.runs
     assert (call["template_id"], call["template_version"], call["model_id"]) == (
         "router",
-        1,
+        2,
         "test/router-model",
     )
     assert (call["user_id"], call["prompt"]) == (context.user_id, "log my ride, also hi")
+    assert call["temperature"] == 0
+    assert call["output_retries"] == 2
+    assert call["upstream_provider"] == "test-upstream"
     assert call["output_type"].model_json_schema() == (
         router_output_type(default_sport_registry()).model_json_schema()
     )
@@ -131,7 +135,7 @@ async def test_route_runs_the_router_template_and_returns_its_intents_in_order()
         history_turns=10,
     )
     expected = build_prompt_registry(_PROMPTS_ROOT, default_sport_registry()).render_instructions(
-        "router", 1, deps
+        "router", 2, deps
     )
     assert call["instructions"] == expected
 

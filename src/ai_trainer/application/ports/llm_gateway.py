@@ -45,6 +45,9 @@ class LlmGatewayPort(Protocol):
         output_type: type[OutputT],
         instructions: str,
         prompt: str,
+        temperature: float | None = None,
+        output_retries: int | None = None,
+        upstream_provider: str | None = None,
     ) -> LlmGatewayResult[OutputT]: ...
 
     def stream(

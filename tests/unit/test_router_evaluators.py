@@ -76,6 +76,30 @@ def test_kinds_match_keeps_repeated_log_session() -> None:
     assert IntentKindsMatch().evaluate(_ctx(twice, expected)) is False
 
 
+def test_kinds_match_ignores_a_trailing_kind_the_metadata_makes_optional() -> None:
+    expected = _output(_intent("wellbeing_or_injury"))
+    with_log = _output(_intent("wellbeing_or_injury"), _intent("log_session", sport="cycling"))
+    without_log = _output(_intent("wellbeing_or_injury"))
+    meta = {"optional_trailing_kinds": ["log_session"]}
+
+    assert IntentKindsMatch().evaluate(_ctx(with_log, expected, meta)) is True
+    assert IntentKindsMatch().evaluate(_ctx(without_log, expected, meta)) is True
+    assert IntentKindsMatch().evaluate(_ctx(with_log, expected)) is False
+
+
+def test_an_optional_trailing_kind_never_excuses_a_missing_or_late_pain_intent() -> None:
+    expected = _output(_intent("wellbeing_or_injury"))
+    meta = {"optional_trailing_kinds": ["log_session"]}
+
+    log_only = _output(_intent("log_session", sport="gym"))
+    log_first = _output(_intent("log_session", sport="gym"), _intent("wellbeing_or_injury"))
+    junk_after = _output(_intent("wellbeing_or_injury"), _intent("chitchat"))
+
+    assert IntentKindsMatch().evaluate(_ctx(log_only, expected, meta)) is False
+    assert IntentKindsMatch().evaluate(_ctx(log_first, expected, meta)) is False
+    assert IntentKindsMatch().evaluate(_ctx(junk_after, expected, meta)) is False
+
+
 def test_sport_match_accepts_any_sport_listed_in_the_metadata() -> None:
     expected = _output(_intent("log_session", sport="climbing"))
     gym = _output(_intent("log_session", sport="gym"))

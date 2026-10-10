@@ -16,7 +16,7 @@ from pathlib import Path
 from pydantic import BaseModel
 from pydantic_ai import ModelSettings
 from pydantic_ai.models import Model
-from pydantic_ai.models.openrouter import OpenRouterModel
+from pydantic_ai.models.openrouter import OpenRouterModel, OpenRouterModelSettings
 from pydantic_ai.providers.openrouter import OpenRouterProvider
 from pydantic_evals.evaluators import Evaluator
 
@@ -29,7 +29,9 @@ from ai_trainer.llm.evals.runner import (
     JudgeModelMatchesModelUnderTestError,
     run_eval,
 )
+from ai_trainer.llm.gateway import pinned_upstream
 from ai_trainer.llm.prompts.registry import PromptRegistry
+from ai_trainer.llm.prompts.template import PromptTemplate, TemplateOutput
 from ai_trainer.llm.router import IntentKindsMatch, LogSessionSportMatch
 from ai_trainer.settings import Settings
 
@@ -122,13 +124,37 @@ async def execute(
     return 0
 
 
+def _model_under_test(
+    template: PromptTemplate[BaseModel, TemplateOutput],
+    settings: Settings,
+    *,
+    model_override: str | None,
+    provider: OpenRouterProvider,
+) -> OpenRouterModel:
+    """The template's model from `Settings`, pinned to its upstream like the app pins it. A
+    `--model` override runs unpinned: the pinned upstream may not serve that model."""
+    if model_override is not None:
+        return OpenRouterModel(model_override, provider=provider)
+    model_id: str = getattr(settings, template.model_settings_key)
+    upstream: str | None = (
+        getattr(settings, template.provider_settings_key)
+        if template.provider_settings_key is not None
+        else None
+    )
+    model_settings = (
+        OpenRouterModelSettings(openrouter_provider=pinned_upstream(upstream))
+        if upstream is not None
+        else None
+    )
+    return OpenRouterModel(model_id, provider=provider, settings=model_settings)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
     settings = Settings()
     registry = _default_registry()
 
     template = registry.get(args.template_id, args.version)
-    model_id = args.model or getattr(settings, template.model_settings_key)
     judge_model_id = settings.eval_judge_model
 
     api_key = settings.openrouter_api_key.get_secret_value()
@@ -140,7 +166,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         return 1
     provider = OpenRouterProvider(api_key=api_key)
-    model = OpenRouterModel(model_id, provider=provider)
+    model = _model_under_test(template, settings, model_override=args.model, provider=provider)
+    model_id = model.model_name
     judge_model = OpenRouterModel(
         judge_model_id, provider=provider, settings=ModelSettings(temperature=0)
     )

@@ -118,6 +118,7 @@ def create_app(settings: Settings) -> FastAPI:
         gateway=OpenRouterGateway(settings, SqlAlchemyLlmCallsRepository(session_factory)),
         sports=sport_registry,
         router_model=settings.router_model,
+        router_provider=settings.router_provider,
         chitchat_model=settings.chitchat_model,
         history_turns=settings.chat_history_turns,
     )
