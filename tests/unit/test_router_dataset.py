@@ -63,3 +63,13 @@ def test_the_dataset_covers_sport_inference_cases() -> None:
 def test_every_case_carries_its_message_in_the_deps() -> None:
     for case in _dataset().cases:
         assert case.inputs.deps["message"] == case.inputs.prompt, case.name
+
+
+def test_the_ambiguous_two_sport_case_accepts_climbing_or_gym() -> None:
+    case = next(c for c in _dataset().cases if c.name == "log ambiguous two sports")
+
+    assert case.metadata == {"acceptable_sports": ["climbing", "gym"]}
+
+
+def test_the_prompt_injection_case_still_expects_chitchat() -> None:
+    assert _cases()["prompt injection attempt"] == ["chitchat"]
