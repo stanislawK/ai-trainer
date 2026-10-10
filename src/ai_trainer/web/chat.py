@@ -31,7 +31,9 @@ from ai_trainer.application.reply import (
     start_reply,
 )
 from ai_trainer.domain.llm_calls import LlmCallOutcome
+from ai_trainer.domain.sports.registry import SportRegistry
 from ai_trainer.domain.users import User
+from ai_trainer.web.glyphs import build_reply_glyph
 
 _UNPROCESSABLE = 422
 _NOT_FOUND = 404
@@ -49,9 +51,14 @@ def _part_of_day(hour: int) -> str:
 
 
 def build_chat_router(
-    templates: Jinja2Templates, *, chat: ChatRepositoryPort, replies: ReplyServices
+    templates: Jinja2Templates,
+    *,
+    chat: ChatRepositoryPort,
+    replies: ReplyServices,
+    sports: SportRegistry,
 ) -> APIRouter:
     router = APIRouter()
+    templates.env.globals["reply_glyph"] = build_reply_glyph(sports)
     clock = replies.clock
 
     def render(template_name: str, **context: Any) -> str:
