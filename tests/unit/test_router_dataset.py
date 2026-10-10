@@ -73,3 +73,15 @@ def test_the_ambiguous_two_sport_case_accepts_climbing_or_gym() -> None:
 
 def test_the_prompt_injection_case_still_expects_chitchat() -> None:
     assert _cases()["prompt injection attempt"] == ["chitchat"]
+
+
+def test_small_talk_carrying_a_pain_mention_expects_pain_before_chitchat() -> None:
+    pain_then_chitchat = [
+        name for name, kinds in _cases().items() if kinds == ["wellbeing_or_injury", "chitchat"]
+    ]
+
+    assert len(pain_then_chitchat) >= 3
+
+
+def test_a_played_down_pain_mention_in_a_greeting_still_expects_pain_first() -> None:
+    assert _cases()["played-down pain plus greeting"] == ["wellbeing_or_injury", "chitchat"]
