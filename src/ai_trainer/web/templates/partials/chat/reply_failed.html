@@ -1,8 +1,8 @@
-{#- Ends a reply that timed out or failed: nothing was saved, and Retry asks for a fresh placeholder, which streams a fresh reply. -#}
+{#- No role=alert of its own: the reply wrapper is the live region that announces it once (#117). Ends a reply that timed out or failed: nothing was saved, and Retry asks for a fresh placeholder, which streams a fresh reply. -#}
 {%- from "components/avatar.html" import avatar -%}
 {%- from "components/icon.html" import icon -%}
 <template hx type="partial" hx-target="#reply-{{ message_id }}" hx-swap="innerHTML">
-<div class="flex gap-2.5" role="alert">
+<div class="flex gap-2.5">
   {{ avatar() }}
   <div class="flex flex-wrap items-center gap-2 min-h-7 text-[13px]">
     {{ icon("circle-alert", "size-4 text-error") }}
