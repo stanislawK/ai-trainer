@@ -143,3 +143,28 @@ def test_a_blank_question_option_or_level_is_refused(
 
     with pytest.raises(ValidationError):
         DecisionSetLoader(root=tmp_path).load("blank", 1)
+
+
+def test_questions_keeps_only_the_named_questions_in_file_order() -> None:
+    """A Jev eval check asks one rubric question out of a set (#124)."""
+    decision = DecisionSetLoader(root=FIXTURES).load("sample", 1, questions={"effort", "sport"})
+
+    assert list(decision.output_type.model_fields) == ["sport", "effort"]
+    assert decision.output_type.__doc__ == _file()["goal"]
+
+
+def test_questions_naming_a_question_the_set_lacks_are_refused() -> None:
+    with pytest.raises(ValueError, match="mood"):
+        DecisionSetLoader(root=FIXTURES).load("sample", 1, questions={"sport", "mood"})
+
+
+def test_questions_keeping_nothing_is_refused() -> None:
+    with pytest.raises(ValueError, match="at least one"):
+        DecisionSetLoader(root=FIXTURES).load("sample", 1, questions=set())
+
+
+def test_runtime_options_for_a_question_left_out_are_refused() -> None:
+    with pytest.raises(ValueError, match="sport"):
+        DecisionSetLoader(root=FIXTURES).load(
+            "sample", 1, questions={"effort"}, options={"sport": {"gym", "climbing"}}
+        )

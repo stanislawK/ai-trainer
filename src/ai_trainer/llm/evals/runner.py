@@ -16,17 +16,19 @@ from ai_trainer.llm.evals.baseline import (
     load_baseline,
     save_baseline,
 )
+from ai_trainer.llm.evals.inputs import EvalCaseInputs as EvalCaseInputs
+from ai_trainer.llm.evals.jev_check import (
+    JevCheckRow,
+    agreement,
+    agreement_by_rubric,
+    errored,
+    jev_check_rows,
+    print_jev_checks,
+)
 from ai_trainer.llm.prompts.registry import PromptRegistry
 from ai_trainer.llm.prompts.template import TemplateOutput
 
-
-class EvalCaseInputs(BaseModel):
-    """A dataset case's input: the user-facing prompt plus the template's deps as a plain
-    dict, so one `Dataset[EvalCaseInputs, ...]` shape works for every template (ADR-0009)
-    without a per-template generated Inputs type."""
-
-    prompt: str
-    deps: dict[str, object] = {}
+_JEV_FIELDS = {"jev_checks", "jev_agreement", "jev_agreement_by_rubric", "jev_errored"}
 
 
 class EvalCaseSummary(BaseModel):
@@ -37,12 +39,17 @@ class EvalCaseSummary(BaseModel):
 
 
 class EvalReportSummary(BaseModel):
-    """Written to `evals/reports/<template_id>.json` (gitignored, ADR-0009)."""
+    """Written to `evals/reports/<template_id>.json` (gitignored, ADR-0009). A dataset with
+    `JevCheck`s adds each check next to its judge, and their agreement."""
 
     name: str
     cases: list[EvalCaseSummary]
     failures: list[str]
     averages: ReportCaseAggregate | None
+    jev_checks: list[JevCheckRow] | None = None
+    jev_agreement: float | None = None
+    jev_agreement_by_rubric: dict[str, float | None] | None = None
+    jev_errored: int | None = None
 
 
 class JudgeModelMatchesModelUnderTestError(ValueError):
@@ -240,7 +247,20 @@ async def run_eval(
 
     reports_root.mkdir(parents=True, exist_ok=True)
     summary = summarize_report(report)
-    (reports_root / f"{template_id}.json").write_text(summary.model_dump_json(indent=2) + "\n")
+    if rows := jev_check_rows(report):
+        print_jev_checks(rows)
+        summary = summary.model_copy(
+            update={
+                "jev_checks": rows,
+                "jev_agreement": agreement(rows),
+                "jev_agreement_by_rubric": agreement_by_rubric(rows),
+                "jev_errored": errored(rows),
+            }
+        )
+    # The Jev fields are left out of a run without checks; the rest keeps its shape.
+    (reports_root / f"{template_id}.json").write_text(
+        summary.model_dump_json(indent=2, exclude=set() if rows else _JEV_FIELDS) + "\n"
+    )
 
     raise_on_failures(report)
     current = current_baseline(report, template_id=template_id, version=version, model_id=model_id)

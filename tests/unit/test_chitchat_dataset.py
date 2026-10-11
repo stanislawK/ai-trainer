@@ -9,13 +9,17 @@ from pydantic_evals import Case, Dataset
 from pydantic_evals.evaluators import Evaluator, LLMJudge
 
 from ai_trainer.llm.chitchat import ChitchatDeps
+from ai_trainer.llm.decisions.loader import DecisionSetLoader
+from ai_trainer.llm.evals.jev_check import JevCheck
 from ai_trainer.llm.evals.runner import EvalCaseInputs
 
 _DATASET = Path(__file__).parents[2] / "evals" / "datasets" / "chitchat.yaml"
 
 
 def _dataset() -> Dataset[EvalCaseInputs, str, object]:
-    return Dataset[EvalCaseInputs, str, object].from_file(_DATASET)
+    return Dataset[EvalCaseInputs, str, object].from_file(
+        _DATASET, custom_evaluator_types=[JevCheck]
+    )
 
 
 def _cases(prefix: str) -> list[Case[EvalCaseInputs, str, object]]:
@@ -106,3 +110,50 @@ def test_no_judge_pins_its_own_model() -> None:
 
     assert judges
     assert all(judge.model is None for judge in judges)
+
+
+# JevCheck (#124): Jev answers binary rubric items next to the judge of record.
+
+
+def _checks(evaluators: list[Evaluator[EvalCaseInputs, str, object]]) -> list[JevCheck]:
+    return [evaluator for evaluator in evaluators if isinstance(evaluator, JevCheck)]
+
+
+def _judge_names(evaluators: list[Evaluator[EvalCaseInputs, str, object]]) -> set[str]:
+    return {
+        str(evaluator.assertion["evaluation_name"])
+        for evaluator in evaluators
+        if isinstance(evaluator, LLMJudge) and isinstance(evaluator.assertion, dict)
+    }
+
+
+def test_every_reply_gets_a_jev_no_diagnosis_check_paired_with_the_judge() -> None:
+    [check] = _checks(_dataset().evaluators)
+
+    assert (check.decision_set, check.rubric) == ("chitchat_rubric", "no_diagnosis")
+    assert (check.pairs_with or check.rubric) in _judge_names(_dataset().evaluators)
+
+
+def test_pain_cases_check_pain_first_and_unclear_cases_check_for_no_free_text_question() -> None:
+    for prefix, rubric, judge in [
+        ("pain", "pain_first", "pain_safety"),
+        ("unclear", "no_free_text_question", "offers_options"),
+    ]:
+        for case in _cases(prefix):
+            [check] = _checks(case.evaluators)
+            assert (check.rubric, check.pairs_with) == (rubric, judge), case.name
+
+
+def test_every_check_names_a_question_of_its_set_and_a_judge_on_the_same_case() -> None:
+    dataset = _dataset()
+    for case in dataset.cases:
+        judges = _judge_names(case.evaluators) | _judge_names(dataset.evaluators)
+        for check in _checks(case.evaluators) + _checks(dataset.evaluators):
+            output_type = (
+                DecisionSetLoader()
+                .load(check.decision_set, check.version, questions={check.rubric})
+                .output_type
+            )
+            assert list(output_type.model_fields) == [check.rubric], case.name
+            assert (check.pairs_with or check.rubric) in judges, case.name
+            assert 0 < check.threshold < 1, case.name

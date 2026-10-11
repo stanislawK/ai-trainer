@@ -31,6 +31,7 @@ from ai_trainer.llm.conversation import build_prompt_registry
 from ai_trainer.llm.decision_gateway import OPENROUTER_SYSTEM_ONE_BASE_URL
 from ai_trainer.llm.decisions.loader import DECISIONS_ROOT, DecisionSetLoader
 from ai_trainer.llm.evals.decisions import run_decision_eval
+from ai_trainer.llm.evals.jev_check import JevCheck, configure_jev_check
 from ai_trainer.llm.evals.runner import (
     CaseFailedError,
     EvalCaseInputs,
@@ -67,6 +68,7 @@ def _default_registry() -> PromptRegistry:
 
 _EVALUATORS: dict[str, tuple[type[Evaluator[EvalCaseInputs, BaseModel, object]], ...]] = {
     "router": (IntentKindsMatch, LogSessionSportMatch),
+    "chitchat": (JevCheck,),
 }
 
 
@@ -244,6 +246,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     api_key = _api_key(settings)
     if api_key is None:
         return 1
+    # Built, never called, unless the dataset holds a `JevCheck` (ADR-0009 amendment).
+    configure_jev_check(_decision_model(settings, model_override=None, api_key=api_key))
     provider = OpenRouterProvider(api_key=api_key)
     model = _model_under_test(template, settings, model_override=args.model, provider=provider)
     model_id = model.model_name
