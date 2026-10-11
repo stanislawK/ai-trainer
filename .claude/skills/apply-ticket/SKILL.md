@@ -11,7 +11,7 @@ Implements the delivery loop of ADR-0001.
 
 1. **Fetch.** `gh issue view $ARGUMENTS --json number,title,body,labels,state`. Stop if it is closed, or if any `Blocked by #N` issue is still open (`gh issue view N --json state`).
 2. **Ground.** Read the current PRD and the requirement IDs the ticket cites, every referenced ADR, the matching `.claude/rules/`, and the area branch below. If the ticket contradicts an Accepted ADR or the Approved PRD, or needs an undocumented decision, put a doc proposal into the plan — never code around it.
-3. **Plan in chat.** Effort S / M / L, the AC → test mapping, file-level steps, and any docs to touch.
+3. **Plan in chat.** Effort S / M / L, the AC → test mapping, file-level steps, and any docs to touch. If the change touches `migrations/`, add a **data-safety** paragraph (ADR-0024): expand or contract, what happens to existing rows, and which backfill. A contract step needs the human's explicit yes in the plan gate.
 4. **HUMAN GATE (plan).** `AskUserQuestion`: Approve / Split / Request changes / Cancel. No product code before Approve.
 5. **L or Split** → stop and ask the user to run `/create-tickets` for the pieces. Don't implement the oversized ticket.
 6. **Start.** `gh issue edit <n> --add-label status:in-progress --remove-label status:todo`, then `git checkout main && git pull && git checkout -b <area>/<n>-<slug>` — `<area>` from the ticket's `area:` label, `<slug>` the issue title without its `area:` prefix, lowercase kebab-case, at most five words (e.g. `infra/3-start-stack-with-docker-compose`).
@@ -35,7 +35,7 @@ Implements the delivery loop of ADR-0001.
       - when screenshots exist, a second question, "Screenshots match the mock": Approve / Request changes.
     - **Loop.** On Fail, Blocked or Request changes, ask what went wrong if the answer doesn't say. Then fix it (step 8), re-verify (step 9) and run this gate again with an updated script. Record every round.
     - Keep `.acceptance/<n>/` after the gate, and never commit it.
-11. **HUMAN GATE (review).** `AskUserQuestion`: Approve / Request changes / Reject. No commit, push or PR before Approve.
+11. **HUMAN GATE (review).** `AskUserQuestion`: Approve / Request changes / Reject. No commit, push or PR before Approve. When `migrations/` changed, the gate summary repeats the data-safety paragraph with the squawk and upgrade-with-data results (ADR-0024).
 12. **Finish** (after Approve), all on the ticket branch:
     - If stack or workflow changed, run `/update-docs` so the doc change ships in the same PR.
     - If the ticket changed how to build, run or operate the app (a new service, a new local-dev step, a new command), update `README.md` and the `Makefile` in the same change (`.claude/rules/operability.md`).
@@ -61,4 +61,4 @@ If the area label doesn't match the work, say so in the plan and ask.
 
 ## Anti-patterns
 
-Coding before the plan gate; self-certifying the acceptance gate, or reaching the review gate before it passes; an acceptance script that says "check the page works" instead of naming each click and its expected result; committing or pushing before the review gate; committing to, pushing to or merging into `main`; merging your own PR; skipping the PRD or ADRs because the ticket "seems clear"; implementing blocked work; silently changing the locked stack.
+Coding before the plan gate; self-certifying the acceptance gate, or reaching the review gate before it passes; an acceptance script that says "check the page works" instead of naming each click and its expected result; committing or pushing before the review gate; committing to, pushing to or merging into `main`; merging your own PR; skipping the PRD or ADRs because the ticket "seems clear"; implementing blocked work; silently changing the locked stack; creating or pushing a tag, approving a deployment, or connecting to the production host (ADR-0023, ADR-0024).
