@@ -116,3 +116,19 @@ def test_polish_messages_cover_a_log_a_profile_update_chitchat_and_pain() -> Non
         ("chitchat",),
         ("wellbeing_or_injury",),
     } <= kinds
+
+
+def test_the_plausible_sport_cases_label_the_sports_left_in_play() -> None:
+    """B23 (#123): the sports an athlete's message leaves plausible, graded by `router_fast`."""
+    labelled: dict[str, tuple[list[str], list[str]]] = {}
+    for case in _dataset().cases:
+        metadata: Any = case.metadata or {}
+        if "plausible_sports" in metadata:
+            deps: Any = case.inputs.deps
+            labelled[case.inputs.prompt] = (deps["athlete_sports"], metadata["plausible_sports"])
+
+    assert labelled["Did 4x4s on the board"] == (["climbing", "gym"], ["climbing", "gym"])
+    assert labelled["2 hours easy"] == (["cycling"], ["cycling"])
+    assert labelled["Did intervals"] == (["gym", "cycling"], ["gym", "cycling"])
+    for athlete_sports, plausible in labelled.values():
+        assert set(plausible) <= set(athlete_sports)

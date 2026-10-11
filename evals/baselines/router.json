@@ -2,7 +2,7 @@
   "template_id": "router",
   "version": 2,
   "model": "z-ai/glm-5.3-flash",
-  "assertions": 0.9772727272727273,
+  "assertions": 1.0,
   "scores": {
     "LogSessionSportMatch": 1.0
   },

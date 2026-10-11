@@ -34,7 +34,9 @@ from tests.unit.test_eval_router_fast import ScriptedJev as FastJev
 from tests.unit.test_eval_router_fast import _case as _router_case
 from tests.unit.test_eval_router_fast import _write as _write_router_cases
 
-_FAST_THRESHOLDS = RouterFastThresholds(multi_request=0.2, intent=0.9, sport=0.9)
+_FAST_THRESHOLDS = RouterFastThresholds(
+    multi_request=0.2, intent=0.9, sport=0.9, plausible_floor=0.25
+)
 _FAST_HI = _router_case("greeting", "hi!", [{"kind": "chitchat"}])
 _FAST_RIDE = _router_case("ride", "Rode 45 km", [{"kind": "log_session", "sport": "cycling"}])
 _FAST_ANSWERS: dict[str, tuple[float, dict[str, tuple[str, float]]]] = {
@@ -733,9 +735,10 @@ def test_router_fast_thresholds_come_from_settings() -> None:
             "router_fast_multi_request_threshold": 0.1,
             "router_fast_intent_threshold": 0.85,
             "router_fast_sport_threshold": 0.95,
+            "router_fast_plausible_sport_floor": 0.2,
         }
     )
 
     assert cli_module._router_fast_thresholds(settings) == RouterFastThresholds(
-        multi_request=0.1, intent=0.85, sport=0.95
+        multi_request=0.1, intent=0.85, sport=0.95, plausible_floor=0.2
     )

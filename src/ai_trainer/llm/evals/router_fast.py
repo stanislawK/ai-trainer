@@ -8,6 +8,9 @@ matching (`kinds_match`, `sport_hits`).
 - `coverage` (score): the share of cases taken.
 - `accuracy`: the share of taken cases routed right. The run refuses a baseline when it is
   below the router's committed pass rate, the LLM router's accuracy on the same cases.
+- `plausible_sports_right` (assertion) and `plausible_accuracy` (score), on the cases that list
+  `metadata.plausible_sports` (B23, #123): the sports Jev leaves in play, compared as a set,
+  whether or not the case was taken. The score is a regression-checked baseline score.
 """
 
 from dataclasses import dataclass
@@ -43,13 +46,15 @@ from ai_trainer.llm.router import ROUTER_TEMPLATE_ID, kinds_match, sport_hits
 from ai_trainer.llm.router_fast import (
     ROUTER_FAST_ID,
     RouterFastThresholds,
-    fast_intents,
+    fast_route,
     router_fast_set,
 )
 
 _SAFE = "fast_route_safe"
 _COVERAGE = "coverage"
 _ACCURACY = "accuracy"
+_PLAUSIBLE_RIGHT = "plausible_sports_right"
+_PLAUSIBLE_ACCURACY = "plausible_accuracy"
 _SPORT_INTENT = "log_session"
 
 
@@ -58,6 +63,7 @@ class FastRouteEvalOutput(DecisionEvalOutput):
     when the case goes to the LLM router."""
 
     intents: list[Intent] | None
+    plausible_sports: list[str] | None
 
 
 class FastPathAccuracyError(RuntimeError):
@@ -73,13 +79,17 @@ _CASE_YAML = TypeAdapter(dict[str, Any])
 class FastRouteGrade(Evaluator[EvalCaseInputs, object, object]):
     def evaluate(self, ctx: EvaluatorContext[EvalCaseInputs, object, object]) -> dict[str, Any]:
         assert isinstance(ctx.output, FastRouteEvalOutput)
+        metadata = _CASE_YAML.validate_python(ctx.metadata or {})
+        grades: dict[str, Any] = {}
+        if (wanted := metadata.get("plausible_sports")) is not None:
+            grades[_PLAUSIBLE_RIGHT] = ctx.output.plausible_sports is not None and set(
+                ctx.output.plausible_sports
+            ) == set(wanted)
         if ctx.output.intents is None:
-            return {_SAFE: True, _COVERAGE: 0.0}
+            return {_SAFE: True, _COVERAGE: 0.0, **grades}
         expected = _CASE_YAML.validate_python(ctx.expected_output)["intents"]
-        right = _routed_right(
-            ctx.output.intents, expected, metadata=_CASE_YAML.validate_python(ctx.metadata or {})
-        )
-        return {_SAFE: right, _COVERAGE: 1.0}
+        right = _routed_right(ctx.output.intents, expected, metadata=metadata)
+        return {_SAFE: right, _COVERAGE: 1.0, **grades}
 
 
 def _routed_right(
@@ -140,14 +150,18 @@ async def run_router_fast_eval(
             "probabilities", {}
         )
         answers = result.output.model_dump(mode="json")
+        route = fast_route(
+            result.output, distributions, athlete_sports=sports, thresholds=thresholds
+        )
         return FastRouteEvalOutput(
             answers=answers,
             probabilities={
                 name: value_behind(answer, distributions.get(name), None)
                 for name, answer in answers.items()
             },
-            intents=fast_intents(
-                result.output, distributions, athlete_sports=sports, thresholds=thresholds
+            intents=None if route.intents is None else list(route.intents),
+            plausible_sports=(
+                None if route.plausible_sports is None else list(route.plausible_sports)
             ),
         )
 
@@ -159,10 +173,12 @@ async def run_router_fast_eval(
         "multi_request": thresholds.multi_request,
         "intent": thresholds.intent,
         "sport": thresholds.sport,
+        "plausible_floor": thresholds.plausible_floor,
     }
     print(
         f"graded at thresholds: multi_request <= {thresholds.multi_request:g}, "
-        f"intent >= {thresholds.intent:g}, sport >= {thresholds.sport:g}"
+        f"intent >= {thresholds.intent:g}, sport >= {thresholds.sport:g}, "
+        f"plausible sport >= {thresholds.plausible_floor:g}"
     )
     report = await dataset.evaluate(
         task, name=f"{ROUTER_FAST_ID} v{version} ({model_id})", repeat=repeat
@@ -192,7 +208,7 @@ async def run_router_fast_eval(
         report, template_id=ROUTER_FAST_ID, version=version, model_id=model_id
     ).model_copy(
         update={
-            "scores": {_COVERAGE: coverage, _ACCURACY: accuracy},
+            "scores": {_COVERAGE: coverage, _ACCURACY: accuracy, **_plausible_score(report)},
             "decision_thresholds": as_dict,
             "cases": probabilities,
         }
@@ -219,3 +235,17 @@ def _coverage_and_accuracy(
         raise FastPathAccuracyError("The fast path took no case; no baseline written.")
     right = sum(1 for case in taken if case.assertions[_SAFE].value is True)
     return len(taken) / len(report.cases), right / len(taken)
+
+
+def _plausible_score(
+    report: EvaluationReport[EvalCaseInputs, object, object],
+) -> dict[str, float]:
+    """The share of graded runs whose plausible set was right; absent when no case lists one."""
+    graded = [
+        case.assertions[_PLAUSIBLE_RIGHT].value
+        for case in report.cases
+        if _PLAUSIBLE_RIGHT in case.assertions
+    ]
+    if not graded:
+        return {}
+    return {_PLAUSIBLE_ACCURACY: sum(1 for right in graded if right is True) / len(graded)}

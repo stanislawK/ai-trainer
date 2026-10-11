@@ -8,6 +8,7 @@ from pydantic import BaseModel
 
 from ai_trainer.application.ports.conversation import ReplyContext
 from ai_trainer.application.ports.decision_gateway import DecisionGatewayPort
+from ai_trainer.application.ports.fast_router import FastRoute
 from ai_trainer.domain.conversation import Intent, IntentKind
 from ai_trainer.domain.llm_calls import LlmCallOutcome
 from ai_trainer.llm.decisions.loader import DecisionSet, DecisionSetLoader
@@ -25,11 +26,13 @@ _SPORT_INTENT: IntentKind = "log_session"
 class RouterFastThresholds:
     """From `Settings`, calibrated on the router dataset: P(several requests) at or below
     `multi_request`, and the picked intent's and a log's sport's probability at or above
-    `intent` and `sport`."""
+    `intent` and `sport`. `plausible_floor`, calibrated on the same cases, is the P(sport) at
+    or above which an athlete's sport stays plausible (B23)."""
 
     multi_request: float
     intent: float
     sport: float
+    plausible_floor: float
 
 
 def router_fast_set(athlete_sports: Collection[str], *, loader: DecisionSetLoader) -> DecisionSet:
@@ -49,10 +52,8 @@ def fast_intents(
 ) -> list[Intent] | None:
     """The one intent Jev's answer holds, or `None` when the LLM router must decide. Choices
     are read from their distribution by option name, never from the library's pick alone."""
-    if float(getattr(output, _MULTI_REQUEST)) > thresholds.multi_request:
-        return None
-    kind: str = getattr(output, _INTENT)
-    if kind == _UNCLEAR or _picked(probabilities, _INTENT, kind) < thresholds.intent:
+    kind = _confident_intent(output, probabilities, thresholds=thresholds)
+    if kind is None:
         return None
     if kind != _SPORT_INTENT:
         return [Intent.model_validate({"kind": kind})]
@@ -64,8 +65,75 @@ def fast_intents(
     return [Intent(kind=_SPORT_INTENT, sport=sport)]
 
 
+def _confident_intent(
+    output: BaseModel,
+    probabilities: Mapping[str, Mapping[str, float]],
+    *,
+    thresholds: RouterFastThresholds,
+) -> str | None:
+    """The intent Jev picked when the message holds one request and Jev is sure of it."""
+    if float(getattr(output, _MULTI_REQUEST)) > thresholds.multi_request:
+        return None
+    kind: str = getattr(output, _INTENT)
+    if kind == _UNCLEAR or _picked(probabilities, _INTENT, kind) < thresholds.intent:
+        return None
+    return kind
+
+
+def plausible_sports(
+    probabilities: Mapping[str, Mapping[str, float]],
+    athlete_sports: Sequence[str],
+    *,
+    floor: float,
+) -> tuple[str, ...] | None:
+    """The athlete's sports with P(sport) at or above `floor`, most likely first and the
+    athlete's own order among equals (B23). A sport at exactly the floor counts. An athlete
+    with one sport or none has no question to ask: theirs is the answer. `None` when a
+    multi-sport athlete's answer holds no sport distribution."""
+    if len(athlete_sports) <= 1:
+        return tuple(athlete_sports)
+    distribution = probabilities.get(_SPORT)
+    if distribution is None:
+        return None
+    plausible = [sport for sport in athlete_sports if distribution.get(sport, 0.0) >= floor]
+    return tuple(sorted(plausible, key=lambda sport: -distribution.get(sport, 0.0)))
+
+
+def fast_route(
+    output: BaseModel,
+    probabilities: Mapping[str, Mapping[str, float]],
+    *,
+    athlete_sports: Sequence[str],
+    thresholds: RouterFastThresholds,
+) -> FastRoute:
+    """The route and the plausible sports of one answer. The route is `fast_intents` as
+    calibrated at #122. Plausible sports ride along whenever Jev is sure of one single request,
+    even for a log whose sport is too split to route on: that message goes to the LLM router
+    still carrying exactly the sports left in play. Several requests blur a sport
+    distribution, so then the router's own sports stand in, unless the athlete has no sport
+    to choose between."""
+    confident = _confident_intent(output, probabilities, thresholds=thresholds) is not None
+    sure_of_sport = confident or len(athlete_sports) <= 1
+    return FastRoute(
+        intents=fast_intents(
+            output, probabilities, athlete_sports=athlete_sports, thresholds=thresholds
+        ),
+        plausible_sports=(
+            plausible_sports(probabilities, athlete_sports, floor=thresholds.plausible_floor)
+            if sure_of_sport
+            else None
+        ),
+    )
+
+
 def _picked(probabilities: Mapping[str, Mapping[str, float]], question: str, option: str) -> float:
     return probabilities.get(question, {}).get(option, 0.0)
+
+
+def _declined(athlete_sports: Sequence[str]) -> FastRoute:
+    """Left to the LLM router. An athlete with one sport still has it as the only plausible
+    one: no call is needed to know it."""
+    return FastRoute(intents=None, plausible_sports=plausible_sports({}, athlete_sports, floor=1.0))
 
 
 class JevFastRouter:
@@ -85,7 +153,7 @@ class JevFastRouter:
         self._loader = loader or DecisionSetLoader()
         self._sets: dict[tuple[str, ...], DecisionSet] = {}
 
-    async def route(self, context: ReplyContext) -> list[Intent] | None:
+    async def route(self, context: ReplyContext) -> FastRoute:
         sports = tuple(context.athlete_sports)
         try:
             decision_set = self._set_for(sports)
@@ -99,10 +167,10 @@ class JevFastRouter:
         except Exception:
             # A sport the set does not describe, or a failure the gateway did not map to an
             # outcome (its row write, say): the LLM router still answers.
-            return None
+            return _declined(sports)
         if result.outcome is not LlmCallOutcome.SUCCESS or result.output is None:
-            return None
-        return fast_intents(
+            return _declined(sports)
+        return fast_route(
             result.output,
             result.probabilities,
             athlete_sports=sports,

@@ -30,7 +30,7 @@ from ai_trainer.llm.evals.router_fast import (
 from ai_trainer.llm.router_fast import RouterFastThresholds
 
 SNAPSHOT = "typesafe/jev-1.13-20260917"
-THRESHOLDS = RouterFastThresholds(multi_request=0.2, intent=0.9, sport=0.9)
+THRESHOLDS = RouterFastThresholds(multi_request=0.2, intent=0.9, sport=0.9, plausible_floor=0.25)
 ALL_SPORTS = ["climbing", "gym", "cycling"]
 
 # Jev's answer per message: P(several requests), then each choice's pick and probability.
@@ -200,7 +200,12 @@ async def test_the_baseline_stores_the_thresholds_coverage_and_accuracy(tmp_path
         1,
         "typesafe/jev-1.13",
     )
-    assert saved.decision_thresholds == {"multi_request": 0.2, "intent": 0.9, "sport": 0.9}
+    assert saved.decision_thresholds == {
+        "multi_request": 0.2,
+        "intent": 0.9,
+        "sport": 0.9,
+        "plausible_floor": 0.25,
+    }
     assert saved.scores == {"coverage": 0.75, "accuracy": 1.0}
     assert saved.assertions == 1.0
 
@@ -307,8 +312,107 @@ async def test_a_threshold_change_is_reported(tmp_path: Path) -> None:
     result = await _run(
         tmp_path,
         ScriptedJev(_CONFIDENT),
-        thresholds=RouterFastThresholds(multi_request=0.2, intent=0.95, sport=0.9),
+        thresholds=RouterFastThresholds(
+            multi_request=0.2, intent=0.95, sport=0.9, plausible_floor=0.25
+        ),
     )
 
     assert result.changes == ["threshold 'intent' changed from 0.9 to 0.95"]
     assert result.regressions == []
+
+
+# Plausible sports (ticket #123, B23): graded against `metadata.plausible_sports`.
+
+_BOARD = _case(
+    "board",
+    "Did 4x4s on the board",
+    [{"kind": "log_session", "sport": "climbing"}],
+    sports=["climbing", "gym"],
+    metadata={"plausible_sports": ["climbing"]},
+)
+_INTERVALS = _case(
+    "intervals",
+    "Did intervals",
+    [{"kind": "log_session", "sport": "gym"}],
+    sports=["gym", "cycling"],
+    metadata={"plausible_sports": ["gym", "cycling"], "acceptable_sports": ["gym", "cycling"]},
+)
+_EASY = _case(
+    "easy",
+    "2 hours easy",
+    [{"kind": "log_session", "sport": "cycling"}],
+    sports=["cycling"],
+    metadata={"plausible_sports": ["cycling"]},
+)
+_PLAUSIBLE: dict[str, Answer] = {
+    "Did 4x4s on the board": (
+        0.04,
+        {"intent": ("log_session", 0.96), "sport": ("climbing", 0.93)},
+    ),
+    "Did intervals": (0.04, {"intent": ("log_session", 0.96), "sport": ("gym", 0.55)}),
+    "2 hours easy": (0.04, {"intent": ("log_session", 0.95)}),
+    **_CONFIDENT,
+}
+
+
+async def test_plausible_sports_are_graded_as_sets_against_the_cases_metadata(
+    tmp_path: Path,
+) -> None:
+    _write(tmp_path, [_BOARD, _INTERVALS, _EASY])
+
+    result = await _run(tmp_path, ScriptedJev(_PLAUSIBLE))
+
+    assert all(
+        case.assertions["plausible_sports_right"].value is True for case in result.report.cases
+    )
+    assert result.baseline.scores["plausible_accuracy"] == 1.0
+
+
+async def test_a_split_sport_log_is_declined_yet_its_plausible_sports_are_graded(
+    tmp_path: Path,
+) -> None:
+    _write(tmp_path, [_HI, _BOARD, _INTERVALS])
+
+    result = await _run(tmp_path, ScriptedJev(_PLAUSIBLE))
+
+    [intervals] = [case for case in result.report.cases if case.name == "intervals"]
+    assert intervals.scores["coverage"].value == 0.0
+    assert intervals.assertions["plausible_sports_right"].value is True
+
+
+async def test_a_wrong_plausible_set_fails_its_case_and_lowers_the_score(tmp_path: Path) -> None:
+    wrong = dict(_PLAUSIBLE)
+    wrong["Did 4x4s on the board"] = (
+        0.04,
+        {"intent": ("log_session", 0.96), "sport": ("climbing", 0.6)},
+    )
+    _write(tmp_path, [_HI, _BOARD, _INTERVALS])
+
+    result = await _run(tmp_path, ScriptedJev(wrong))
+
+    [board] = [case for case in result.report.cases if case.name == "board"]
+    assert board.assertions["plausible_sports_right"].value is False
+    assert result.baseline.scores["plausible_accuracy"] == 0.5
+
+
+async def test_a_case_without_expected_plausible_sports_is_not_graded_on_them(
+    tmp_path: Path,
+) -> None:
+    _write(tmp_path, [_HI, _RIDE])
+
+    result = await _run(tmp_path, ScriptedJev(_CONFIDENT))
+
+    assert all("plausible_sports_right" not in case.assertions for case in result.report.cases)
+    assert "plausible_accuracy" not in result.baseline.scores
+
+
+async def test_the_floor_decides_which_sports_are_plausible(tmp_path: Path) -> None:
+    _write(tmp_path, [_HI, _BOARD, _INTERVALS])
+    jev = ScriptedJev(_PLAUSIBLE)
+
+    strict = RouterFastThresholds(multi_request=0.2, intent=0.9, sport=0.9, plausible_floor=0.5)
+    result = await _run(tmp_path, jev, thresholds=strict)
+
+    # 0.45 for cycling is under a 0.5 floor, so "did intervals" is no longer split.
+    [intervals] = [case for case in result.report.cases if case.name == "intervals"]
+    assert intervals.assertions["plausible_sports_right"].value is False

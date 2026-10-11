@@ -272,3 +272,35 @@ def test_decision_call_timeout_must_be_positive(monkeypatch: pytest.MonkeyPatch)
     assert [error["loc"] for error in excinfo.value.errors()] == [
         ("decision_call_timeout_seconds",)
     ]
+
+
+def test_the_plausible_sport_floor_defaults_and_is_read_from_the_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DATABASE_URL", DATABASE_URL)
+    monkeypatch.setenv("OPENROUTER_API_KEY", OPENROUTER_API_KEY)
+    monkeypatch.setenv("EVAL_JUDGE_MODEL", EVAL_JUDGE_MODEL)
+    monkeypatch.delenv("ROUTER_FAST_PLAUSIBLE_SPORT_FLOOR", raising=False)
+
+    assert Settings(_env_file=None).router_fast_plausible_sport_floor == 0.1
+
+    monkeypatch.setenv("ROUTER_FAST_PLAUSIBLE_SPORT_FLOOR", "0.4")
+
+    assert Settings(_env_file=None).router_fast_plausible_sport_floor == 0.4
+
+
+@pytest.mark.parametrize("floor", ["-0.1", "1.1"])
+def test_the_plausible_sport_floor_is_a_probability(
+    monkeypatch: pytest.MonkeyPatch, floor: str
+) -> None:
+    monkeypatch.setenv("DATABASE_URL", DATABASE_URL)
+    monkeypatch.setenv("OPENROUTER_API_KEY", OPENROUTER_API_KEY)
+    monkeypatch.setenv("EVAL_JUDGE_MODEL", EVAL_JUDGE_MODEL)
+    monkeypatch.setenv("ROUTER_FAST_PLAUSIBLE_SPORT_FLOOR", floor)
+
+    with pytest.raises(ValidationError) as excinfo:
+        Settings(_env_file=None)
+
+    assert [error["loc"] for error in excinfo.value.errors()] == [
+        ("router_fast_plausible_sport_floor",)
+    ]

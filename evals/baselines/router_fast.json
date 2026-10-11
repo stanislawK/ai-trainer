@@ -4,8 +4,9 @@
   "model": "typesafe/jev-1.13",
   "assertions": 1.0,
   "scores": {
-    "coverage": 0.6590909090909091,
-    "accuracy": 1.0
+    "coverage": 0.624113475177305,
+    "accuracy": 1.0,
+    "plausible_accuracy": 1.0
   },
   "thresholds": {
     "max_assertions_drop": 0.0,
@@ -14,7 +15,8 @@
   "decision_thresholds": {
     "multi_request": 0.15,
     "intent": 0.85,
-    "sport": 0.9
+    "sport": 0.9,
+    "plausible_floor": 0.1
   },
   "cases": {
     "chitchat greeting": {
@@ -35,12 +37,12 @@
         "spread": 0.0
       },
       "sport": {
-        "mean": 0.9366666666666666,
-        "min": 0.93,
+        "mean": 0.94,
+        "min": 0.94,
         "max": 0.94,
         "runs": 3,
         "flips": false,
-        "spread": 0.009999999999999898
+        "spread": 0.0
       }
     },
     "chitchat thanks": {
@@ -61,22 +63,22 @@
         "spread": 0.0
       },
       "sport": {
-        "mean": 0.9,
-        "min": 0.89,
+        "mean": 0.8933333333333334,
+        "min": 0.88,
         "max": 0.91,
         "runs": 3,
         "flips": false,
-        "spread": 0.020000000000000018
+        "spread": 0.030000000000000027
       }
     },
     "log gym with units": {
       "multi_request": {
-        "mean": 0.04666666666666667,
+        "mean": 0.04,
         "min": 0.04,
-        "max": 0.05,
+        "max": 0.04,
         "runs": 3,
         "flips": false,
-        "spread": 0.010000000000000002
+        "spread": 0.0
       },
       "intent": {
         "mean": 1.0,
@@ -193,46 +195,46 @@
     },
     "log sport settled by history": {
       "multi_request": {
-        "mean": 0.26333333333333336,
-        "min": 0.26,
-        "max": 0.27,
+        "mean": 0.2733333333333334,
+        "min": 0.24,
+        "max": 0.3,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.06
+      },
+      "intent": {
+        "mean": 0.5933333333333334,
+        "min": 0.54,
+        "max": 0.63,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.08999999999999997
+      },
+      "sport": {
+        "mean": 0.9566666666666667,
+        "min": 0.95,
+        "max": 0.96,
         "runs": 3,
         "flips": false,
         "spread": 0.010000000000000009
-      },
-      "intent": {
-        "mean": 0.6333333333333333,
-        "min": 0.6,
-        "max": 0.65,
-        "runs": 3,
-        "flips": false,
-        "spread": 0.050000000000000044
-      },
-      "sport": {
-        "mean": 0.9533333333333333,
-        "min": 0.9400000000000001,
-        "max": 0.97,
-        "runs": 3,
-        "flips": false,
-        "spread": 0.029999999999999916
       }
     },
     "log follow-up continues an earlier log": {
       "multi_request": {
-        "mean": 0.30666666666666664,
+        "mean": 0.3,
         "min": 0.29,
-        "max": 0.32,
+        "max": 0.31,
         "runs": 3,
         "flips": false,
-        "spread": 0.030000000000000027
+        "spread": 0.020000000000000018
       },
       "intent": {
-        "mean": 0.9633333333333333,
+        "mean": 0.9666666666666667,
         "min": 0.96,
-        "max": 0.97,
+        "max": 0.98,
         "runs": 3,
         "flips": false,
-        "spread": 0.010000000000000009
+        "spread": 0.020000000000000018
       },
       "sport": {
         "mean": 1.0,
@@ -245,12 +247,12 @@
     },
     "question on recovery": {
       "multi_request": {
-        "mean": 0.03,
+        "mean": 0.03333333333333333,
         "min": 0.03,
-        "max": 0.03,
+        "max": 0.04,
         "runs": 3,
         "flips": false,
-        "spread": 0.0
+        "spread": 0.010000000000000002
       },
       "intent": {
         "mean": 1.0,
@@ -297,12 +299,12 @@
     },
     "plan request": {
       "multi_request": {
-        "mean": 0.12333333333333334,
+        "mean": 0.12,
         "min": 0.12,
-        "max": 0.13,
+        "max": 0.12,
         "runs": 3,
         "flips": false,
-        "spread": 0.010000000000000009
+        "spread": 0.0
       },
       "intent": {
         "mean": 1.0,
@@ -332,37 +334,37 @@
       },
       "intent": {
         "mean": 0.9333333333333332,
-        "min": 0.93,
-        "max": 0.94,
+        "min": 0.91,
+        "max": 0.95,
         "runs": 3,
         "flips": false,
-        "spread": 0.009999999999999898
+        "spread": 0.039999999999999925
       },
       "sport": {
-        "mean": 0.9700000000000001,
-        "min": 0.97,
+        "mean": 0.9666666666666667,
+        "min": 0.96,
         "max": 0.97,
         "runs": 3,
         "flips": false,
-        "spread": 0.0
+        "spread": 0.010000000000000009
       }
     },
     "adjust plan": {
       "multi_request": {
-        "mean": 0.08,
+        "mean": 0.08333333333333333,
         "min": 0.08,
-        "max": 0.08,
+        "max": 0.09,
         "runs": 3,
         "flips": false,
-        "spread": 0.0
+        "spread": 0.009999999999999995
       },
       "intent": {
-        "mean": 0.8833333333333333,
+        "mean": 0.8933333333333334,
         "min": 0.86,
-        "max": 0.9,
+        "max": 0.91,
         "runs": 3,
         "flips": false,
-        "spread": 0.040000000000000036
+        "spread": 0.050000000000000044
       },
       "sport": {
         "mean": 0.9899999999999999,
@@ -375,12 +377,12 @@
     },
     "report request": {
       "multi_request": {
-        "mean": 0.04666666666666667,
-        "min": 0.04,
+        "mean": 0.05000000000000001,
+        "min": 0.05,
         "max": 0.05,
         "runs": 3,
         "flips": false,
-        "spread": 0.010000000000000002
+        "spread": 0.0
       },
       "intent": {
         "mean": 1.0,
@@ -391,12 +393,12 @@
         "spread": 0.0
       },
       "sport": {
-        "mean": 0.9666666666666667,
-        "min": 0.96,
+        "mean": 0.9700000000000001,
+        "min": 0.97,
         "max": 0.97,
         "runs": 3,
         "flips": false,
-        "spread": 0.010000000000000009
+        "spread": 0.0
       }
     },
     "edit session": {
@@ -427,20 +429,20 @@
     },
     "profile update": {
       "multi_request": {
-        "mean": 0.9166666666666666,
-        "min": 0.91,
+        "mean": 0.9266666666666667,
+        "min": 0.92,
         "max": 0.93,
         "runs": 3,
         "flips": false,
-        "spread": 0.020000000000000018
+        "spread": 0.010000000000000009
       },
       "intent": {
-        "mean": 0.9866666666666667,
-        "min": 0.98,
+        "mean": 0.9899999999999999,
+        "min": 0.99,
         "max": 0.99,
         "runs": 3,
         "flips": false,
-        "spread": 0.010000000000000009
+        "spread": 0.0
       },
       "sport": {
         "mean": 0.9899999999999999,
@@ -453,12 +455,12 @@
     },
     "pain alone": {
       "multi_request": {
-        "mean": 0.05333333333333334,
+        "mean": 0.05000000000000001,
         "min": 0.05,
-        "max": 0.06,
+        "max": 0.05,
         "runs": 3,
         "flips": false,
-        "spread": 0.009999999999999995
+        "spread": 0.0
       },
       "intent": {
         "mean": 1.0,
@@ -469,30 +471,30 @@
         "spread": 0.0
       },
       "sport": {
-        "mean": 0.5266666666666667,
-        "min": 0.52,
-        "max": 0.53,
+        "mean": 0.5366666666666666,
+        "min": 0.5,
+        "max": 0.58,
         "runs": 3,
-        "flips": false,
-        "spread": 0.010000000000000009
+        "flips": true,
+        "spread": 0.07999999999999996
       }
     },
     "pain ranked first before a log": {
       "multi_request": {
-        "mean": 0.24333333333333332,
+        "mean": 0.23666666666666666,
         "min": 0.22,
-        "max": 0.26,
+        "max": 0.25,
         "runs": 3,
         "flips": false,
-        "spread": 0.04000000000000001
+        "spread": 0.03
       },
       "intent": {
-        "mean": 0.9933333333333333,
+        "mean": 0.9899999999999999,
         "min": 0.99,
-        "max": 1.0,
+        "max": 0.99,
         "runs": 3,
         "flips": false,
-        "spread": 0.010000000000000009
+        "spread": 0.0
       },
       "sport": {
         "mean": 1.0,
@@ -513,27 +515,27 @@
         "spread": 0.0
       },
       "intent": {
-        "mean": 0.68,
-        "min": 0.67,
-        "max": 0.7,
+        "mean": 0.7133333333333334,
+        "min": 0.6900000000000001,
+        "max": 0.75,
         "runs": 3,
         "flips": false,
-        "spread": 0.029999999999999916
+        "spread": 0.05999999999999994
       },
       "sport": {
-        "mean": 0.9,
-        "min": 0.88,
-        "max": 0.93,
+        "mean": 0.9066666666666667,
+        "min": 0.9,
+        "max": 0.91,
         "runs": 3,
         "flips": false,
-        "spread": 0.050000000000000044
+        "spread": 0.010000000000000009
       }
     },
     "feeling unwell": {
       "multi_request": {
-        "mean": 0.09999999999999999,
-        "min": 0.09,
-        "max": 0.11,
+        "mean": 0.09000000000000001,
+        "min": 0.08,
+        "max": 0.1,
         "runs": 3,
         "flips": false,
         "spread": 0.020000000000000004
@@ -547,30 +549,30 @@
         "spread": 0.0
       },
       "sport": {
-        "mean": 0.9866666666666667,
+        "mean": 0.9899999999999999,
         "min": 0.98,
-        "max": 0.99,
+        "max": 1.0,
         "runs": 3,
         "flips": false,
-        "spread": 0.010000000000000009
+        "spread": 0.020000000000000018
       }
     },
     "mixed log and question": {
       "multi_request": {
-        "mean": 0.9233333333333333,
+        "mean": 0.92,
         "min": 0.92,
-        "max": 0.93,
+        "max": 0.92,
         "runs": 3,
         "flips": false,
-        "spread": 0.010000000000000009
+        "spread": 0.0
       },
       "intent": {
-        "mean": 0.8233333333333334,
-        "min": 0.8200000000000001,
-        "max": 0.83,
+        "mean": 0.82,
+        "min": 0.81,
+        "max": 0.84,
         "runs": 3,
         "flips": false,
-        "spread": 0.009999999999999898
+        "spread": 0.029999999999999916
       },
       "sport": {
         "mean": 1.0,
@@ -583,32 +585,6 @@
     },
     "mixed question then log": {
       "multi_request": {
-        "mean": 0.9033333333333333,
-        "min": 0.9,
-        "max": 0.91,
-        "runs": 3,
-        "flips": false,
-        "spread": 0.010000000000000009
-      },
-      "intent": {
-        "mean": 0.9933333333333333,
-        "min": 0.99,
-        "max": 1.0,
-        "runs": 3,
-        "flips": false,
-        "spread": 0.010000000000000009
-      },
-      "sport": {
-        "mean": 0.9700000000000001,
-        "min": 0.96,
-        "max": 0.98,
-        "runs": 3,
-        "flips": false,
-        "spread": 0.020000000000000018
-      }
-    },
-    "mixed log and plan": {
-      "multi_request": {
         "mean": 0.9066666666666667,
         "min": 0.9,
         "max": 0.91,
@@ -617,12 +593,38 @@
         "spread": 0.010000000000000009
       },
       "intent": {
-        "mean": 0.5766666666666667,
-        "min": 0.53,
-        "max": 0.62,
+        "mean": 0.9966666666666667,
+        "min": 0.99,
+        "max": 1.0,
         "runs": 3,
         "flips": false,
-        "spread": 0.08999999999999997
+        "spread": 0.010000000000000009
+      },
+      "sport": {
+        "mean": 0.9766666666666666,
+        "min": 0.97,
+        "max": 0.98,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.010000000000000009
+      }
+    },
+    "mixed log and plan": {
+      "multi_request": {
+        "mean": 0.91,
+        "min": 0.9,
+        "max": 0.92,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.020000000000000018
+      },
+      "intent": {
+        "mean": 0.5733333333333334,
+        "min": 0.56,
+        "max": 0.59,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.029999999999999916
       },
       "sport": {
         "mean": 1.0,
@@ -635,12 +637,12 @@
     },
     "two logs in two sports": {
       "multi_request": {
-        "mean": 0.7866666666666666,
-        "min": 0.75,
+        "mean": 0.8133333333333334,
+        "min": 0.81,
         "max": 0.82,
         "runs": 3,
         "flips": false,
-        "spread": 0.06999999999999995
+        "spread": 0.009999999999999898
       },
       "intent": {
         "mean": 1.0,
@@ -651,35 +653,35 @@
         "spread": 0.0
       },
       "sport": {
-        "mean": 0.5166666666666667,
-        "min": 0.51,
-        "max": 0.53,
+        "mean": 0.5866666666666668,
+        "min": 0.56,
+        "max": 0.63,
         "runs": 3,
         "flips": false,
-        "spread": 0.020000000000000018
+        "spread": 0.06999999999999995
       }
     },
     "unclear message": {
       "multi_request": {
-        "mean": 0.10333333333333333,
-        "min": 0.1,
-        "max": 0.11,
+        "mean": 0.09666666666666668,
+        "min": 0.09,
+        "max": 0.1,
         "runs": 3,
         "flips": false,
-        "spread": 0.009999999999999995
+        "spread": 0.010000000000000009
       },
       "intent": {
-        "mean": 0.98,
-        "min": 0.98,
+        "mean": 0.9766666666666666,
+        "min": 0.97,
         "max": 0.98,
         "runs": 3,
         "flips": false,
-        "spread": 0.0
+        "spread": 0.010000000000000009
       },
       "sport": {
-        "mean": 0.8233333333333333,
-        "min": 0.81,
-        "max": 0.84,
+        "mean": 0.82,
+        "min": 0.8,
+        "max": 0.83,
         "runs": 3,
         "flips": false,
         "spread": 0.029999999999999916
@@ -687,20 +689,20 @@
     },
     "injury wording in slang": {
       "multi_request": {
-        "mean": 0.12666666666666668,
-        "min": 0.12,
-        "max": 0.14,
+        "mean": 0.12333333333333334,
+        "min": 0.11,
+        "max": 0.13,
         "runs": 3,
         "flips": false,
-        "spread": 0.020000000000000018
+        "spread": 0.020000000000000004
       },
       "intent": {
-        "mean": 1.0,
-        "min": 1.0,
+        "mean": 0.9933333333333333,
+        "min": 0.99,
         "max": 1.0,
         "runs": 3,
         "flips": false,
-        "spread": 0.0
+        "spread": 0.010000000000000009
       },
       "sport": {
         "mean": 1.0,
@@ -713,12 +715,12 @@
     },
     "relative date log": {
       "multi_request": {
-        "mean": 0.04,
+        "mean": 0.043333333333333335,
         "min": 0.04,
-        "max": 0.04,
+        "max": 0.05,
         "runs": 3,
         "flips": false,
-        "spread": 0.0
+        "spread": 0.010000000000000002
       },
       "intent": {
         "mean": 1.0,
@@ -739,12 +741,12 @@
     },
     "polish message": {
       "multi_request": {
-        "mean": 0.04666666666666667,
-        "min": 0.04,
+        "mean": 0.05000000000000001,
+        "min": 0.05,
         "max": 0.05,
         "runs": 3,
         "flips": false,
-        "spread": 0.010000000000000002
+        "spread": 0.0
       },
       "intent": {
         "mean": 1.0,
@@ -765,7 +767,7 @@
     },
     "prompt injection attempt": {
       "multi_request": {
-        "mean": 0.043333333333333335,
+        "mean": 0.04666666666666667,
         "min": 0.04,
         "max": 0.05,
         "runs": 3,
@@ -773,17 +775,17 @@
         "spread": 0.010000000000000002
       },
       "intent": {
-        "mean": 0.7466666666666667,
-        "min": 0.72,
-        "max": 0.78,
+        "mean": 0.7066666666666667,
+        "min": 0.7,
+        "max": 0.71,
         "runs": 3,
         "flips": false,
-        "spread": 0.06000000000000005
+        "spread": 0.010000000000000009
       },
       "sport": {
-        "mean": 0.8533333333333334,
-        "min": 0.84,
-        "max": 0.87,
+        "mean": 0.85,
+        "min": 0.83,
+        "max": 0.86,
         "runs": 3,
         "flips": false,
         "spread": 0.030000000000000027
@@ -791,7 +793,7 @@
     },
     "pain plus greeting": {
       "multi_request": {
-        "mean": 0.9266666666666667,
+        "mean": 0.9233333333333333,
         "min": 0.92,
         "max": 0.93,
         "runs": 3,
@@ -808,18 +810,44 @@
       },
       "sport": {
         "mean": 0.8766666666666666,
-        "min": 0.86,
+        "min": 0.87,
         "max": 0.89,
         "runs": 3,
         "flips": false,
-        "spread": 0.030000000000000027
+        "spread": 0.020000000000000018
       }
     },
     "pain plus thanks": {
       "multi_request": {
-        "mean": 0.59,
+        "mean": 0.6033333333333334,
         "min": 0.58,
-        "max": 0.61,
+        "max": 0.62,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.040000000000000036
+      },
+      "intent": {
+        "mean": 1.0,
+        "min": 1.0,
+        "max": 1.0,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.0
+      },
+      "sport": {
+        "mean": 0.6766666666666666,
+        "min": 0.66,
+        "max": 0.69,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.029999999999999916
+      }
+    },
+    "pain plus how's it going": {
+      "multi_request": {
+        "mean": 0.63,
+        "min": 0.62,
+        "max": 0.65,
         "runs": 3,
         "flips": false,
         "spread": 0.030000000000000027
@@ -833,64 +861,38 @@
         "spread": 0.0
       },
       "sport": {
-        "mean": 0.6699999999999999,
-        "min": 0.64,
-        "max": 0.71,
-        "runs": 3,
-        "flips": false,
-        "spread": 0.06999999999999995
-      }
-    },
-    "pain plus how's it going": {
-      "multi_request": {
-        "mean": 0.6333333333333333,
-        "min": 0.61,
-        "max": 0.66,
-        "runs": 3,
-        "flips": false,
-        "spread": 0.050000000000000044
-      },
-      "intent": {
-        "mean": 1.0,
-        "min": 1.0,
-        "max": 1.0,
-        "runs": 3,
-        "flips": false,
-        "spread": 0.0
-      },
-      "sport": {
-        "mean": 0.96,
-        "min": 0.96,
+        "mean": 0.9533333333333333,
+        "min": 0.95,
         "max": 0.96,
         "runs": 3,
         "flips": false,
-        "spread": 0.0
+        "spread": 0.010000000000000009
       }
     },
     "played-down pain plus greeting": {
       "multi_request": {
         "mean": 0.8633333333333333,
-        "min": 0.85,
-        "max": 0.88,
+        "min": 0.86,
+        "max": 0.87,
         "runs": 3,
         "flips": false,
-        "spread": 0.030000000000000027
+        "spread": 0.010000000000000009
       },
       "intent": {
-        "mean": 0.9133333333333334,
-        "min": 0.9,
-        "max": 0.92,
+        "mean": 0.9033333333333333,
+        "min": 0.89,
+        "max": 0.91,
         "runs": 3,
         "flips": false,
         "spread": 0.020000000000000018
       },
       "sport": {
-        "mean": 0.7966666666666667,
-        "min": 0.77,
-        "max": 0.84,
+        "mean": 0.7833333333333333,
+        "min": 0.76,
+        "max": 0.8,
         "runs": 3,
         "flips": false,
-        "spread": 0.06999999999999995
+        "spread": 0.040000000000000036
       }
     },
     "relative date log paraphrase on the trainer": {
@@ -921,12 +923,12 @@
     },
     "relative date log paraphrase long ride": {
       "multi_request": {
-        "mean": 0.043333333333333335,
+        "mean": 0.04,
         "min": 0.04,
-        "max": 0.05,
+        "max": 0.04,
         "runs": 3,
         "flips": false,
-        "spread": 0.010000000000000002
+        "spread": 0.0
       },
       "intent": {
         "mean": 1.0,
@@ -947,12 +949,12 @@
     },
     "relative date log paraphrase gym": {
       "multi_request": {
-        "mean": 0.13,
+        "mean": 0.12666666666666668,
         "min": 0.12,
-        "max": 0.14,
+        "max": 0.13,
         "runs": 3,
         "flips": false,
-        "spread": 0.020000000000000018
+        "spread": 0.010000000000000009
       },
       "intent": {
         "mean": 1.0,
@@ -1025,12 +1027,12 @@
     },
     "polish relative date log gym": {
       "multi_request": {
-        "mean": 0.043333333333333335,
+        "mean": 0.04,
         "min": 0.04,
-        "max": 0.05,
+        "max": 0.04,
         "runs": 3,
         "flips": false,
-        "spread": 0.010000000000000002
+        "spread": 0.0
       },
       "intent": {
         "mean": 1.0,
@@ -1077,7 +1079,7 @@
     },
     "polish profile update": {
       "multi_request": {
-        "mean": 0.043333333333333335,
+        "mean": 0.04666666666666667,
         "min": 0.04,
         "max": 0.05,
         "runs": 3,
@@ -1085,17 +1087,17 @@
         "spread": 0.010000000000000002
       },
       "intent": {
-        "mean": 0.9833333333333334,
-        "min": 0.98,
-        "max": 0.99,
+        "mean": 0.9766666666666666,
+        "min": 0.97,
+        "max": 0.98,
         "runs": 3,
         "flips": false,
         "spread": 0.010000000000000009
       },
       "sport": {
-        "mean": 0.5966666666666667,
-        "min": 0.58,
-        "max": 0.62,
+        "mean": 0.62,
+        "min": 0.6,
+        "max": 0.64,
         "runs": 3,
         "flips": false,
         "spread": 0.040000000000000036
@@ -1103,35 +1105,9 @@
     },
     "polish chitchat": {
       "multi_request": {
-        "mean": 0.08,
+        "mean": 0.07333333333333335,
         "min": 0.07,
-        "max": 0.09,
-        "runs": 3,
-        "flips": false,
-        "spread": 0.01999999999999999
-      },
-      "intent": {
-        "mean": 1.0,
-        "min": 1.0,
-        "max": 1.0,
-        "runs": 3,
-        "flips": false,
-        "spread": 0.0
-      },
-      "sport": {
-        "mean": 0.9266666666666667,
-        "min": 0.92,
-        "max": 0.93,
-        "runs": 3,
-        "flips": false,
-        "spread": 0.010000000000000009
-      }
-    },
-    "polish pain": {
-      "multi_request": {
-        "mean": 0.056666666666666664,
-        "min": 0.05,
-        "max": 0.06,
+        "max": 0.08,
         "runs": 3,
         "flips": false,
         "spread": 0.009999999999999995
@@ -1145,9 +1121,105 @@
         "spread": 0.0
       },
       "sport": {
-        "mean": 0.7633333333333333,
+        "mean": 0.9233333333333333,
+        "min": 0.92,
+        "max": 0.93,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.010000000000000009
+      }
+    },
+    "polish pain": {
+      "multi_request": {
+        "mean": 0.06,
+        "min": 0.06,
+        "max": 0.06,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.0
+      },
+      "intent": {
+        "mean": 1.0,
+        "min": 1.0,
+        "max": 1.0,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.0
+      },
+      "sport": {
+        "mean": 0.7833333333333333,
         "min": 0.76,
-        "max": 0.77,
+        "max": 0.8,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.040000000000000036
+      }
+    },
+    "plausible sport board wording leaves two": {
+      "multi_request": {
+        "mean": 0.07333333333333335,
+        "min": 0.07,
+        "max": 0.08,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.009999999999999995
+      },
+      "intent": {
+        "mean": 0.9866666666666667,
+        "min": 0.98,
+        "max": 1.0,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.020000000000000018
+      },
+      "sport": {
+        "mean": 0.6633333333333333,
+        "min": 0.64,
+        "max": 0.69,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.04999999999999993
+      }
+    },
+    "plausible sport single-sport athlete": {
+      "multi_request": {
+        "mean": 0.10666666666666667,
+        "min": 0.1,
+        "max": 0.11,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.009999999999999995
+      },
+      "intent": {
+        "mean": 0.8333333333333334,
+        "min": 0.81,
+        "max": 0.86,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.04999999999999993
+      }
+    },
+    "plausible sport two left in play": {
+      "multi_request": {
+        "mean": 0.08333333333333333,
+        "min": 0.08,
+        "max": 0.09,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.009999999999999995
+      },
+      "intent": {
+        "mean": 0.9899999999999999,
+        "min": 0.99,
+        "max": 0.99,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.0
+      },
+      "sport": {
+        "mean": 0.8266666666666667,
+        "min": 0.82,
+        "max": 0.83,
         "runs": 3,
         "flips": false,
         "spread": 0.010000000000000009

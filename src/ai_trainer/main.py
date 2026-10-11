@@ -138,6 +138,7 @@ def create_app(settings: Settings) -> FastAPI:
                 multi_request=settings.router_fast_multi_request_threshold,
                 intent=settings.router_fast_intent_threshold,
                 sport=settings.router_fast_sport_threshold,
+                plausible_floor=settings.router_fast_plausible_sport_floor,
             ),
         ),
         # Runs alongside the router and can only add the safety intent (ADR-0020, G3).

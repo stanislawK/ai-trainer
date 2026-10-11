@@ -98,6 +98,7 @@ def _router_fast_thresholds(settings: Settings) -> RouterFastThresholds:
         multi_request=settings.router_fast_multi_request_threshold,
         intent=settings.router_fast_intent_threshold,
         sport=settings.router_fast_sport_threshold,
+        plausible_floor=settings.router_fast_plausible_sport_floor,
     )
 
 
