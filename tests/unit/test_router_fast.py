@@ -12,6 +12,7 @@ from pydantic import BaseModel
 
 from ai_trainer.application.ports.conversation import ReplyContext
 from ai_trainer.application.ports.decision_gateway import DecisionResult
+from ai_trainer.application.ports.fast_router import FastRoute
 from ai_trainer.domain.conversation import INTENT_KINDS, Intent
 from ai_trainer.domain.llm_calls import LlmCallOutcome
 from ai_trainer.domain.sports.registry import default_sport_registry
@@ -22,10 +23,12 @@ from ai_trainer.llm.router_fast import (
     JevFastRouter,
     RouterFastThresholds,
     fast_intents,
+    fast_route,
+    plausible_sports,
     router_fast_set,
 )
 
-THRESHOLDS = RouterFastThresholds(multi_request=0.3, intent=0.8, sport=0.8)
+THRESHOLDS = RouterFastThresholds(multi_request=0.3, intent=0.8, sport=0.8, plausible_floor=0.25)
 ALL_SPORTS = ("climbing", "gym", "cycling")
 
 
@@ -219,9 +222,9 @@ async def test_the_bare_message_is_asked_under_the_router_fast_id_for_the_acting
     decisions = FakeDecisions()
     user_id = uuid4()
 
-    intents = await JevFastRouter(decisions, thresholds=THRESHOLDS).route(_context(user_id, "hey!"))
+    route = await JevFastRouter(decisions, thresholds=THRESHOLDS).route(_context(user_id, "hey!"))
 
-    assert intents == [Intent(kind="chitchat")]
+    assert route.intents == [Intent(kind="chitchat")]
     [asked] = decisions.asked
     assert (asked.user_id, asked.decision_id, asked.decision_version, asked.state) == (
         user_id,
@@ -237,11 +240,13 @@ async def test_a_single_sport_athlete_is_asked_no_sport_question() -> None:
         probabilities={"intent": {"log_session": 0.95}},
     )
 
-    intents = await JevFastRouter(decisions, thresholds=THRESHOLDS).route(
+    route = await JevFastRouter(decisions, thresholds=THRESHOLDS).route(
         _context(uuid4(), "Did an hour, felt strong", sports=("gym",))
     )
 
-    assert intents == [Intent(kind="log_session", sport="gym")]
+    assert route == FastRoute(
+        intents=[Intent(kind="log_session", sport="gym")], plausible_sports=("gym",)
+    )
     assert "sport" not in decisions.asked[0].output_type.model_fields
 
 
@@ -252,12 +257,9 @@ async def test_several_requests_go_to_the_llm_router() -> None:
         probabilities={"intent": {"log_session": 0.99}, "sport": {"cycling": 0.99}},
     )
 
-    assert (
-        await JevFastRouter(decisions, thresholds=THRESHOLDS).route(
-            _context(uuid4(), "Ran 5k, also plan my week")
-        )
-        is None
-    )
+    assert await JevFastRouter(decisions, thresholds=THRESHOLDS).route(
+        _context(uuid4(), "Ran 5k, also plan my week")
+    ) == FastRoute(intents=None, plausible_sports=None)
 
 
 @pytest.mark.parametrize(
@@ -266,7 +268,7 @@ async def test_several_requests_go_to_the_llm_router() -> None:
 async def test_a_decision_that_did_not_succeed_falls_back(outcome: LlmCallOutcome) -> None:
     router = JevFastRouter(FakeDecisions(outcome=outcome), thresholds=THRESHOLDS)
 
-    assert await router.route(_context(uuid4(), "hey!")) is None
+    assert await router.route(_context(uuid4(), "hey!")) == FastRoute(None, None)
 
 
 async def test_a_gateway_that_raises_falls_back() -> None:
@@ -274,15 +276,171 @@ async def test_a_gateway_that_raises_falls_back() -> None:
         FakeDecisions(error=RuntimeError("row write failed")), thresholds=THRESHOLDS
     )
 
-    assert await router.route(_context(uuid4(), "hey!")) is None
+    assert await router.route(_context(uuid4(), "hey!")) == FastRoute(None, None)
 
 
 async def test_an_athlete_sport_the_set_does_not_describe_falls_back_without_a_call() -> None:
     decisions = FakeDecisions()
 
-    intents = await JevFastRouter(decisions, thresholds=THRESHOLDS).route(
+    route = await JevFastRouter(decisions, thresholds=THRESHOLDS).route(
         _context(uuid4(), "hey!", sports=("gym", "rowing"))
     )
 
-    assert intents is None
+    assert route == FastRoute(None, None)
     assert decisions.asked == []
+
+
+# Plausible sports (B23, ticket #123): the athlete's sports at or above the floor.
+
+
+def test_a_sport_far_below_the_floor_is_not_plausible() -> None:
+    """A board session's wording points at climbing, not gym."""
+    distribution = {"sport": {"climbing": 0.93, "gym": 0.07}}
+
+    assert plausible_sports(distribution, ("climbing", "gym"), floor=0.25) == ("climbing",)
+
+
+def test_two_sports_above_the_floor_are_both_plausible_most_likely_first() -> None:
+    """ "Did intervals", gym and cycling, no context."""
+    distribution = {"sport": {"gym": 0.4, "cycling": 0.6}}
+
+    assert plausible_sports(distribution, ("gym", "cycling"), floor=0.25) == ("cycling", "gym")
+
+
+def test_a_sport_exactly_at_the_floor_is_plausible() -> None:
+    distribution = {"sport": {"climbing": 0.75, "gym": 0.25}}
+
+    assert plausible_sports(distribution, ("climbing", "gym"), floor=0.25) == ("climbing", "gym")
+
+
+def test_equal_probabilities_keep_the_athletes_sport_order() -> None:
+    distribution = {"sport": {"gym": 0.5, "cycling": 0.5}}
+
+    assert plausible_sports(distribution, ("gym", "cycling"), floor=0.25) == ("gym", "cycling")
+
+
+def test_a_sport_missing_from_the_distribution_is_not_plausible() -> None:
+    assert plausible_sports({"sport": {"gym": 0.9}}, ("gym", "cycling"), floor=0.25) == ("gym",)
+
+
+def test_a_floor_above_every_sport_leaves_none_plausible() -> None:
+    distribution = {"sport": {"climbing": 0.4, "gym": 0.35, "cycling": 0.25}}
+
+    assert plausible_sports(distribution, ("climbing", "gym", "cycling"), floor=0.5) == ()
+
+
+@pytest.mark.parametrize("sports", [("cycling",), ("gym",)])
+def test_a_single_sport_athlete_always_gets_that_sport(sports: tuple[str, ...]) -> None:
+    assert plausible_sports({}, sports, floor=0.99) == sports
+
+
+def test_an_athlete_with_no_sport_has_none_plausible() -> None:
+    assert plausible_sports({}, (), floor=0.25) == ()
+
+
+def test_a_multi_sport_athlete_without_a_sport_distribution_has_nothing_to_go_on() -> None:
+    assert plausible_sports({}, ("gym", "cycling"), floor=0.25) is None
+
+
+def test_a_split_sport_log_is_not_routed_but_carries_its_plausible_sports() -> None:
+    """Routing is as #122 calibrated it: the LLM router decides, Jev's sports ride along."""
+    output, _ = _answer(sports=("gym", "cycling"), sport="gym", p_sport=0.5)
+    probabilities = {"intent": {"log_session": 0.95}, "sport": {"gym": 0.5, "cycling": 0.5}}
+
+    route = fast_route(
+        output, probabilities, athlete_sports=("gym", "cycling"), thresholds=THRESHOLDS
+    )
+
+    assert route == FastRoute(intents=None, plausible_sports=("gym", "cycling"))
+
+
+def test_a_confident_log_carries_its_plausible_sports_with_its_intent() -> None:
+    output, _ = _answer(sports=("climbing", "gym"), sport="climbing", p_sport=0.93)
+    probabilities = {"intent": {"log_session": 0.95}, "sport": {"climbing": 0.93, "gym": 0.07}}
+
+    route = fast_route(
+        output, probabilities, athlete_sports=("climbing", "gym"), thresholds=THRESHOLDS
+    )
+
+    assert route == FastRoute(
+        intents=[Intent(kind="log_session", sport="climbing")], plausible_sports=("climbing",)
+    )
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [{"multi": 0.31}, {"p_intent": 0.79}, {"intent": "unclear", "p_intent": 0.99}],
+    ids=["several requests", "unsure intent", "unclear"],
+)
+def test_without_one_confident_intent_jevs_sports_are_not_carried(
+    answer: dict[str, object],
+) -> None:
+    """A multi-request message's sport distribution blends its requests, so the router's own
+    sports stand in for it."""
+    output, probabilities = _answer(sports=("gym", "cycling"), **answer)  # type: ignore[arg-type]
+    probabilities["sport"] = {"gym": 0.5, "cycling": 0.5}
+
+    route = fast_route(
+        output, probabilities, athlete_sports=("gym", "cycling"), thresholds=THRESHOLDS
+    )
+
+    assert route.plausible_sports is None
+
+
+async def test_the_router_carries_a_split_sport_logs_plausible_sports_without_routing_it() -> None:
+    decisions = FakeDecisions(
+        values={"multi_request": 0.02, "intent": "log_session", "sport": "gym"},
+        probabilities={
+            "intent": {"log_session": 0.97},
+            "sport": {"gym": 0.55, "cycling": 0.45},
+        },
+    )
+
+    route = await JevFastRouter(decisions, thresholds=THRESHOLDS).route(
+        _context(uuid4(), "Did intervals", sports=("gym", "cycling"))
+    )
+
+    assert route == FastRoute(intents=None, plausible_sports=("gym", "cycling"))
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [{"multi": 0.9}, {"p_intent": 0.5}, {"intent": "unclear", "p_intent": 0.99}],
+    ids=["several requests", "unsure intent", "unclear"],
+)
+def test_a_single_sport_athlete_keeps_their_sport_however_unsure_jev_is(
+    answer: dict[str, object],
+) -> None:
+    output, probabilities = _answer(sports=("cycling",), **answer)  # type: ignore[arg-type]
+
+    route = fast_route(output, probabilities, athlete_sports=("cycling",), thresholds=THRESHOLDS)
+
+    assert route.plausible_sports == ("cycling",)
+
+
+@pytest.mark.parametrize(
+    "outcome", [LlmCallOutcome.TIMEOUT, LlmCallOutcome.ERROR], ids=["timeout", "error"]
+)
+async def test_a_single_sport_athlete_keeps_their_sport_when_jev_did_not_answer(
+    outcome: LlmCallOutcome,
+) -> None:
+    router = JevFastRouter(FakeDecisions(outcome=outcome), thresholds=THRESHOLDS)
+
+    route = await router.route(_context(uuid4(), "2 hours easy", sports=("cycling",)))
+
+    assert route == FastRoute(intents=None, plausible_sports=("cycling",))
+
+
+async def test_a_gateway_that_raises_still_leaves_a_single_sport_athletes_sport() -> None:
+    router = JevFastRouter(FakeDecisions(error=RuntimeError("boom")), thresholds=THRESHOLDS)
+
+    route = await router.route(_context(uuid4(), "2 hours easy", sports=("gym",)))
+
+    assert route == FastRoute(intents=None, plausible_sports=("gym",))
+
+
+def test_a_floor_of_zero_keeps_every_sport_of_the_athlete() -> None:
+    assert plausible_sports({"sport": {"gym": 0.9}}, ("gym", "cycling"), floor=0.0) == (
+        "gym",
+        "cycling",
+    )

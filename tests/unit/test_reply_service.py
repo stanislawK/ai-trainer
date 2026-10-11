@@ -5,7 +5,7 @@ the "not yet" reply, and nothing saved unless the whole reply came through."""
 import asyncio
 from collections.abc import AsyncGenerator
 from contextlib import aclosing
-from datetime import date
+from datetime import UTC, date, datetime
 from uuid import UUID, uuid4
 
 import pytest
@@ -20,6 +20,7 @@ from ai_trainer.application.reply import (
     ReplyFailed,
     ReplyPhase,
     find_message,
+    route_message,
     start_reply,
     with_screened_safety,
 )
@@ -622,3 +623,59 @@ async def test_the_screen_adds_pain_to_a_fast_routed_message() -> None:
 
     assert screen.screened == [_KNEE]
     assert [message.template_id for message in _done(events).messages] == ["chitchat", "not_yet"]
+
+
+# Plausible sports on the routing (ticket #123, B23).
+
+
+async def _routed(fast: ScriptedFastRouter, conversation: ScriptedConversation) -> Routing:
+    context = ReplyContext(
+        user_id=uuid4(),
+        message="Did intervals",
+        history=(),
+        athlete_sports=("gym", "cycling"),
+        goals=(),
+        now=datetime(2026, 10, 11, 9, 0, tzinfo=UTC),
+        timezone="Europe/Warsaw",
+    )
+    services = reply_services(InMemoryChatRepository(), conversation=conversation, fast_router=fast)
+    return await route_message(context, services)
+
+
+async def test_a_fast_routed_message_carries_the_sports_jev_found_plausible() -> None:
+    fast = ScriptedFastRouter(intents=_RIDE, plausible_sports=("cycling",))
+
+    routing = await _routed(fast, ScriptedConversation())
+
+    assert routing.plausible_sports == ("cycling",)
+
+
+async def test_a_message_routed_by_the_llm_router_still_carries_jevs_plausible_sports() -> None:
+    """A split-sport log is declined by the fast path, but the athlete may be asked about
+    exactly the sports Jev kept in play."""
+    fast = ScriptedFastRouter(intents=None, plausible_sports=("gym", "cycling"))
+
+    routing = await _routed(fast, ScriptedConversation(intents=[_RIDE]))
+
+    assert (routing.intents, routing.plausible_sports) == (_RIDE, ("gym", "cycling"))
+
+
+async def test_a_fallback_carries_the_llm_routers_own_sport_alone() -> None:
+    routing = await _routed(ScriptedFastRouter(intents=None), ScriptedConversation(intents=[_RIDE]))
+
+    assert routing.plausible_sports == ("cycling",)
+
+
+async def test_a_fallback_with_no_logged_sport_has_no_plausible_sport() -> None:
+    routing = await _routed(ScriptedFastRouter(), ScriptedConversation())
+
+    assert routing.plausible_sports == ()
+
+
+async def test_an_empty_set_from_jev_falls_back_to_the_llm_routers_sport() -> None:
+    """A floor above every sport leaves nothing in play; the router's own sport stands in."""
+    fast = ScriptedFastRouter(intents=None, plausible_sports=())
+
+    routing = await _routed(fast, ScriptedConversation(intents=[_RIDE]))
+
+    assert routing.plausible_sports == ("cycling",)

@@ -71,6 +71,14 @@ class Settings(BaseSettings):
     router_fast_multi_request_threshold: float = Field(default=0.15, ge=0, le=1)
     router_fast_intent_threshold: float = Field(default=0.85, ge=0, le=1)
     router_fast_sport_threshold: float = Field(default=0.9, ge=0, le=1)
+    # Plausible sports (B23, #123): an athlete's sport with P(sport) at or above this stays in
+    # play, and the athlete is asked only when two or more do. Dropping a sport they might have
+    # meant files a session under the wrong one; keeping an unlikely one only costs a question,
+    # so it leans low. Calibrated on `evals/datasets/router.yaml` at #123: sports a message
+    # clearly rules out scored 0.07 or less, and the lowest sport it leaves in play 0.16, so
+    # 0.1 sits in that gap. Recorded in the `router_fast` baseline; change it only through
+    # `/tune-prompt router_fast`.
+    router_fast_plausible_sport_floor: float = Field(default=0.1, ge=0, le=1)
 
     # Google sign-in (ADR-0005). No Google access or refresh token is ever stored.
     # Required and non-blank: a blank value otherwise fails only on Google's own page.

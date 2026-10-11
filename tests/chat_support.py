@@ -18,6 +18,7 @@ from ai_trainer.application.ports.conversation import (
     Routing,
     TemplateRef,
 )
+from ai_trainer.application.ports.fast_router import FastRoute
 from ai_trainer.application.ports.llm_gateway import (
     LlmGatewayResult,
     LlmStreamEvent,
@@ -222,14 +223,16 @@ class ScriptedSafetyScreen:
 @dataclass
 class ScriptedFastRouter:
     """Answers every message with `intents`; `None`, the default, leaves it to the LLM router.
+    `plausible_sports` is what Jev read from the message, `None` when it could not tell.
     Records each context it was given."""
 
     intents: list[Intent] | None = None
+    plausible_sports: tuple[str, ...] | None = None
     routed: list[ReplyContext] = field(default_factory=list)
 
-    async def route(self, context: ReplyContext) -> Sequence[Intent] | None:
+    async def route(self, context: ReplyContext) -> FastRoute:
         self.routed.append(context)
-        return self.intents
+        return FastRoute(intents=self.intents, plausible_sports=self.plausible_sports)
 
 
 def reply_services(

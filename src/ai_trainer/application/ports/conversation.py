@@ -28,10 +28,14 @@ class ReplyContext:
 
 @dataclass(frozen=True, slots=True)
 class Routing:
-    """The router's intents, in message order; empty when the call did not succeed."""
+    """The router's intents, in message order; empty when the call did not succeed.
+    `plausible_sports` are the athlete's sports still in play for the message, most likely
+    first (B23): Jev's reading when it gave one, else the sports of the router's own
+    `log_session` intents."""
 
     intents: Sequence[Intent]
     outcome: LlmCallOutcome
+    plausible_sports: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

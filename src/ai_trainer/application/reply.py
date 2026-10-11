@@ -7,7 +7,7 @@ streams a fresh reply."""
 import asyncio
 from collections.abc import AsyncGenerator, Sequence
 from contextlib import aclosing
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from typing import Literal
 from uuid import UUID
@@ -31,6 +31,7 @@ from ai_trainer.domain.llm_calls import LlmCallOutcome
 # Until each specialist ships, these go to `chitchat`; the persona carries G3 (ADR-0008).
 _CHITCHAT_KINDS = frozenset({"chitchat", "unclear", "wellbeing_or_injury"})
 _SAFETY_KIND: IntentKind = "wellbeing_or_injury"
+_LOG_KIND: IntentKind = "log_session"
 # Streamed between two parts of one reply, which are saved as two messages.
 PART_BREAK = "\n\n"
 # Each reply part is stamped this far after what it follows, so it sorts right under the
@@ -173,7 +174,7 @@ async def _reply(
     screening = asyncio.ensure_future(services.safety_screen.finds_pain(user_id, message.text))
     try:
         yield ReplyPhase("routing")
-        routing = await _route(context, services)
+        routing = await route_message(context, services)
         # Awaited even when routing failed, so the screen's call is recorded as it ended.
         pain = await screening
     finally:
@@ -209,13 +210,32 @@ async def _reply(
     yield ReplyDone(messages=await asyncio.shield(saving))
 
 
-async def _route(context: ReplyContext, services: ReplyServices) -> Routing:
+async def route_message(context: ReplyContext, services: ReplyServices) -> Routing:
     """One confident intent from the fast path, else the LLM router (ADR-0008 amendment). A
-    declined message pays the fast path's wait, capped by its timeout, before the router."""
-    intents = await services.fast_router.route(context)
-    if intents is not None:
-        return Routing(intents=intents, outcome=LlmCallOutcome.SUCCESS)
-    return await services.conversation.route(context)
+    declined message pays the fast path's wait, capped by its timeout, before the router.
+    Either way the routing carries Jev's plausible sports when it gave them (B23), and the
+    router's own logged sports when it did not."""
+    fast = await services.fast_router.route(context)
+    if fast.intents is not None:
+        return Routing(
+            intents=fast.intents,
+            outcome=LlmCallOutcome.SUCCESS,
+            plausible_sports=fast.plausible_sports or (),
+        )
+    routed = await services.conversation.route(context)
+    if not fast.plausible_sports:
+        # Jev gave none, or a floor above every sport left nothing in play.
+        return replace(routed, plausible_sports=_logged_sports(routed.intents))
+    return replace(routed, plausible_sports=fast.plausible_sports)
+
+
+def _logged_sports(intents: Sequence[Intent]) -> tuple[str, ...]:
+    """The router's own sports, in message order, each once."""
+    sports: dict[str, None] = {}
+    for intent in intents:
+        if intent.kind == _LOG_KIND and intent.sport is not None:
+            sports.setdefault(intent.sport)
+    return tuple(sports)
 
 
 async def _save(

@@ -41,6 +41,9 @@ cases:
       confidence: 0.9
       span: ''
 - name: log gym with units
+  metadata:
+    plausible_sports:
+    - gym
   inputs:
     prompt: Did 5x5 squats at 100 kg this morning
     deps:
@@ -60,6 +63,9 @@ cases:
       span: ''
       sport: gym
 - name: log climbing with grades
+  metadata:
+    plausible_sports:
+    - climbing
   inputs:
     prompt: Sent three 6A boulders and a 6B+ at the wall
     deps:
@@ -79,6 +85,9 @@ cases:
       span: ''
       sport: climbing
 - name: log cycling with distance
+  metadata:
+    plausible_sports:
+    - cycling
   inputs:
     prompt: Rode 45 km with 600 m of climbing, avg 28 km/h
     deps:
@@ -98,6 +107,9 @@ cases:
       span: ''
       sport: cycling
 - name: log single-sport athlete no sport word
+  metadata:
+    plausible_sports:
+    - gym
   inputs:
     prompt: Did an hour, felt strong
     deps:
@@ -792,6 +804,9 @@ cases:
       span: ''
       sport: gym
 - name: polish log cycling
+  metadata:
+    plausible_sports:
+    - cycling
   inputs:
     prompt: Dzisiaj rano przejechałem 40 km na rowerze
     deps:
@@ -863,6 +878,73 @@ cases:
     - kind: wellbeing_or_injury
       confidence: 0.9
       span: ''
+- name: plausible sport board wording leaves two
+  metadata:
+    plausible_sports:
+    - climbing
+    - gym
+  inputs:
+    prompt: Did 4x4s on the board
+    deps:
+      message: Did 4x4s on the board
+      history: []
+      athlete_sports:
+      - climbing
+      - gym
+      today: '2026-09-30'
+      now_local: '2026-09-30T18:30:00+02:00'
+      timezone: Europe/Warsaw
+  expected_output:
+    intents:
+    - kind: log_session
+      confidence: 0.9
+      span: ''
+      sport: climbing
+- name: plausible sport single-sport athlete
+  metadata:
+    plausible_sports:
+    - cycling
+  inputs:
+    prompt: 2 hours easy
+    deps:
+      message: 2 hours easy
+      history: []
+      athlete_sports:
+      - cycling
+      today: '2026-09-30'
+      now_local: '2026-09-30T18:30:00+02:00'
+      timezone: Europe/Warsaw
+  expected_output:
+    intents:
+    - kind: log_session
+      confidence: 0.9
+      span: ''
+      sport: cycling
+- name: plausible sport two left in play
+  metadata:
+    acceptable_sports:
+    - gym
+    - cycling
+    plausible_sports:
+    - gym
+    - cycling
+  inputs:
+    prompt: Did intervals
+    deps:
+      message: Did intervals
+      history: []
+      athlete_sports:
+      - gym
+      - cycling
+      today: '2026-09-30'
+      now_local: '2026-09-30T18:30:00+02:00'
+      timezone: Europe/Warsaw
+  expected_output:
+    intents:
+    - kind: log_session
+      confidence: 0.9
+      span: ''
+      sport: gym
 evaluators:
 - IntentKindsMatch
 - LogSessionSportMatch
