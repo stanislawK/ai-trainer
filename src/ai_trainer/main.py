@@ -32,6 +32,7 @@ from ai_trainer.domain.sports.registry import default_sport_registry
 from ai_trainer.llm.conversation import LlmConversation, build_prompt_registry
 from ai_trainer.llm.decision_gateway import OpenRouterDecisionGateway
 from ai_trainer.llm.gateway import OpenRouterGateway
+from ai_trainer.llm.router_fast import JevFastRouter, RouterFastThresholds
 from ai_trainer.llm.safety_screen import JevSafetyScreen
 from ai_trainer.settings import Settings
 from ai_trainer.web.active_user_gate import ActiveUserGateMiddleware
@@ -125,13 +126,23 @@ def create_app(settings: Settings) -> FastAPI:
         chitchat_model=settings.chitchat_model,
         history_turns=settings.chat_history_turns,
     )
+    decisions = OpenRouterDecisionGateway(settings, llm_calls)
     replies = ReplyServices(
         chat=chat,
         profile=onboarding,
         conversation=conversation,
+        # Routes a message with one confident intent before the LLM router (ADR-0020).
+        fast_router=JevFastRouter(
+            decisions,
+            thresholds=RouterFastThresholds(
+                multi_request=settings.router_fast_multi_request_threshold,
+                intent=settings.router_fast_intent_threshold,
+                sport=settings.router_fast_sport_threshold,
+            ),
+        ),
         # Runs alongside the router and can only add the safety intent (ADR-0020, G3).
         safety_screen=JevSafetyScreen(
-            OpenRouterDecisionGateway(settings, llm_calls),
+            decisions,
             threshold=settings.safety_screen_pain_threshold,
         ),
         clock=clock,

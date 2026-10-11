@@ -4,7 +4,8 @@ model (ADR-0009, ADR-0020).
     uv run ai-trainer-evals run <template-or-decision-id> [--version N] [--model ID] [--repeat N]
 
 An ID with a folder under `llm/decisions/` is a decision set: it runs on Jev, graded at its
-thresholds from `Settings`, with no judge model.
+thresholds from `Settings`, with no judge model. `router_fast` runs on the router's cases and
+is graded against the router's baseline (`llm/evals/router_fast.py`).
 
 Real OpenRouter calls cost money; this is never invoked by `pytest` or by push/pull_request
 CI (ADR-0013), only on demand — locally or through the `workflow_dispatch`-only GitHub
@@ -32,6 +33,7 @@ from ai_trainer.llm.decision_gateway import OPENROUTER_SYSTEM_ONE_BASE_URL
 from ai_trainer.llm.decisions.loader import DECISIONS_ROOT, DecisionSetLoader
 from ai_trainer.llm.evals.decisions import run_decision_eval
 from ai_trainer.llm.evals.jev_check import JevCheck, configure_jev_check
+from ai_trainer.llm.evals.router_fast import FastPathAccuracyError, run_router_fast_eval
 from ai_trainer.llm.evals.runner import (
     CaseFailedError,
     EvalCaseInputs,
@@ -47,6 +49,7 @@ from ai_trainer.llm.prompts.template import (
     UnknownPromptTemplateError,
 )
 from ai_trainer.llm.router import IntentKindsMatch, LogSessionSportMatch
+from ai_trainer.llm.router_fast import ROUTER_FAST_ID, RouterFastThresholds
 from ai_trainer.settings import Settings
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
@@ -88,6 +91,14 @@ def _decision_thresholds(decision_id: str, settings: Settings) -> dict[str, floa
         question: float(getattr(settings, field))
         for question, field in _DECISION_THRESHOLDS.get(decision_id, {}).items()
     }
+
+
+def _router_fast_thresholds(settings: Settings) -> RouterFastThresholds:
+    return RouterFastThresholds(
+        multi_request=settings.router_fast_multi_request_threshold,
+        intent=settings.router_fast_intent_threshold,
+        sport=settings.router_fast_sport_threshold,
+    )
 
 
 def _positive_int(value: str) -> int:
@@ -183,6 +194,41 @@ async def execute_decision(
             repeat=args.repeat,
         )
     except (CaseFailedError, EvaluatorFailedError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+
+    for change in result.changes:
+        print(f"CHANGED: {change}")
+    for regression in result.regressions:
+        print(f"REGRESSION: {regression}", file=sys.stderr)
+    return 1 if result.regressions else 0
+
+
+async def execute_router_fast(
+    args: argparse.Namespace,
+    *,
+    loader: DecisionSetLoader,
+    model: Model,
+    model_id: str,
+    thresholds: RouterFastThresholds,
+    datasets_root: Path,
+    baselines_root: Path,
+    reports_root: Path,
+) -> int:
+    """`router_fast`'s counterpart of `execute_decision`; a test injects a fake `DecisionModel`."""
+    try:
+        result = await run_router_fast_eval(
+            loader=loader,
+            version=args.version,
+            model=model,
+            model_id=model_id,
+            thresholds=thresholds,
+            datasets_root=datasets_root,
+            baselines_root=baselines_root,
+            reports_root=reports_root,
+            repeat=args.repeat,
+        )
+    except (CaseFailedError, EvaluatorFailedError, FastPathAccuracyError) as exc:
         print(str(exc), file=sys.stderr)
         return 1
 
@@ -298,6 +344,19 @@ def _main_decision(args: argparse.Namespace, settings: Settings) -> int:
     if api_key is None:
         return 1
     model = _decision_model(settings, model_override=args.model, api_key=api_key)
+    if args.template_id == ROUTER_FAST_ID:
+        return asyncio.run(
+            execute_router_fast(
+                args,
+                loader=DecisionSetLoader(root=_DECISIONS_ROOT),
+                model=model,
+                model_id=model.model_name,
+                thresholds=_router_fast_thresholds(settings),
+                datasets_root=_EVALS_ROOT / "datasets",
+                baselines_root=_EVALS_ROOT / "baselines",
+                reports_root=_EVALS_ROOT / "reports",
+            )
+        )
     return asyncio.run(
         execute_decision(
             args,

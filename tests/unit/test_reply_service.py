@@ -33,6 +33,7 @@ from tests.chat_support import (
     InMemoryChatRepository,
     InMemoryProfile,
     ScriptedConversation,
+    ScriptedFastRouter,
     ScriptedSafetyScreen,
     reply_services,
 )
@@ -52,6 +53,7 @@ async def _events(
     conversation: ScriptedConversation,
     *,
     profile: InMemoryProfile | None = None,
+    fast_router: ScriptedFastRouter | None = None,
     safety_screen: ScriptedSafetyScreen | None = None,
     history_turns: int = 10,
 ) -> list[ReplyEvent]:
@@ -59,6 +61,7 @@ async def _events(
         chat,
         profile=profile,
         conversation=conversation,
+        fast_router=fast_router,
         safety_screen=safety_screen,
         history_turns=history_turns,
     )
@@ -570,3 +573,52 @@ async def test_stopping_during_routing_cancels_the_screen_too() -> None:
     await asyncio.sleep(0)
 
     assert screen.cancelled == 1
+
+
+# The Jev fast path (ticket #122, ADR-0008 amendment): one confident intent skips the router.
+
+
+async def test_a_fast_routed_message_is_dispatched_with_no_router_call() -> None:
+    chat, user_id = InMemoryChatRepository(), uuid4()
+    asked = await _asked(chat, user_id, "log my ride")
+    conversation = ScriptedConversation(intents=[_HI])
+    fast = ScriptedFastRouter(intents=_RIDE)
+
+    events = await _events(chat, user_id, asked, conversation, fast_router=fast)
+
+    assert conversation.routed == []
+    assert [context.message for context in fast.routed] == ["log my ride"]
+    assert events[0] == ReplyPhase("routing")
+    [reply] = _done(events).messages
+    assert (reply.text, reply.sports) == (NOT_YET_TEXT, ("cycling",))
+
+
+async def test_a_message_the_fast_path_declines_goes_to_the_llm_router() -> None:
+    chat, user_id = InMemoryChatRepository(), uuid4()
+    asked = await _asked(chat, user_id, "Ran 5k, also plan my week")
+    conversation = ScriptedConversation(intents=[_RIDE, [Intent(kind="request_plan")]])
+    fast = ScriptedFastRouter(intents=None)
+
+    events = await _events(chat, user_id, asked, conversation, fast_router=fast)
+
+    assert len(fast.routed) == 1
+    assert [context.message for context in conversation.routed] == ["Ran 5k, also plan my week"]
+    assert _streamed_text(events) == NOT_YET_TEXT
+
+
+async def test_the_screen_adds_pain_to_a_fast_routed_message() -> None:
+    chat, user_id = InMemoryChatRepository(), uuid4()
+    asked = await _asked(chat, user_id, _KNEE)
+    screen = ScriptedSafetyScreen(pain=True)
+
+    events = await _events(
+        chat,
+        user_id,
+        asked,
+        ScriptedConversation(),
+        fast_router=ScriptedFastRouter(intents=_RIDE),
+        safety_screen=screen,
+    )
+
+    assert screen.screened == [_KNEE]
+    assert [message.template_id for message in _done(events).messages] == ["chitchat", "not_yet"]

@@ -17,13 +17,30 @@ from ai_trainer.llm.decisions.loader import DecisionSetLoader
 from ai_trainer.llm.evals import cli as cli_module
 from ai_trainer.llm.evals import jev_check
 from ai_trainer.llm.evals.baseline import Baseline, save_baseline
-from ai_trainer.llm.evals.cli import _build_parser, execute, execute_decision
+from ai_trainer.llm.evals.cli import (
+    _build_parser,
+    execute,
+    execute_decision,
+    execute_router_fast,
+)
 from ai_trainer.llm.evals.jev_check import JevCheck
 from ai_trainer.llm.evals.runner import EvalCaseInputs
 from ai_trainer.llm.prompts.registry import PromptRegistry
 from ai_trainer.llm.prompts.template import PromptTemplate
+from ai_trainer.llm.router_fast import RouterFastThresholds
 from ai_trainer.settings import Settings
 from tests.unit.test_eval_decisions import ScriptedJev
+from tests.unit.test_eval_router_fast import ScriptedJev as FastJev
+from tests.unit.test_eval_router_fast import _case as _router_case
+from tests.unit.test_eval_router_fast import _write as _write_router_cases
+
+_FAST_THRESHOLDS = RouterFastThresholds(multi_request=0.2, intent=0.9, sport=0.9)
+_FAST_HI = _router_case("greeting", "hi!", [{"kind": "chitchat"}])
+_FAST_RIDE = _router_case("ride", "Rode 45 km", [{"kind": "log_session", "sport": "cycling"}])
+_FAST_ANSWERS: dict[str, tuple[float, dict[str, tuple[str, float]]]] = {
+    "hi!": (0.02, {"intent": ("chitchat", 0.97), "sport": ("gym", 0.4)}),
+    "Rode 45 km": (0.03, {"intent": ("log_session", 0.96), "sport": ("cycling", 0.95)}),
+}
 
 _FIXTURES_ROOT = Path(__file__).parent.parent / "fixtures" / "prompts"
 
@@ -602,3 +619,123 @@ def test_main_builds_a_reasoning_judge_without_a_temperature(
 
     assert cli_module.main(["run", "sample", "--model", "under-test/model"]) == 0
     assert "temperature" not in (captured["judge"].settings or {})
+
+
+# `router_fast` runs on the router's cases and is graded against the router (#122).
+
+
+async def test_execute_router_fast_returns_zero_and_writes_the_baseline(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(models, "ALLOW_MODEL_REQUESTS", True)
+    _write_router_cases(tmp_path, [_FAST_HI, _FAST_RIDE])
+
+    exit_code = await execute_router_fast(
+        _build_parser().parse_args(["run", "router_fast"]),
+        loader=DecisionSetLoader(),
+        model=FastJev(_FAST_ANSWERS),
+        model_id="typesafe/jev-1.13",
+        thresholds=_FAST_THRESHOLDS,
+        datasets_root=tmp_path / "datasets",
+        baselines_root=tmp_path / "baselines",
+        reports_root=tmp_path / "reports",
+    )
+
+    assert exit_code == 0
+    saved = Baseline.model_validate_json((tmp_path / "baselines" / "router_fast.json").read_text())
+    assert saved.scores == {"coverage": 1.0, "accuracy": 1.0}
+
+
+async def test_execute_router_fast_returns_one_when_less_accurate_than_the_router(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(models, "ALLOW_MODEL_REQUESTS", True)
+    _write_router_cases(tmp_path, [_FAST_HI, _FAST_RIDE])
+    wrong = {
+        **_FAST_ANSWERS,
+        "hi!": (0.02, {"intent": ("request_plan", 0.97), "sport": ("gym", 0.4)}),
+    }
+
+    exit_code = await execute_router_fast(
+        _build_parser().parse_args(["run", "router_fast"]),
+        loader=DecisionSetLoader(),
+        model=FastJev(wrong),
+        model_id="typesafe/jev-1.13",
+        thresholds=_FAST_THRESHOLDS,
+        datasets_root=tmp_path / "datasets",
+        baselines_root=tmp_path / "baselines",
+        reports_root=tmp_path / "reports",
+    )
+
+    assert exit_code == 1
+    assert "below the router's 0.900" in capsys.readouterr().err
+
+
+async def test_execute_router_fast_fails_on_a_regression_and_prints_changes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(models, "ALLOW_MODEL_REQUESTS", True)
+    _write_router_cases(tmp_path, [_FAST_HI, _FAST_RIDE])
+    save_baseline(
+        tmp_path / "baselines" / "router_fast.json",
+        Baseline(
+            template_id="router_fast",
+            version=1,
+            model="typesafe/jev-1.13",
+            assertions=1.0,
+            scores={"coverage": 1.0, "accuracy": 1.0},
+            decision_thresholds={"multi_request": 0.2, "intent": 0.99, "sport": 0.9},
+        ),
+    )
+    declines_the_ride = {
+        **_FAST_ANSWERS,
+        "Rode 45 km": (0.5, {"intent": ("log_session", 0.96), "sport": ("cycling", 0.95)}),
+    }
+
+    exit_code = await execute_router_fast(
+        _build_parser().parse_args(["run", "router_fast"]),
+        loader=DecisionSetLoader(),
+        model=FastJev(declines_the_ride),
+        model_id="typesafe/jev-1.13",
+        thresholds=_FAST_THRESHOLDS,
+        datasets_root=tmp_path / "datasets",
+        baselines_root=tmp_path / "baselines",
+        reports_root=tmp_path / "reports",
+    )
+
+    assert exit_code == 1
+    captured = capsys.readouterr()
+    assert "CHANGED: threshold 'intent' changed from 0.99 to 0.9" in captured.out
+    assert "REGRESSION: score 'coverage' dropped" in captured.err
+
+
+def test_main_sends_router_fast_to_its_own_runner_with_settings_thresholds(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Reaching the missing router dataset under the patched evals root proves the router_fast
+    path ran; no model is ever called (`ALLOW_MODEL_REQUESTS` stays False)."""
+    monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://u:p@localhost:5432/db")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setenv("EVAL_JUDGE_MODEL", "judge/model")
+    monkeypatch.setattr(cli_module, "_EVALS_ROOT", tmp_path / "evals")
+    save_baseline(
+        tmp_path / "evals" / "baselines" / "router.json",
+        Baseline(template_id="router", version=2, model="m", assertions=0.9, scores={}),
+    )
+
+    with pytest.raises(FileNotFoundError, match=r"router\.yaml"):
+        cli_module.main(["run", "router_fast"])
+
+
+def test_router_fast_thresholds_come_from_settings() -> None:
+    settings = _settings().model_copy(
+        update={
+            "router_fast_multi_request_threshold": 0.1,
+            "router_fast_intent_threshold": 0.85,
+            "router_fast_sport_threshold": 0.95,
+        }
+    )
+
+    assert cli_module._router_fast_thresholds(settings) == RouterFastThresholds(
+        multi_request=0.1, intent=0.85, sport=0.95
+    )

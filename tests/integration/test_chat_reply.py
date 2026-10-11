@@ -1,5 +1,5 @@
-"""The streamed reply end to end on PostgreSQL (tickets #82 and #121): the real gateways,
-repositories, prompt templates and decision set, with OpenRouter replaced by a scripted
+"""The streamed reply end to end on PostgreSQL (tickets #82, #121 and #122): the real gateways,
+repositories, prompt templates and decision sets, with OpenRouter replaced by a scripted
 `FunctionModel` (ADR-0007) and Jev by a fake `DecisionModel` (ADR-0020). Every model and
 decision call leaves its `llm_calls` row (ADR-0018), and a reply survives a reload."""
 
@@ -18,6 +18,8 @@ from pydantic_ai import ModelMessage, ModelRequest, ModelResponse, TextPart, Use
 from pydantic_ai.models import Model
 from pydantic_ai.models import decision as decision_models
 from pydantic_ai.models.decision import (
+    ChoiceAnswer,
+    ChoiceQuestion,
     DecisionAnswer,
     DecisionModel,
     DecisionModelSettings,
@@ -36,12 +38,14 @@ from ai_trainer.adapters.onboarding_repository import SqlAlchemyOnboardingReposi
 from ai_trainer.adapters.users_repository import SqlAlchemyUsersRepository
 from ai_trainer.application.reply import ReplyServices
 from ai_trainer.domain.chat import ChatRole
+from ai_trainer.domain.conversation import INTENT_KINDS
 from ai_trainer.domain.llm_calls import LlmCall, LlmCallOutcome, NewLlmCall
 from ai_trainer.domain.sports.registry import default_sport_registry
 from ai_trainer.domain.users import NewUser, User, UserStatus
 from ai_trainer.llm.conversation import LlmConversation, build_prompt_registry
 from ai_trainer.llm.decision_gateway import OpenRouterDecisionGateway
 from ai_trainer.llm.gateway import OpenRouterGateway
+from ai_trainer.llm.router_fast import JevFastRouter, RouterFastThresholds
 from ai_trainer.llm.safety_screen import JevSafetyScreen
 from ai_trainer.settings import Settings
 from ai_trainer.web.chat import build_chat_router
@@ -66,6 +70,11 @@ _ROUTED = {
         '{"intents": [{"kind": "chitchat", "confidence": 0.9,'
         ' "span": "knee\'s a bit sore lol, anyway hi"}]}'
     ),
+    "Ran 5k, also plan my week": (
+        '{"intents": [{"kind": "log_session", "sport": "cycling", "confidence": 0.6,'
+        ' "span": "Ran 5k"}, {"kind": "request_plan", "confidence": 0.9,'
+        ' "span": "also plan my week"}]}'
+    ),
     "knee's sore after bouldering, log it": (
         '{"intents": [{"kind": "log_session", "sport": "climbing", "confidence": 0.9,'
         ' "span": "knee\'s sore after bouldering, log it"}]}'
@@ -74,17 +83,26 @@ _ROUTED = {
 _JEV_SNAPSHOT = "typesafe/jev-1.13-20260917"
 
 
+# `router_fast`'s answers to a message it routes itself: P(several requests), then each
+# choice's pick and its probability (ticket #122).
+type FastAnswer = tuple[float, dict[str, tuple[str, float]]]
+_DECLINED: FastAnswer = (0.93, {"intent": ("log_session", 0.55), "sport": ("cycling", 0.5)})
+
+
 class FakeJev(DecisionModel[None]):
     """Answers `safety_screen`'s pain question as the #120 baseline did (0.97 for a sore knee,
-    0.04 for a greeting), after `delay` seconds; only the transport is replaced."""
+    0.04 for a greeting), and `router_fast` from `fast` per message, declining any other as
+    several requests; after `delay` seconds. Only the transport is replaced."""
 
     max_choice_options = 255
     max_score_levels = 10
 
-    def __init__(self, *, delay: float = 0.0) -> None:
+    def __init__(self, *, delay: float = 0.0, fast: dict[str, FastAnswer] | None = None) -> None:
         super().__init__()
         self._delay = delay
+        self._fast = fast or {}
         self.states: list[object] = []
+        self.fast_asked: list[dict[str, object]] = []
 
     @property
     def model_name(self) -> str:
@@ -101,10 +119,33 @@ class FakeJev(DecisionModel[None]):
     async def decide(
         self, request: DecisionRequest, model_settings: DecisionModelSettings
     ) -> DecisionResponse:
-        self.states.append(request.state)
         await asyncio.sleep(self._delay)
+        if "pain" not in request.questions:
+            return self._route(request)
+        self.states.append(request.state)
         pain = 0.97 if "knee" in str(request.state) else 0.04
         answers: dict[str, DecisionAnswer] = {"pain": NoulAnswer(noul=pain)}
+        return DecisionResponse(
+            answers=answers, model_name=_JEV_SNAPSHOT, usage=RequestUsage(input_tokens=120)
+        )
+
+    def _route(self, request: DecisionRequest) -> DecisionResponse:
+        offered = {
+            name: list(question.criteria)
+            for name, question in request.questions.items()
+            if isinstance(question, ChoiceQuestion)
+        }
+        self.fast_asked.append({"state": request.state, **offered})
+        multi, picks = self._fast.get(str(request.state), _DECLINED)
+        answers: dict[str, DecisionAnswer] = {"multi_request": NoulAnswer(noul=multi)}
+        for name, options in offered.items():
+            pick, p = picks[name]
+            rest = (1 - p) / (len(options) - 1)
+            answers[name] = ChoiceAnswer(
+                choice=pick,
+                confidence=p,
+                probabilities={option: p if option == pick else rest for option in options},
+            )
         return DecisionResponse(
             answers=answers, model_name=_JEV_SNAPSHOT, usage=RequestUsage(input_tokens=120)
         )
@@ -234,6 +275,14 @@ def _app(
         chat=chat,
         profile=SqlAlchemyOnboardingRepository(factory),
         conversation=conversation,
+        fast_router=JevFastRouter(
+            decisions,
+            thresholds=RouterFastThresholds(
+                multi_request=settings.router_fast_multi_request_threshold,
+                intent=settings.router_fast_intent_threshold,
+                sport=settings.router_fast_sport_threshold,
+            ),
+        ),
         safety_screen=JevSafetyScreen(decisions, threshold=settings.safety_screen_pain_threshold),
         clock=FixedClock(),
         history_turns=settings.chat_history_turns,
@@ -289,6 +338,7 @@ async def test_hi_streams_a_reply_that_survives_a_reload_with_a_row_per_model_ca
     assert sorted((call.template_id, call.outcome) for call in calls) == [
         ("chitchat", LlmCallOutcome.SUCCESS),
         ("router", LlmCallOutcome.SUCCESS),
+        ("router_fast", LlmCallOutcome.SUCCESS),
         ("safety_screen", LlmCallOutcome.SUCCESS),
     ]
 
@@ -305,7 +355,7 @@ async def test_log_my_ride_gets_the_not_yet_reply_and_only_the_router_row(
     [_, reply] = await SqlAlchemyChatRepository(db_session_factory).list_recent(user.id, 50)
     assert (reply.template_id, reply.template_version, reply.sports) == ("not_yet", 1, ("cycling",))
     calls = await SqlAlchemyLlmCallsRepository(db_session_factory).list_for_user(user.id)
-    assert sorted(call.template_id for call in calls) == ["router", "safety_screen"]
+    assert sorted(call.template_id for call in calls) == ["router", "router_fast", "safety_screen"]
 
 
 async def test_my_knee_hurts_also_hi_puts_the_pain_first_in_one_chitchat_call(
@@ -340,6 +390,8 @@ async def test_a_timeout_leaves_a_timeout_row_and_the_retry_streams_a_fresh_repl
         ("chitchat", LlmCallOutcome.TIMEOUT),
         ("router", LlmCallOutcome.SUCCESS),
         ("router", LlmCallOutcome.SUCCESS),
+        ("router_fast", LlmCallOutcome.SUCCESS),
+        ("router_fast", LlmCallOutcome.SUCCESS),
         ("safety_screen", LlmCallOutcome.SUCCESS),
         ("safety_screen", LlmCallOutcome.SUCCESS),
     ]
@@ -484,6 +536,8 @@ async def test_every_message_writes_one_screen_row_under_its_own_decision_id(
         ("chitchat", LlmCallOutcome.SUCCESS),
         ("router", LlmCallOutcome.SUCCESS),
         ("router", LlmCallOutcome.SUCCESS),
+        ("router_fast", LlmCallOutcome.SUCCESS),
+        ("router_fast", LlmCallOutcome.SUCCESS),
         ("safety_screen", LlmCallOutcome.SUCCESS),
         ("safety_screen", LlmCallOutcome.SUCCESS),
     ]
@@ -506,3 +560,118 @@ async def test_a_screen_timeout_still_streams_the_router_driven_reply(
     assert "Hi!" in body
     assert "Hi!" in page
     assert ("safety_screen", LlmCallOutcome.TIMEOUT) in await _calls(db_session_factory, user)
+
+
+# The Jev router fast path (ADR-0020 use 1, ticket #122).
+
+_HI_FAST: FastAnswer = (0.02, {"intent": ("chitchat", 0.97), "sport": ("gym", 0.4)})
+_RIDE_FAST: FastAnswer = (0.03, {"intent": ("log_session", 0.96), "sport": ("cycling", 0.95)})
+
+
+async def test_a_fast_routed_message_writes_a_router_fast_row_and_no_router_row(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    user = await _user(db_session_factory, "fast-a")
+    chitchat = ScriptedChitchat()
+
+    [body], page = await _send_and_stream(
+        db_session_factory, user, "hi!", chitchat, jev=FakeJev(fast={"hi!": _HI_FAST})
+    )
+
+    assert "Hi!" in body
+    assert "Hi!" in page
+    assert len(chitchat.instructions) == 1
+    assert await _calls(db_session_factory, user) == [
+        ("chitchat", LlmCallOutcome.SUCCESS),
+        ("router_fast", LlmCallOutcome.SUCCESS),
+        ("safety_screen", LlmCallOutcome.SUCCESS),
+    ]
+    calls = await SqlAlchemyLlmCallsRepository(db_session_factory).list_for_user(user.id)
+    [fast] = [call for call in calls if call.template_id == "router_fast"]
+    assert (fast.template_version, fast.model, fast.cost) == (1, _JEV_SNAPSHOT, None)
+
+
+async def test_a_fast_routed_log_takes_its_sport_from_the_athletes_own_sports(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    user = await _user(db_session_factory, "fast-b")
+    await SqlAlchemyOnboardingRepository(db_session_factory).replace_sports(
+        user.id, ["climbing", "cycling"]
+    )
+    jev = FakeJev(fast={"log my ride": _RIDE_FAST})
+
+    await _send_and_stream(db_session_factory, user, "log my ride", ScriptedChitchat(), jev=jev)
+
+    assert jev.fast_asked == [
+        {"state": "log my ride", "intent": list(INTENT_KINDS), "sport": ["climbing", "cycling"]}
+    ]
+    [_, reply] = await SqlAlchemyChatRepository(db_session_factory).list_recent(user.id, 50)
+    assert (reply.template_id, reply.sports) == ("not_yet", ("cycling",))
+    assert "router" not in [name for name, _ in await _calls(db_session_factory, user)]
+
+
+async def test_several_requests_go_to_the_llm_router(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    user = await _user(db_session_factory, "fast-c")
+
+    """Jev is sure of the intent and the sport, so only P(several requests), at the
+    `Settings` threshold, sends it to the LLM router."""
+    user_sports = SqlAlchemyOnboardingRepository(db_session_factory)
+    await user_sports.replace_sports(user.id, ["climbing", "cycling"])
+    several: FastAnswer = (0.93, {"intent": ("log_session", 0.99), "sport": ("cycling", 0.99)})
+    jev = FakeJev(fast={"Ran 5k, also plan my week": several})
+
+    [body], _ = await _send_and_stream(
+        db_session_factory, user, "Ran 5k, also plan my week", ScriptedChitchat(), jev=jev
+    )
+
+    assert [asked["state"] for asked in jev.fast_asked] == ["Ran 5k, also plan my week"]
+
+    [_, reply] = await SqlAlchemyChatRepository(db_session_factory).list_recent(user.id, 50)
+    assert reply.template_id == "not_yet"
+    assert reply.text.split()[0] in body
+    assert await _calls(db_session_factory, user) == [
+        ("router", LlmCallOutcome.SUCCESS),
+        ("router_fast", LlmCallOutcome.SUCCESS),
+        ("safety_screen", LlmCallOutcome.SUCCESS),
+    ]
+
+
+async def test_a_jev_timeout_falls_back_to_the_llm_router_and_the_reply_still_streams(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    user = await _user(db_session_factory, "fast-d")
+
+    [body], page = await _send_and_stream(
+        db_session_factory,
+        user,
+        "hi!",
+        ScriptedChitchat(),
+        jev=FakeJev(delay=10, fast={"hi!": _HI_FAST}),
+        decision_timeout=0.1,
+    )
+
+    assert "Hi!" in body
+    assert "Hi!" in page
+    assert await _calls(db_session_factory, user) == [
+        ("chitchat", LlmCallOutcome.SUCCESS),
+        ("router", LlmCallOutcome.SUCCESS),
+        ("router_fast", LlmCallOutcome.TIMEOUT),
+        ("safety_screen", LlmCallOutcome.TIMEOUT),
+    ]
+
+
+async def test_a_single_sport_athletes_log_gets_their_sport_with_no_sport_question(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    user = await _user(db_session_factory, "fast-e")
+    await SqlAlchemyOnboardingRepository(db_session_factory).replace_sports(user.id, ["gym"])
+    jev = FakeJev(fast={"Did an hour": (0.05, {"intent": ("log_session", 0.97)})})
+
+    await _send_and_stream(db_session_factory, user, "Did an hour", ScriptedChitchat(), jev=jev)
+
+    assert jev.fast_asked == [{"state": "Did an hour", "intent": list(INTENT_KINDS)}]
+    [_, reply] = await SqlAlchemyChatRepository(db_session_factory).list_recent(user.id, 50)
+    assert (reply.template_id, reply.sports) == ("not_yet", ("gym",))
+    assert "router" not in [name for name, _ in await _calls(db_session_factory, user)]
