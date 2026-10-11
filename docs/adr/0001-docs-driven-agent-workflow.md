@@ -48,7 +48,7 @@ Use these layers:
 9. Verify every AC with evidence.
 10. **Acceptance gate** — Pass / Fail / Blocked. A human tries the change on the running `make start` stack, following a step-by-step script the agent writes: which account, the start URL, each click and the expected result, or the exact commands for a change with no UI. When the ticket saved screenshots, the same gate asks a second question about them (Approve / Request changes), and the files are listed where the human can open them. Fail, Blocked or Request changes goes back to step 8.
 11. **Review gate** — Approve / Request changes / Reject.
-12. Commit on the ticket branch, push it, open a PR against `main` with the AC evidence, the acceptance script and its result, and `Closes #<issue#>`, then move the issue to `status:in-review`. A human merges the PR, which closes the issue. Update docs in the same PR if stack or workflow changed.
+12. Commit on the ticket branch, push it, open a PR against `main` with the AC evidence, the acceptance script and its result, and `Closes #<issue#>`, then move the issue to `status:in-review`. A human merges the PR, which closes the issue. Update docs in the same PR if stack or workflow changed. The agent then suggests the best next ticket without being asked.
 
 Human gates use Claude Code's `AskUserQuestion` with exactly those options.
 
@@ -83,3 +83,4 @@ Human gates use Claude Code's `AskUserQuestion` with exactly those options.
   - **Demo line.** The ticket template gains a required **Demo** line (invariant 11).
   - **Where it's carried.** `apply-ticket`, `create-tickets`, `implement-design`, `docs/templates/ticket.md`, `.claude/rules/web.md` and `CLAUDE.md` carry this.
 - Moving to Linear later means a new ADR superseding the tracker section, plus skill changes.
+- Amended 2026-10-11 at the project owner's direction: after opening the PR the agent suggests the best next ticket unasked, from the open `status:todo` issues and their blockers.
