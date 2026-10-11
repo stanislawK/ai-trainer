@@ -213,3 +213,62 @@ def test_missing_chitchat_model_raises_naming_it(monkeypatch: pytest.MonkeyPatch
         Settings(_env_file=None)
 
     assert [error["loc"] for error in excinfo.value.errors()] == [("chitchat_model",)]
+
+
+def test_decision_settings_default_to_a_pinned_jev_on_openrouter_and_a_short_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DATABASE_URL", DATABASE_URL)
+    monkeypatch.setenv("OPENROUTER_API_KEY", OPENROUTER_API_KEY)
+    monkeypatch.setenv("EVAL_JUDGE_MODEL", EVAL_JUDGE_MODEL)
+    monkeypatch.delenv("DECISION_MODEL", raising=False)
+    monkeypatch.delenv("DECISION_CALL_TIMEOUT_SECONDS", raising=False)
+
+    settings = Settings(_env_file=None)
+
+    assert settings.decision_model == "typesafe/jev-1.13"
+    assert settings.decision_call_timeout_seconds == 2.0
+
+
+@pytest.mark.parametrize("model_id", ["typesafe/jev-1.13", "typesafe/jev-1.13-20260917"])
+def test_decision_model_accepts_a_versioned_id(
+    monkeypatch: pytest.MonkeyPatch, model_id: str
+) -> None:
+    monkeypatch.setenv("DATABASE_URL", DATABASE_URL)
+    monkeypatch.setenv("OPENROUTER_API_KEY", OPENROUTER_API_KEY)
+    monkeypatch.setenv("EVAL_JUDGE_MODEL", EVAL_JUDGE_MODEL)
+    monkeypatch.setenv("DECISION_MODEL", model_id)
+
+    assert Settings(_env_file=None).decision_model == model_id
+
+
+@pytest.mark.parametrize(
+    "model_id",
+    ["jev-latest", "~typesafe/jev-latest", "typesafe/jev-preview", "typesafe/jev", ""],
+)
+def test_decision_model_rejects_an_alias_or_unversioned_id(
+    monkeypatch: pytest.MonkeyPatch, model_id: str
+) -> None:
+    monkeypatch.setenv("DATABASE_URL", DATABASE_URL)
+    monkeypatch.setenv("OPENROUTER_API_KEY", OPENROUTER_API_KEY)
+    monkeypatch.setenv("EVAL_JUDGE_MODEL", EVAL_JUDGE_MODEL)
+    monkeypatch.setenv("DECISION_MODEL", model_id)
+
+    with pytest.raises(ValidationError) as excinfo:
+        Settings(_env_file=None)
+
+    assert [error["loc"] for error in excinfo.value.errors()] == [("decision_model",)]
+
+
+def test_decision_call_timeout_must_be_positive(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", DATABASE_URL)
+    monkeypatch.setenv("OPENROUTER_API_KEY", OPENROUTER_API_KEY)
+    monkeypatch.setenv("EVAL_JUDGE_MODEL", EVAL_JUDGE_MODEL)
+    monkeypatch.setenv("DECISION_CALL_TIMEOUT_SECONDS", "0")
+
+    with pytest.raises(ValidationError) as excinfo:
+        Settings(_env_file=None)
+
+    assert [error["loc"] for error in excinfo.value.errors()] == [
+        ("decision_call_timeout_seconds",)
+    ]

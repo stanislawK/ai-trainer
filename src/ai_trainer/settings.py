@@ -1,3 +1,4 @@
+import re
 from typing import Annotated, Any, Literal
 
 from pydantic import BeforeValidator, Field, PostgresDsn, SecretStr, ValidationInfo, field_validator
@@ -11,6 +12,10 @@ def _split_comma_separated(value: Any) -> Any:
 
 
 CommaSeparated = Annotated[list[str], NoDecode, BeforeValidator(_split_comma_separated)]
+
+# A Jev ID carries a version number; aliases such as `~typesafe/jev-latest` move under a
+# calibrated threshold, so they are refused (ADR-0020).
+_VERSIONED_DECISION_MODEL = re.compile(r"^[a-z0-9-]+/jev-\d+\.\d+(\.\d+)?(-\d{8})?$")
 
 
 class Settings(BaseSettings):
@@ -41,6 +46,13 @@ class Settings(BaseSettings):
     # eval run with `set_default_judge_model`. No default here — a stable/GA OpenRouter model
     # id is an operator choice, not a code default (`.claude/rules/llm.md`).
     eval_judge_model: str
+    # Jev on OpenRouter's TypeSafe-compatible `/api/v1/systemone` (ADR-0020): a pinned,
+    # versioned ID, the one early-availability model allowed as a default because every
+    # decision has a fallback. Its calls use `openrouter_api_key`.
+    decision_model: str = "typesafe/jev-1.13"
+    # Short on purpose: a decision that misses it falls back to the LLM path or the safe side
+    # of its gate, and the message pays this wait before that fallback starts.
+    decision_call_timeout_seconds: float = Field(default=2.0, gt=0)
 
     # Google sign-in (ADR-0005). No Google access or refresh token is ever stored.
     # Required and non-blank: a blank value otherwise fails only on Google's own page.
@@ -80,3 +92,13 @@ class Settings(BaseSettings):
     @classmethod
     def _blank_is_unset(cls, value: str | None) -> str | None:
         return value.strip() or None if value is not None else None
+
+    @field_validator("decision_model")
+    @classmethod
+    def _versioned_decision_model(cls, value: str) -> str:
+        if not _VERSIONED_DECISION_MODEL.fullmatch(value):
+            raise ValueError(
+                "DECISION_MODEL must be a versioned Jev ID such as typesafe/jev-1.13, "
+                f"not {value!r}"
+            )
+        return value

@@ -1,0 +1,26 @@
+{
+  "answers": {
+    "mentions_pain": {"noul": 0.82, "type": "noul"},
+    "sport": {
+      "choice": "climbing",
+      "confidence": 0.75,
+      "probabilities": {"climbing": 0.84, "gym": 0.16, "cycling": 0},
+      "type": "choice"
+    },
+    "effort": {
+      "confidence": 0.99,
+      "legend": {
+        "0": "Easy; they could have kept going for a long time.",
+        "1": "Moderate; tiring but comfortable.",
+        "2": "Hard; close to their limit."
+      },
+      "probabilities": {"0": 0, "1": 0.01, "2": 0.99},
+      "score": 1.99,
+      "type": "score"
+    }
+  },
+  "id": "gen-dec-1789738314-X5e5eKGQdvR9rblyX250",
+  "model": "typesafe/jev-1.13-20260917",
+  "provider": "TypeSafe",
+  "usage": {"cost": 1.9992e-05, "input_tokens": 476, "output_tokens": 70}
+}

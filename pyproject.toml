@@ -18,10 +18,11 @@ dependencies = [
     "pgvector>=0.5.0",
     "psycopg[binary]>=3.2",
     "pydantic>=2.12",
-    "pydantic-ai-slim[openai,spec]>=2.46.0",
-    "pydantic-evals>=2.46.0",
+    "pydantic-ai-slim[openai,spec,typesafe]>=2.55.0",
+    "pydantic-evals>=2.55.0",
     "pydantic-settings>=2.15.0",
     "python-multipart>=0.0.32",
+    "pyyaml>=6.0.3",
     "sqlalchemy[asyncio]>=2.0.54",
     "tzdata>=2026.4",
     "uvicorn>=0.53.0",
@@ -44,6 +45,7 @@ dev = [
     "pytest-cov>=7.1.0",
     "pytest-playwright>=0.9.0",
     "ruff>=0.16.8",
+    "types-pyyaml>=6.0.12.20260906",
 ]
 
 [tool.ruff]

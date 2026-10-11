@@ -1,0 +1,19 @@
+goal: A short note an athlete wrote after a training session.
+questions:
+  mentions_pain:
+    kind: probability
+    question: Does the note mention pain, an injury or feeling unwell, even in passing?
+  sport:
+    kind: choice
+    question: Which sport is the note about?
+    options:
+      climbing: Bouldering, sport or trad climbing, indoors or outside.
+      gym: Weight training or machines in a gym.
+      cycling: Riding a bike, on the road, off road or indoors.
+  effort:
+    kind: score
+    question: How hard did the session feel to the athlete?
+    levels:
+      - Easy; they could have kept going for a long time.
+      - Moderate; tiring but comfortable.
+      - Hard; close to their limit.
