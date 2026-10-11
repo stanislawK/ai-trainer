@@ -1,18 +1,32 @@
-"""The streamed reply end to end on PostgreSQL (ticket #82): the real gateway, repositories and
-prompt templates, with OpenRouter replaced by a scripted `FunctionModel` (ADR-0007). Every
-model call leaves its `llm_calls` row (ADR-0018), and a reply survives a reload."""
+"""The streamed reply end to end on PostgreSQL (tickets #82 and #121): the real gateways,
+repositories, prompt templates and decision set, with OpenRouter replaced by a scripted
+`FunctionModel` (ADR-0007) and Jev by a fake `DecisionModel` (ADR-0020). Every model and
+decision call leaves its `llm_calls` row (ADR-0018), and a reply survives a reload."""
 
 import asyncio
 from collections.abc import AsyncIterator, Callable
 from datetime import timedelta
 from pathlib import Path
+from uuid import UUID
 
+import httpx2
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import PostgresDsn, SecretStr
 from pydantic_ai import ModelMessage, ModelRequest, ModelResponse, TextPart, UserPromptPart
 from pydantic_ai.models import Model
+from pydantic_ai.models import decision as decision_models
+from pydantic_ai.models.decision import (
+    DecisionAnswer,
+    DecisionModel,
+    DecisionModelSettings,
+    DecisionRequest,
+    DecisionResponse,
+    NoulAnswer,
+)
 from pydantic_ai.models.function import AgentInfo, FunctionModel
+from pydantic_ai.usage import RequestUsage
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.types import ASGIApp, Receive, Scope, Send
 
@@ -22,11 +36,13 @@ from ai_trainer.adapters.onboarding_repository import SqlAlchemyOnboardingReposi
 from ai_trainer.adapters.users_repository import SqlAlchemyUsersRepository
 from ai_trainer.application.reply import ReplyServices
 from ai_trainer.domain.chat import ChatRole
-from ai_trainer.domain.llm_calls import LlmCallOutcome
+from ai_trainer.domain.llm_calls import LlmCall, LlmCallOutcome, NewLlmCall
 from ai_trainer.domain.sports.registry import default_sport_registry
 from ai_trainer.domain.users import NewUser, User, UserStatus
 from ai_trainer.llm.conversation import LlmConversation, build_prompt_registry
+from ai_trainer.llm.decision_gateway import OpenRouterDecisionGateway
 from ai_trainer.llm.gateway import OpenRouterGateway
+from ai_trainer.llm.safety_screen import JevSafetyScreen
 from ai_trainer.settings import Settings
 from ai_trainer.web.chat import build_chat_router
 from ai_trainer.web.templating import build_templates
@@ -45,7 +61,83 @@ _ROUTED = {
         '{"intents": [{"kind": "chitchat", "confidence": 0.8, "span": "also hi"},'
         ' {"kind": "wellbeing_or_injury", "confidence": 0.95, "span": "my knee hurts"}]}'
     ),
+    # Router misses: the pain is there, but no `wellbeing_or_injury` intent (#121).
+    "knee's a bit sore lol, anyway hi": (
+        '{"intents": [{"kind": "chitchat", "confidence": 0.9,'
+        ' "span": "knee\'s a bit sore lol, anyway hi"}]}'
+    ),
+    "knee's sore after bouldering, log it": (
+        '{"intents": [{"kind": "log_session", "sport": "climbing", "confidence": 0.9,'
+        ' "span": "knee\'s sore after bouldering, log it"}]}'
+    ),
 }
+_JEV_SNAPSHOT = "typesafe/jev-1.13-20260917"
+
+
+class FakeJev(DecisionModel[None]):
+    """Answers `safety_screen`'s pain question as the #120 baseline did (0.97 for a sore knee,
+    0.04 for a greeting), after `delay` seconds; only the transport is replaced."""
+
+    max_choice_options = 255
+    max_score_levels = 10
+
+    def __init__(self, *, delay: float = 0.0) -> None:
+        super().__init__()
+        self._delay = delay
+        self.states: list[object] = []
+
+    @property
+    def model_name(self) -> str:
+        return _JEV_SNAPSHOT
+
+    @property
+    def system(self) -> str:
+        return "fake"
+
+    @property
+    def base_url(self) -> str:
+        return "https://jev.invalid"
+
+    async def decide(
+        self, request: DecisionRequest, model_settings: DecisionModelSettings
+    ) -> DecisionResponse:
+        self.states.append(request.state)
+        await asyncio.sleep(self._delay)
+        pain = 0.97 if "knee" in str(request.state) else 0.04
+        answers: dict[str, DecisionAnswer] = {"pain": NoulAnswer(noul=pain)}
+        return DecisionResponse(
+            answers=answers, model_name=_JEV_SNAPSHOT, usage=RequestUsage(input_tokens=120)
+        )
+
+
+@pytest.fixture(autouse=True)
+def _allow_fake_decision_requests(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`DecisionModel.request` checks the no-model-requests guard even for a fake subclass, so
+    it is lifted for decision models only; chat models stay guarded, and the decision gateway's
+    transport refuses the network, so a lost override fails instead (ADR-0013)."""
+    monkeypatch.setattr(decision_models, "check_allow_model_requests", lambda: None)
+
+
+def _refuse(request: httpx2.Request) -> httpx2.Response:
+    raise AssertionError(f"a test reached the network: {request.url}")
+
+
+class _OneWriteAtATime:
+    """The router's and the screen's rows are written concurrently. In the app each session
+    checks out its own pooled connection; here every session joins the test's one connection
+    through SAVEPOINTs, which interleaved writes would tangle, so this test serializes them.
+    The test client may serve each request on its own event loop, so each loop gets a lock."""
+
+    def __init__(self, calls: SqlAlchemyLlmCallsRepository) -> None:
+        self._calls = calls
+        self._locks: dict[asyncio.AbstractEventLoop, asyncio.Lock] = {}
+
+    async def record(self, call: NewLlmCall) -> LlmCall:
+        async with self._locks.setdefault(asyncio.get_running_loop(), asyncio.Lock()):
+            return await self._calls.record(call)
+
+    async def list_for_user(self, user_id: UUID) -> list[LlmCall]:
+        return await self._calls.list_for_user(user_id)
 
 
 def _prompt(messages: list[ModelMessage]) -> str:
@@ -85,11 +177,19 @@ class _ModelOverride:
     """Runs every request, streamed body included, under `agent.override`, which is a
     ContextVar: the test client serves the app on its own thread, outside the test's context."""
 
-    def __init__(self, app: ASGIApp, *, gateway: OpenRouterGateway, model: Model) -> None:
-        self.app, self.gateway, self.model = app, gateway, model
+    def __init__(
+        self,
+        app: ASGIApp,
+        *,
+        gateways: tuple[OpenRouterGateway, OpenRouterDecisionGateway],
+        model: Model,
+        jev: FakeJev | None = None,
+    ) -> None:
+        self.app, self.gateways, self.model, self.jev = app, gateways, model, jev or FakeJev()
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        with self.gateway.agent.override(model=self.model):
+        gateway, decisions = self.gateways
+        with gateway.agent.override(model=self.model), decisions.agent.override(model=self.jev):
             await self.app(scope, receive, send)
 
 
@@ -100,16 +200,27 @@ async def _user(factory: Callable[[], AsyncSession], sub: str) -> User:
 
 
 def _app(
-    factory: Callable[[], AsyncSession], user: User, *, timeout: float = 30.0
-) -> tuple[FastAPI, OpenRouterGateway]:
+    factory: Callable[[], AsyncSession],
+    user: User,
+    *,
+    timeout: float = 30.0,
+    decision_timeout: float = 30.0,
+) -> tuple[FastAPI, tuple[OpenRouterGateway, OpenRouterDecisionGateway]]:
     settings = Settings(
         _env_file=None,
         database_url=PostgresDsn("postgresql+psycopg://u:p@localhost:5432/db"),
         openrouter_api_key=SecretStr("test-key"),
         eval_judge_model="test/judge-model",
         llm_call_timeout_seconds=timeout,
+        decision_call_timeout_seconds=decision_timeout,
     )
-    gateway = OpenRouterGateway(settings, SqlAlchemyLlmCallsRepository(factory))
+    llm_calls = _OneWriteAtATime(SqlAlchemyLlmCallsRepository(factory))
+    gateway = OpenRouterGateway(settings, llm_calls)
+    decisions = OpenRouterDecisionGateway(
+        settings,
+        llm_calls,
+        http_client=httpx2.AsyncClient(transport=httpx2.MockTransport(_refuse)),
+    )
     chat = SqlAlchemyChatRepository(factory)
     conversation = LlmConversation(
         registry=build_prompt_registry(_PROMPTS_ROOT, default_sport_registry()),
@@ -123,6 +234,7 @@ def _app(
         chat=chat,
         profile=SqlAlchemyOnboardingRepository(factory),
         conversation=conversation,
+        safety_screen=JevSafetyScreen(decisions, threshold=settings.safety_screen_pain_threshold),
         clock=FixedClock(),
         history_turns=settings.chat_history_turns,
     )
@@ -133,7 +245,7 @@ def _app(
         )
     )
     sign_in_as(app, user)
-    return app, gateway
+    return app, (gateway, decisions)
 
 
 async def _send_and_stream(
@@ -144,12 +256,14 @@ async def _send_and_stream(
     *,
     timeout: float = 30.0,
     streams: int = 1,
+    jev: FakeJev | None = None,
+    decision_timeout: float = 30.0,
 ) -> tuple[list[str], str]:
     """Sends `text`, reads its reply stream `streams` times (a retry after the first) and
     reloads the page."""
-    app, gateway = _app(factory, user, timeout=timeout)
+    app, gateways = _app(factory, user, timeout=timeout, decision_timeout=decision_timeout)
     model = FunctionModel(_router, stream_function=chitchat)
-    app.add_middleware(_ModelOverride, gateway=gateway, model=model)
+    app.add_middleware(_ModelOverride, gateways=gateways, model=model, jev=jev)
     client = TestClient(app)
     client.post("/messages", data={"message": text}, headers=_HTMX)
     [asked] = await SqlAlchemyChatRepository(factory).list_recent(user.id, 1)
@@ -175,6 +289,7 @@ async def test_hi_streams_a_reply_that_survives_a_reload_with_a_row_per_model_ca
     assert sorted((call.template_id, call.outcome) for call in calls) == [
         ("chitchat", LlmCallOutcome.SUCCESS),
         ("router", LlmCallOutcome.SUCCESS),
+        ("safety_screen", LlmCallOutcome.SUCCESS),
     ]
 
 
@@ -190,7 +305,7 @@ async def test_log_my_ride_gets_the_not_yet_reply_and_only_the_router_row(
     [_, reply] = await SqlAlchemyChatRepository(db_session_factory).list_recent(user.id, 50)
     assert (reply.template_id, reply.template_version, reply.sports) == ("not_yet", 1, ("cycling",))
     calls = await SqlAlchemyLlmCallsRepository(db_session_factory).list_for_user(user.id)
-    assert [call.template_id for call in calls] == ["router"]
+    assert sorted(call.template_id for call in calls) == ["router", "safety_screen"]
 
 
 async def test_my_knee_hurts_also_hi_puts_the_pain_first_in_one_chitchat_call(
@@ -225,6 +340,8 @@ async def test_a_timeout_leaves_a_timeout_row_and_the_retry_streams_a_fresh_repl
         ("chitchat", LlmCallOutcome.TIMEOUT),
         ("router", LlmCallOutcome.SUCCESS),
         ("router", LlmCallOutcome.SUCCESS),
+        ("safety_screen", LlmCallOutcome.SUCCESS),
+        ("safety_screen", LlmCallOutcome.SUCCESS),
     ]
 
 
@@ -236,10 +353,10 @@ async def test_another_users_message_is_404_for_its_reply_and_retry_with_no_mode
     theirs = await SqlAlchemyChatRepository(db_session_factory).add(
         owner.id, ChatRole.USER, "hi!", FROZEN_NOW
     )
-    app, gateway = _app(db_session_factory, stranger)
+    app, gateways = _app(db_session_factory, stranger)
     app.add_middleware(
         _ModelOverride,
-        gateway=gateway,
+        gateways=gateways,
         model=FunctionModel(_router, stream_function=ScriptedChitchat()),
     )
     client = TestClient(app)
@@ -261,10 +378,10 @@ async def test_a_reply_finishing_after_the_next_message_stays_with_its_own_messa
     second = await chat.add(
         user.id, ChatRole.USER, "log my ride", FROZEN_NOW - timedelta(seconds=5)
     )
-    app, gateway = _app(db_session_factory, user)
+    app, gateways = _app(db_session_factory, user)
     app.add_middleware(
         _ModelOverride,
-        gateway=gateway,
+        gateways=gateways,
         model=FunctionModel(_router, stream_function=ScriptedChitchat()),
     )
     client = TestClient(app)
@@ -279,3 +396,113 @@ async def test_a_reply_finishing_after_the_next_message_stays_with_its_own_messa
         (ChatRole.USER, None),
         (ChatRole.ASSISTANT, "not_yet"),
     ]
+
+
+# The Jev safety screen (ADR-0020, G3, ticket #121).
+
+
+async def _calls(
+    factory: Callable[[], AsyncSession], user: User
+) -> list[tuple[str, LlmCallOutcome]]:
+    calls = await SqlAlchemyLlmCallsRepository(factory).list_for_user(user.id)
+    return sorted((call.template_id, call.outcome) for call in calls)
+
+
+async def test_a_greeting_with_pain_the_router_missed_is_screened_and_gets_the_pain_first_reply(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    """The reply is pain-first through the chitchat persona, which sees the whole message; the
+    screen's added intent is visible only where the router also sent it elsewhere (below)."""
+    user = await _user(db_session_factory, "screen-a")
+    chitchat, jev = ScriptedChitchat(), FakeJev()
+
+    [body], _ = await _send_and_stream(
+        db_session_factory, user, "knee's a bit sore lol, anyway hi", chitchat, jev=jev
+    )
+
+    assert jev.states == ["knee's a bit sore lol, anyway hi"]
+    [instructions] = chitchat.instructions
+    assert "Pain or feeling unwell comes first" in instructions
+    assert body.index("Sorry about the knee.") < body.index("Hi!")
+
+
+async def test_pain_missed_in_a_log_gets_a_pain_first_part_before_not_yet(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    user = await _user(db_session_factory, "screen-b")
+
+    [body], _ = await _send_and_stream(
+        db_session_factory, user, "knee's sore after bouldering, log it", ScriptedChitchat()
+    )
+
+    [_, pain, later] = await SqlAlchemyChatRepository(db_session_factory).list_recent(user.id, 50)
+    assert (pain.template_id, later.template_id) == ("chitchat", "not_yet")
+    assert body.index("Sorry about the knee.") < body.index(later.text.split()[0])
+
+
+async def test_a_greeting_without_pain_gets_plain_chitchat_and_a_screen_row(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    user = await _user(db_session_factory, "screen-c")
+    chitchat = ScriptedChitchat()
+
+    [body], _ = await _send_and_stream(db_session_factory, user, "hi!", chitchat)
+
+    assert "Hi!" in body
+    assert "Sorry about the knee." not in body
+    calls = await SqlAlchemyLlmCallsRepository(db_session_factory).list_for_user(user.id)
+    [screen] = [call for call in calls if call.template_id == "safety_screen"]
+    assert (screen.template_version, screen.model, screen.outcome, screen.input_tokens) == (
+        1,
+        _JEV_SNAPSHOT,
+        LlmCallOutcome.SUCCESS,
+        120,
+    )
+
+
+async def test_every_message_writes_one_screen_row_under_its_own_decision_id(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    user = await _user(db_session_factory, "screen-d")
+    chat = SqlAlchemyChatRepository(db_session_factory)
+    first = await chat.add(user.id, ChatRole.USER, "hi!", FROZEN_NOW - timedelta(seconds=10))
+    second = await chat.add(
+        user.id, ChatRole.USER, "log my ride", FROZEN_NOW - timedelta(seconds=5)
+    )
+    app, gateways = _app(db_session_factory, user)
+    app.add_middleware(
+        _ModelOverride,
+        gateways=gateways,
+        model=FunctionModel(_router, stream_function=ScriptedChitchat()),
+    )
+    client = TestClient(app)
+
+    client.get(f"/messages/{first.id}/reply")
+    client.get(f"/messages/{second.id}/reply")
+
+    assert await _calls(db_session_factory, user) == [
+        ("chitchat", LlmCallOutcome.SUCCESS),
+        ("router", LlmCallOutcome.SUCCESS),
+        ("router", LlmCallOutcome.SUCCESS),
+        ("safety_screen", LlmCallOutcome.SUCCESS),
+        ("safety_screen", LlmCallOutcome.SUCCESS),
+    ]
+
+
+async def test_a_screen_timeout_still_streams_the_router_driven_reply(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    user = await _user(db_session_factory, "screen-e")
+
+    [body], page = await _send_and_stream(
+        db_session_factory,
+        user,
+        "hi!",
+        ScriptedChitchat(),
+        jev=FakeJev(delay=10),
+        decision_timeout=0.1,
+    )
+
+    assert "Hi!" in body
+    assert "Hi!" in page
+    assert ("safety_screen", LlmCallOutcome.TIMEOUT) in await _calls(db_session_factory, user)
