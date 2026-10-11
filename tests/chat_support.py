@@ -2,6 +2,7 @@
 profile and a scripted router and chitchat specialist. Tests that mount the chat router only
 because `/` is the signed-in home page use them too."""
 
+import asyncio
 from collections.abc import AsyncGenerator, Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -152,6 +153,9 @@ class ScriptedConversation:
     chitchat_outcomes: list[LlmCallOutcome] = field(
         default_factory=lambda: [LlmCallOutcome.SUCCESS]
     )
+    # The router answers `route_delay` seconds after `route_after` is set (at once when unset).
+    route_delay: float = 0.0
+    route_after: asyncio.Event | None = None
     routed: list[ReplyContext] = field(default_factory=list)
     chitchatted: list[ReplyContext] = field(default_factory=list)
     closed_streams: int = 0
@@ -163,6 +167,9 @@ class ScriptedConversation:
     async def route(self, context: ReplyContext) -> Routing:
         call = len(self.routed)
         self.routed.append(context)
+        if self.route_after is not None:
+            await self.route_after.wait()
+        await asyncio.sleep(self.route_delay)
         outcome = self.route_outcomes[min(call, len(self.route_outcomes) - 1)]
         if outcome is not LlmCallOutcome.SUCCESS:
             return Routing(intents=(), outcome=outcome)
@@ -190,17 +197,41 @@ class ScriptedConversation:
         return FixedReply(text=NOT_YET_TEXT, template=NOT_YET_TEMPLATE)
 
 
+@dataclass
+class ScriptedSafetyScreen:
+    """Answers every message with `pain` after `delay` seconds. Records each message it saw,
+    sets `started` once screening begins, and counts the screens cancelled before answering."""
+
+    pain: bool = False
+    delay: float = 0.0
+    screened: list[str] = field(default_factory=list)
+    started: asyncio.Event = field(default_factory=asyncio.Event)
+    cancelled: int = 0
+
+    async def finds_pain(self, user_id: UUID, message: str) -> bool:
+        self.screened.append(message)
+        self.started.set()
+        try:
+            await asyncio.sleep(self.delay)
+        except asyncio.CancelledError:
+            self.cancelled += 1
+            raise
+        return self.pain
+
+
 def reply_services(
     chat: InMemoryChatRepository,
     *,
     profile: InMemoryProfile | None = None,
     conversation: ScriptedConversation | None = None,
+    safety_screen: ScriptedSafetyScreen | None = None,
     history_turns: int = 10,
 ) -> ReplyServices:
     return ReplyServices(
         chat=chat,
         profile=profile or InMemoryProfile(),
         conversation=conversation or ScriptedConversation(),
+        safety_screen=safety_screen or ScriptedSafetyScreen(),
         clock=FixedClock(),
         history_turns=history_turns,
     )

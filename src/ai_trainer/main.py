@@ -30,7 +30,9 @@ from ai_trainer.adapters.users_repository import SqlAlchemyUsersRepository
 from ai_trainer.application.reply import ReplyServices
 from ai_trainer.domain.sports.registry import default_sport_registry
 from ai_trainer.llm.conversation import LlmConversation, build_prompt_registry
+from ai_trainer.llm.decision_gateway import OpenRouterDecisionGateway
 from ai_trainer.llm.gateway import OpenRouterGateway
+from ai_trainer.llm.safety_screen import JevSafetyScreen
 from ai_trainer.settings import Settings
 from ai_trainer.web.active_user_gate import ActiveUserGateMiddleware
 from ai_trainer.web.admin import build_admin_router
@@ -113,9 +115,10 @@ def create_app(settings: Settings) -> FastAPI:
     health_port = PsycopgDatabaseHealth(str(settings.database_url))
     app.include_router(build_health_router(health_port))
     sport_registry = app.state.sport_registry
+    llm_calls = SqlAlchemyLlmCallsRepository(session_factory)
     conversation = LlmConversation(
         registry=build_prompt_registry(_PROMPTS_ROOT, sport_registry),
-        gateway=OpenRouterGateway(settings, SqlAlchemyLlmCallsRepository(session_factory)),
+        gateway=OpenRouterGateway(settings, llm_calls),
         sports=sport_registry,
         router_model=settings.router_model,
         router_provider=settings.router_provider,
@@ -126,6 +129,11 @@ def create_app(settings: Settings) -> FastAPI:
         chat=chat,
         profile=onboarding,
         conversation=conversation,
+        # Runs alongside the router and can only add the safety intent (ADR-0020, G3).
+        safety_screen=JevSafetyScreen(
+            OpenRouterDecisionGateway(settings, llm_calls),
+            threshold=settings.safety_screen_pain_threshold,
+        ),
         clock=clock,
         history_turns=settings.chat_history_turns,
     )

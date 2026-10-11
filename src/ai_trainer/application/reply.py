@@ -1,6 +1,7 @@
 """The assistant's reply to an athlete's message (PRD-0003 F1, B13, B14, G3; ADR-0008 skeleton
-routing): routed, dispatched safety first, streamed, and saved only once all of it came
-through, so a retry after a failure always streams a fresh reply."""
+routing): routed while a Jev safety screen runs alongside (ADR-0020), dispatched safety first,
+streamed, and saved only once all of it came through, so a retry after a failure always
+streams a fresh reply."""
 
 import asyncio
 from collections.abc import AsyncGenerator, Sequence
@@ -19,13 +20,14 @@ from ai_trainer.application.ports.conversation import (
 )
 from ai_trainer.application.ports.llm_gateway import StreamEnd
 from ai_trainer.application.ports.onboarding import OnboardingRepositoryPort
+from ai_trainer.application.ports.safety_screen import SafetyScreenPort
 from ai_trainer.domain.chat import ChatMessage, ChatRole
-from ai_trainer.domain.conversation import Intent
+from ai_trainer.domain.conversation import Intent, IntentKind
 from ai_trainer.domain.llm_calls import LlmCallOutcome
 
 # Until each specialist ships, these go to `chitchat`; the persona carries G3 (ADR-0008).
 _CHITCHAT_KINDS = frozenset({"chitchat", "unclear", "wellbeing_or_injury"})
-_SAFETY_KIND = "wellbeing_or_injury"
+_SAFETY_KIND: IntentKind = "wellbeing_or_injury"
 # Streamed between two parts of one reply, which are saved as two messages.
 PART_BREAK = "\n\n"
 # Each reply part is stamped this far after what it follows, so it sorts right under the
@@ -71,6 +73,7 @@ class ReplyServices:
     chat: ChatRepositoryPort
     profile: OnboardingRepositoryPort
     conversation: ConversationModelPort
+    safety_screen: SafetyScreenPort
     clock: ClockPort
     # The router and every specialist see this many turns before the message (ADR-0008).
     history_turns: int
@@ -87,6 +90,15 @@ class _Answer:
     text: str
     template: TemplateRef
     sports: tuple[str, ...]
+
+
+def with_screened_safety(intents: Sequence[Intent], *, pain: bool) -> list[Intent]:
+    """The router's intents, plus the safety intent when the screen found pain the router
+    missed. The screen only ever adds it, never removes or reorders an intent (ADR-0020
+    invariant 5); `_plan` puts it first."""
+    if pain and all(intent.kind != _SAFETY_KIND for intent in intents):
+        return [*intents, Intent(kind=_SAFETY_KIND)]
+    return list(intents)
 
 
 def _plan(intents: Sequence[Intent]) -> list[_Part]:
@@ -152,8 +164,16 @@ async def _reply(
         now=services.clock.now(),
         timezone=timezone,
     )
-    yield ReplyPhase("routing")
-    routing = await services.conversation.route(context)
+    # Started before the router is awaited, so the screen adds no wait when the router is
+    # slower; cancelled with the reply if the reader leaves while routing.
+    screening = asyncio.ensure_future(services.safety_screen.finds_pain(user_id, message.text))
+    try:
+        yield ReplyPhase("routing")
+        routing = await services.conversation.route(context)
+        # Awaited even when routing failed, so the screen's call is recorded as it ended.
+        pain = await screening
+    finally:
+        screening.cancel()
     if routing.outcome is not LlmCallOutcome.SUCCESS:
         yield ReplyFailed(outcome=routing.outcome)
         return
@@ -161,7 +181,7 @@ async def _reply(
     yield ReplyPhase("replying")
 
     answers: list[_Answer] = []
-    for part in _plan(routing.intents):
+    for part in _plan(with_screened_safety(routing.intents, pain=pain)):
         if answers:
             yield ReplyChunk(PART_BREAK)
         if part.specialist == "not_yet":

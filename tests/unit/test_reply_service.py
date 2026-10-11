@@ -12,6 +12,7 @@ import pytest
 
 from ai_trainer.application.ports.conversation import ReplyContext, Routing
 from ai_trainer.application.reply import (
+    PART_BREAK,
     MessageNotFoundError,
     ReplyChunk,
     ReplyDone,
@@ -20,6 +21,7 @@ from ai_trainer.application.reply import (
     ReplyPhase,
     find_message,
     start_reply,
+    with_screened_safety,
 )
 from ai_trainer.domain.chat import ChatMessage, ChatRole
 from ai_trainer.domain.conversation import Intent
@@ -31,6 +33,7 @@ from tests.chat_support import (
     InMemoryChatRepository,
     InMemoryProfile,
     ScriptedConversation,
+    ScriptedSafetyScreen,
     reply_services,
 )
 
@@ -49,10 +52,15 @@ async def _events(
     conversation: ScriptedConversation,
     *,
     profile: InMemoryProfile | None = None,
+    safety_screen: ScriptedSafetyScreen | None = None,
     history_turns: int = 10,
 ) -> list[ReplyEvent]:
     services = reply_services(
-        chat, profile=profile, conversation=conversation, history_turns=history_turns
+        chat,
+        profile=profile,
+        conversation=conversation,
+        safety_screen=safety_screen,
+        history_turns=history_turns,
     )
     events = await start_reply(user_id, message.id, timezone="Europe/Warsaw", services=services)
     return [event async for event in events]
@@ -391,3 +399,174 @@ class _HangingRouter(ScriptedConversation):
             self.route_cancelled = True
             raise
         raise AssertionError("unreachable")
+
+
+# The Jev safety screen (ADR-0020, G3, ticket #121): it runs alongside the router and can only
+# add the safety intent.
+
+_KNEE = "knee's a bit sore lol, anyway hi"
+_SAFETY = Intent(kind="wellbeing_or_injury")
+
+
+def test_a_pain_screen_adds_the_safety_intent_the_router_missed() -> None:
+    assert with_screened_safety(_HI, pain=True) == [*_HI, _SAFETY]
+
+
+def test_a_pain_screen_never_duplicates_reorders_or_removes_the_routers_intents() -> None:
+    routed = [Intent(kind="log_session", sport="climbing"), _SAFETY, Intent(kind="chitchat")]
+
+    assert with_screened_safety(routed, pain=True) == routed
+    assert with_screened_safety(routed, pain=False) == routed
+
+
+def test_no_pain_keeps_the_routers_intents() -> None:
+    assert with_screened_safety(_RIDE, pain=False) == _RIDE
+
+
+async def test_a_greeting_with_pain_the_router_missed_stays_one_chitchat_reply() -> None:
+    """A greeting is already pain-first: the chitchat persona answers pain first in any message
+    it sees (ADR-0008), so the screen's intent changes nothing here and adds no second part."""
+    chat, user_id = InMemoryChatRepository(), uuid4()
+    asked = await _asked(chat, user_id, _KNEE)
+    conversation = ScriptedConversation(intents=[_HI])
+    screen = ScriptedSafetyScreen(pain=True)
+
+    events = await _events(chat, user_id, asked, conversation, safety_screen=screen)
+
+    assert screen.screened == [_KNEE]
+    assert [context.message for context in conversation.chitchatted] == [_KNEE]
+    [reply] = _done(events).messages
+    assert reply.template_id == "chitchat"
+
+
+@pytest.mark.parametrize(("pain", "first"), [(True, "chitchat"), (False, "not_yet")])
+async def test_pain_the_router_missed_moves_the_greetings_chitchat_part_first(
+    pain: bool, first: str
+) -> None:
+    """The router read the log before the greeting and missed the pain: only the screen's
+    safety intent puts the pain-first chitchat part ahead of the "not yet" reply."""
+    chat, user_id = InMemoryChatRepository(), uuid4()
+    asked = await _asked(chat, user_id, "sore knee from bouldering, log it, anyway hi")
+    conversation = ScriptedConversation(
+        intents=[[Intent(kind="log_session", sport="climbing"), Intent(kind="chitchat")]]
+    )
+
+    events = await _events(
+        chat, user_id, asked, conversation, safety_screen=ScriptedSafetyScreen(pain=pain)
+    )
+
+    assert _done(events).messages[0].template_id == first
+
+
+async def test_pain_the_router_missed_in_a_log_gets_a_chitchat_part_before_not_yet() -> None:
+    """The screen's visible effect in the skeleton: without it a log-only routing gets the
+    "not yet" reply alone, and nobody answers the pain."""
+    chat, user_id = InMemoryChatRepository(), uuid4()
+    text = "knee's sore after bouldering, log it"
+    asked = await _asked(chat, user_id, text)
+    conversation = ScriptedConversation(intents=[[Intent(kind="log_session", sport="climbing")]])
+    # Slower than the router, so the reply has to wait for the screen's answer.
+    screen = ScriptedSafetyScreen(pain=True, delay=0.05)
+
+    events = await _events(chat, user_id, asked, conversation, safety_screen=screen)
+
+    assert _streamed_text(events) == f"Hey! Good to hear from you.{PART_BREAK}{NOT_YET_TEXT}"
+    assert [(m.template_id, m.sports) for m in _done(events).messages] == [
+        ("chitchat", ()),
+        ("not_yet", ("climbing",)),
+    ]
+
+
+async def test_a_message_without_pain_gets_the_routers_reply() -> None:
+    chat, user_id = InMemoryChatRepository(), uuid4()
+    asked = await _asked(chat, user_id, "log my ride")
+    screen = ScriptedSafetyScreen(pain=False)
+
+    events = await _events(
+        chat, user_id, asked, ScriptedConversation(intents=[_RIDE]), safety_screen=screen
+    )
+
+    assert screen.screened == ["log my ride"]
+    assert _streamed_text(events) == NOT_YET_TEXT
+
+
+async def test_the_screen_runs_alongside_the_router_so_the_first_token_waits_only_for_it() -> None:
+    """The router answers only once the screen has started, so a screen that ran after it
+    would hang; the screen is faster, so waiting for both costs no more than the router."""
+    chat, user_id = InMemoryChatRepository(), uuid4()
+    asked = await _asked(chat, user_id)
+    screen = ScriptedSafetyScreen(pain=False, delay=0.2)
+    conversation = ScriptedConversation(intents=[_HI], route_after=screen.started, route_delay=0.3)
+    services = reply_services(chat, conversation=conversation, safety_screen=screen)
+    loop = asyncio.get_running_loop()
+
+    started = loop.time()
+    stream = await start_reply(user_id, asked.id, timezone="UTC", services=services)
+
+    async def first_token() -> None:
+        async for event in stream:
+            if isinstance(event, ReplyChunk):
+                return
+
+    await asyncio.wait_for(first_token(), timeout=2)
+    # Router alone is 0.3 s; the screen after the router would be 0.5 s.
+    assert loop.time() - started < 0.4
+    await stream.aclose()
+
+
+async def test_a_screen_that_timed_out_leaves_the_router_driven_reply() -> None:
+    """A timed-out or failed screen answers no pain (the adapter maps both), after its wait."""
+    chat, user_id = InMemoryChatRepository(), uuid4()
+    asked = await _asked(chat, user_id, _KNEE)
+    screen = ScriptedSafetyScreen(pain=False, delay=0.05)
+
+    events = await _events(
+        chat, user_id, asked, ScriptedConversation(intents=[_RIDE]), safety_screen=screen
+    )
+
+    assert _streamed_text(events) == NOT_YET_TEXT
+    [reply] = _done(events).messages
+    assert reply.template_id == "not_yet"
+
+
+async def test_a_router_failure_still_lets_the_screen_finish() -> None:
+    chat, user_id = InMemoryChatRepository(), uuid4()
+    asked = await _asked(chat, user_id)
+    conversation = ScriptedConversation(route_outcomes=[LlmCallOutcome.TIMEOUT])
+    screen = ScriptedSafetyScreen(pain=True, delay=0.05)
+
+    events = await _events(chat, user_id, asked, conversation, safety_screen=screen)
+
+    assert events[-1] == ReplyFailed(outcome=LlmCallOutcome.TIMEOUT)
+    assert (screen.screened, screen.cancelled) == (["hi!"], 0)
+
+
+async def test_a_saved_reply_replays_without_a_screen() -> None:
+    chat, user_id = InMemoryChatRepository(), uuid4()
+    asked = await _asked(chat, user_id)
+    await _events(chat, user_id, asked, ScriptedConversation())
+    screen = ScriptedSafetyScreen()
+
+    await _events(chat, user_id, asked, ScriptedConversation(), safety_screen=screen)
+
+    assert screen.screened == []
+
+
+async def test_stopping_during_routing_cancels_the_screen_too() -> None:
+    chat, user_id = InMemoryChatRepository(), uuid4()
+    message = await _asked(chat, user_id)
+    conversation = _HangingRouter()
+    screen = ScriptedSafetyScreen(delay=10)
+    services = reply_services(chat, conversation=conversation, safety_screen=screen)
+    stream = await start_reply(user_id, message.id, timezone="UTC", services=services)
+    assert await anext(stream) == ReplyPhase("routing")
+
+    task = asyncio.ensure_future(anext(stream))
+    await conversation.routing.wait()
+    await screen.started.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    await asyncio.sleep(0)
+
+    assert screen.cancelled == 1
