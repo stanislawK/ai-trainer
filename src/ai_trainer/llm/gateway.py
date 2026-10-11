@@ -1,12 +1,11 @@
 import asyncio
 import time
-from collections.abc import AsyncGenerator, Coroutine
+from collections.abc import AsyncGenerator
 from dataclasses import dataclass
-from decimal import Decimal
 from uuid import UUID
 
 from pydantic import BaseModel
-from pydantic_ai import Agent, AgentRetries, ModelMessage, ModelResponse
+from pydantic_ai import Agent, AgentRetries
 from pydantic_ai.models.openrouter import (
     OpenRouterModel,
     OpenRouterModelSettings,
@@ -23,11 +22,17 @@ from ai_trainer.application.ports.llm_gateway import (
     StreamEnd,
     TextChunk,
 )
-from ai_trainer.domain.llm_calls import LlmCallOutcome, NewLlmCall
+from ai_trainer.domain.llm_calls import LlmCallOutcome
+from ai_trainer.llm.call_accounting import CallAccountant, CallKey, CallUsage, sum_cost
 from ai_trainer.settings import Settings
 
 TIMEOUT_MESSAGE = "The AI assistant is taking too long to respond. Please try again in a moment."
 ERROR_MESSAGE = "Something went wrong talking to the AI assistant. Please try again."
+_FRIENDLY_ERRORS = {
+    LlmCallOutcome.TIMEOUT: TIMEOUT_MESSAGE,
+    LlmCallOutcome.ERROR: ERROR_MESSAGE,
+    LlmCallOutcome.CANCELLED: ERROR_MESSAGE,
+}
 
 
 class _Done:
@@ -55,10 +60,9 @@ class OpenRouterGateway:
 
     def __init__(self, settings: Settings, calls_repository: LlmCallsRepositoryPort) -> None:
         self._provider = OpenRouterProvider(api_key=settings.openrouter_api_key.get_secret_value())
-        self._timeout_seconds = settings.llm_call_timeout_seconds
-        self._calls_repository = calls_repository
-        # Rows still being written after their caller was cancelled; held so they finish.
-        self._writes: set[asyncio.Task[None]] = set()
+        self._accountant = CallAccountant(
+            calls_repository, timeout_seconds=settings.llm_call_timeout_seconds
+        )
         # A placeholder model: every real call overrides it via `model=` below. Tests substitute
         # TestModel/FunctionModel through `agent.override()` (ADR-0007) on this same instance.
         self.agent: Agent[None, str] = Agent(TestModel())
@@ -83,61 +87,29 @@ class OpenRouterGateway:
             model_settings["temperature"] = temperature
         if upstream_provider is not None:
             model_settings["openrouter_provider"] = pinned_upstream(upstream_provider)
-        started = time.monotonic()
-
-        async def _fail(outcome: LlmCallOutcome, message: str) -> LlmGatewayResult[OutputT]:
-            await self._record(
-                user_id,
-                template_id,
-                template_version,
-                model_id,
-                input_tokens=0,
-                output_tokens=0,
-                cost=None,
-                latency_ms=_elapsed_ms(started),
-                outcome=outcome,
-            )
-            return LlmGatewayResult(output=None, friendly_error=message, outcome=outcome)
-
-        try:
-            result = await asyncio.wait_for(
-                self.agent.run(
-                    prompt,
-                    model=model,
-                    output_type=output_type,
-                    instructions=instructions,
-                    model_settings=model_settings,
-                    retries=(
-                        AgentRetries(output=output_retries) if output_retries is not None else None
-                    ),
-                ),
-                timeout=self._timeout_seconds,
-            )
-        except TimeoutError:
-            return await _fail(LlmCallOutcome.TIMEOUT, TIMEOUT_MESSAGE)
-        except asyncio.CancelledError:
-            # The caller went away mid-call, e.g. a browser that closed the reply stream.
-            await _fail(LlmCallOutcome.CANCELLED, ERROR_MESSAGE)
-            raise
-        except Exception:
-            # Every model/provider failure becomes a friendly message, never a stack trace
-            # (ADR-0007).
-            return await _fail(LlmCallOutcome.ERROR, ERROR_MESSAGE)
-
-        cost = _sum_cost(result.all_messages())
-        await self._record(
-            user_id,
-            template_id,
-            template_version,
-            model_id,
-            input_tokens=result.usage.input_tokens,
-            output_tokens=result.usage.output_tokens,
-            cost=cost,
-            latency_ms=_elapsed_ms(started),
-            outcome=LlmCallOutcome.SUCCESS,
+        attempt = await self._accountant.attempt(
+            CallKey(user_id, template_id, template_version, model_id),
+            self.agent.run(
+                prompt,
+                model=model,
+                output_type=output_type,
+                instructions=instructions,
+                model_settings=model_settings,
+                retries=AgentRetries(output=output_retries) if output_retries is not None else None,
+            ),
+            usage=lambda result: CallUsage(
+                input_tokens=result.usage.input_tokens,
+                output_tokens=result.usage.output_tokens,
+                cost=sum_cost(result.all_messages()),
+            ),
         )
+        if attempt.value is None:
+            friendly_error = _FRIENDLY_ERRORS[attempt.outcome]
+            return LlmGatewayResult(
+                output=None, friendly_error=friendly_error, outcome=attempt.outcome
+            )
         return LlmGatewayResult(
-            output=result.output, friendly_error=None, outcome=LlmCallOutcome.SUCCESS
+            output=attempt.value.output, friendly_error=None, outcome=LlmCallOutcome.SUCCESS
         )
 
     async def stream(
@@ -173,7 +145,9 @@ class OpenRouterGateway:
         try:
             while True:
                 try:
-                    item = await asyncio.wait_for(queue.get(), timeout=self._timeout_seconds)
+                    item = await asyncio.wait_for(
+                        queue.get(), timeout=self._accountant.timeout_seconds
+                    )
                 except TimeoutError:
                     outcome, friendly_error = LlmCallOutcome.TIMEOUT, TIMEOUT_MESSAGE
                     break
@@ -188,7 +162,7 @@ class OpenRouterGateway:
                 parts.append(item)
                 yield TextChunk(item)
         finally:
-            await self._shielded(
+            await self._accountant.shielded(
                 self._finish_stream(
                     producer,
                     state,
@@ -246,86 +220,15 @@ class OpenRouterGateway:
     ) -> None:
         producer.cancel()
         await asyncio.gather(producer, return_exceptions=True)
-        input_tokens = output_tokens = 0
-        cost: Decimal | None = None
+        usage = CallUsage()
         if state.streamed is not None:
-            input_tokens = state.streamed.usage.input_tokens
-            output_tokens = state.streamed.usage.output_tokens
-            cost = _sum_cost(state.streamed.all_messages())
-        await self._write(
-            user_id,
-            template_id,
-            template_version,
-            model_id,
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
-            cost=cost,
-            latency_ms=_elapsed_ms(started),
-            outcome=outcome,
-        )
-
-    async def _shielded(self, write: Coroutine[None, None, None]) -> None:
-        """Runs `write` in its own task, so cancelling the caller never cancels the row's
-        write. anyio, which FastAPI's streaming responses run in, re-delivers a cancellation
-        at every await of the cancelled caller; a plain `finally` would be cut short at its
-        first await and the call would go unrecorded (ADR-0018 invariant 1, found at #82)."""
-        task = asyncio.create_task(write)
-        self._writes.add(task)
-        task.add_done_callback(self._writes.discard)
-        await asyncio.shield(task)
-
-    async def _record(
-        self,
-        user_id: UUID,
-        template_id: str,
-        template_version: int,
-        model_id: str,
-        *,
-        input_tokens: int,
-        output_tokens: int,
-        cost: Decimal | None,
-        latency_ms: int,
-        outcome: LlmCallOutcome,
-    ) -> None:
-        await self._shielded(
-            self._write(
-                user_id,
-                template_id,
-                template_version,
-                model_id,
-                input_tokens=input_tokens,
-                output_tokens=output_tokens,
-                cost=cost,
-                latency_ms=latency_ms,
-                outcome=outcome,
+            usage = CallUsage(
+                input_tokens=state.streamed.usage.input_tokens,
+                output_tokens=state.streamed.usage.output_tokens,
+                cost=sum_cost(state.streamed.all_messages()),
             )
-        )
-
-    async def _write(
-        self,
-        user_id: UUID,
-        template_id: str,
-        template_version: int,
-        model_id: str,
-        *,
-        input_tokens: int,
-        output_tokens: int,
-        cost: Decimal | None,
-        latency_ms: int,
-        outcome: LlmCallOutcome,
-    ) -> None:
-        await self._calls_repository.record(
-            NewLlmCall(
-                user_id=user_id,
-                template_id=template_id,
-                template_version=template_version,
-                model=model_id,
-                input_tokens=input_tokens,
-                output_tokens=output_tokens,
-                cost=cost,
-                latency_ms=latency_ms,
-                outcome=outcome,
-            )
+        await self._accountant.write(
+            CallKey(user_id, template_id, template_version, model_id), usage, started, outcome
         )
 
 
@@ -333,29 +236,3 @@ def pinned_upstream(slug: str) -> OpenRouterProviderConfig:
     """OpenRouter tries `slug` first and falls back to its other endpoints only when that one
     fails, so one template sees one serving stack instead of a random quantization per call."""
     return OpenRouterProviderConfig(order=[slug], allow_fallbacks=True)
-
-
-def _elapsed_ms(started: float) -> int:
-    return int((time.monotonic() - started) * 1000)
-
-
-def _sum_cost(messages: list[ModelMessage]) -> Decimal | None:
-    """Sums `provider_details['cost']` across every model response in the run.
-
-    A single `agent.run()` call can still make more than one model request — Pydantic AI retries
-    output validation once by default — so `result.response` (the last response only) would
-    silently undercount cost on a retried call. `None` when no response carried a cost at all.
-
-    Each cost is converted to `Decimal` before summing, not after: summing the raw floats first
-    (e.g. `0.1 + 0.2 == 0.30000000000000004`) would bake that binary rounding error into the
-    stored figure, where converting each addend through its clean decimal `repr` first and only
-    then summing avoids it.
-    """
-    costs: list[Decimal] = []
-    for message in messages:
-        if not isinstance(message, ModelResponse):
-            continue
-        raw_cost = (message.provider_details or {}).get("cost")
-        if raw_cost is not None:
-            costs.append(Decimal(str(raw_cost)))
-    return sum(costs, Decimal(0)) if costs else None

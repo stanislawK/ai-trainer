@@ -1,0 +1,5 @@
+goal: A set whose only question has a kind Jev does not answer.
+questions:
+  summary:
+    kind: free_text
+    question: Summarise the note.

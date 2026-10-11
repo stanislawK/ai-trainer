@@ -6,7 +6,7 @@ argument-hint: "[decision-id]"
 
 # Add decision: $ARGUMENTS (ADR-0020)
 
-Precondition: the decision gateway exists (`DecisionGatewayPort`). If the decision would send athlete text, ADR-0020's Consequences must already record TypeSafe's retention terms (invariant 9). Without them, stop and tell the owner.
+Precondition: the decision gateway exists (`DecisionGatewayPort`). If the decision would send athlete text, ADR-0020's Consequences must already record the retention terms that apply to Jev (invariant 9). Without them, stop and tell the owner.
 
 1. **Decision or generation?** Jev picks; it does not write. The step should end in a yes/no, one option out of a known set (at most 255), or a level on an ordered rubric (at most 10). If the step must produce text, extracted values (km, grades, reps) or a calculation, use an LLM template or code instead and stop here.
 2. **Question file.** Write `src/ai_trainer/llm/decisions/<id>/v1.en.yaml`:
@@ -25,7 +25,7 @@ Precondition: the decision gateway exists (`DecisionGatewayPort`). If the decisi
    Thresholds go in `Settings`, one field per decision, documented with what a miss costs. The baseline records them.
 6. **Reading answers.** Gates read the probability from a bounded `float` or `provider_details` and never use the library's 0.5 `bool` cut. Choices are indexed by option name, never by position. Treat probabilities as jittery: a value right at a threshold may land on either side on the next call.
 7. **Fallback.** Wire a deterministic path for timeouts, errors and below-threshold answers: the existing LLM path, or the safe side of the gate. A safety decision only adds the safety intent, never removes it.
-8. **Tests** (with `/run-tdd`), using a fake `DecisionGatewayPort` or `FunctionModel`, never TypeSafe:
+8. **Tests** (with `/run-tdd`), using a fake `DecisionGatewayPort` or a fake `DecisionModel`, never a real Jev call:
    - the loaded output type matches the file;
    - no question text appears in Python (`scripts/check_prompt_literals.py`);
    - every outcome branch: above threshold, below threshold, timeout, error;

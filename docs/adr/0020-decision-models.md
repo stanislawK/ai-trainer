@@ -40,11 +40,11 @@ Pydantic AI v2 supports it natively as `TypeSafeModel` ([docs](https://github.co
 
 ## Decision
 
-**Call path.** Jev runs through Pydantic AI `TypeSafeModel` (`pydantic-ai-slim[typesafe]`, which pulls in `typesafe-sdk`). It calls TypeSafe's own API, not OpenRouter.
-- The provider is built as `TypeSafeProvider(api_key=settings.typesafe_api_key)`, so `Settings` stays the only reader of the environment (ADR-0002).
+**Call path.** Jev runs through Pydantic AI `TypeSafeModel` (`pydantic-ai-slim[typesafe]`, which pulls in `typesafe-sdk`), against OpenRouter. OpenRouter serves `POST /api/v1/systemone`, which it documents as "compatible with the TypeSafe SDKs" ([OpenRouter OpenAPI](https://openrouter.ai/openapi.json), `createSystemone`). The SDK appends `/v1/systemone` to its base URL itself.
+- The provider is built as `TypeSafeProvider(base_url="https://openrouter.ai/api", api_key=settings.openrouter_api_key)`. OpenRouter stays the one vendor and the one key, and `Settings` stays the only reader of the environment (ADR-0002).
 - The application uses Jev only through `DecisionGatewayPort.decide(...)`. The adapter lives in `src/ai_trainer/llm/` and reuses `OpenRouterGateway`'s timeout, shielded `llm_calls` write and outcome mapping. Those parts are extracted into a shared helper, not copied.
 
-**Model.** `DECISION_MODEL` holds a versioned ID, `jev-1.13.0` today. It is never `jev-latest` or `jev-preview`, because a threshold is tuned against one version. The secret `TYPESAFE_API_KEY` lives in `.env`.
+**Model.** `DECISION_MODEL` holds OpenRouter's versioned ID, `typesafe/jev-1.13` today. It is never an alias (`~typesafe/jev-latest`, `jev-latest`, `jev-preview`), because a threshold is tuned against one version. The response names the dated snapshot (`typesafe/jev-1.13-20260917`), which is what the `llm_calls` row stores. No extra secret: the call uses `OPENROUTER_API_KEY`.
 
 **Question sets are files.** Each set is `src/ai_trainer/llm/decisions/<id>/v<N>.en.yaml` and holds:
 - the goal;
@@ -80,22 +80,24 @@ A loader builds the Pydantic output type at runtime, the way `llm/router.py` bui
 5. A safety decision can only add the safety intent, never remove or reorder it (ADR-0008 invariant 4).
 6. A decision set has a code-graded eval dataset and a committed baseline (with its thresholds) before it becomes active.
 7. Numbers and dates are computed in code and passed in the state; Jev is never asked to compute.
-8. Tests never call TypeSafe (ADR-0013); a fake `DecisionGatewayPort` or `FunctionModel` stands in.
-9. No athlete text is sent to TypeSafe until the owner records TypeSafe's data-retention terms in this ADR's Consequences.
+8. Tests never call Jev (ADR-0013); a fake `DecisionGatewayPort` or a fake `DecisionModel` stands in.
+9. No athlete text is sent to Jev until the owner records the data-retention terms that apply to it (OpenRouter's and the TypeSafe upstream's) in this ADR's Consequences.
 
 ## Alternatives considered
 
-- **OpenRouter Decisions API** (`POST /api/alpha/decisions`). It keeps one vendor and is on OpenRouter's [zero-data-retention list](https://openrouter.ai/docs/features/zdr). Pydantic AI can't reach it yet: the SDK hardcodes `/v1/systemone` ([pydantic-ai#8552](https://github.com/pydantic/pydantic-ai/issues/8552), open). We would have to own a hand-written client. The owner chose `TypeSafeModel`.
+- **TypeSafe's own API** (`https://api.typesafe.ai`, `TYPESAFE_API_KEY`). It was this ADR's first choice (2026-10-10). It adds a second vendor, a second secret and a second set of retention terms, for the same model. Dropped on 2026-10-11 once OpenRouter served the TypeSafe wire format.
+- **OpenRouter's alpha Decisions API** (`POST /api/alpha/decisions`). Pydantic AI can't reach it: the SDK hardcodes `/v1/systemone` ([pydantic-ai#8552](https://github.com/pydantic/pydantic-ai/issues/8552), open). We would have to own a hand-written client. OpenRouter's `/api/v1/systemone` makes it unnecessary.
 - **Replacing the LLM router with Jev.** Jev returns one answer per question. It has no spans or ordered lists of intents, so multi-request messages would regress (B14).
 - **`typesafe/jev-router`.** It is a chat meta-router with dynamic pricing, which breaks one model per template and makes `llm_calls` cost meaningless (ADR-0007).
 
 ## Consequences
 
 - **Exception to "stable/GA only".** Jev is in early availability. The owner allowed the pinned version in default `Settings` (2026-10-10) because every decision has a fallback (see Decision).
-- **⚠ Data retention, unresolved.** TypeSafe's own retention and privacy terms could not be found on 2026-10-10. Messages carry injury and health text, so invariant 9 blocks the fast path and the safety screen until the owner records the terms here. The eval check sends only dataset text.
-- **Cost.** The `DecisionModel` source maps token usage but no cost (`pydantic_ai/models/decision.py`, checked 2026-10-10), so decision rows are expected to store `cost=NULL`. Usage reports `output_tokens` as 0. The first ticket checks both against a real response and records the result here.
-- **Telemetry.** `DecisionModel` emits a `decide` span per request. The first ticket checks that, with `include_content=False`, the span carries no state text (ADR-0018 invariant 4).
-- **Library version.** The repo is locked at `pydantic-ai-slim` 2.46, before the `DecisionModel` rework. The first ticket raises the floor to the current 2.x (2.55 on 2026-10-10) and adds the `typesafe` extra. The API is moving fast (thresholds were renamed in 2.50), so the port keeps it out of application code.
+- **Owner-directed amendment, 2026-10-11 (#119).** Jev runs through OpenRouter's TypeSafe-compatible `/api/v1/systemone` instead of TypeSafe's own API. `DECISION_MODEL` became `typesafe/jev-1.13` (was `jev-1.13.0`), and `TYPESAFE_API_KEY` was dropped. Status stays Proposed.
+- **⚠ Data retention, unresolved.** The call now crosses OpenRouter and its TypeSafe upstream. Neither's terms for this endpoint are recorded yet. Messages carry injury and health text, so invariant 9 blocks the fast path and the safety screen until the owner records the terms here. The eval check sends only dataset text.
+- **Cost.** OpenRouter's response carries `usage.cost` (OpenAPI example: `1.9992e-05`), but `typesafe-sdk`'s `Usage` ignores extra fields and `TypeSafeModel.decide` copies only token counts into `RequestUsage` (pydantic-ai-slim 2.55, `models/typesafe.py`, checked 2026-10-11). Decision rows therefore store `cost=NULL`, as invariant 3 and ADR-0018 invariant 6 require, rather than a figure priced in code. The OpenRouter activity page holds the real spend. Revisit if Pydantic AI starts carrying `usage.cost`. Real call at #119 acceptance (2026-10-11, fixture text only): the row named `typesafe/jev-1.13-20260917`, with 560 input and 76 output tokens, `cost=NULL` and 530 ms latency. OpenRouter reports non-zero `output_tokens`, so they are stored as given rather than assumed 0.
+- **Telemetry.** `DecisionModel` emits a `decide` span per request. Checked at #119 acceptance with `include_content=False`: no span (`decide`, `chat`, `invoke_agent`) carried the state text (ADR-0018 invariant 4). The `decide` span does carry `pydantic_ai.decision.questions` and `.answers`, which hold the question set's text and Jev's answers, not athlete text.
+- **Library version.** The repo is locked at `pydantic-ai-slim` 2.46, before the `DecisionModel` rework. #119 raises the floor to 2.55 and adds the `typesafe` extra. The API is moving fast (thresholds were renamed in 2.50), so the port keeps it out of application code.
 - **Latency on fallback.** If the fast path falls back, the message pays Jev's latency before the LLM router. A short `decision_call_timeout_seconds` caps that cost. The safety screen runs in parallel, so it adds no wait.
 - **Agent tooling.**
   - `.claude/rules/llm.md` carries these invariants.
@@ -106,4 +108,4 @@ A loader builds the Pydantic output type at runtime, the way `llm/router.py` bui
   - **M3.** Knowledge-chunk rerank and ingestion tagging (ADR-0011).
   - **M4.** Matching a logged session to a planned one; routing "read my planned session".
   - **M5.** Route and crag candidate disambiguation (B18), where low confidence becomes a choice card; trip recommendation score (B21).
-- If pydantic-ai#8552 lands, the OpenRouter path can replace TypeSafe's API behind the same port with no application change.
+- Only `base_url` and the key tie the adapter to OpenRouter, so moving to TypeSafe's own API later is a settings change behind the same port.
