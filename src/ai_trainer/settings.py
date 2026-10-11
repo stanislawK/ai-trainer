@@ -60,6 +60,17 @@ class Settings(BaseSettings):
     # only figurative or fatigue wording (0.43-0.77). Recorded in its baseline; change it only
     # through `/tune-prompt safety_screen`.
     safety_screen_pain_threshold: float = Field(default=0.3, ge=0, le=1)
+    # `router_fast` (ADR-0020 use 1, ADR-0008 amendment): Jev routes a message itself only when
+    # P(several requests) is at or below the first, and the picked intent's probability, and a
+    # log's sport's, are at or above the others. A miss here costs only the LLM router's call,
+    # a wrong pick a misrouted reply, so the margins sit on the wrong-route side. Calibrated on
+    # `evals/datasets/router.yaml` at #122: single requests scored P(several) 0.14 or less and
+    # the nearest misroute 0.21; the nearest declined intent 0.75 and every taken log's sport
+    # 0.93 or more. Recorded in the `router_fast` baseline; change them only through
+    # `/tune-prompt router_fast`.
+    router_fast_multi_request_threshold: float = Field(default=0.15, ge=0, le=1)
+    router_fast_intent_threshold: float = Field(default=0.85, ge=0, le=1)
+    router_fast_sport_threshold: float = Field(default=0.9, ge=0, le=1)
 
     # Google sign-in (ADR-0005). No Google access or refresh token is ever stored.
     # Required and non-blank: a blank value otherwise fails only on Google's own page.

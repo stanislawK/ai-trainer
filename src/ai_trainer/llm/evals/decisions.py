@@ -110,7 +110,7 @@ async def run_decision_eval(
         return DecisionEvalOutput(
             answers=answers,
             probabilities={
-                name: _behind(answer, distributions.get(name), expected_levels.get(name))
+                name: value_behind(answer, distributions.get(name), expected_levels.get(name))
                 for name, answer in answers.items()
             },
         )
@@ -128,8 +128,8 @@ async def run_decision_eval(
     )
     report.print(include_input=True, include_output=True)
 
-    probabilities = _case_probabilities(report)
-    _print_spread(probabilities)
+    probabilities = case_probabilities(report)
+    print_spread(probabilities)
     reports_root.mkdir(parents=True, exist_ok=True)
     summary = DecisionReportSummary(
         **summarize_report(report).model_dump(), probabilities=probabilities
@@ -150,7 +150,7 @@ async def run_decision_eval(
     )
 
 
-def _behind(
+def value_behind(
     answer: int | float | str, distribution: dict[str, float] | None, expected_level: float | None
 ) -> float:
     if expected_level is not None:
@@ -160,7 +160,7 @@ def _behind(
     return float(answer)
 
 
-def _case_probabilities(
+def case_probabilities(
     report: EvaluationReport[EvalCaseInputs, object, object],
 ) -> CaseProbabilities:
     """Each question's value per case, gathered over that case's repeats that ran, and whether
@@ -196,7 +196,7 @@ def _case_probabilities(
     }
 
 
-def _print_spread(probabilities: CaseProbabilities) -> None:
+def print_spread(probabilities: CaseProbabilities) -> None:
     print(
         "probability spread per case (P(yes), a choice's P(pick) or a score's expected level; "
         "FLIPS when the grade differed between repeats):"

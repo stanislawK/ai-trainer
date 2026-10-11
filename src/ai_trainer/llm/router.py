@@ -142,6 +142,26 @@ def _collapse_repeats(kinds: list[str]) -> list[str]:
     return collapsed
 
 
+def kinds_match(actual: list[str], expected: list[str], *, metadata: dict[str, Any]) -> bool:
+    """The same intent kinds in the same order, as `IntentKindsMatch` grades them; also how
+    `router_fast`'s eval grades a fast route on the router's cases."""
+    optional = metadata.get("optional_trailing_kinds", [])
+    return _collapse_repeats(_strip_trailing(actual, optional)) == _collapse_repeats(expected)
+
+
+def sport_hits(actual: list[str], expected: list[str], *, metadata: dict[str, Any]) -> float:
+    """The share of expected `log_session` sports matched, as `LogSessionSportMatch` grades it."""
+    if not expected:
+        return 1.0
+    acceptable = metadata.get("acceptable_sports")
+    hits = sum(
+        1
+        for want, got in zip(expected, actual, strict=False)
+        if got == want or (acceptable is not None and got in acceptable)
+    )
+    return hits / len(expected)
+
+
 @dataclass
 class IntentKindsMatch(Evaluator[EvalCaseInputs, BaseModel]):
     """Code-graded: the same intent kinds in the same order (pain first, then message order),
@@ -151,9 +171,8 @@ class IntentKindsMatch(Evaluator[EvalCaseInputs, BaseModel]):
 
     def evaluate(self, ctx: EvaluatorContext[EvalCaseInputs, BaseModel]) -> bool:
         assert ctx.expected_output is not None
-        optional = (ctx.metadata or {}).get("optional_trailing_kinds", [])
-        return _collapse_repeats(_strip_trailing(_kinds(ctx.output), optional)) == (
-            _collapse_repeats(_kinds(ctx.expected_output))
+        return kinds_match(
+            _kinds(ctx.output), _kinds(ctx.expected_output), metadata=ctx.metadata or {}
         )
 
 
@@ -165,14 +184,8 @@ class LogSessionSportMatch(Evaluator[EvalCaseInputs, BaseModel]):
 
     def evaluate(self, ctx: EvaluatorContext[EvalCaseInputs, BaseModel]) -> float:
         assert ctx.expected_output is not None
-        expected = _logged_sports(ctx.expected_output)
-        if not expected:
-            return 1.0
-        actual = _logged_sports(ctx.output)
-        acceptable = (ctx.metadata or {}).get("acceptable_sports")
-        hits = sum(
-            1
-            for want, got in zip(expected, actual, strict=False)
-            if got == want or (acceptable is not None and got in acceptable)
+        return sport_hits(
+            _logged_sports(ctx.output),
+            _logged_sports(ctx.expected_output),
+            metadata=ctx.metadata or {},
         )
-        return hits / len(expected)

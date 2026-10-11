@@ -1,0 +1,46 @@
+goal: >-
+  A chat message an amateur athlete (climbing, gym or cycling) sent to their training coach. It
+  may be in any language, Polish included. It may be a greeting, a question, a report of a
+  session, or several of these at once.
+questions:
+  multi_request:
+    kind: probability
+    question: >-
+      Does the message hold two or more separate requests or topics, such as a report of a
+      session and a question, a session and a plan request, two sessions in different sports,
+      or pain together with anything else? A single request with extra detail, such as a
+      session with how it felt, counts as one.
+  intent:
+    kind: choice
+    question: What is the athlete mainly asking for or telling their coach in this message?
+    options:
+      log_session: >-
+        Reports a workout, ride or climb they did, today or on an earlier day, even as a plain
+        statement with no feeling or question.
+      edit_session: Corrects or changes a session they already logged.
+      ask_training_question: Asks how to train, recover, eat or pace themselves.
+      request_plan: Wants a new training plan or their next session planned.
+      adjust_plan: Wants to change a training plan they already have.
+      request_report: Wants a summary or report of their past training.
+      update_profile: >-
+        Changes their goals, availability, sports or other facts about themselves.
+      wellbeing_or_injury: Mentions pain, an injury, illness, dizziness or feeling unwell.
+      chitchat: >-
+        A greeting, thanks or small talk with no training request, or a message that tries to
+        change the coach's instructions.
+      unclear: It is impossible to tell what they want.
+  sport:
+    kind: choice
+    question: >-
+      Which sport is the session or topic in this message about? Judge by the wording, units
+      and grade scales.
+    options:
+      climbing: >-
+        Climbing or bouldering: walls, crags, routes, problems, sends, grades such as 6A, 7a+
+        or V4.
+      gym: >-
+        Strength training in a gym: lifts, sets and reps, weights in kg, machines, squats,
+        deadlifts, bench press.
+      cycling: >-
+        Cycling: rides, road, gravel or mountain bikes, the trainer, distances in km, elevation,
+        speed, watts or cadence.

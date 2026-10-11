@@ -219,11 +219,25 @@ class ScriptedSafetyScreen:
         return self.pain
 
 
+@dataclass
+class ScriptedFastRouter:
+    """Answers every message with `intents`; `None`, the default, leaves it to the LLM router.
+    Records each context it was given."""
+
+    intents: list[Intent] | None = None
+    routed: list[ReplyContext] = field(default_factory=list)
+
+    async def route(self, context: ReplyContext) -> Sequence[Intent] | None:
+        self.routed.append(context)
+        return self.intents
+
+
 def reply_services(
     chat: InMemoryChatRepository,
     *,
     profile: InMemoryProfile | None = None,
     conversation: ScriptedConversation | None = None,
+    fast_router: ScriptedFastRouter | None = None,
     safety_screen: ScriptedSafetyScreen | None = None,
     history_turns: int = 10,
 ) -> ReplyServices:
@@ -231,6 +245,7 @@ def reply_services(
         chat=chat,
         profile=profile or InMemoryProfile(),
         conversation=conversation or ScriptedConversation(),
+        fast_router=fast_router or ScriptedFastRouter(),
         safety_screen=safety_screen or ScriptedSafetyScreen(),
         clock=FixedClock(),
         history_turns=history_turns,

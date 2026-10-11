@@ -1,5 +1,6 @@
 """The assistant's reply to an athlete's message (PRD-0003 F1, B13, B14, G3; ADR-0008 skeleton
-routing): routed while a Jev safety screen runs alongside (ADR-0020), dispatched safety first,
+routing): routed by the Jev fast path or else the LLM router, while a Jev safety screen runs
+alongside (ADR-0020), dispatched safety first,
 streamed, and saved only once all of it came through, so a retry after a failure always
 streams a fresh reply."""
 
@@ -16,8 +17,10 @@ from ai_trainer.application.ports.clock import ClockPort
 from ai_trainer.application.ports.conversation import (
     ConversationModelPort,
     ReplyContext,
+    Routing,
     TemplateRef,
 )
+from ai_trainer.application.ports.fast_router import FastRouterPort
 from ai_trainer.application.ports.llm_gateway import StreamEnd
 from ai_trainer.application.ports.onboarding import OnboardingRepositoryPort
 from ai_trainer.application.ports.safety_screen import SafetyScreenPort
@@ -73,6 +76,7 @@ class ReplyServices:
     chat: ChatRepositoryPort
     profile: OnboardingRepositoryPort
     conversation: ConversationModelPort
+    fast_router: FastRouterPort
     safety_screen: SafetyScreenPort
     clock: ClockPort
     # The router and every specialist see this many turns before the message (ADR-0008).
@@ -169,7 +173,7 @@ async def _reply(
     screening = asyncio.ensure_future(services.safety_screen.finds_pain(user_id, message.text))
     try:
         yield ReplyPhase("routing")
-        routing = await services.conversation.route(context)
+        routing = await _route(context, services)
         # Awaited even when routing failed, so the screen's call is recorded as it ended.
         pain = await screening
     finally:
@@ -203,6 +207,15 @@ async def _reply(
     # Saved in its own task: a reader who leaves now can't cut a reply off halfway through.
     saving = asyncio.ensure_future(_save(user_id, message, answers, services))
     yield ReplyDone(messages=await asyncio.shield(saving))
+
+
+async def _route(context: ReplyContext, services: ReplyServices) -> Routing:
+    """One confident intent from the fast path, else the LLM router (ADR-0008 amendment). A
+    declined message pays the fast path's wait, capped by its timeout, before the router."""
+    intents = await services.fast_router.route(context)
+    if intents is not None:
+        return Routing(intents=intents, outcome=LlmCallOutcome.SUCCESS)
+    return await services.conversation.route(context)
 
 
 async def _save(
