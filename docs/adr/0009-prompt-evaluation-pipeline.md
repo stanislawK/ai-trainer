@@ -17,7 +17,7 @@ Unit tests with fake models prove the plumbing but say nothing about the quality
   - *Code-graded* — custom evaluators: router label accuracy, field-level match of extracted payloads, schema validity.
   - *Model-graded* — `LLMJudge` rubrics for empathy and tone (G2), helpfulness, safety handling (G3), citation faithfulness (B8).
   - *Human-graded* — sampled spot checks; an internal review page later.
-- **Judge model:** pinned in settings, different from the model under test, temperature 0, and set explicitly on every run with `set_default_judge_model(OpenRouterModel(settings.eval_judge_model))`. Otherwise `LLMJudge` falls back to its built-in default (`openai:gpt-5.2`) and bypasses OpenRouter.
+- **Judge model:** pinned in settings, different from the model under test, at temperature 0 when its model profile accepts sampling parameters (see Consequences), and set explicitly on every run with `set_default_judge_model(OpenRouterModel(settings.eval_judge_model))`. Otherwise `LLMJudge` falls back to its built-in default (`openai:gpt-5.2`) and bypasses OpenRouter.
 - **Layout:**
 
   ```
@@ -58,4 +58,4 @@ Unit tests with fake models prove the plumbing but say nothing about the quality
   - Its result is a Pydantic Evals label, `jev:<rubric>` = `pass`, `fail` or `errored`. Labels never enter `assertions` or `scores`, so a check can't gate or move a baseline. Any failure inside a check, a Jev error or a misconfigured set or rubric, becomes `errored` and the run continues; the dataset's own test catches misconfiguration in CI.
   - The run prints a JevCheck vs LLMJudge table, agreement per rubric and overall, and the errored count. All of it goes into the gitignored report, not the baseline.
   - Agreement is per rubric because only `no_diagnosis` pairs with a judge that asks the same question. `pain_first` pairs with `pain_safety` and `no_free_text_question` with `offers_options`; adding exact judges would have changed chitchat's pass rate. Thresholds are 0.5, uncalibrated, and are calibrated at the `/tune-prompt` gate that promotes a check.
-
+- Judge temperature, owner-directed amendment, 2026-10-11 (#140): a reasoning judge runs at its default, with no `temperature`. Pydantic AI drops sampling parameters from a reasoning model and warns on every request, so asking for `temperature=0` promised a setting the judge never got. The CLI decides from Pydantic AI's model profile, never a list of model IDs: no `temperature` when the profile has `openai_supports_reasoning` or `thinking_always_enabled`, `temperature=0` otherwise. `supports_thinking` is not used, because OpenRouter profiles set it for nearly every ID. A judge ID whose profile says nothing about reasoning keeps `temperature=0`. The judge's grading is unchanged, so no baseline moves.

@@ -6,6 +6,7 @@ from pydantic import BaseModel, PostgresDsn, SecretStr
 from pydantic_ai import ModelMessage, ModelResponse, TextPart, models
 from pydantic_ai.exceptions import ModelHTTPError
 from pydantic_ai.models.function import AgentInfo, FunctionModel
+from pydantic_ai.models.openrouter import OpenRouterModel
 from pydantic_ai.models.typesafe import TypeSafeModel
 from pydantic_ai.providers.openrouter import OpenRouterProvider
 from pydantic_evals import Case, Dataset
@@ -561,3 +562,43 @@ def test_the_decision_model_is_jev_on_openrouter_systemone_unless_overridden() -
     assert default.model_name == "typesafe/jev-1.13"
     assert default.base_url.startswith(OPENROUTER_SYSTEM_ONE_BASE_URL)
     assert other.model_name == "typesafe/jev-1.14"
+
+
+def _judge(model_id: str) -> OpenRouterModel:
+    return cli_module._judge_model(model_id, provider=OpenRouterProvider(api_key="test-key"))
+
+
+@pytest.mark.parametrize("model_id", ["openai/o3", "openai/gpt-5", "deepseek/deepseek-r1"])
+def test_a_reasoning_judge_is_built_without_a_temperature(model_id: str) -> None:
+    assert "temperature" not in (_judge(model_id).settings or {})
+
+
+@pytest.mark.parametrize("model_id", ["openai/gpt-4o", "z-ai/glm-5.3"])
+def test_a_non_reasoning_judge_keeps_temperature_zero(model_id: str) -> None:
+    assert (_judge(model_id).settings or {}).get("temperature") == 0
+
+
+def test_a_judge_with_no_reasoning_information_keeps_temperature_zero() -> None:
+    judge = _judge("judge/model")
+
+    assert judge.profile.get("openai_supports_reasoning") is None
+    assert (judge.settings or {}).get("temperature") == 0
+
+
+def test_main_builds_a_reasoning_judge_without_a_temperature(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, OpenRouterModel] = {}
+
+    async def fake_execute(*args: object, judge_model: OpenRouterModel, **kwargs: object) -> int:
+        captured["judge"] = judge_model
+        return 0
+
+    monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://u:p@localhost:5432/db")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setenv("EVAL_JUDGE_MODEL", "openai/o3")
+    monkeypatch.setattr(cli_module, "_default_registry", _registry)
+    monkeypatch.setattr(cli_module, "execute", fake_execute)
+
+    assert cli_module.main(["run", "sample", "--model", "under-test/model"]) == 0
+    assert "temperature" not in (captured["judge"].settings or {})

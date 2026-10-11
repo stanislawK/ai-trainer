@@ -251,9 +251,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     provider = OpenRouterProvider(api_key=api_key)
     model = _model_under_test(template, settings, model_override=args.model, provider=provider)
     model_id = model.model_name
-    judge_model = OpenRouterModel(
-        judge_model_id, provider=provider, settings=ModelSettings(temperature=0)
-    )
+    judge_model = _judge_model(judge_model_id, provider=provider)
 
     return asyncio.run(
         execute(
@@ -270,6 +268,17 @@ def main(argv: Sequence[str] | None = None) -> int:
             custom_evaluator_types=_evaluators_for(args.template_id),
         )
     )
+
+
+def _judge_model(model_id: str, *, provider: OpenRouterProvider) -> OpenRouterModel:
+    """The judge at `temperature=0` (ADR-0009), unless its profile says it reasons: Pydantic AI
+    drops sampling parameters from a reasoning model and warns on every request. The profile
+    decides, not a list of IDs; an ID whose profile says nothing keeps `temperature=0`."""
+    judge = OpenRouterModel(model_id, provider=provider)
+    profile = judge.profile
+    if profile.get("openai_supports_reasoning") or profile.get("thinking_always_enabled"):
+        return judge
+    return OpenRouterModel(model_id, provider=provider, settings=ModelSettings(temperature=0))
 
 
 def _api_key(settings: Settings) -> str | None:
