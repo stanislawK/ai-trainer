@@ -117,6 +117,15 @@ async def find_message(user_id: UUID, message_id: UUID, *, chat: ChatRepositoryP
     return message
 
 
+async def find_saved_reply(
+    user_id: UUID, message_id: UUID, *, chat: ChatRepositoryPort
+) -> Sequence[ChatMessage]:
+    """What was saved for the athlete's own message, nothing if its reply never finished: the
+    answer to Stop arriving just after the last token."""
+    message = await find_message(user_id, message_id, chat=chat)
+    return await chat.list_replies(user_id, message)
+
+
 async def start_reply(
     user_id: UUID, message_id: UUID, *, timezone: str, services: ReplyServices
 ) -> AsyncGenerator[ReplyEvent]:

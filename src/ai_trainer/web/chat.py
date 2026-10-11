@@ -1,5 +1,6 @@
 """Wires the chat, the main screen: `GET /`, `POST /messages` and the streamed reply,
-`GET /messages/{id}/reply` (PRD-0003 F1, B13, ADR-0008, ADR-0012, tickets #78 and #82).
+`GET /messages/{id}/reply` and `GET /messages/{id}/stop` (PRD-0003 F1, B13, ADR-0008, ADR-0012,
+tickets #78, #82 and #116).
 `user_id` comes only from the authenticated session (ADR-0005)."""
 
 from collections.abc import AsyncGenerator, AsyncIterable
@@ -29,6 +30,7 @@ from ai_trainer.application.reply import (
     ReplyPhase,
     ReplyServices,
     find_message,
+    find_saved_reply,
     start_reply,
 )
 from ai_trainer.domain.llm_calls import LlmCallOutcome
@@ -160,6 +162,26 @@ def build_chat_router(
             message = await find_message(user.id, message_id, chat=chat)
         except MessageNotFoundError:
             raise HTTPException(status_code=_NOT_FOUND) from None
-        return templates.TemplateResponse(request, "partials/chat/reply.html", {"message": message})
+        return templates.TemplateResponse(request, "partials/chat/retry.html", {"message": message})
+
+    @router.get("/messages/{message_id}/stop", response_class=HTMLResponse)
+    async def stop_reply(request: Request, message_id: UUID) -> HTMLResponse:
+        """The Stop button's answer. Swapping out the streaming row is what closes its stream
+        and cancels the call (ADR-0018), so nothing is saved and nothing is called here. A
+        reply that finished first is shown as it was saved instead of as stopped."""
+        user: User = request.state.user
+        try:
+            saved = await find_saved_reply(user.id, message_id, chat=chat)
+        except MessageNotFoundError:
+            raise HTTPException(status_code=_NOT_FOUND) from None
+        if saved:
+            return templates.TemplateResponse(
+                request,
+                "partials/chat/reply_saved.html",
+                {"message_id": message_id, "messages": saved},
+            )
+        return templates.TemplateResponse(
+            request, "partials/chat/reply_stopped.html", {"message_id": message_id}
+        )
 
     return router

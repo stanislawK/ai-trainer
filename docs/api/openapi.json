@@ -357,6 +357,47 @@
         "summary": "Retry Reply"
       }
     },
+    "/messages/{message_id}/stop": {
+      "get": {
+        "description": "The Stop button's answer. Swapping out the streaming row is what closes its stream\nand cancels the call (ADR-0018), so nothing is saved and nothing is called here. A\nreply that finished first is shown as it was saved instead of as stopped.",
+        "operationId": "stop_reply_messages__message_id__stop_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "message_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Message Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Stop Reply"
+      }
+    },
     "/onboarding": {
       "get": {
         "operationId": "start_onboarding_get",
