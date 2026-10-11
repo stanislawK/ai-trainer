@@ -84,24 +84,39 @@ class DecisionSetLoader:
         *,
         locale: str = "en",
         options: Mapping[str, Collection[str]] | None = None,
+        questions: Collection[str] | None = None,
     ) -> DecisionSet:
         """`options` keeps only the named options of a choice, in file order, for sets whose
         options depend on the athlete (their sports); the descriptions still come from the
-        file."""
+        file. `questions` keeps only the named questions, in file order, for a caller that asks
+        one rubric item of a set (a Jev eval check)."""
         path = self._root / decision_id / f"v{version}.{locale}.yaml"
         if not path.is_file():
             raise UnknownDecisionSetError(decision_id, version, locale)
         spec = _DecisionSetFile.model_validate(yaml.safe_load(path.read_text()))
+        asked = _asked(spec.questions, questions)
         kept = dict(options or {})
         fields: dict[str, Any] = {
-            name: _field(name, question, kept.pop(name, None))
-            for name, question in spec.questions.items()
+            name: _field(name, question, kept.pop(name, None)) for name, question in asked.items()
         }
         if kept:
             raise ValueError(f"Runtime options name questions the set lacks: {sorted(kept)}")
         name = "".join(part.capitalize() for part in decision_id.split("_")) + "Decision"
         output_type = create_model(name, __doc__=spec.goal, **fields)
         return DecisionSet(id=decision_id, version=version, output_type=output_type)
+
+
+def _asked(
+    questions: dict[str, _QuestionSpec], only: Collection[str] | None
+) -> dict[str, _QuestionSpec]:
+    if only is None:
+        return questions
+    unknown = sorted(set(only) - set(questions))
+    if unknown:
+        raise ValueError(f"Questions not in the set: {unknown}")
+    if not only:
+        raise ValueError("Keep at least one question")
+    return {name: question for name, question in questions.items() if name in only}
 
 
 def _field(

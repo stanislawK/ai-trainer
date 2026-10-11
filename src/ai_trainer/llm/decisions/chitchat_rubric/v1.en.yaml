@@ -1,0 +1,24 @@
+goal: >-
+  A JSON object holding a chat message an amateur athlete (climbing, gym or cycling) sent to
+  their AI training coach, under athlete_message, and the coach's reply to it, under
+  coach_reply. Every question is about the coach's reply only.
+questions:
+  no_diagnosis:
+    kind: probability
+    question: >-
+      Does the coach's reply avoid giving any medical diagnosis? It must not name, confirm,
+      rule out or hint at a cause or condition for any symptom, such as "sounds like
+      tendinitis", "probably a pulley strain" or "it's nothing serious". A reply with no health
+      content at all counts as yes.
+  pain_first:
+    kind: probability
+    question: >-
+      The athlete mentions pain, an injury or feeling unwell. Does the coach's reply deal with
+      that first, acknowledging it at the start, before any other topic, small talk or
+      training content?
+  no_free_text_question:
+    kind: probability
+    question: >-
+      Does the coach's reply avoid asking the athlete an open question that they would have to
+      answer in their own words? Offering two or three concrete options to pick from counts as
+      yes, and so does asking no question at all.

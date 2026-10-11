@@ -33,3 +33,14 @@ def _no_real_telemetry(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     original = Agent._instrument_default
     yield
     Agent._instrument_default = original
+
+
+@pytest.fixture(autouse=True)
+def _no_jev_model_left_configured() -> Iterator[None]:
+    """`JevCheck`'s model is module state that `ai-trainer-evals`' `main()` sets to a real
+    `TypeSafeModel`; each test starts and ends with none, so no test inherits it (#124)."""
+    from ai_trainer.llm.evals import jev_check
+
+    jev_check._configured = None
+    yield
+    jev_check._configured = None

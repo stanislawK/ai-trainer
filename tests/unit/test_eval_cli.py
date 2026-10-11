@@ -14,8 +14,10 @@ from pydantic_evals.evaluators import EqualsExpected, Evaluator, EvaluatorContex
 from ai_trainer.llm.decision_gateway import OPENROUTER_SYSTEM_ONE_BASE_URL
 from ai_trainer.llm.decisions.loader import DecisionSetLoader
 from ai_trainer.llm.evals import cli as cli_module
+from ai_trainer.llm.evals import jev_check
 from ai_trainer.llm.evals.baseline import Baseline, save_baseline
 from ai_trainer.llm.evals.cli import _build_parser, execute, execute_decision
+from ai_trainer.llm.evals.jev_check import JevCheck
 from ai_trainer.llm.evals.runner import EvalCaseInputs
 from ai_trainer.llm.prompts.registry import PromptRegistry
 from ai_trainer.llm.prompts.template import PromptTemplate
@@ -285,6 +287,12 @@ def test_main_wires_real_settings_and_openrouter_before_reaching_the_dataset(
     with pytest.raises(FileNotFoundError):
         cli_module.main(["run", "sample", "--model", "under-test/model"])
 
+    # The template run also configures Jev for any `JevCheck`, built but never called.
+    configured = jev_check._configured
+    assert configured is not None
+    assert isinstance(configured.model, TypeSafeModel)
+    assert configured.model.model_name == "typesafe/jev-1.13"
+
 
 @pytest.mark.parametrize("blank", ["", "   "])
 def test_main_returns_one_with_a_clear_message_when_the_api_key_is_blank(
@@ -353,8 +361,9 @@ def test_default_registry_registers_the_chitchat_template() -> None:
     assert template.output_type is str
 
 
-def test_chitchat_evals_use_only_built_in_judges() -> None:
-    assert cli_module._evaluators_for("chitchat") == ()
+def test_chitchat_evals_add_jev_checks_to_their_built_in_judges() -> None:
+    """#124: chitchat's binary rubric items are also asked of Jev, next to `LLMJudge`."""
+    assert cli_module._evaluators_for("chitchat") == (JevCheck,)
 
 
 def test_parser_takes_a_repeat_count_defaulting_to_one() -> None:

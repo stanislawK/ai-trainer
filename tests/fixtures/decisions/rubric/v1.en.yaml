@@ -1,0 +1,8 @@
+goal: A JSON object with an athlete's message and the coach's reply to it.
+questions:
+  no_diagnosis:
+    kind: probability
+    question: Does the reply avoid naming or hinting at any medical cause?
+  pain_first:
+    kind: probability
+    question: Does the reply deal with the athlete's pain before anything else?
