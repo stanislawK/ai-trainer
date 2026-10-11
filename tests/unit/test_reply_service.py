@@ -15,6 +15,7 @@ from ai_trainer.application.reply import (
     ReplyDone,
     ReplyEvent,
     ReplyFailed,
+    ReplyPhase,
     find_message,
     start_reply,
 )
@@ -156,6 +157,35 @@ async def test_several_not_yet_intents_share_one_not_yet_reply_with_their_sports
     assert reply.sports == ("cycling", "climbing")
 
 
+async def test_the_reply_reports_routing_then_replying_before_its_first_chunk() -> None:
+    chat, user_id = InMemoryChatRepository(), uuid4()
+    asked = await _asked(chat, user_id)
+
+    events = await _events(chat, user_id, asked, ScriptedConversation(intents=[_HI]))
+
+    assert events[:3] == [ReplyPhase("routing"), ReplyPhase("replying"), ReplyChunk("Hey! ")]
+
+
+async def test_a_router_failure_reports_only_the_routing_phase() -> None:
+    chat, user_id = InMemoryChatRepository(), uuid4()
+    asked = await _asked(chat, user_id)
+    conversation = ScriptedConversation(route_outcomes=[LlmCallOutcome.TIMEOUT])
+
+    events = await _events(chat, user_id, asked, conversation)
+
+    assert events == [ReplyPhase("routing"), ReplyFailed(outcome=LlmCallOutcome.TIMEOUT)]
+
+
+async def test_a_replayed_reply_reports_no_phase() -> None:
+    chat, user_id = InMemoryChatRepository(), uuid4()
+    asked = await _asked(chat, user_id)
+    await _events(chat, user_id, asked, ScriptedConversation(intents=[_HI]))
+
+    replayed = await _events(chat, user_id, asked, ScriptedConversation())
+
+    assert not any(isinstance(event, ReplyPhase) for event in replayed)
+
+
 async def test_a_chitchat_timeout_saves_nothing_and_ends_with_a_failure() -> None:
     chat, user_id = InMemoryChatRepository(), uuid4()
     asked = await _asked(chat, user_id)
@@ -174,7 +204,7 @@ async def test_a_router_failure_ends_with_a_failure_and_no_chitchat_call() -> No
 
     events = await _events(chat, user_id, asked, conversation)
 
-    assert events == [ReplyFailed(outcome=LlmCallOutcome.ERROR)]
+    assert events == [ReplyPhase("routing"), ReplyFailed(outcome=LlmCallOutcome.ERROR)]
     assert conversation.chitchatted == []
     assert await chat.list_recent(user_id, 50) == [asked]
 
@@ -248,8 +278,9 @@ async def test_closing_the_reply_early_closes_the_chitchat_stream() -> None:
 
     async with aclosing(events):
         first = await anext(events)
+        while not isinstance(first, ReplyChunk):
+            first = await anext(events)
 
-    assert isinstance(first, ReplyChunk)
     assert conversation.closed_streams == 1
     assert await chat.list_recent(user_id, 50) == [asked]
 
