@@ -1,6 +1,10 @@
-"""`ai-trainer-evals` — runs a prompt template's eval dataset against a model (ADR-0009).
+"""`ai-trainer-evals` — runs a prompt template's or a decision set's eval dataset against a
+model (ADR-0009, ADR-0020).
 
-    uv run ai-trainer-evals run <template-id> [--version N] [--model MODEL_ID] [--repeat N]
+    uv run ai-trainer-evals run <template-or-decision-id> [--version N] [--model ID] [--repeat N]
+
+An ID with a folder under `llm/decisions/` is a decision set: it runs on Jev, graded at its
+thresholds from `Settings`, with no judge model.
 
 Real OpenRouter calls cost money; this is never invoked by `pytest` or by push/pull_request
 CI (ADR-0013), only on demand — locally or through the `workflow_dispatch`-only GitHub
@@ -17,11 +21,16 @@ from pydantic import BaseModel
 from pydantic_ai import ModelSettings
 from pydantic_ai.models import Model
 from pydantic_ai.models.openrouter import OpenRouterModel, OpenRouterModelSettings
+from pydantic_ai.models.typesafe import TypeSafeModel
 from pydantic_ai.providers.openrouter import OpenRouterProvider
+from pydantic_ai.providers.typesafe import TypeSafeProvider
 from pydantic_evals.evaluators import Evaluator
 
 from ai_trainer.domain.sports.registry import default_sport_registry
 from ai_trainer.llm.conversation import build_prompt_registry
+from ai_trainer.llm.decision_gateway import OPENROUTER_SYSTEM_ONE_BASE_URL
+from ai_trainer.llm.decisions.loader import DECISIONS_ROOT, DecisionSetLoader
+from ai_trainer.llm.evals.decisions import run_decision_eval
 from ai_trainer.llm.evals.runner import (
     CaseFailedError,
     EvalCaseInputs,
@@ -31,13 +40,24 @@ from ai_trainer.llm.evals.runner import (
 )
 from ai_trainer.llm.gateway import pinned_upstream
 from ai_trainer.llm.prompts.registry import PromptRegistry
-from ai_trainer.llm.prompts.template import PromptTemplate, TemplateOutput
+from ai_trainer.llm.prompts.template import (
+    PromptTemplate,
+    TemplateOutput,
+    UnknownPromptTemplateError,
+)
 from ai_trainer.llm.router import IntentKindsMatch, LogSessionSportMatch
 from ai_trainer.settings import Settings
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
 _EVALS_ROOT = _REPO_ROOT / "evals"
 _PROMPTS_ROOT = Path(__file__).resolve().parent.parent / "prompts"
+_DECISIONS_ROOT = DECISIONS_ROOT
+
+# Each decision set's probability questions and the `Settings` field holding the threshold
+# its label is graded at (ADR-0020); the baseline records the values.
+_DECISION_THRESHOLDS: dict[str, dict[str, str]] = {
+    "safety_screen": {"pain": "safety_screen_pain_threshold"},
+}
 
 
 def _default_registry() -> PromptRegistry:
@@ -55,6 +75,17 @@ def _evaluators_for(
 ) -> tuple[type[Evaluator[EvalCaseInputs, BaseModel, object]], ...]:
     """The custom `Evaluator` types a template's dataset references by name."""
     return _EVALUATORS.get(template_id, ())
+
+
+def _is_decision_set(item_id: str) -> bool:
+    return (_DECISIONS_ROOT / item_id).is_dir()
+
+
+def _decision_thresholds(decision_id: str, settings: Settings) -> dict[str, float]:
+    return {
+        question: float(getattr(settings, field))
+        for question, field in _DECISION_THRESHOLDS.get(decision_id, {}).items()
+    }
 
 
 def _positive_int(value: str) -> int:
@@ -124,6 +155,48 @@ async def execute(
     return 0
 
 
+async def execute_decision(
+    args: argparse.Namespace,
+    *,
+    loader: DecisionSetLoader,
+    model: Model,
+    model_id: str,
+    thresholds: dict[str, float],
+    datasets_root: Path,
+    baselines_root: Path,
+    reports_root: Path,
+) -> int:
+    """The decision-set counterpart of `execute`; a test injects a fake `DecisionModel`."""
+    try:
+        result = await run_decision_eval(
+            loader=loader,
+            decision_id=args.template_id,
+            version=args.version,
+            model=model,
+            model_id=model_id,
+            thresholds=thresholds,
+            datasets_root=datasets_root,
+            baselines_root=baselines_root,
+            reports_root=reports_root,
+            repeat=args.repeat,
+        )
+    except (CaseFailedError, EvaluatorFailedError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+
+    for change in result.changes:
+        print(f"CHANGED: {change}")
+    for regression in result.regressions:
+        print(f"REGRESSION: {regression}", file=sys.stderr)
+    return 1 if result.regressions else 0
+
+
+def _decision_model(settings: Settings, *, model_override: str | None, api_key: str) -> Model:
+    """Jev through OpenRouter's TypeSafe-compatible endpoint, as the app calls it (ADR-0020)."""
+    provider = TypeSafeProvider(base_url=OPENROUTER_SYSTEM_ONE_BASE_URL, api_key=api_key)
+    return TypeSafeModel(model_override or settings.decision_model, provider=provider)
+
+
 def _model_under_test(
     template: PromptTemplate[BaseModel, TemplateOutput],
     settings: Settings,
@@ -154,16 +227,22 @@ def main(argv: Sequence[str] | None = None) -> int:
     settings = Settings()
     registry = _default_registry()
 
+    if _is_decision_set(args.template_id):
+        try:
+            registry.get(args.template_id, args.version)
+        except UnknownPromptTemplateError:
+            return _main_decision(args, settings)
+        print(
+            f"{args.template_id!r} is both a prompt template and a decision set; rename one.",
+            file=sys.stderr,
+        )
+        return 1
+
     template = registry.get(args.template_id, args.version)
     judge_model_id = settings.eval_judge_model
 
-    api_key = settings.openrouter_api_key.get_secret_value()
-    if not api_key.strip():
-        # `OpenRouterProvider` would raise a bare `UserError` traceback here (found at #109).
-        print(
-            "OPENROUTER_API_KEY is blank: set it in .env to your OpenRouter key, then re-run.",
-            file=sys.stderr,
-        )
+    api_key = _api_key(settings)
+    if api_key is None:
         return 1
     provider = OpenRouterProvider(api_key=api_key)
     model = _model_under_test(template, settings, model_override=args.model, provider=provider)
@@ -185,6 +264,37 @@ def main(argv: Sequence[str] | None = None) -> int:
             judge_model=judge_model,
             judge_model_id=judge_model_id,
             custom_evaluator_types=_evaluators_for(args.template_id),
+        )
+    )
+
+
+def _api_key(settings: Settings) -> str | None:
+    api_key = settings.openrouter_api_key.get_secret_value()
+    if not api_key.strip():
+        # `OpenRouterProvider` would raise a bare `UserError` traceback here (found at #109).
+        print(
+            "OPENROUTER_API_KEY is blank: set it in .env to your OpenRouter key, then re-run.",
+            file=sys.stderr,
+        )
+        return None
+    return api_key
+
+
+def _main_decision(args: argparse.Namespace, settings: Settings) -> int:
+    api_key = _api_key(settings)
+    if api_key is None:
+        return 1
+    model = _decision_model(settings, model_override=args.model, api_key=api_key)
+    return asyncio.run(
+        execute_decision(
+            args,
+            loader=DecisionSetLoader(root=_DECISIONS_ROOT),
+            model=model,
+            model_id=model.model_name,
+            thresholds=_decision_thresholds(args.template_id, settings),
+            datasets_root=_EVALS_ROOT / "datasets",
+            baselines_root=_EVALS_ROOT / "baselines",
+            reports_root=_EVALS_ROOT / "reports",
         )
     )
 

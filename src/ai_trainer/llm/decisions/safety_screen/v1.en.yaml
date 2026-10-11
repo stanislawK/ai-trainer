@@ -1,0 +1,20 @@
+goal: >-
+  A chat message an amateur athlete (climbing, gym or cycling) sent to their training coach.
+  It may be a greeting, a question, a log of a session, or several of these at once.
+questions:
+  pain:
+    kind: probability
+    question: >-
+      Does the athlete say that some part of their own body hurts, is sore, aches, twinges,
+      is injured, swollen or feels wrong right now or recently, even in passing, played down
+      or joked about? Plain tiredness, a hard workout, muscle pump, someone else's injury or
+      pain that has fully healed do not count.
+  severity:
+    kind: score
+    question: How serious is the pain or injury the athlete describes in their own body?
+    levels:
+      - No pain or injury of their own is mentioned.
+      - Mild soreness, stiffness or a small niggle that does not change their training.
+      - Pain that made them stop, change or skip training, or that keeps coming back.
+      - A sudden injury, a pop or tear, swelling, numbness, not being able to bear weight or
+        use the limb, or anything that needs a doctor or physiotherapist soon.

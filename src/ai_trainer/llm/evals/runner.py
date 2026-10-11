@@ -87,8 +87,8 @@ class EvalRunResult:
     regressions: list[str]
 
 
-def summarize_report(
-    report: EvaluationReport[EvalCaseInputs, TemplateOutput, object],
+def summarize_report[OutputT](
+    report: EvaluationReport[EvalCaseInputs, OutputT, object],
 ) -> EvalReportSummary:
     return EvalReportSummary(
         name=report.name,
@@ -109,14 +109,70 @@ def summarize_report(
     )
 
 
-def _evaluator_failures(
-    report: EvaluationReport[EvalCaseInputs, TemplateOutput, object],
+def _evaluator_failures[OutputT](
+    report: EvaluationReport[EvalCaseInputs, OutputT, object],
 ) -> list[str]:
     return [
         f"{case.name} / {failure.name}: {failure.error_message}"
         for case in report.cases
         for failure in case.evaluator_failures
     ]
+
+
+def raise_on_failures[OutputT](report: EvaluationReport[EvalCaseInputs, OutputT, object]) -> None:
+    """Refuses a baseline built from a run where a case or an evaluator crashed (#109)."""
+    if report.failures:
+        raise CaseFailedError(
+            failed=len(report.failures),
+            total=len(report.failures) + len(report.cases),
+            failures=[failure.name for failure in report.failures],
+            first_error=report.failures[0].error_message,
+        )
+    if evaluator_failures := _evaluator_failures(report):
+        raise EvaluatorFailedError(evaluator_failures)
+
+
+def current_baseline[OutputT](
+    report: EvaluationReport[EvalCaseInputs, OutputT, object],
+    *,
+    template_id: str,
+    version: int,
+    model_id: str,
+) -> Baseline:
+    averages = report.averages()
+    return Baseline(
+        template_id=template_id,
+        version=version,
+        model=model_id,
+        # `None` here means no evaluator produced an assertion at all (a dataset with only
+        # score evaluators) — a legitimate case now that a crashed evaluator raises above
+        # instead of silently leaving `averages.assertions` empty. Treated as a clean pass.
+        assertions=(
+            averages.assertions if averages is not None and averages.assertions is not None else 1.0
+        ),
+        scores={name: float(score) for name, score in averages.scores.items()}
+        if averages is not None
+        else {},
+    )
+
+
+def record_baseline(baselines_root: Path, current: Baseline) -> tuple[Baseline | None, list[str]]:
+    """Diffs `current` against the committed baseline, then saves it with the committed
+    file's regression thresholds. Returns the previous baseline and the regressions."""
+    baseline_path = baselines_root / f"{current.template_id}.json"
+    previous = load_baseline(baseline_path)
+    regressions = (
+        find_regressions(previous=previous, current=current) if previous is not None else []
+    )
+    save_baseline(
+        baseline_path,
+        current.model_copy(
+            update={
+                "thresholds": previous.thresholds if previous is not None else BaselineThresholds()
+            }
+        ),
+    )
+    return previous, regressions
 
 
 async def run_eval(
@@ -186,45 +242,9 @@ async def run_eval(
     summary = summarize_report(report)
     (reports_root / f"{template_id}.json").write_text(summary.model_dump_json(indent=2) + "\n")
 
-    if report.failures:
-        raise CaseFailedError(
-            failed=len(report.failures),
-            total=len(report.failures) + len(report.cases),
-            failures=[failure.name for failure in report.failures],
-            first_error=report.failures[0].error_message,
-        )
-    if evaluator_failures := _evaluator_failures(report):
-        raise EvaluatorFailedError(evaluator_failures)
-
-    averages = report.averages()
-    current = Baseline(
-        template_id=template_id,
-        version=version,
-        model=model_id,
-        # `None` here means no evaluator produced an assertion at all (a dataset with only
-        # score evaluators) — a legitimate case now that a crashed evaluator raises above
-        # instead of silently leaving `averages.assertions` empty. Treated as a clean pass.
-        assertions=(
-            averages.assertions if averages is not None and averages.assertions is not None else 1.0
-        ),
-        scores={name: float(score) for name, score in averages.scores.items()}
-        if averages is not None
-        else {},
-    )
-
-    baseline_path = baselines_root / f"{template_id}.json"
-    previous = load_baseline(baseline_path)
-    regressions = (
-        find_regressions(previous=previous, current=current) if previous is not None else []
-    )
-    save_baseline(
-        baseline_path,
-        current.model_copy(
-            update={
-                "thresholds": previous.thresholds if previous is not None else BaselineThresholds()
-            }
-        ),
-    )
+    raise_on_failures(report)
+    current = current_baseline(report, template_id=template_id, version=version, model_id=model_id)
+    previous, regressions = record_baseline(baselines_root, current)
 
     return EvalRunResult(
         report=report, baseline=current, previous_baseline=previous, regressions=regressions
