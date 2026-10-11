@@ -3,6 +3,7 @@ placeholder that connects to `GET /messages/{id}/reply`, which streams the reply
 partials and ends by swapping in the saved reply, or a retryable error row."""
 
 import re
+from html.parser import HTMLParser
 from uuid import UUID, uuid4
 
 from fastapi import FastAPI
@@ -131,7 +132,6 @@ async def test_a_timeout_ends_the_stream_with_a_retryable_error_row() -> None:
     final = _sse_data(response.text)[-1]
     assert f'hx-target="#reply-{asked.id}"' in final
     assert 'hx-swap="innerHTML"' in final
-    assert 'role="alert"' in final
     assert "took too long" in final
     assert f'hx-get="/messages/{asked.id}/retry"' in final
     assert [message for _, message in chat.rows] == [asked]
@@ -209,10 +209,9 @@ def test_a_sent_message_shows_the_thinking_indicator_until_its_first_token() -> 
     [(_, asked)] = chat.rows
     indicator = re.search(r"<div[^>]*data-thinking[^>]*>.*?Thinking…", response.text, re.DOTALL)
     assert indicator is not None
-    assert 'role="status"' in indicator.group(0)
     assert f'id="reply-{asked.id}-phase"' in response.text
     # The streaming text row stays hidden until the first chunk lands in its text span.
-    assert f'id="reply-{asked.id}-text" data-reply-text></span>' in response.text
+    assert f'id="reply-{asked.id}-text" data-reply-text aria-hidden="true"></span>' in response.text
     # A static selector: Tailwind can only generate classes it can read from the source.
     assert "group-has-[[data-reply-text]:not(:empty)]/reply:hidden" in response.text
     assert "group-has-[[data-reply-text]:not(:empty)]/reply:flex" in response.text
@@ -264,8 +263,106 @@ async def test_an_error_before_any_token_replaces_the_indicator_with_the_error_r
 
     assert "Reading your message…" in routing
     assert f'hx-target="#reply-{asked.id}"' in final
-    assert 'role="alert"' in final
     assert "data-thinking" not in final
+
+
+_LIVE = re.compile(r'aria-live="(?!off)|role="(?:status|alert|log)"')
+
+
+class _LiveNesting(HTMLParser):
+    """Collects the live regions in a fragment and notes any that sits inside another."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.stack: list[tuple[str, bool]] = []
+        self.regions = 0
+        self.nested = 0
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag in {"br", "img", "input", "hr", "meta", "link"}:
+            return
+        rendered = " ".join(f'{name}="{value}"' for name, value in attrs)
+        live = bool(_LIVE.search(rendered))
+        if live:
+            self.regions += 1
+            self.nested += any(ancestor for _, ancestor in self.stack)
+        self.stack.append((tag, live))
+
+    def handle_endtag(self, tag: str) -> None:
+        while self.stack:
+            if self.stack.pop()[0] == tag:
+                break
+
+
+def _live_regions(html: str) -> _LiveNesting:
+    parser = _LiveNesting()
+    parser.feed(html)
+    return parser
+
+
+def test_the_reply_path_has_one_live_region_and_none_nested() -> None:
+    client, _, chat = _client()
+
+    sent = client.post("/messages", data={"message": "hi!"}, headers=_HTMX).text
+
+    [(_, asked)] = chat.rows
+    assert _live_regions(sent).nested == 0
+    wrapper = re.search(rf'<div id="reply-{asked.id}"[^>]*>', sent)
+    assert wrapper is not None
+    assert 'aria-live="polite"' in wrapper.group(0)
+    assert _live_regions(sent).regions == 1
+
+
+async def test_streamed_text_and_the_elapsed_hint_are_silent_to_screen_readers() -> None:
+    client, _, _ = _client()
+
+    html = client.post("/messages", data={"message": "hi!"}, headers=_HTMX).text
+
+    assert re.search(r"<span[^>]*data-reply-text[^>]*aria-hidden=\"true\"", html)
+    assert re.search(r"<span[^>]*data-thinking-hint[^>]*aria-hidden=\"true\"", html)
+
+
+async def test_the_error_row_is_announced_by_the_reply_region_alone() -> None:
+    conversation = ScriptedConversation(chitchat_outcomes=[LlmCallOutcome.TIMEOUT])
+    client, user_id, chat = _client(conversation)
+    asked = await _asked(chat, user_id)
+
+    final = _sse_data(client.get(f"/messages/{asked.id}/reply").text)[-1]
+
+    assert "took too long" in final
+    assert _live_regions(final).regions == 0
+
+
+async def test_the_saved_reply_swapped_in_is_not_a_live_region_itself() -> None:
+    client, user_id, chat = _client()
+    asked = await _asked(chat, user_id)
+
+    final = _sse_data(client.get(f"/messages/{asked.id}/reply").text)[-1]
+
+    assert _live_regions(final).regions == 0
+
+
+async def test_loading_a_chat_with_history_announces_nothing_on_its_own() -> None:
+    client, user_id, chat = _client()
+    await _asked(chat, user_id)
+    await chat.add(user_id, ChatRole.ASSISTANT, "Hey there.", FROZEN_NOW)
+
+    page = client.get("/").text
+
+    assert 'id="chat-history"' in page
+    assert _live_regions(page).regions == 0
+
+
+async def test_a_page_with_a_pending_reply_has_one_live_region_and_none_nested() -> None:
+    client, user_id, chat = _client()
+    asked = await _asked(chat, user_id)
+
+    page = client.get("/").text
+
+    regions = _live_regions(page)
+    assert regions.regions == 1
+    assert regions.nested == 0
+    assert re.search(rf'<div id="reply-{asked.id}"[^>]*aria-live="polite"', page)
 
 
 def _action(html: str) -> str:
