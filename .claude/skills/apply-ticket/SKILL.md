@@ -43,7 +43,9 @@ Implements the delivery loop of ADR-0001.
     - `git push -u origin <area>/<n>-<slug>`.
     - `gh pr create --base main --title "<issue title> (#<n>)" --body-file <file>`. The body holds the summary, the AC → evidence table, the skeptic challenges and their fixes, an **Acceptance** section (the script, the answer, and any failed rounds with their fixes), and `Closes #<n>`.
     - `gh issue edit <n> --add-label status:in-review --remove-label status:in-progress`.
-    - Report the PR URL and stop. A human reviews and merges it on GitHub; the merge closes the issue. Never commit to, push to or merge into `main`, and never merge the PR yourself.
+    - Report the PR URL.
+    - **Suggest the next ticket, unasked.** Read-only: `gh issue list --state open --label status:todo --json number,title,labels,body`, and for each candidate check its `Blocked by` issues (`gh issue view N --json state`) and any non-issue blocker it names (an ADR still Proposed, owner-recorded terms). Name the one best pick with a sentence of why, preferring a ticket that unblocks others, then the smallest size. When nothing is ready, say so, list what blocks each ticket, and name what the human can do to unblock them (accept an ADR, merge a PR). Never start it; the human invokes `/apply-ticket <n>`.
+    - Stop. A human reviews and merges the PR on GitHub; the merge closes the issue. Never commit to, push to or merge into `main`, and never merge the PR yourself.
 
 ## Area branches
 

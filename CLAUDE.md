@@ -24,6 +24,7 @@ Docs outrank chat. If a request contradicts an Accepted ADR or the Approved PRD,
   - the **acceptance gate**: a human tries the change on the running `make start` stack, following the agent's step-by-step script and opening any screenshots under `.acceptance/<issue#>/`, before the diff is reviewed;
   - the **review gate**: no commit, push or PR before Approve.
 - Every change goes on its own branch and reaches `main` only through a PR a human merges. Ticket branches are `<area>/<issue#>-<slug>`; doc-only work without an issue uses `docs/<slug>`. Never commit to, push to or merge into `main` (ADR-0001).
+- After opening a PR, the agent suggests the best next ticket without being asked (ready, unblocking, smallest); it never starts it.
 - Prompt, model or router changes go through `/tune-prompt <template-id>`.
 - Only a human sets a PRD to Approved or an ADR to Accepted.
 
