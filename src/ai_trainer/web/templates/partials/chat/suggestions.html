@@ -1,0 +1,27 @@
+{#- The composer's suggestion popover (ticket #85, F13): every suggestion, hidden until static/js/autocomplete.js shows up to six that match what the athlete types, with the match marked by a copy of the <template>'s <mark>. The M1 set covers what the chat can answer now; it changes per milestone. -#}
+{%- from "components/icon.html" import icon -%}
+{%- set suggestion_groups = [
+  {"label": "Log", "items": [
+    {"text": "Log today's session", "hint": "A climb, a lift or a ride", "icon": "plus"},
+    {"text": "Log yesterday's session", "hint": "I'll date it for you", "icon": "plus"},
+  ]},
+  {"label": "Ask", "items": [
+    {"text": "How was my week?", "hint": "Your sessions since Monday", "icon": "history"},
+    {"text": "How do I log a session?", "hint": "What to tell me, in any words", "icon": "message-circle"},
+    {"text": "How should I warm up?", "hint": "Before climbing, lifting or riding", "icon": "target"},
+    {"text": "How much should I rest between sessions?", "hint": "Recovery and load", "icon": "clock"},
+    {"text": "What should I train tomorrow?", "hint": "Based on your recent sessions", "icon": "calendar-check"},
+  ]},
+] -%}
+<div id="chat-suggestions" class="glass-regular glass-rim relative rounded-box p-1.5 flex flex-col" role="listbox" aria-label="Suggestions" hidden>
+  <template data-suggestion-mark><mark class="bg-primary/20 text-base-content rounded px-0.5"></mark></template>
+  {%- for group in suggestion_groups %}
+  {%- set group_index = loop.index0 %}
+  <div class="flex flex-col" role="group" aria-labelledby="chat-suggestions-{{ group_index }}" data-suggestion-group>
+    <span id="chat-suggestions-{{ group_index }}" class="px-3 pt-2 pb-1 text-[12px] font-medium text-base-content/70">{{ group.label }}</span>
+    {%- for item in group["items"] %}
+    <div id="chat-suggestion-{{ group_index }}-{{ loop.index0 }}" role="option" aria-selected="false" class="flex items-center gap-3 min-h-12 px-3 rounded-2xl cursor-pointer aria-selected:bg-base-content/10" data-suggestion="{{ item.text }}" data-suggestion-hint="{{ item.hint }}" hidden>{{ icon(item.icon, "size-5 shrink-0 text-base-content/70") }}<div class="flex flex-col"><span class="text-[15px]" data-suggestion-label>{{ item.text }}</span><span class="text-[13px] text-base-content/70" data-suggestion-detail>{{ item.hint }}</span></div></div>
+    {%- endfor %}
+  </div>
+  {%- endfor %}
+</div>

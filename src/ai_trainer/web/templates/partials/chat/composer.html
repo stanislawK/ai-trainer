@@ -1,4 +1,5 @@
 <div id="chat-composer" class="sticky bottom-0 pt-2 pb-[max(1.25rem,env(safe-area-inset-bottom))] lg:pb-4 flex flex-col gap-2">
+  {% include "partials/chat/suggestions.html" %}
   <form
     class="glass-thick glass-rim relative rounded-[26px] flex flex-col gap-1 p-1.5 pl-4"
     hx-post="/messages"
@@ -13,6 +14,10 @@
       rows="1"
       placeholder="Log a session or ask anything"
       aria-label="Message"
+      role="combobox"
+      aria-autocomplete="list"
+      aria-controls="chat-suggestions"
+      aria-expanded="false"
       {% if error %}aria-invalid="true" aria-describedby="chat-error"{% endif %}
       data-chat-input
     >{{ text }}</textarea>

@@ -10,6 +10,9 @@
       <h2 class="text-[22px]/[28px] font-semibold tracking-tight">Good {{ part_of_day }}{% if first_name %}, {{ first_name }}{% endif %}</h2>
       <p class="text-[16px] leading-6 text-base-content/80">Tell me what you trained, or ask anything about your week.</p>
     </div>
+    {%- if not history %}
+    {% include "partials/chat/starter_chips.html" %}
+    {%- endif %}
     {% for message in history %}
     {% include "partials/chat/message.html" %}
     {% endfor %}
