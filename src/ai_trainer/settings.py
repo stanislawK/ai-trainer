@@ -53,6 +53,13 @@ class Settings(BaseSettings):
     # Short on purpose: a decision that misses it falls back to the LLM path or the safe side
     # of its gate, and the message pays this wait before that fallback starts.
     decision_call_timeout_seconds: float = Field(default=2.0, gt=0)
+    # `safety_screen` (ADR-0020, G3): P(pain) at or above this counts as a pain mention. A miss
+    # costs safety, an extra hit only a gentler reply, so it leans low. Calibrated on
+    # `evals/datasets/safety_screen.yaml` at #120: every pain case scored 0.71 or more and every
+    # literal no-pain case 0.16 or less, so 0.3 keeps a wide margin under the jitter and gives up
+    # only figurative or fatigue wording (0.43-0.77). Recorded in its baseline; change it only
+    # through `/tune-prompt safety_screen`.
+    safety_screen_pain_threshold: float = Field(default=0.3, ge=0, le=1)
 
     # Google sign-in (ADR-0005). No Google access or refresh token is ever stored.
     # Required and non-blank: a blank value otherwise fails only on Google's own page.

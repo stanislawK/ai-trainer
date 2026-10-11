@@ -1,8 +1,12 @@
 from pathlib import Path
 
+import pytest
+
 from ai_trainer.llm.evals.baseline import (
     Baseline,
     BaselineThresholds,
+    CaseProbability,
+    find_changes,
     find_regressions,
     load_baseline,
     save_baseline,
@@ -86,3 +90,39 @@ def test_find_regressions_flags_a_score_missing_from_the_new_run() -> None:
 
     assert len(regressions) == 1
     assert "helpfulness" in regressions[0]
+
+
+def test_a_template_baseline_file_keeps_its_shape_without_decision_fields(
+    tmp_path: Path,
+) -> None:
+    """Router and chitchat baselines gain no empty decision keys (#120)."""
+    path = tmp_path / "sample.json"
+
+    save_baseline(path, _baseline())
+
+    text = path.read_text()
+    assert "decision_thresholds" not in text
+    assert '"cases"' not in text
+
+
+def test_a_case_probability_spread_is_max_minus_min() -> None:
+    assert CaseProbability(mean=0.8, min=0.7, max=0.9, runs=3).spread == pytest.approx(0.2)
+
+
+def test_find_changes_names_version_model_and_threshold_differences() -> None:
+    previous = _baseline(version=1, decision_thresholds={"pain": 0.5, "gone": 0.2})
+    current = _baseline(
+        version=2, model="typesafe/jev-1.14", decision_thresholds={"pain": 0.3, "new": 0.4}
+    )
+
+    assert find_changes(previous=previous, current=current) == [
+        "version changed from 1 to 2",
+        "model changed from 'openai/gpt-5-mini' to 'typesafe/jev-1.14'",
+        "threshold 'gone' changed from 0.2 to none",
+        "threshold 'new' changed from none to 0.4",
+        "threshold 'pain' changed from 0.5 to 0.3",
+    ]
+
+
+def test_find_changes_is_empty_for_the_same_run() -> None:
+    assert find_changes(previous=_baseline(), current=_baseline()) == []

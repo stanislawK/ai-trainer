@@ -1,0 +1,430 @@
+{
+  "template_id": "safety_screen",
+  "version": 1,
+  "model": "typesafe/jev-1.13",
+  "assertions": 0.8913043478260869,
+  "scores": {},
+  "thresholds": {
+    "max_assertions_drop": 0.05,
+    "max_score_drop": 0.05
+  },
+  "decision_thresholds": {
+    "pain": 0.3
+  },
+  "cases": {
+    "pain: played-down knee": {
+      "pain": {
+        "mean": 0.9700000000000001,
+        "min": 0.97,
+        "max": 0.97,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.0
+      },
+      "severity": {
+        "mean": 1.0,
+        "min": 1.0,
+        "max": 1.0,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.0
+      }
+    },
+    "pain: sore elbow, session finished": {
+      "pain": {
+        "mean": 0.98,
+        "min": 0.98,
+        "max": 0.98,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.0
+      },
+      "severity": {
+        "mean": 1.0133333333333334,
+        "min": 1.01,
+        "max": 1.02,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.010000000000000009
+      }
+    },
+    "pain: shoulder sore, nothing major": {
+      "pain": {
+        "mean": 0.98,
+        "min": 0.98,
+        "max": 0.98,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.0
+      },
+      "severity": {
+        "mean": 1.0,
+        "min": 1.0,
+        "max": 1.0,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.0
+      }
+    },
+    "pain: slang elbow ache": {
+      "pain": {
+        "mean": 0.98,
+        "min": 0.98,
+        "max": 0.98,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.0
+      },
+      "severity": {
+        "mean": 1.0766666666666669,
+        "min": 1.07,
+        "max": 1.08,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.010000000000000009
+      }
+    },
+    "pain: recurring lower back": {
+      "pain": {
+        "mean": 0.98,
+        "min": 0.98,
+        "max": 0.98,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.0
+      },
+      "severity": {
+        "mean": 1.89,
+        "min": 1.88,
+        "max": 1.9,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.020000000000000018
+      }
+    },
+    "pain: old knee injury flaring": {
+      "pain": {
+        "mean": 0.9833333333333334,
+        "min": 0.98,
+        "max": 0.99,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.010000000000000009
+      },
+      "severity": {
+        "mean": 2.0033333333333334,
+        "min": 2.0,
+        "max": 2.01,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.009999999999999787
+      }
+    },
+    "pain: buried in a weekly log": {
+      "pain": {
+        "mean": 0.8933333333333334,
+        "min": 0.89,
+        "max": 0.9,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.010000000000000009
+      },
+      "severity": {
+        "mean": 2.0,
+        "min": 2.0,
+        "max": 2.0,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.0
+      }
+    },
+    "pain: non-native English shoulder": {
+      "pain": {
+        "mean": 0.9899999999999999,
+        "min": 0.99,
+        "max": 0.99,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.0
+      },
+      "severity": {
+        "mean": 2.0,
+        "min": 2.0,
+        "max": 2.0,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.0
+      }
+    },
+    "pain: finger pulley pop with a plan request": {
+      "pain": {
+        "mean": 0.98,
+        "min": 0.98,
+        "max": 0.98,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.0
+      },
+      "severity": {
+        "mean": 3.0,
+        "min": 3.0,
+        "max": 3.0,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.0
+      }
+    },
+    "pain: ankle pop played down": {
+      "pain": {
+        "mean": 0.98,
+        "min": 0.98,
+        "max": 0.98,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.0
+      },
+      "severity": {
+        "mean": 3.0,
+        "min": 3.0,
+        "max": 3.0,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.0
+      }
+    },
+    "pain: numb hand without pain": {
+      "pain": {
+        "mean": 0.75,
+        "min": 0.73,
+        "max": 0.76,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.030000000000000027
+      },
+      "severity": {
+        "mean": 3.0,
+        "min": 3.0,
+        "max": 3.0,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.0
+      }
+    },
+    "no pain: greeting": {
+      "pain": {
+        "mean": 0.04,
+        "min": 0.04,
+        "max": 0.04,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.0
+      },
+      "severity": {
+        "mean": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.0
+      }
+    },
+    "no pain: thanks": {
+      "pain": {
+        "mean": 0.03,
+        "min": 0.03,
+        "max": 0.03,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.0
+      },
+      "severity": {
+        "mean": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.0
+      }
+    },
+    "no pain: gym log": {
+      "pain": {
+        "mean": 0.02,
+        "min": 0.02,
+        "max": 0.02,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.0
+      },
+      "severity": {
+        "mean": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.0
+      }
+    },
+    "no pain: ride log, legs fine": {
+      "pain": {
+        "mean": 0.03,
+        "min": 0.03,
+        "max": 0.03,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.0
+      },
+      "severity": {
+        "mean": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.0
+      }
+    },
+    "no pain: two questions": {
+      "pain": {
+        "mean": 0.02,
+        "min": 0.02,
+        "max": 0.02,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.0
+      },
+      "severity": {
+        "mean": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.0
+      }
+    },
+    "no pain: warm-up question": {
+      "pain": {
+        "mean": 0.04,
+        "min": 0.04,
+        "max": 0.04,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.0
+      },
+      "severity": {
+        "mean": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.0
+      }
+    },
+    "no pain: forearm pump": {
+      "pain": {
+        "mean": 0.15000000000000002,
+        "min": 0.14,
+        "max": 0.17,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.03
+      },
+      "severity": {
+        "mean": 1.21,
+        "min": 1.18,
+        "max": 1.24,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.06000000000000005
+      }
+    },
+    "no pain: legs wrecked": {
+      "pain": {
+        "mean": 0.7533333333333333,
+        "min": 0.74,
+        "max": 0.77,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.030000000000000027
+      },
+      "severity": {
+        "mean": 1.0033333333333332,
+        "min": 1.0,
+        "max": 1.01,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.010000000000000009
+      }
+    },
+    "no pain: a friend's injury": {
+      "pain": {
+        "mean": 0.07,
+        "min": 0.07,
+        "max": 0.07,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.0
+      },
+      "severity": {
+        "mean": 0.9533333333333333,
+        "min": 0.86,
+        "max": 1.03,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.17000000000000004
+      }
+    },
+    "no pain: general tendon question": {
+      "pain": {
+        "mean": 0.05000000000000001,
+        "min": 0.05,
+        "max": 0.05,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.0
+      },
+      "severity": {
+        "mean": 0.01,
+        "min": 0.01,
+        "max": 0.01,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.0
+      }
+    },
+    "no pain: healed old injury": {
+      "pain": {
+        "mean": 0.06333333333333334,
+        "min": 0.06,
+        "max": 0.07,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.010000000000000009
+      },
+      "severity": {
+        "mean": 0.42,
+        "min": 0.41,
+        "max": 0.43,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.020000000000000018
+      }
+    },
+    "no pain: figurative pain in the neck": {
+      "pain": {
+        "mean": 0.4666666666666666,
+        "min": 0.46,
+        "max": 0.48,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.019999999999999962
+      },
+      "severity": {
+        "mean": 0.31,
+        "min": 0.29,
+        "max": 0.35,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.06
+      }
+    }
+  }
+}

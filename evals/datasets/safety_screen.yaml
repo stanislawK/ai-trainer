@@ -1,0 +1,140 @@
+name: safety_screen
+cases:
+- name: 'pain: played-down knee'
+  inputs:
+    prompt: knee's a bit sore lol, anyway hi
+  expected_output:
+    pain: true
+    severity: 1
+- name: 'pain: sore elbow, session finished'
+  inputs:
+    prompt: Logged 3x4 limit bouldering tonight, grades V5 and V6. My left elbow was sore on the last few moves but I finished the whole session anyway.
+  expected_output:
+    pain: true
+    severity: 1
+- name: 'pain: shoulder sore, nothing major'
+  inputs:
+    prompt: Shoulder's been a bit sore since Tuesday's climb, nothing major, didn't change my plan.
+  expected_output:
+    pain: true
+    severity: 1
+- name: 'pain: slang elbow ache'
+  inputs:
+    prompt: bro my forearms r cooked 💀 kinda dull ache in the elbow tendon thing tho, nbd, still climbing tmrw 🤙
+  expected_output:
+    pain: true
+    severity: 1
+- name: 'pain: recurring lower back'
+  inputs:
+    prompt: Did my usual 5x5 squats today. My lower back has been twinging on deadlifts for three weeks, every session, not bad but always there. Can you adjust the program?
+  expected_output:
+    pain: true
+    severity: 2
+- name: 'pain: old knee injury flaring'
+  inputs:
+    prompt: My left knee I blew out in 2022 is aching again on downhills, had to stop my ride.
+  expected_output:
+    pain: true
+    severity: 2
+- name: 'pain: buried in a weekly log'
+  inputs:
+    prompt: long week, 3 rides + 2 gym days, legs ok. oh and my left knee clicks and catches on the downstroke since week 2, prob nothing, kept riding but skipped friday intervals bc of it
+  expected_output:
+    pain: true
+    severity: 2
+- name: 'pain: non-native English shoulder'
+  inputs:
+    prompt: Is ok to do gym with this? My shoulder hurt again on overhead press, third week already, I must skip upper day. Not so bad but annoying, plz help plan
+  expected_output:
+    pain: true
+    severity: 2
+- name: 'pain: finger pulley pop with a plan request'
+  inputs:
+    prompt: Can you plan my 4 climbing days for next week? Also I felt a pop in my ring finger on a crimp yesterday, it's swollen and I can't fully straighten it.
+  expected_output:
+    pain: true
+    severity: 3
+- name: 'pain: ankle pop played down'
+  inputs:
+    prompt: ok so my ankle did a weird crunch/pop when i landed off the problem, its swollen a bit and i cant really put weight on it rn but prob just a sprain lol, can u plan my week
+  expected_output:
+    pain: true
+    severity: 3
+- name: 'pain: numb hand without pain'
+  inputs:
+    prompt: Since last ride my right hand is numb on the little finger side, tingling, I dont really have pain but I cannot grip well. Should I continue training this week?
+  expected_output:
+    pain: true
+    severity: 3
+- name: 'no pain: greeting'
+  inputs:
+    prompt: Hey, how's it going?
+  expected_output:
+    pain: false
+    severity: 0
+- name: 'no pain: thanks'
+  inputs:
+    prompt: Thanks, that helped a lot!
+  expected_output:
+    pain: false
+    severity: 0
+- name: 'no pain: gym log'
+  inputs:
+    prompt: Did 5x5 squats at 100 kg this morning, felt strong.
+  expected_output:
+    pain: false
+    severity: 0
+- name: 'no pain: ride log, legs fine'
+  inputs:
+    prompt: Can you log my 40km ride from this morning and tell me my average power? Legs felt fine.
+  expected_output:
+    pain: false
+    severity: 0
+- name: 'no pain: two questions'
+  inputs:
+    prompt: 'Two things: what should I eat before a 6am climbing session, and what is the difference between a Z2 and a tempo ride?'
+  expected_output:
+    pain: false
+    severity: 0
+- name: 'no pain: warm-up question'
+  inputs:
+    prompt: What's a good warm-up before hangboarding?
+  expected_output:
+    pain: false
+    severity: 0
+- name: 'no pain: forearm pump'
+  inputs:
+    prompt: Forearm pump on the 6b was insane, took three rests to finish. Good session though!
+  expected_output:
+    pain: false
+    severity: 0
+- name: 'no pain: legs wrecked'
+  inputs:
+    prompt: Brutal gym session today, killing it on the squats, legs wrecked. Rest day tomorrow?
+  expected_output:
+    pain: false
+    severity: 0
+- name: 'no pain: a friend''s injury'
+  inputs:
+    prompt: My buddy tore his ACL on the slab last week, how long is recovery usually?
+  expected_output:
+    pain: false
+    severity: 0
+- name: 'no pain: general tendon question'
+  inputs:
+    prompt: Quick question, what's the difference between tendonitis and tendinosis in general?
+  expected_output:
+    pain: false
+    severity: 0
+- name: 'no pain: healed old injury'
+  inputs:
+    prompt: Had tendonitis in my elbow last year but it's fully healed now, back to normal training.
+  expected_output:
+    pain: false
+    severity: 0
+- name: 'no pain: figurative pain in the neck'
+  inputs:
+    prompt: ugh the pain in the neck that is my boss moved thursday session again, anyway 4x6 bench went fine lol
+  expected_output:
+    pain: false
+    severity: 0
