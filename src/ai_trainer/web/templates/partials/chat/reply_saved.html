@@ -1,0 +1,3 @@
+{#- The saved reply for a Stop that arrived after it was complete (ticket #116): the wrapper is kept so the row's id stays, and Send comes back. -#}
+<div id="reply-{{ message_id }}" class="group/reply flex flex-col gap-4">{% for message in messages %}{% include "partials/chat/message.html" %}{% endfor %}</div>
+{% include "partials/chat/send_restored.html" %}

@@ -1,0 +1,3 @@
+{#- A fresh reply placeholder for Retry, and Stop back in the composer while it streams (ticket #116). -#}
+{% include "partials/chat/reply.html" %}
+<template hx type="partial" hx-target="#chat-action" hx-swap="outerHTML">{% with streaming_id = message.id %}{% include "partials/chat/action.html" %}{% endwith %}</template>

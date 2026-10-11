@@ -1,0 +1,14 @@
+{#- The reply the athlete stopped (ticket #116): nothing was saved, and Retry asks for a fresh placeholder, which streams a fresh reply. The wrapper has no SSE connection, so the stream stays closed. -#}
+{%- from "components/avatar.html" import avatar -%}
+{%- from "components/icon.html" import icon -%}
+<div id="reply-{{ message_id }}" class="flex flex-col gap-4">
+  <div class="flex gap-2.5">
+    {{ avatar() }}
+    <div class="flex flex-wrap items-center gap-2 min-h-7 text-[13px]">
+      {{ icon("square", "size-4 text-base-content/70") }}
+      <span class="text-base-content/70">Stopped</span>
+      <button type="button" class="btn btn-xs h-7 rounded-full glass-regular border-0 relative after:absolute after:-inset-2.5 after:content-['']" hx-get="/messages/{{ message_id }}/retry" hx-target="#reply-{{ message_id }}" hx-swap="outerHTML">Retry</button>
+    </div>
+  </div>
+</div>
+{% include "partials/chat/send_restored.html" %}

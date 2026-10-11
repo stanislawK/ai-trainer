@@ -18,5 +18,5 @@
     {% with message = history[-1] %}{% include "partials/chat/reply.html" %}{% endwith %}
     {%- endif %}
   </div>
-  {% include "partials/chat/composer.html" %}
+  {% with streaming_id = history[-1].id if history and history[-1].role == "user" else None %}{% include "partials/chat/composer.html" %}{% endwith %}
 </div>

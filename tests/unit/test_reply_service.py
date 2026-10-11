@@ -2,6 +2,7 @@
 safety first, chitchat-like intents to the streamed chitchat specialist, every other intent to
 the "not yet" reply, and nothing saved unless the whole reply came through."""
 
+import asyncio
 from collections.abc import AsyncGenerator
 from contextlib import aclosing
 from datetime import date
@@ -9,6 +10,7 @@ from uuid import UUID, uuid4
 
 import pytest
 
+from ai_trainer.application.ports.conversation import ReplyContext, Routing
 from ai_trainer.application.reply import (
     MessageNotFoundError,
     ReplyChunk,
@@ -316,3 +318,76 @@ async def test_find_message_returns_the_owners_own_message() -> None:
     asked = await _asked(chat, user_id)
 
     assert await find_message(user_id, asked.id, chat=chat) == asked
+
+
+async def test_stopping_before_the_first_token_saves_no_reply() -> None:
+    """Stop closes the stream while the router is still working (ticket #116)."""
+    chat = InMemoryChatRepository()
+    user_id = uuid4()
+    message = await _asked(chat, user_id)
+    conversation = ScriptedConversation()
+    services = reply_services(chat, conversation=conversation)
+
+    async with aclosing(
+        await start_reply(user_id, message.id, timezone="UTC", services=services)
+    ) as stream:
+        first = await anext(stream)
+
+    assert first == ReplyPhase("routing")
+    assert [row for _, row in chat.rows] == [message]
+
+
+async def test_stopping_mid_reply_saves_nothing_and_closes_the_model_stream() -> None:
+    chat = InMemoryChatRepository()
+    user_id = uuid4()
+    message = await _asked(chat, user_id)
+    conversation = ScriptedConversation()
+    services = reply_services(chat, conversation=conversation)
+
+    async with aclosing(
+        await start_reply(user_id, message.id, timezone="UTC", services=services)
+    ) as stream:
+        async for event in stream:
+            if isinstance(event, ReplyChunk):
+                break
+
+    assert [row for _, row in chat.rows] == [message]
+    assert conversation.closed_streams == 1
+
+
+async def test_stopping_during_routing_saves_no_reply_and_makes_no_chitchat_call() -> None:
+    """The browser leaves while the router call is still in flight: the task is cancelled
+    there, so the gateway can record that call as `cancelled` (ADR-0018)."""
+    chat = InMemoryChatRepository()
+    user_id = uuid4()
+    message = await _asked(chat, user_id)
+    conversation = _HangingRouter()
+    services = reply_services(chat, conversation=conversation)
+    stream = await start_reply(user_id, message.id, timezone="UTC", services=services)
+    assert await anext(stream) == ReplyPhase("routing")
+
+    task = asyncio.ensure_future(anext(stream))
+    await conversation.routing.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert conversation.route_cancelled
+    assert conversation.chitchatted == []
+    assert [row for _, row in chat.rows] == [message]
+
+
+class _HangingRouter(ScriptedConversation):
+    def __init__(self) -> None:
+        super().__init__()
+        self.routing = asyncio.Event()
+        self.route_cancelled = False
+
+    async def route(self, context: ReplyContext) -> Routing:
+        self.routing.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            self.route_cancelled = True
+            raise
+        raise AssertionError("unreachable")

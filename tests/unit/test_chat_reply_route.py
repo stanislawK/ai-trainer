@@ -363,3 +363,143 @@ async def test_a_page_with_a_pending_reply_has_one_live_region_and_none_nested()
     assert regions.regions == 1
     assert regions.nested == 0
     assert re.search(rf'<div id="reply-{asked.id}"[^>]*aria-live="polite"', page)
+
+
+def _action(html: str) -> str:
+    """The composer's action slot: the one control that is Send or Stop (ticket #116)."""
+    match = re.search(r'<span id="chat-action"[^>]*>.*?</span>', html, re.DOTALL)
+    assert match is not None
+    return match.group(0)
+
+
+def test_an_idle_composer_offers_send_and_no_stop() -> None:
+    client, _, _ = _client()
+
+    action = _action(client.get("/").text)
+
+    assert 'aria-label="Send"' in action
+    assert "Stop generating" not in action
+
+
+def test_a_sent_message_swaps_stop_in_for_send_until_the_reply_ends() -> None:
+    client, _, chat = _client()
+
+    response = client.post("/messages", data={"message": "tell me a long story"}, headers=_HTMX)
+
+    [(_, asked)] = chat.rows
+    action = _action(response.text)
+    assert 'aria-label="Stop generating"' in action
+    assert 'aria-label="Send"' not in action
+    assert f'hx-get="/messages/{asked.id}/stop"' in action
+    assert f'hx-target="#reply-{asked.id}"' in action
+    assert 'hx-swap="outerHTML"' in action
+    assert 'type="button"' in action
+
+
+async def test_a_reload_with_a_pending_reply_shows_stop() -> None:
+    client, user_id, chat = _client()
+    asked = await _asked(chat, user_id)
+
+    action = _action(client.get("/").text)
+
+    assert f'hx-get="/messages/{asked.id}/stop"' in action
+    assert 'aria-label="Send"' not in action
+
+
+async def test_a_reload_after_the_reply_shows_send() -> None:
+    client, user_id, chat = _client()
+    await _asked(chat, user_id)
+    await chat.add(user_id, ChatRole.ASSISTANT, "Hey there.", FROZEN_NOW)
+
+    action = _action(client.get("/").text)
+
+    assert 'aria-label="Send"' in action
+
+
+async def test_the_finished_reply_swaps_send_back_in() -> None:
+    client, user_id, chat = _client()
+    asked = await _asked(chat, user_id)
+
+    final = _sse_data(client.get(f"/messages/{asked.id}/reply").text)[-1]
+
+    assert 'hx-target="#chat-action"' in final
+    assert 'aria-label="Send"' in final
+    assert "Stop generating" not in final
+
+
+async def test_a_failed_reply_swaps_send_back_in() -> None:
+    conversation = ScriptedConversation(chitchat_outcomes=[LlmCallOutcome.TIMEOUT])
+    client, user_id, chat = _client(conversation)
+    asked = await _asked(chat, user_id)
+
+    final = _sse_data(client.get(f"/messages/{asked.id}/reply").text)[-1]
+
+    assert 'hx-target="#chat-action"' in final
+    assert 'aria-label="Send"' in final
+
+
+async def test_stop_swaps_the_streaming_row_for_stopped_with_retry_and_brings_send_back() -> None:
+    client, user_id, chat = _client()
+    asked = await _asked(chat, user_id)
+
+    response = client.get(f"/messages/{asked.id}/stop", headers=_HTMX)
+
+    assert response.status_code == 200
+    assert f'id="reply-{asked.id}"' in response.text
+    assert "hx-sse:connect" not in response.text
+    assert "Stopped" in response.text
+    assert f'hx-get="/messages/{asked.id}/retry"' in response.text
+    assert f'hx-target="#reply-{asked.id}"' in response.text
+    assert 'hx-target="#chat-action"' in response.text
+    assert 'aria-label="Send"' in response.text
+
+
+async def test_stopping_runs_no_model_call_and_saves_no_reply() -> None:
+    conversation = ScriptedConversation()
+    client, user_id, chat = _client(conversation)
+    asked = await _asked(chat, user_id)
+
+    client.get(f"/messages/{asked.id}/stop", headers=_HTMX)
+
+    assert conversation.routed == []
+    assert [message for _, message in chat.rows] == [asked]
+
+
+async def test_stopping_a_reply_that_was_already_saved_shows_it_rather_than_stopped() -> None:
+    client, user_id, chat = _client()
+    asked = await _asked(chat, user_id)
+    await chat.add(user_id, ChatRole.ASSISTANT, "Hey there.", FROZEN_NOW)
+
+    response = client.get(f"/messages/{asked.id}/stop", headers=_HTMX)
+
+    assert "Hey there." in response.text
+    assert "Stopped" not in response.text
+    assert 'aria-label="Send"' in response.text
+
+
+async def test_retry_after_stop_streams_a_fresh_reply_and_brings_stop_back() -> None:
+    client, user_id, chat = _client()
+    asked = await _asked(chat, user_id)
+    client.get(f"/messages/{asked.id}/stop", headers=_HTMX)
+
+    placeholder = client.get(f"/messages/{asked.id}/retry", headers=_HTMX)
+    streamed = client.get(f"/messages/{asked.id}/reply")
+
+    assert f'hx-sse:connect="/messages/{asked.id}/reply"' in placeholder.text
+    assert 'hx-target="#chat-action"' in placeholder.text
+    assert 'aria-label="Stop generating"' in placeholder.text
+    assert "Hey! Good to hear from you." in _sse_data(streamed.text)[-1]
+
+
+async def test_another_users_message_gets_404_for_its_stop() -> None:
+    chat = InMemoryChatRepository()
+    theirs = await _asked(chat, uuid4())
+    client, _, _ = _client(chat=chat)
+
+    assert client.get(f"/messages/{theirs.id}/stop", headers=_HTMX).status_code == 404
+
+
+def test_the_stop_icon_is_vendored() -> None:
+    from ai_trainer.web.icons import vendored_icon_names
+
+    assert "square" in vendored_icon_names()

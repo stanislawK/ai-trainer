@@ -1,0 +1,9 @@
+{#- The composer's one action (ticket #116): Send, or Stop while the reply to `streaming_id` is on its way. Stop swaps that reply's wrapper for the Stopped row; removing the wrapper closes its SSE connection, which cancels the call server-side. The reply's last event, the Stopped row and a retry swap this slot back. -#}
+{%- from "components/icon.html" import icon -%}
+<span id="chat-action" class="contents">
+{%- if streaming_id is defined and streaming_id %}
+<button type="button" class="btn btn-circle glass-regular border-0" aria-label="Stop generating" hx-get="/messages/{{ streaming_id }}/stop" hx-target="#reply-{{ streaming_id }}" hx-swap="outerHTML" data-chat-stop>{{ icon("square", "size-4") }}</button>
+{%- else %}
+<button type="submit" class="btn btn-primary btn-circle" aria-label="Send" data-chat-send>{{ icon("arrow-up", "size-5") }}</button>
+{%- endif %}
+</span>
