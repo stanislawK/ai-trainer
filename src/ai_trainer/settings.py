@@ -45,6 +45,11 @@ class Settings(BaseSettings):
     # The `chitchat` specialist's model (ADR-0008): answers chitchat, unclear and wellbeing
     # messages in the persona. Required, no default, for the same reason as `router_model`.
     chitchat_model: str
+    # Every sport's extraction template (`<sport>.extract`, ADR-0006, ADR-0008): turns a log
+    # into a session draft. Required, no default, for the same reason as `router_model`.
+    extract_model: str
+    # The extraction templates' preferred OpenRouter upstream, like `router_provider`.
+    extract_provider: str | None = None
     # Evals (ADR-0009): pinned, distinct from the model under test, set explicitly on every
     # eval run with `set_default_judge_model`. No default here — a stable/GA OpenRouter model
     # id is an operator choice, not a code default (`.claude/rules/llm.md`).
@@ -117,7 +122,7 @@ class Settings(BaseSettings):
             raise ValueError(f"{(info.field_name or '').upper()} must not be blank")
         return value
 
-    @field_validator("router_provider")
+    @field_validator("router_provider", "extract_provider")
     @classmethod
     def _blank_is_unset(cls, value: str | None) -> str | None:
         return value.strip() or None if value is not None else None

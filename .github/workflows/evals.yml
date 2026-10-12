@@ -50,6 +50,8 @@ jobs:
           EVAL_JUDGE_MODEL: ${{ secrets.EVAL_JUDGE_MODEL }}
           ROUTER_MODEL: ${{ secrets.ROUTER_MODEL }}
           CHITCHAT_MODEL: ${{ secrets.CHITCHAT_MODEL }}
+          EXTRACT_MODEL: ${{ secrets.EXTRACT_MODEL }}
+          EXTRACT_PROVIDER: ${{ secrets.EXTRACT_PROVIDER }}
           # Settings() also rejects a blank Google sign-in key (ADR-0005); the eval CLI never
           # signs anyone in, so placeholders are enough.
           GOOGLE_CLIENT_ID: ci-placeholder.apps.googleusercontent.com

@@ -386,6 +386,19 @@ def test_chitchat_evals_add_jev_checks_to_their_built_in_judges() -> None:
     assert cli_module._evaluators_for("chitchat") == (JevCheck,)
 
 
+def test_extraction_evals_grade_the_date_and_the_activities_in_code() -> None:
+    from ai_trainer.llm.extract import ActivitiesMatch, DateMatch
+
+    assert cli_module._evaluators_for("climbing.extract") == (DateMatch, ActivitiesMatch)
+
+
+def test_default_registry_registers_climbing_extract_on_the_extract_model() -> None:
+    template = cli_module._default_registry().get("climbing.extract", 1)
+
+    assert template.model_settings_key == "extract_model"
+    assert template.provider_settings_key == "extract_provider"
+
+
 def test_parser_takes_a_repeat_count_defaulting_to_one() -> None:
     parser = _build_parser()
 

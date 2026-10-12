@@ -15,6 +15,7 @@ from ai_trainer.domain.chat import ChatMessage
 from ai_trainer.domain.conversation import Intent
 from ai_trainer.domain.sports.registry import SportRegistry
 from ai_trainer.llm.chitchat import build_chitchat_deps, chitchat_template
+from ai_trainer.llm.extract import extract_templates
 from ai_trainer.llm.prompts.registry import PromptRegistry
 from ai_trainer.llm.router import ROUTER_VERSIONS, ChatTurn, build_router_deps, router_template
 
@@ -28,6 +29,8 @@ def build_prompt_registry(root: Path, sports: SportRegistry) -> PromptRegistry:
     for version in ROUTER_VERSIONS:
         registry.register(router_template(sports, version=version))
     registry.register(chitchat_template())
+    for template in extract_templates(sports):
+        registry.register(template)
     return registry
 
 

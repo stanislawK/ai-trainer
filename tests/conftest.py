@@ -16,6 +16,7 @@ os.environ["SESSION_SECRET_KEY"] = "test-session-secret-key"
 os.environ["CSRF_SECRET_KEY"] = "test-csrf-secret-key"
 os.environ["ROUTER_MODEL"] = "test/router-model"
 os.environ["CHITCHAT_MODEL"] = "test/chitchat-model"
+os.environ["EXTRACT_MODEL"] = "test/extract-model"
 
 
 @pytest.fixture(autouse=True)

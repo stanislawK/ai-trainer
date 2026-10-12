@@ -2,7 +2,8 @@
 
 from collections.abc import Iterable, Sequence
 
-from ai_trainer.domain.sports.base import SportPlugin
+from ai_trainer.domain.sports.base import ExtractionSpec, SportPlugin
+from ai_trainer.domain.sports.climbing.extraction import ClimbingExtraction
 
 # Stands in for the glyph when a reply is about no sport or several (PRD-0003 F15). It is not
 # a Lucide icon; templates render it as the app mark.
@@ -44,7 +45,14 @@ class SportRegistry:
 def default_sport_registry() -> SportRegistry:
     return SportRegistry(
         [
-            SportPlugin(id="climbing", label_key="sport.climbing.label", icon="mountain"),
+            SportPlugin(
+                id="climbing",
+                label_key="sport.climbing.label",
+                icon="mountain",
+                extraction=ExtractionSpec(
+                    template_id="climbing.extract", version=1, output_type=ClimbingExtraction
+                ),
+            ),
             SportPlugin(id="gym", label_key="sport.gym.label", icon="dumbbell"),
             SportPlugin(id="cycling", label_key="sport.cycling.label", icon="bike"),
         ]

@@ -41,6 +41,7 @@ from ai_trainer.llm.evals.runner import (
     JudgeModelMatchesModelUnderTestError,
     run_eval,
 )
+from ai_trainer.llm.extract import ActivitiesMatch, DateMatch, extract_templates
 from ai_trainer.llm.gateway import pinned_upstream
 from ai_trainer.llm.prompts.registry import PromptRegistry
 from ai_trainer.llm.prompts.template import (
@@ -72,6 +73,11 @@ def _default_registry() -> PromptRegistry:
 _EVALUATORS: dict[str, tuple[type[Evaluator[EvalCaseInputs, BaseModel, object]], ...]] = {
     "router": (IntentKindsMatch, LogSessionSportMatch),
     "chitchat": (JevCheck,),
+    # Every sport's extraction template is graded the same way, in code (ADR-0006, ADR-0014).
+    **{
+        template.id: (DateMatch, ActivitiesMatch)
+        for template in extract_templates(default_sport_registry())
+    },
 }
 
 
