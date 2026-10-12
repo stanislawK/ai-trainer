@@ -287,7 +287,9 @@ def _app(
     )
     replies = ReplyServices(
         chat=chat,
-        conversations=SqlAlchemyConversationRepository(factory),
+        conversations=SqlAlchemyConversationRepository(
+            factory, clock=FixedClock(), retention_days=14
+        ),
         profile=SqlAlchemyOnboardingRepository(factory),
         conversation=conversation,
         fast_router=JevFastRouter(
@@ -315,7 +317,7 @@ def _app(
 
 async def _thread(factory: Callable[[], AsyncSession], user_id: UUID) -> UUID:
     """The user's latest conversation, the one `/` opens; started now if they have none."""
-    conversations = SqlAlchemyConversationRepository(factory)
+    conversations = SqlAlchemyConversationRepository(factory, clock=FixedClock(), retention_days=14)
     recent = await conversations.list_recent(user_id, 1)
     if recent:
         return recent[0].id
@@ -739,7 +741,9 @@ async def test_the_models_prompt_holds_only_turns_from_the_messages_own_conversa
     """Through PostgreSQL and the real prompt building: a turn from another conversation never
     reaches the model, while the current conversation's earlier turn does (B13, B24, #146)."""
     user = await _user(db_session_factory, "reply-conversations")
-    conversations = SqlAlchemyConversationRepository(db_session_factory)
+    conversations = SqlAlchemyConversationRepository(
+        db_session_factory, clock=FixedClock(), retention_days=14
+    )
     chat = SqlAlchemyChatRepository(db_session_factory)
     gym = await conversations.create(user.id, "gym", FROZEN_NOW - timedelta(days=1))
     await chat.add(
@@ -772,9 +776,9 @@ async def test_another_users_conversation_is_404_to_open_and_to_send_to(
     unknown conversation is as missing as theirs (ADR-0021, #146 AC 4)."""
     owner = await _user(db_session_factory, "reply-conversation-owner")
     stranger = await _user(db_session_factory, "reply-conversation-stranger")
-    theirs = await SqlAlchemyConversationRepository(db_session_factory).create(
-        owner.id, "private", FROZEN_NOW
-    )
+    theirs = await SqlAlchemyConversationRepository(
+        db_session_factory, clock=FixedClock(), retention_days=14
+    ).create(owner.id, "private", FROZEN_NOW)
     await SqlAlchemyChatRepository(db_session_factory).add(
         owner.id, theirs.id, ChatRole.USER, "for the owner only", FROZEN_NOW
     )
@@ -794,6 +798,8 @@ async def test_another_users_conversation_is_404_to_open_and_to_send_to(
     assert sent.status_code == 404
     assert [m.text for m in await _history(db_session_factory, owner.id)] == ["for the owner only"]
     assert (
-        await SqlAlchemyConversationRepository(db_session_factory).list_recent(stranger.id, 10)
+        await SqlAlchemyConversationRepository(
+            db_session_factory, clock=FixedClock(), retention_days=14
+        ).list_recent(stranger.id, 10)
         == []
     )

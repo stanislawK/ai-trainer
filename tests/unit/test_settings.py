@@ -304,3 +304,31 @@ def test_the_plausible_sport_floor_is_a_probability(
     assert [error["loc"] for error in excinfo.value.errors()] == [
         ("router_fast_plausible_sport_floor",)
     ]
+
+
+def test_conversation_retention_defaults_to_fourteen_days(monkeypatch: pytest.MonkeyPatch) -> None:
+    _set_required_keys(monkeypatch)
+    monkeypatch.delenv("CONVERSATION_RETENTION_DAYS", raising=False)
+
+    assert Settings(_env_file=None).conversation_retention_days == 14
+
+
+def test_conversation_retention_can_be_set_from_the_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _set_required_keys(monkeypatch)
+    monkeypatch.setenv("CONVERSATION_RETENTION_DAYS", "30")
+
+    assert Settings(_env_file=None).conversation_retention_days == 30
+
+
+def test_conversation_retention_of_zero_days_fails_at_startup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _set_required_keys(monkeypatch)
+    monkeypatch.setenv("CONVERSATION_RETENTION_DAYS", "0")
+
+    with pytest.raises(ValidationError) as excinfo:
+        Settings(_env_file=None)
+
+    assert [error["loc"] for error in excinfo.value.errors()] == [("conversation_retention_days",)]

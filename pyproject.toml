@@ -29,6 +29,7 @@ dependencies = [
 ]
 
 [project.scripts]
+ai-trainer = "ai_trainer.cli:main"
 ai-trainer-evals = "ai_trainer.llm.evals.cli:main"
 
 [build-system]

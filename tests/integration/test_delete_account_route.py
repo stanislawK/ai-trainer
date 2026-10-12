@@ -32,6 +32,7 @@ from ai_trainer.web.auth import SESSION_COOKIE_NAME
 from ai_trainer.web.csrf import CSRF_HEADER_NAME, CsrfMiddleware
 from ai_trainer.web.settings import build_settings_router
 from ai_trainer.web.templating import build_templates
+from tests.chat_support import FixedClock
 
 FROZEN_NOW = datetime(2026, 9, 25, 12, 0, tzinfo=UTC)
 SECRET = b"integration-test-secret"
@@ -127,7 +128,9 @@ async def test_no_user_owned_row_references_the_deleted_user_id(
     sessions = SqlAlchemySessionsRepository(db_session_factory)
     llm_calls = SqlAlchemyLlmCallsRepository(db_session_factory)
     chat = SqlAlchemyChatRepository(db_session_factory)
-    conversations = SqlAlchemyConversationRepository(db_session_factory)
+    conversations = SqlAlchemyConversationRepository(
+        db_session_factory, clock=FixedClock(), retention_days=14
+    )
     admin = await _create_active_user(users, sub="delete-me-audit-actor")
     target = await _create_active_user(users, sub="delete-me-audit-target")
     session_id = await _create_session(sessions, admin)

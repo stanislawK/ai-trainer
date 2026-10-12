@@ -1,11 +1,13 @@
 from collections.abc import Callable, Sequence
-from datetime import datetime
+from datetime import datetime, timedelta
 from uuid import UUID
 
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql.elements import ColumnElement
 
 from ai_trainer.adapters.orm import ConversationOrm
+from ai_trainer.application.ports.clock import ClockPort
 from ai_trainer.domain.chat import Conversation
 
 
@@ -19,10 +21,24 @@ def _to_domain(row: ConversationOrm) -> Conversation:
 
 
 class SqlAlchemyConversationRepository:
-    """Implements `ConversationRepositoryPort` (ADR-0004: repositories live in adapters/)."""
+    """Implements `ConversationRepositoryPort` (ADR-0004: repositories live in adapters/). A
+    conversation whose last message is more than `retention_days` old is invisible to `get` and
+    `list_recent` whether or not the purge has run; the age is read from the `Clock` port
+    (ADR-0014, ADR-0021)."""
 
-    def __init__(self, session_factory: Callable[[], AsyncSession]) -> None:
+    def __init__(
+        self,
+        session_factory: Callable[[], AsyncSession],
+        *,
+        clock: ClockPort,
+        retention_days: int,
+    ) -> None:
         self._session_factory = session_factory
+        self._clock = clock
+        self._retention = timedelta(days=retention_days)
+
+    def _not_expired(self) -> ColumnElement[bool]:
+        return ConversationOrm.last_message_at >= self._clock.now() - self._retention
 
     async def create(self, user_id: UUID, title: str | None, now: datetime) -> Conversation:
         async with self._session_factory() as session:
@@ -38,7 +54,9 @@ class SqlAlchemyConversationRepository:
         async with self._session_factory() as session:
             row = await session.scalar(
                 select(ConversationOrm).where(
-                    ConversationOrm.user_id == user_id, ConversationOrm.id == conversation_id
+                    ConversationOrm.user_id == user_id,
+                    ConversationOrm.id == conversation_id,
+                    self._not_expired(),
                 )
             )
             return None if row is None else _to_domain(row)
@@ -47,7 +65,7 @@ class SqlAlchemyConversationRepository:
         async with self._session_factory() as session:
             rows = await session.scalars(
                 select(ConversationOrm)
-                .where(ConversationOrm.user_id == user_id)
+                .where(ConversationOrm.user_id == user_id, self._not_expired())
                 .order_by(ConversationOrm.last_message_at.desc(), ConversationOrm.id.desc())
                 .limit(limit)
             )
@@ -61,3 +79,14 @@ class SqlAlchemyConversationRepository:
                 .values(last_message_at=func.greatest(ConversationOrm.last_message_at, when))
             )
             await session.commit()
+
+    async def purge_before(self, cutoff: datetime) -> int:
+        async with self._session_factory() as session:
+            deleted = await session.scalars(
+                delete(ConversationOrm)
+                .where(ConversationOrm.last_message_at < cutoff)
+                .returning(ConversationOrm.id)
+            )
+            count = len(deleted.all())
+            await session.commit()
+            return count

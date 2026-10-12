@@ -32,6 +32,9 @@ class Settings(BaseSettings):
     llm_call_timeout_seconds: float = 30.0
     # Router and every specialist see the same last N chat messages (ADR-0008).
     chat_history_turns: int = Field(default=10, ge=1)
+    # A conversation is hidden on read and hard-deleted by `ai-trainer purge-conversations` this
+    # many days after its last message (PRD-0004 B26, ADR-0021).
+    conversation_retention_days: int = Field(default=14, ge=1)
     # One model per template (ADR-0007). No default: a stable/GA OpenRouter id (never a
     # preview) and its cost are an operator choice, like `eval_judge_model` below.
     router_model: str

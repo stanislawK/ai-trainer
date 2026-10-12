@@ -5,13 +5,14 @@ because `/` is the signed-in home page use them too."""
 import asyncio
 from collections.abc import AsyncGenerator, Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from itertools import takewhile
 from uuid import UUID, uuid4
 
 from fastapi import FastAPI, Request, Response
 from starlette.templating import Jinja2Templates
 
+from ai_trainer.application.ports.clock import ClockPort
 from ai_trainer.application.ports.conversation import (
     FixedReply,
     ReplyContext,
@@ -43,8 +44,16 @@ class FixedClock:
 
 
 class InMemoryConversationRepository:
-    def __init__(self) -> None:
+    """Hides conversations older than the retention window on read, as the database adapter
+    does (ADR-0021); `clock` is public so a test can move time."""
+
+    def __init__(self, clock: ClockPort | None = None, retention_days: int = 14) -> None:
         self.rows: list[tuple[UUID, Conversation]] = []
+        self.clock: ClockPort = clock or FixedClock()
+        self.retention = timedelta(days=retention_days)
+
+    def _live(self, conversation: Conversation) -> bool:
+        return conversation.last_message_at >= self.clock.now() - self.retention
 
     async def create(self, user_id: UUID, title: str | None, now: datetime) -> Conversation:
         conversation = Conversation(id=uuid4(), title=title, created_at=now, last_message_at=now)
@@ -56,16 +65,28 @@ class InMemoryConversationRepository:
             (
                 conversation
                 for owner, conversation in self.rows
-                if owner == user_id and conversation.id == conversation_id
+                if owner == user_id
+                and conversation.id == conversation_id
+                and self._live(conversation)
             ),
             None,
         )
 
     async def list_recent(self, user_id: UUID, limit: int) -> Sequence[Conversation]:
-        own = [conversation for owner, conversation in self.rows if owner == user_id]
+        own = [
+            conversation
+            for owner, conversation in self.rows
+            if owner == user_id and self._live(conversation)
+        ]
         return sorted(own, key=lambda conversation: conversation.last_message_at, reverse=True)[
             :limit
         ]
+
+    async def purge_before(self, cutoff: datetime) -> int:
+        kept = [(owner, c) for owner, c in self.rows if c.last_message_at >= cutoff]
+        deleted = len(self.rows) - len(kept)
+        self.rows = kept
+        return deleted
 
     async def touch(self, user_id: UUID, conversation_id: UUID, when: datetime) -> None:
         self.rows = [

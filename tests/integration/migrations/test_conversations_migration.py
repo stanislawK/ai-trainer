@@ -24,6 +24,7 @@ from ai_trainer.adapters.health import to_psycopg_dsn
 from ai_trainer.application.chat import HISTORY_LIMIT, latest_conversation, list_history
 from ai_trainer.domain.chat import conversation_title
 from ai_trainer.settings import Settings
+from tests.chat_support import FixedClock
 
 _PREVIOUS_REVISION = "9a4c6e2b8d13"
 _START = datetime(2026, 10, 1, 8, 0, tzinfo=UTC)
@@ -223,7 +224,10 @@ async def _shown_at_root(athlete: UUID) -> list[UUID]:
     try:
         factory = build_session_factory(engine)
         latest = await latest_conversation(
-            athlete, conversations=SqlAlchemyConversationRepository(factory)
+            athlete,
+            conversations=SqlAlchemyConversationRepository(
+                factory, clock=FixedClock(), retention_days=14
+            ),
         )
         assert latest is not None
         history = await list_history(

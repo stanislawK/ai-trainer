@@ -82,9 +82,12 @@ Run `make` targets from the repo root; see the [Makefile](Makefile) for the comp
 | `make openapi` | Regenerate the OpenAPI snapshot (`docs/api/openapi.json`) |
 | `make openapi-check` | Regenerate, then fail if the committed snapshot drifted (what CI runs) |
 | `make check` | Everything CI runs: lint, format check, typecheck, import-lint, openapi-check, tests |
+| `make purge-conversations` | Hard-delete conversations (and their messages) last active more than `CONVERSATION_RETENTION_DAYS` ago and print how many (ADR-0021); safe to repeat |
 | `make evals template=<id>` | Run a prompt template's or a Jev decision set's eval dataset (ADR-0009, ADR-0020) — costs money, no default CI job runs it |
 
 `test`, `test-integration`, `coverage` and `e2e` run `make migrate` first, so the `vector` extension always exists before the suite runs. `make evals` takes an optional `version=` and `model=` to override the template version or the model under test, and `repeat=N` to run every case N times (the baseline averages over all runs, so one noisy reply doesn't decide it); it needs `EVAL_JUDGE_MODEL` set in `.env` (ADR-0009) and a dataset at `evals/datasets/<id>.yaml`. The router's model comes from the required `ROUTER_MODEL` and the `chitchat` specialist's from the required `CHITCHAT_MODEL`; each must differ from `EVAL_JUDGE_MODEL`. `ROUTER_PROVIDER` (e.g. `z-ai`) pins the router to one OpenRouter upstream, with the rest kept as fallbacks, in the app and in `make evals` alike; a `model=` override runs unpinned. `CHAT_HISTORY_TURNS` sets how many recent messages both see. An `<id>` with a folder under `src/ai_trainer/llm/decisions/` (e.g. `make evals template=safety_screen repeat=3`) is a decision set: it runs on `DECISION_MODEL` with no judge, grades labels at their thresholds from `.env` (`SAFETY_SCREEN_PAIN_THRESHOLD`), and prints each case's probability spread over the repeats.
+
+`CONVERSATION_RETENTION_DAYS` (default 14, at least 1) is how long a conversation lives after its last message (PRD-0004 B26). Past that it is hidden at once — not listed, not openable (404) — and `make purge-conversations` (`uv run ai-trainer purge-conversations`) deletes it for good, messages included, printing only the count. It never touches goals, profile rows or saved training sessions. Production runs it daily from the host scheduler (ADR-0023).
 
 ## Dev loop
 

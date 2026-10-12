@@ -130,7 +130,9 @@ def create_app(settings: Settings) -> FastAPI:
     decisions = OpenRouterDecisionGateway(settings, llm_calls)
     replies = ReplyServices(
         chat=chat,
-        conversations=SqlAlchemyConversationRepository(session_factory),
+        conversations=SqlAlchemyConversationRepository(
+            session_factory, clock=clock, retention_days=settings.conversation_retention_days
+        ),
         profile=onboarding,
         conversation=conversation,
         # Routes a message with one confident intent before the LLM router (ADR-0020).

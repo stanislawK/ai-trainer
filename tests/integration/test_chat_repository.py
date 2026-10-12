@@ -12,6 +12,7 @@ from ai_trainer.adapters.conversation_repository import SqlAlchemyConversationRe
 from ai_trainer.adapters.users_repository import SqlAlchemyUsersRepository
 from ai_trainer.domain.chat import ChatRole
 from ai_trainer.domain.users import NewUser, UserStatus
+from tests.chat_support import FixedClock
 
 _START = datetime(2026, 10, 2, 9, 0, tzinfo=UTC)
 
@@ -23,14 +24,18 @@ async def _user(factory: Callable[[], AsyncSession], sub: str) -> tuple[UUID, UU
             sub=sub, email=f"{sub}@example.com", name=None, locale="en", status=UserStatus.ACTIVE
         )
     )
-    conversation = await SqlAlchemyConversationRepository(factory).create(
-        created.id, "A chat", _START
-    )
+    conversation = await SqlAlchemyConversationRepository(
+        factory, clock=FixedClock(), retention_days=14
+    ).create(created.id, "A chat", _START)
     return created.id, conversation.id
 
 
 async def _another_conversation(factory: Callable[[], AsyncSession], user_id: UUID) -> UUID:
-    return (await SqlAlchemyConversationRepository(factory).create(user_id, "other", _START)).id
+    return (
+        await SqlAlchemyConversationRepository(
+            factory, clock=FixedClock(), retention_days=14
+        ).create(user_id, "other", _START)
+    ).id
 
 
 async def test_a_stored_message_is_listed_back_with_its_role_text_and_time(

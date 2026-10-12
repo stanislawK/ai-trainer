@@ -1,6 +1,6 @@
 .PHONY: install css test test-unit test-integration coverage lint format format-check \
 	typecheck import-lint openapi openapi-check check up up-build start stop down logs ps \
-	health migrate evals e2e-install e2e
+	health migrate purge-conversations evals e2e-install e2e
 
 install: ## Install dependencies (uv sync)
 	uv sync
@@ -73,6 +73,9 @@ health: ## Curl the running app's health endpoint
 
 migrate: ## Apply database migrations (Alembic)
 	uv run alembic upgrade head
+
+purge-conversations: ## Delete conversations past CONVERSATION_RETENTION_DAYS and print how many (ADR-0021); needs the stack's database up
+	uv run ai-trainer purge-conversations
 
 evals: ## Run prompt or decision-set evals — costs money, run on purpose. Usage: make evals template=<id> [version=2] [model=openai/gpt-5] [repeat=3]
 	uv run ai-trainer-evals run $(template) $(if $(version),--version $(version)) $(if $(model),--model $(model)) $(if $(repeat),--repeat $(repeat))
