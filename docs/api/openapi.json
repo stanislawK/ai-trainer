@@ -226,6 +226,25 @@
         "summary": "Logout"
       }
     },
+    "/c/new": {
+      "get": {
+        "description": "An empty chat with starter chips; nothing is stored until its first message (F16,\nADR-0021). Declared before `/c/{conversation_id}`, which would read `new` as an ID.",
+        "operationId": "new_conversation_c_new_get",
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "New Conversation"
+      }
+    },
     "/c/{conversation_id}": {
       "get": {
         "operationId": "show_conversation_c__conversation_id__get",

@@ -1,7 +1,7 @@
 """Wires the chat, the main screen: `GET /` (the latest conversation), `GET /c/{id}` (one
-conversation), `POST /messages` and the streamed reply, `GET /messages/{id}/reply` and
-`GET /messages/{id}/stop` (PRD-0004 F1, B13, B24, ADR-0008, ADR-0012, ADR-0021, tickets #78,
-#82, #116 and #146).
+conversation), `GET /c/new` (an empty one), `POST /messages` and the streamed reply,
+`GET /messages/{id}/reply` and `GET /messages/{id}/stop` (PRD-0004 F1, B13, B24, F16, ADR-0008,
+ADR-0012, ADR-0021, tickets #78, #82, #116, #146 and #147).
 `user_id` comes only from the authenticated session (ADR-0005), and a conversation ID from the
 URL or the form is always looked up with it: another user's conversation is a 404."""
 
@@ -158,6 +158,12 @@ def build_chat_router(
             request, await latest_conversation(user.id, conversations=conversations)
         )
 
+    @router.get("/c/new", response_class=HTMLResponse)
+    async def new_conversation(request: Request) -> HTMLResponse:
+        """An empty chat with starter chips; nothing is stored until its first message (F16,
+        ADR-0021). Declared before `/c/{conversation_id}`, which would read `new` as an ID."""
+        return await chat_page(request, None)
+
     @router.get("/c/{conversation_id}", response_class=HTMLResponse)
     async def show_conversation(request: Request, conversation_id: str) -> HTMLResponse:
         user: User = request.state.user
@@ -195,7 +201,7 @@ def build_chat_router(
             return composer(request, conversation_id, text=text, error="too_long")
         except ConversationNotFoundError:
             raise HTTPException(status_code=_NOT_FOUND) from None
-        return templates.TemplateResponse(
+        response = templates.TemplateResponse(
             request,
             "partials/chat/sent.html",
             {
@@ -206,6 +212,11 @@ def build_chat_router(
                 "max_length": MAX_MESSAGE_LENGTH,
             },
         )
+        if conversation_id is None:
+            # The first message started a conversation: the address follows it, so a reload
+            # opens it rather than an empty chat.
+            response.headers["HX-Replace-Url"] = f"/c/{message.conversation_id}"
+        return response
 
     @router.get("/messages/{message_id}/reply", response_class=EventSourceResponse)
     async def stream_reply(

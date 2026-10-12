@@ -451,3 +451,111 @@ async def test_a_refused_message_keeps_the_composer_on_its_conversation() -> Non
 
     assert response.status_code == 422
     assert _hidden_conversation(thread) in response.text
+
+
+# A new conversation (PRD-0004 B24, F16, ADR-0021, ticket #147).
+
+
+async def test_new_conversation_is_an_empty_chat_with_chips_and_a_composer_that_starts_one() -> (
+    None
+):
+    client, user, repository = _client()
+    older = await repository.start(user.id, "older")
+    await repository.add(user.id, older, ChatRole.USER, "in older", FROZEN_NOW)
+
+    text = client.get("/c/new").text
+
+    assert "in older" not in text
+    assert 'class="chat-message' not in text
+    assert "data-chat-chips" in text
+    assert _hidden_conversation("") in text
+
+
+def test_new_conversation_with_hx_request_returns_the_chat_partial() -> None:
+    client, _, _ = _client()
+
+    response = client.get("/c/new", headers=_HTMX)
+
+    assert response.status_code == 200
+    assert "<html" not in response.text
+    assert 'id="chat-content"' in response.text
+
+
+async def test_opening_new_conversation_and_leaving_stores_nothing() -> None:
+    client, user, repository = _client()
+
+    client.get("/c/new")
+    client.get("/c/new", headers=_HTMX)
+    client.get("/")
+
+    assert await repository.conversations.list_recent(user.id, 10) == []
+    assert repository.rows == []
+
+
+def test_the_chat_page_offers_a_new_conversation_link_in_the_header_and_the_sidebar() -> None:
+    client, _, _ = _client()
+
+    text = client.get("/").text
+
+    assert text.count('href="/c/new"') >= 2
+    assert 'aria-label="New conversation"' in text
+
+
+async def test_the_first_message_titles_the_conversation_and_moves_the_url_to_it() -> None:
+    client, user, repository = _client()
+    first = "  Rode   40 km\n\nwith  a lot of climbing today " + "x" * 80
+
+    response = client.post(
+        "/messages", data={"message": first, "conversation_id": ""}, headers=_HTMX
+    )
+
+    [conversation] = await repository.conversations.list_recent(user.id, 10)
+    assert conversation.title == "Rode 40 km with a lot of climbing today " + "x" * 20
+    assert len(conversation.title or "") == 60
+    assert response.headers["HX-Replace-Url"] == f"/c/{conversation.id}"
+
+
+async def test_a_message_to_an_existing_conversation_leaves_the_url_alone() -> None:
+    client, user, repository = _client()
+    thread = await repository.start(user.id)
+
+    response = client.post(
+        "/messages", data={"message": "more", "conversation_id": str(thread)}, headers=_HTMX
+    )
+
+    assert "HX-Replace-Url" not in response.headers
+
+
+async def test_a_refused_first_message_starts_no_conversation_and_keeps_the_url() -> None:
+    client, user, repository = _client()
+
+    response = client.post("/messages", data={"message": " ", "conversation_id": ""}, headers=_HTMX)
+
+    assert response.status_code == 422
+    assert "HX-Replace-Url" not in response.headers
+    assert await repository.conversations.list_recent(user.id, 10) == []
+
+
+async def test_root_then_opens_the_new_conversation_and_the_old_one_stays_at_its_address() -> None:
+    client, user, repository = _client()
+    old = (await repository.conversations.create(user.id, "old", FROZEN_NOW - timedelta(days=1))).id
+    await repository.add(user.id, old, ChatRole.USER, "in old", FROZEN_NOW - timedelta(days=1))
+
+    client.post(
+        "/messages", data={"message": "And 2 more of those", "conversation_id": ""}, headers=_HTMX
+    )
+
+    root = client.get("/").text
+    assert "And 2 more of those" in root
+    assert "in old" not in root
+    assert "in old" in client.get(f"/c/{old}").text
+
+
+def test_the_composer_ignores_a_second_send_while_the_first_is_in_flight() -> None:
+    """A double-tapped first send posts twice with no conversation yet; htmx drops the second
+    request while the first is pending, so only one conversation starts."""
+    client, _, _ = _client()
+
+    text = client.get("/c/new").text
+
+    assert 'hx-sync="this:drop"' in text
