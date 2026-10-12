@@ -126,6 +126,7 @@ Index: `(user_id, conversation_id, status)`.
   - The tenancy test covers each table.
   - The G7 test proves account deletion empties all four tables.
   - A purge test proves conversations go and sessions stay.
-- The first logging ticket that confirms a draft creates all four tables in one migration, so the schema is reviewed as a whole.
+- The first logging ticket that persists a draft creates all four tables in one migration, so the schema is reviewed as a whole. (Owner-directed 2026-10-12: this was "confirms a draft", but a draft is stored before it can be confirmed.)
+- M1 grades, owner-directed 2026-10-12. B20 conversion is M5 in PRD 0004, so climbing payload v1 stores each grade's `original` and `scale` and leaves `french` and `ordinal` null. When M5's conversion lands, an upcaster fills them on read (invariant 4). No migration and no bulk rewrite is needed.
 - M2 adds indexes for the stats queries it actually runs. They are additive, so ADR-0024 allows them.
 - ⚠ To check at the first M2 ticket: whether JSON path queries on `payload` meet the stats view's latency on realistic data. If not, a derived, rebuildable table (M2's call), never a rewrite of `training_sessions`.
