@@ -16,6 +16,7 @@ _MAX_REPLY_PARTS = 20
 def _to_domain(row: ChatMessageOrm) -> ChatMessage:
     return ChatMessage(
         id=row.id,
+        conversation_id=row.conversation_id,
         role=ChatRole(row.role),
         text=row.text,
         created_at=row.created_at,
@@ -34,6 +35,7 @@ class SqlAlchemyChatRepository:
     async def add(
         self,
         user_id: UUID,
+        conversation_id: UUID,
         role: ChatRole,
         text: str,
         created_at: datetime,
@@ -45,6 +47,7 @@ class SqlAlchemyChatRepository:
         async with self._session_factory() as session:
             row = ChatMessageOrm(
                 user_id=user_id,
+                conversation_id=conversation_id,
                 role=role.value,
                 text=text,
                 created_at=created_at,
@@ -68,11 +71,16 @@ class SqlAlchemyChatRepository:
             )
             return None if row is None else _to_domain(row)
 
-    async def list_recent(self, user_id: UUID, limit: int) -> Sequence[ChatMessage]:
+    async def list_recent(
+        self, user_id: UUID, conversation_id: UUID, limit: int
+    ) -> Sequence[ChatMessage]:
         async with self._session_factory() as session:
             rows = await session.scalars(
                 select(ChatMessageOrm)
-                .where(ChatMessageOrm.user_id == user_id)
+                .where(
+                    ChatMessageOrm.user_id == user_id,
+                    ChatMessageOrm.conversation_id == conversation_id,
+                )
                 .order_by(ChatMessageOrm.created_at.desc(), ChatMessageOrm.id.desc())
                 .limit(limit)
             )
@@ -86,6 +94,7 @@ class SqlAlchemyChatRepository:
                 select(ChatMessageOrm)
                 .where(
                     ChatMessageOrm.user_id == user_id,
+                    ChatMessageOrm.conversation_id == before.conversation_id,
                     ChatMessageOrm.created_at < before.created_at,
                 )
                 .order_by(ChatMessageOrm.created_at.desc(), ChatMessageOrm.id.desc())
@@ -99,6 +108,7 @@ class SqlAlchemyChatRepository:
                 select(ChatMessageOrm)
                 .where(
                     ChatMessageOrm.user_id == user_id,
+                    ChatMessageOrm.conversation_id == to.conversation_id,
                     ChatMessageOrm.created_at > to.created_at,
                 )
                 .order_by(ChatMessageOrm.created_at, ChatMessageOrm.id)

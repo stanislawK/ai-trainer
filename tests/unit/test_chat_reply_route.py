@@ -47,7 +47,9 @@ def _sse_data(body: str) -> list[str]:
 
 
 async def _asked(chat: InMemoryChatRepository, user_id: UUID, text: str = "hi!") -> ChatMessage:
-    return await chat.add(user_id, ChatRole.USER, text, FROZEN_NOW)
+    return await chat.add(
+        user_id, await chat.conversation_of(user_id), ChatRole.USER, text, FROZEN_NOW
+    )
 
 
 def test_a_sent_message_is_followed_by_a_reply_placeholder_that_connects_once() -> None:
@@ -191,7 +193,9 @@ def test_a_malformed_message_id_is_refused() -> None:
 async def test_history_shows_a_reply_as_the_assistants_text_without_a_bubble() -> None:
     client, user_id, chat = _client()
     await _asked(chat, user_id)
-    await chat.add(user_id, ChatRole.ASSISTANT, "Hey there.", FROZEN_NOW)
+    await chat.add(
+        user_id, await chat.conversation_of(user_id), ChatRole.ASSISTANT, "Hey there.", FROZEN_NOW
+    )
 
     page = client.get("/").text
 
@@ -345,7 +349,9 @@ async def test_the_saved_reply_swapped_in_is_not_a_live_region_itself() -> None:
 async def test_loading_a_chat_with_history_announces_nothing_on_its_own() -> None:
     client, user_id, chat = _client()
     await _asked(chat, user_id)
-    await chat.add(user_id, ChatRole.ASSISTANT, "Hey there.", FROZEN_NOW)
+    await chat.add(
+        user_id, await chat.conversation_of(user_id), ChatRole.ASSISTANT, "Hey there.", FROZEN_NOW
+    )
 
     page = client.get("/").text
 
@@ -409,7 +415,9 @@ async def test_a_reload_with_a_pending_reply_shows_stop() -> None:
 async def test_a_reload_after_the_reply_shows_send() -> None:
     client, user_id, chat = _client()
     await _asked(chat, user_id)
-    await chat.add(user_id, ChatRole.ASSISTANT, "Hey there.", FROZEN_NOW)
+    await chat.add(
+        user_id, await chat.conversation_of(user_id), ChatRole.ASSISTANT, "Hey there.", FROZEN_NOW
+    )
 
     action = _action(client.get("/").text)
 
@@ -468,7 +476,9 @@ async def test_stopping_runs_no_model_call_and_saves_no_reply() -> None:
 async def test_stopping_a_reply_that_was_already_saved_shows_it_rather_than_stopped() -> None:
     client, user_id, chat = _client()
     asked = await _asked(chat, user_id)
-    await chat.add(user_id, ChatRole.ASSISTANT, "Hey there.", FROZEN_NOW)
+    await chat.add(
+        user_id, await chat.conversation_of(user_id), ChatRole.ASSISTANT, "Hey there.", FROZEN_NOW
+    )
 
     response = client.get(f"/messages/{asked.id}/stop", headers=_HTMX)
 

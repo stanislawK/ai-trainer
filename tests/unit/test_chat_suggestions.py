@@ -80,7 +80,9 @@ def test_starter_chips_keep_a_44px_tap_target() -> None:
 async def test_chips_are_not_rendered_once_the_chat_has_history() -> None:
     client, user, repository = _client()
     assert _Elements(client.get("/").text).having("data-chat-chip")
-    await repository.add(user.id, ChatRole.USER, "hello", FROZEN_NOW)
+    await repository.add(
+        user.id, await repository.conversation_of(user.id), ChatRole.USER, "hello", FROZEN_NOW
+    )
 
     assert _Elements(client.get("/").text).having("data-chat-chip") == []
 

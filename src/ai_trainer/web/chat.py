@@ -1,9 +1,11 @@
-"""Wires the chat, the main screen: `GET /`, `POST /messages` and the streamed reply,
-`GET /messages/{id}/reply` and `GET /messages/{id}/stop` (PRD-0003 F1, B13, ADR-0008, ADR-0012,
-tickets #78, #82 and #116).
-`user_id` comes only from the authenticated session (ADR-0005)."""
+"""Wires the chat, the main screen: `GET /` (the latest conversation), `GET /c/{id}` (one
+conversation), `POST /messages` and the streamed reply, `GET /messages/{id}/reply` and
+`GET /messages/{id}/stop` (PRD-0004 F1, B13, B24, ADR-0008, ADR-0012, ADR-0021, tickets #78,
+#82, #116 and #146).
+`user_id` comes only from the authenticated session (ADR-0005), and a conversation ID from the
+URL or the form is always looked up with it: another user's conversation is a 404."""
 
-from collections.abc import AsyncGenerator, AsyncIterable
+from collections.abc import AsyncGenerator, AsyncIterable, Sequence
 from contextlib import aclosing
 from typing import Annotated, Any
 from uuid import UUID
@@ -16,9 +18,12 @@ from starlette.templating import Jinja2Templates
 
 from ai_trainer.application.chat import (
     MAX_MESSAGE_LENGTH,
+    ConversationNotFoundError,
     EmptyMessageError,
     MessageTooLongError,
+    latest_conversation,
     list_history,
+    open_conversation,
     send_message,
 )
 from ai_trainer.application.ports.chat import ChatRepositoryPort
@@ -33,6 +38,7 @@ from ai_trainer.application.reply import (
     find_saved_reply,
     start_reply,
 )
+from ai_trainer.domain.chat import ChatMessage, Conversation
 from ai_trainer.domain.llm_calls import LlmCallOutcome
 from ai_trainer.domain.sports.registry import SportRegistry
 from ai_trainer.domain.users import User
@@ -63,6 +69,7 @@ def build_chat_router(
     router = APIRouter()
     templates.env.globals["reply_glyph"] = build_reply_glyph(sports)
     clock = replies.clock
+    conversations = replies.conversations
 
     def render(template_name: str, **context: Any) -> str:
         return templates.get_template(template_name).render(**context)
@@ -100,21 +107,39 @@ def build_chat_router(
     def is_htmx(request: Request) -> bool:
         return request.headers.get("HX-Request") == "true"
 
-    def composer(request: Request, *, text: str = "", error: str | None = None) -> HTMLResponse:
+    def composer(
+        request: Request, conversation_id: UUID | None, *, text: str = "", error: str | None = None
+    ) -> HTMLResponse:
         return templates.TemplateResponse(
             request,
             "partials/chat/composer.html",
-            {"text": text, "error": error, "max_length": MAX_MESSAGE_LENGTH},
+            {
+                "conversation_id": conversation_id,
+                "text": text,
+                "error": error,
+                "max_length": MAX_MESSAGE_LENGTH,
+            },
             status_code=_UNPROCESSABLE if error else 200,
         )
 
-    @router.get("/", response_class=HTMLResponse)
-    async def index(request: Request) -> HTMLResponse:
+    def parse_conversation_id(raw: str) -> UUID:
+        """A malformed ID is as unknown as a missing one: a 404, never a 422."""
+        try:
+            return UUID(raw)
+        except ValueError:
+            raise HTTPException(status_code=_NOT_FOUND) from None
+
+    async def chat_page(request: Request, conversation: Conversation | None) -> HTMLResponse:
         user: User = request.state.user
-        history = await list_history(user.id, repository=chat)
+        history: Sequence[ChatMessage] = (
+            await list_history(user.id, conversation.id, repository=chat)
+            if conversation is not None
+            else ()
+        )
         local_hour = clock.now().astimezone(ZoneInfo(user.timezone)).hour
         first_name = user.name.split()[0] if user.name and user.name.strip() else None
         context = {
+            "conversation_id": conversation.id if conversation is not None else None,
             "history": history,
             "part_of_day": _part_of_day(local_hour),
             "first_name": first_name,
@@ -125,22 +150,61 @@ def build_chat_router(
         template_name = "partials/chat/index.html" if is_htmx(request) else "pages/chat/index.html"
         return templates.TemplateResponse(request, template_name, context)
 
+    @router.get("/", response_class=HTMLResponse)
+    async def index(request: Request) -> HTMLResponse:
+        """The conversation the athlete was last active in, or an empty chat (ADR-0021)."""
+        user: User = request.state.user
+        return await chat_page(
+            request, await latest_conversation(user.id, conversations=conversations)
+        )
+
+    @router.get("/c/{conversation_id}", response_class=HTMLResponse)
+    async def show_conversation(request: Request, conversation_id: str) -> HTMLResponse:
+        user: User = request.state.user
+        try:
+            conversation = await open_conversation(
+                user.id, parse_conversation_id(conversation_id), conversations=conversations
+            )
+        except ConversationNotFoundError:
+            raise HTTPException(status_code=_NOT_FOUND) from None
+        return await chat_page(request, conversation)
+
     @router.post("/messages", response_class=HTMLResponse)
     async def post_message(request: Request) -> HTMLResponse:
+        """Adds to the conversation the composer shows; with none, the message starts one."""
         user: User = request.state.user
         form = await request.form()
         raw = form.get("message", "")
         text = raw if isinstance(raw, str) else ""
+        raw_id = form.get("conversation_id", "")
+        conversation_id = (
+            parse_conversation_id(raw_id) if isinstance(raw_id, str) and raw_id else None
+        )
         try:
-            message = await send_message(user.id, text, clock=clock, repository=chat)
+            message = await send_message(
+                user.id,
+                conversation_id,
+                text,
+                clock=clock,
+                chat=chat,
+                conversations=conversations,
+            )
         except EmptyMessageError:
-            return composer(request, error="empty")
+            return composer(request, conversation_id, error="empty")
         except MessageTooLongError:
-            return composer(request, text=text, error="too_long")
+            return composer(request, conversation_id, text=text, error="too_long")
+        except ConversationNotFoundError:
+            raise HTTPException(status_code=_NOT_FOUND) from None
         return templates.TemplateResponse(
             request,
             "partials/chat/sent.html",
-            {"message": message, "text": "", "error": None, "max_length": MAX_MESSAGE_LENGTH},
+            {
+                "message": message,
+                "conversation_id": message.conversation_id,
+                "text": "",
+                "error": None,
+                "max_length": MAX_MESSAGE_LENGTH,
+            },
         )
 
     @router.get("/messages/{message_id}/reply", response_class=EventSourceResponse)

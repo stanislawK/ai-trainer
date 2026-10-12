@@ -19,6 +19,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from ai_trainer.adapters.chat_repository import SqlAlchemyChatRepository
 from ai_trainer.adapters.clock import UtcClock
+from ai_trainer.adapters.conversation_repository import SqlAlchemyConversationRepository
 from ai_trainer.adapters.db import build_engine, build_session_factory
 from ai_trainer.adapters.google_oauth import AuthlibGoogleOAuthClient
 from ai_trainer.adapters.health import PsycopgDatabaseHealth
@@ -129,6 +130,7 @@ def create_app(settings: Settings) -> FastAPI:
     decisions = OpenRouterDecisionGateway(settings, llm_calls)
     replies = ReplyServices(
         chat=chat,
+        conversations=SqlAlchemyConversationRepository(session_factory),
         profile=onboarding,
         conversation=conversation,
         # Routes a message with one confident intent before the LLM router (ADR-0020).

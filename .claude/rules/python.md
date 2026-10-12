@@ -10,7 +10,7 @@ paths:
 - **PEP 649 (ADR-0002):** never import a type used in a FastAPI or Pydantic runtime annotation only under `TYPE_CHECKING`.
 - **Validation:** Pydantic v2 models at every boundary — HTTP, LLM output, MCP, settings.
 - **Configuration:** only through the `Settings` class; never read `os.environ` directly.
-- **User scoping (ADR-0004, ADR-0005):** every repository method that touches user data takes `user_id`, and `user_id` comes from the authenticated session. Every request resolves an `active` user; admin rights are derived from `ADMIN_EMAILS` per request, never read from the database.
+- **User scoping (ADR-0004, ADR-0005):** every repository method that touches user data takes `user_id`, and `user_id` comes from the authenticated session. An ID from a URL or form (such as a `conversation_id`) is always looked up together with that `user_id`, and someone else's is a 404, never a 403 (ADR-0021). Every request resolves an `active` user; admin rights are derived from `ADMIN_EMAILS` per request, never read from the database.
 - **Sports (ADR-0006):** no branching on sport names outside `domain/sports/<sport>/`.
 - **Time (ADR-0014):** no `datetime.now()`, `date.today()` or `utcnow()` outside the `Clock` adapter. Stored timestamps are timezone-aware UTC; the athlete's local day is derived from `User.timezone` at the edge.
 - **External sources (ADR-0016, ADR-0017):** a public data source is reached only through its port, from an adapter. Only a route, crag or place name leaves the app.

@@ -7,7 +7,7 @@ import asyncio
 from collections.abc import AsyncIterator, Callable
 from datetime import timedelta
 from pathlib import Path
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import httpx2
 import pytest
@@ -33,11 +33,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from ai_trainer.adapters.chat_repository import SqlAlchemyChatRepository
+from ai_trainer.adapters.conversation_repository import SqlAlchemyConversationRepository
 from ai_trainer.adapters.llm_calls_repository import SqlAlchemyLlmCallsRepository
 from ai_trainer.adapters.onboarding_repository import SqlAlchemyOnboardingRepository
 from ai_trainer.adapters.users_repository import SqlAlchemyUsersRepository
 from ai_trainer.application.reply import ReplyServices
-from ai_trainer.domain.chat import ChatRole
+from ai_trainer.domain.chat import ChatMessage, ChatRole
 from ai_trainer.domain.conversation import INTENT_KINDS
 from ai_trainer.domain.llm_calls import LlmCall, LlmCallOutcome, NewLlmCall
 from ai_trainer.domain.sports.registry import default_sport_registry
@@ -196,17 +197,30 @@ def _router(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
     )
 
 
+class _RecordingRouter:
+    """`_router`, keeping every prompt it was given."""
+
+    def __init__(self) -> None:
+        self.prompts: list[list[ModelMessage]] = []
+
+    def __call__(self, messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        self.prompts.append(messages)
+        return _router(messages, info)
+
+
 class ScriptedChitchat:
     """Streams a reply; the first `hangs` calls never answer, so the gateway times out."""
 
     def __init__(self, hangs: int = 0) -> None:
         self.hangs = hangs
         self.instructions: list[str] = []
+        self.prompts: list[list[ModelMessage]] = []
 
     async def __call__(self, messages: list[ModelMessage], info: AgentInfo) -> AsyncIterator[str]:
         request = messages[-1]
         assert isinstance(request, ModelRequest)
         self.instructions.append(str(request.instructions))
+        self.prompts.append(messages)
         if self.hangs:
             self.hangs -= 1
             await asyncio.sleep(10)
@@ -273,6 +287,7 @@ def _app(
     )
     replies = ReplyServices(
         chat=chat,
+        conversations=SqlAlchemyConversationRepository(factory),
         profile=SqlAlchemyOnboardingRepository(factory),
         conversation=conversation,
         fast_router=JevFastRouter(
@@ -298,6 +313,23 @@ def _app(
     return app, (gateway, decisions)
 
 
+async def _thread(factory: Callable[[], AsyncSession], user_id: UUID) -> UUID:
+    """The user's latest conversation, the one `/` opens; started now if they have none."""
+    conversations = SqlAlchemyConversationRepository(factory)
+    recent = await conversations.list_recent(user_id, 1)
+    if recent:
+        return recent[0].id
+    return (await conversations.create(user_id, "A chat", FROZEN_NOW)).id
+
+
+async def _history(
+    factory: Callable[[], AsyncSession], user_id: UUID, limit: int = 50
+) -> list[ChatMessage]:
+    """The latest messages of the user's latest conversation, oldest first."""
+    thread = await _thread(factory, user_id)
+    return list(await SqlAlchemyChatRepository(factory).list_recent(user_id, thread, limit))
+
+
 async def _send_and_stream(
     factory: Callable[[], AsyncSession],
     user: User,
@@ -308,15 +340,18 @@ async def _send_and_stream(
     streams: int = 1,
     jev: FakeJev | None = None,
     decision_timeout: float = 30.0,
+    router: Callable[[list[ModelMessage], AgentInfo], ModelResponse] = _router,
 ) -> tuple[list[str], str]:
     """Sends `text`, reads its reply stream `streams` times (a retry after the first) and
     reloads the page."""
     app, gateways = _app(factory, user, timeout=timeout, decision_timeout=decision_timeout)
-    model = FunctionModel(_router, stream_function=chitchat)
+    model = FunctionModel(router, stream_function=chitchat)
     app.add_middleware(_ModelOverride, gateways=gateways, model=model, jev=jev)
     client = TestClient(app)
-    client.post("/messages", data={"message": text}, headers=_HTMX)
-    [asked] = await SqlAlchemyChatRepository(factory).list_recent(user.id, 1)
+    # Posted from the composer of `/`, which shows the latest conversation.
+    thread = await _thread(factory, user.id)
+    client.post("/messages", data={"message": text, "conversation_id": str(thread)}, headers=_HTMX)
+    [asked] = await _history(factory, user.id, 1)
     bodies = [client.get(f"/messages/{asked.id}/reply").text for _ in range(streams)]
     return bodies, client.get("/").text
 
@@ -330,7 +365,7 @@ async def test_hi_streams_a_reply_that_survives_a_reload_with_a_row_per_model_ca
 
     assert "Hi!" in body
     assert "Hi!" in page
-    messages = await SqlAlchemyChatRepository(db_session_factory).list_recent(user.id, 50)
+    messages = await _history(db_session_factory, user.id)
     assert [(m.role, m.template_id) for m in messages] == [
         (ChatRole.USER, None),
         (ChatRole.ASSISTANT, "chitchat"),
@@ -353,7 +388,7 @@ async def test_log_my_ride_gets_the_not_yet_reply_and_only_the_router_row(
     await _send_and_stream(db_session_factory, user, "log my ride", chitchat)
 
     assert chitchat.instructions == []
-    [_, reply] = await SqlAlchemyChatRepository(db_session_factory).list_recent(user.id, 50)
+    [_, reply] = await _history(db_session_factory, user.id)
     assert (reply.template_id, reply.template_version, reply.sports) == ("not_yet", 1, ("cycling",))
     calls = await SqlAlchemyLlmCallsRepository(db_session_factory).list_for_user(user.id)
     assert sorted(call.template_id for call in calls) == ["router", "router_fast", "safety_screen"]
@@ -404,7 +439,7 @@ async def test_another_users_message_is_404_for_its_reply_and_retry_with_no_mode
     owner = await _user(db_session_factory, "reply-e")
     stranger = await _user(db_session_factory, "reply-f")
     theirs = await SqlAlchemyChatRepository(db_session_factory).add(
-        owner.id, ChatRole.USER, "hi!", FROZEN_NOW
+        owner.id, await _thread(db_session_factory, owner.id), ChatRole.USER, "hi!", FROZEN_NOW
     )
     app, gateways = _app(db_session_factory, stranger)
     app.add_middleware(
@@ -427,9 +462,19 @@ async def test_a_reply_finishing_after_the_next_message_stays_with_its_own_messa
     belongs to A, and B gets its own reply rather than replaying A's."""
     user = await _user(db_session_factory, "reply-g")
     chat = SqlAlchemyChatRepository(db_session_factory)
-    first = await chat.add(user.id, ChatRole.USER, "hi!", FROZEN_NOW - timedelta(seconds=10))
+    first = await chat.add(
+        user.id,
+        await _thread(db_session_factory, user.id),
+        ChatRole.USER,
+        "hi!",
+        FROZEN_NOW - timedelta(seconds=10),
+    )
     second = await chat.add(
-        user.id, ChatRole.USER, "log my ride", FROZEN_NOW - timedelta(seconds=5)
+        user.id,
+        await _thread(db_session_factory, user.id),
+        ChatRole.USER,
+        "log my ride",
+        FROZEN_NOW - timedelta(seconds=5),
     )
     app, gateways = _app(db_session_factory, user)
     app.add_middleware(
@@ -442,7 +487,7 @@ async def test_a_reply_finishing_after_the_next_message_stays_with_its_own_messa
     client.get(f"/messages/{first.id}/reply")
     client.get(f"/messages/{second.id}/reply")
 
-    history = await chat.list_recent(user.id, 50)
+    history = await _history(db_session_factory, user.id)
     assert [(m.role, m.template_id) for m in history] == [
         (ChatRole.USER, None),
         (ChatRole.ASSISTANT, "chitchat"),
@@ -488,7 +533,7 @@ async def test_pain_missed_in_a_log_gets_a_pain_first_part_before_not_yet(
         db_session_factory, user, "knee's sore after bouldering, log it", ScriptedChitchat()
     )
 
-    [_, pain, later] = await SqlAlchemyChatRepository(db_session_factory).list_recent(user.id, 50)
+    [_, pain, later] = await _history(db_session_factory, user.id)
     assert (pain.template_id, later.template_id) == ("chitchat", "not_yet")
     assert body.index("Sorry about the knee.") < body.index(later.text.split()[0])
 
@@ -518,9 +563,19 @@ async def test_every_message_writes_one_screen_row_under_its_own_decision_id(
 ) -> None:
     user = await _user(db_session_factory, "screen-d")
     chat = SqlAlchemyChatRepository(db_session_factory)
-    first = await chat.add(user.id, ChatRole.USER, "hi!", FROZEN_NOW - timedelta(seconds=10))
+    first = await chat.add(
+        user.id,
+        await _thread(db_session_factory, user.id),
+        ChatRole.USER,
+        "hi!",
+        FROZEN_NOW - timedelta(seconds=10),
+    )
     second = await chat.add(
-        user.id, ChatRole.USER, "log my ride", FROZEN_NOW - timedelta(seconds=5)
+        user.id,
+        await _thread(db_session_factory, user.id),
+        ChatRole.USER,
+        "log my ride",
+        FROZEN_NOW - timedelta(seconds=5),
     )
     app, gateways = _app(db_session_factory, user)
     app.add_middleware(
@@ -606,7 +661,7 @@ async def test_a_fast_routed_log_takes_its_sport_from_the_athletes_own_sports(
     assert jev.fast_asked == [
         {"state": "log my ride", "intent": list(INTENT_KINDS), "sport": ["climbing", "cycling"]}
     ]
-    [_, reply] = await SqlAlchemyChatRepository(db_session_factory).list_recent(user.id, 50)
+    [_, reply] = await _history(db_session_factory, user.id)
     assert (reply.template_id, reply.sports) == ("not_yet", ("cycling",))
     assert "router" not in [name for name, _ in await _calls(db_session_factory, user)]
 
@@ -629,7 +684,7 @@ async def test_several_requests_go_to_the_llm_router(
 
     assert [asked["state"] for asked in jev.fast_asked] == ["Ran 5k, also plan my week"]
 
-    [_, reply] = await SqlAlchemyChatRepository(db_session_factory).list_recent(user.id, 50)
+    [_, reply] = await _history(db_session_factory, user.id)
     assert reply.template_id == "not_yet"
     assert reply.text.split()[0] in body
     assert await _calls(db_session_factory, user) == [
@@ -673,6 +728,72 @@ async def test_a_single_sport_athletes_log_gets_their_sport_with_no_sport_questi
     await _send_and_stream(db_session_factory, user, "Did an hour", ScriptedChitchat(), jev=jev)
 
     assert jev.fast_asked == [{"state": "Did an hour", "intent": list(INTENT_KINDS)}]
-    [_, reply] = await SqlAlchemyChatRepository(db_session_factory).list_recent(user.id, 50)
+    [_, reply] = await _history(db_session_factory, user.id)
     assert (reply.template_id, reply.sports) == ("not_yet", ("gym",))
     assert "router" not in [name for name, _ in await _calls(db_session_factory, user)]
+
+
+async def test_the_models_prompt_holds_only_turns_from_the_messages_own_conversation(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    """Through PostgreSQL and the real prompt building: a turn from another conversation never
+    reaches the model, while the current conversation's earlier turn does (B13, B24, #146)."""
+    user = await _user(db_session_factory, "reply-conversations")
+    conversations = SqlAlchemyConversationRepository(db_session_factory)
+    chat = SqlAlchemyChatRepository(db_session_factory)
+    gym = await conversations.create(user.id, "gym", FROZEN_NOW - timedelta(days=1))
+    await chat.add(
+        user.id, gym.id, ChatRole.USER, "Squats 3x8 at 100 kg", FROZEN_NOW - timedelta(days=1)
+    )
+    current = await conversations.create(user.id, "ride", FROZEN_NOW - timedelta(hours=1))
+    await chat.add(
+        user.id, current.id, ChatRole.USER, "Rode 40 km", FROZEN_NOW - timedelta(hours=1)
+    )
+    chitchat = ScriptedChitchat()
+    router = _RecordingRouter()
+
+    await _send_and_stream(db_session_factory, user, "hi!", chitchat, router=router)
+
+    # The safety screen's Jev call declines here, so the LLM router runs too.
+    for prompt in (*router.prompts, *chitchat.prompts):
+        assert "Rode 40 km" in str(prompt)
+        assert "Squats" not in str(prompt)
+    assert (len(router.prompts), len(chitchat.prompts)) == (1, 1)
+    assert [m.text for m in await _history(db_session_factory, user.id)][:2] == [
+        "Rode 40 km",
+        "hi!",
+    ]
+
+
+async def test_another_users_conversation_is_404_to_open_and_to_send_to(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    """Through PostgreSQL: user B can't open user A's conversation or add to it, and an
+    unknown conversation is as missing as theirs (ADR-0021, #146 AC 4)."""
+    owner = await _user(db_session_factory, "reply-conversation-owner")
+    stranger = await _user(db_session_factory, "reply-conversation-stranger")
+    theirs = await SqlAlchemyConversationRepository(db_session_factory).create(
+        owner.id, "private", FROZEN_NOW
+    )
+    await SqlAlchemyChatRepository(db_session_factory).add(
+        owner.id, theirs.id, ChatRole.USER, "for the owner only", FROZEN_NOW
+    )
+    client = TestClient(_app(db_session_factory, stranger)[0])
+
+    for headers in ({}, _HTMX):
+        opened = client.get(f"/c/{theirs.id}", headers=headers)
+        assert opened.status_code == 404
+        assert "for the owner only" not in opened.text
+    assert client.get(f"/c/{uuid4()}").status_code == 404
+    sent = client.post(
+        "/messages",
+        data={"message": "sneaking in", "conversation_id": str(theirs.id)},
+        headers=_HTMX,
+    )
+
+    assert sent.status_code == 404
+    assert [m.text for m in await _history(db_session_factory, owner.id)] == ["for the owner only"]
+    assert (
+        await SqlAlchemyConversationRepository(db_session_factory).list_recent(stranger.id, 10)
+        == []
+    )

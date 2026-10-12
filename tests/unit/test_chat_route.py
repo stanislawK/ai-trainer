@@ -3,7 +3,7 @@ message appended to it through htmx."""
 
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from fastapi import FastAPI
@@ -174,8 +174,16 @@ def test_the_empty_state_hides_itself_once_a_message_exists() -> None:
 
 async def test_history_lists_the_athletes_messages_oldest_first() -> None:
     client, user, repository = _client()
-    await repository.add(user.id, ChatRole.USER, "first one", FROZEN_NOW)
-    await repository.add(user.id, ChatRole.USER, "second one", FROZEN_NOW + timedelta(minutes=1))
+    await repository.add(
+        user.id, await repository.conversation_of(user.id), ChatRole.USER, "first one", FROZEN_NOW
+    )
+    await repository.add(
+        user.id,
+        await repository.conversation_of(user.id),
+        ChatRole.USER,
+        "second one",
+        FROZEN_NOW + timedelta(minutes=1),
+    )
 
     text = client.get("/").text
 
@@ -187,6 +195,7 @@ async def test_history_shows_only_the_latest_fifty() -> None:
     for index in range(55):
         await repository.add(
             user.id,
+            await repository.conversation_of(user.id),
             ChatRole.USER,
             f"msg-{index:02d}-end",
             datetime(2026, 10, 1, tzinfo=UTC) + timedelta(minutes=index),
@@ -203,7 +212,13 @@ async def test_user_b_never_sees_user_as_messages() -> None:
     repository = InMemoryChatRepository()
     client_a, user_a, _ = _client(chat=repository)
     client_b, _, _ = _client(chat=repository)
-    await repository.add(user_a.id, ChatRole.USER, "for a only", FROZEN_NOW)
+    await repository.add(
+        user_a.id,
+        await repository.conversation_of(user_a.id),
+        ChatRole.USER,
+        "for a only",
+        FROZEN_NOW,
+    )
 
     assert "for a only" in client_a.get("/").text
     assert "for a only" not in client_b.get("/").text
@@ -288,3 +303,151 @@ def test_a_message_of_exactly_4000_characters_is_sent() -> None:
 
     assert response.status_code == 200
     assert len(repository.rows) == 1
+
+
+# Conversations (PRD-0004 B24, ADR-0021, ticket #146).
+
+
+def _hidden_conversation(conversation_id: UUID | str) -> str:
+    return f'<input type="hidden" name="conversation_id" value="{conversation_id}">'
+
+
+async def test_root_opens_the_most_recently_active_conversation() -> None:
+    client, user, repository = _client()
+    older = await repository.start(user.id, "older")
+    newer = await repository.start(user.id, "newer")
+    await repository.add(user.id, older, ChatRole.USER, "in older", FROZEN_NOW)
+    await repository.add(user.id, newer, ChatRole.USER, "in newer", FROZEN_NOW)
+    await repository.conversations.touch(user.id, older, FROZEN_NOW + timedelta(minutes=5))
+
+    text = client.get("/").text
+
+    assert "in older" in text
+    assert "in newer" not in text
+    assert _hidden_conversation(older) in text
+
+
+def test_root_with_no_conversation_shows_an_empty_chat_whose_composer_starts_one() -> None:
+    client, _, _ = _client()
+
+    text = client.get("/").text
+
+    assert 'class="chat-message' not in text
+    assert _hidden_conversation("") in text
+
+
+async def test_a_conversation_opens_at_its_own_address_with_only_its_messages() -> None:
+    client, user, repository = _client()
+    shown = await repository.start(user.id, "shown")
+    other = await repository.start(user.id, "other")
+    await repository.add(user.id, shown, ChatRole.USER, "in shown", FROZEN_NOW)
+    await repository.add(user.id, other, ChatRole.USER, "in other", FROZEN_NOW)
+    await repository.conversations.touch(user.id, other, FROZEN_NOW + timedelta(minutes=5))
+
+    response = client.get(f"/c/{shown}")
+
+    assert response.status_code == 200
+    assert "<html" in response.text
+    assert "in shown" in response.text
+    assert "in other" not in response.text
+    assert _hidden_conversation(shown) in response.text
+
+
+async def test_a_conversation_with_hx_request_returns_the_chat_partial() -> None:
+    client, user, repository = _client()
+    shown = await repository.start(user.id)
+
+    response = client.get(f"/c/{shown}", headers=_HTMX)
+
+    assert response.status_code == 200
+    assert "<html" not in response.text
+    assert _hidden_conversation(shown) in response.text
+
+
+async def test_another_users_conversation_is_not_found() -> None:
+    repository = InMemoryChatRepository()
+    _, user_a, _ = _client(chat=repository)
+    client_b, _, _ = _client(chat=repository)
+    theirs = await repository.start(user_a.id)
+    await repository.add(user_a.id, theirs, ChatRole.USER, "for a only", FROZEN_NOW)
+
+    response = client_b.get(f"/c/{theirs}")
+
+    assert response.status_code == 404
+    assert "for a only" not in response.text
+
+
+@pytest.mark.parametrize("conversation_id", [str(uuid4()), "not-a-uuid"])
+def test_an_unknown_conversation_is_not_found(conversation_id: str) -> None:
+    client, _, _ = _client()
+
+    assert client.get(f"/c/{conversation_id}").status_code == 404
+
+
+async def test_sending_from_a_conversation_adds_to_it_and_moves_its_last_activity() -> None:
+    client, user, repository = _client()
+    thread = await repository.conversations.create(
+        user.id, "earlier", FROZEN_NOW - timedelta(days=1)
+    )
+
+    response = client.post(
+        "/messages", data={"message": "more", "conversation_id": str(thread.id)}, headers=_HTMX
+    )
+
+    assert response.status_code == 200
+    assert [message.conversation_id for _, message in repository.rows] == [thread.id]
+    assert _hidden_conversation(thread.id) in response.text
+    touched = await repository.conversations.get(user.id, thread.id)
+    assert touched is not None
+    assert touched.last_message_at == FROZEN_NOW
+
+
+async def test_a_first_message_starts_a_conversation_and_the_composer_keeps_it() -> None:
+    client, user, repository = _client()
+
+    response = client.post(
+        "/messages", data={"message": "Rode 40 km", "conversation_id": ""}, headers=_HTMX
+    )
+
+    [conversation] = await repository.conversations.list_recent(user.id, 10)
+    assert conversation.title == "Rode 40 km"
+    assert _hidden_conversation(conversation.id) in response.text
+
+
+@pytest.mark.parametrize("theirs", [True, False])
+async def test_sending_to_another_users_or_an_unknown_conversation_is_not_found(
+    theirs: bool,
+) -> None:
+    repository = InMemoryChatRepository()
+    client, _, _ = _client(chat=repository)
+    target = await repository.start(uuid4()) if theirs else uuid4()
+
+    response = client.post(
+        "/messages", data={"message": "hi", "conversation_id": str(target)}, headers=_HTMX
+    )
+
+    assert response.status_code == 404
+    assert repository.rows == []
+
+
+def test_sending_to_a_malformed_conversation_id_is_not_found() -> None:
+    client, _, repository = _client()
+
+    response = client.post(
+        "/messages", data={"message": "hi", "conversation_id": "nope"}, headers=_HTMX
+    )
+
+    assert response.status_code == 404
+    assert repository.rows == []
+
+
+async def test_a_refused_message_keeps_the_composer_on_its_conversation() -> None:
+    client, user, repository = _client()
+    thread = await repository.start(user.id)
+
+    response = client.post(
+        "/messages", data={"message": " ", "conversation_id": str(thread)}, headers=_HTMX
+    )
+
+    assert response.status_code == 422
+    assert _hidden_conversation(thread) in response.text

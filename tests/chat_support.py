@@ -26,7 +26,7 @@ from ai_trainer.application.ports.llm_gateway import (
     TextChunk,
 )
 from ai_trainer.application.reply import ReplyServices
-from ai_trainer.domain.chat import ChatMessage, ChatRole
+from ai_trainer.domain.chat import ChatMessage, ChatRole, Conversation
 from ai_trainer.domain.conversation import Intent
 from ai_trainer.domain.goals import Goal
 from ai_trainer.domain.llm_calls import LlmCallOutcome
@@ -42,13 +42,58 @@ class FixedClock:
         return FROZEN_NOW
 
 
+class InMemoryConversationRepository:
+    def __init__(self) -> None:
+        self.rows: list[tuple[UUID, Conversation]] = []
+
+    async def create(self, user_id: UUID, title: str | None, now: datetime) -> Conversation:
+        conversation = Conversation(id=uuid4(), title=title, created_at=now, last_message_at=now)
+        self.rows.append((user_id, conversation))
+        return conversation
+
+    async def get(self, user_id: UUID, conversation_id: UUID) -> Conversation | None:
+        return next(
+            (
+                conversation
+                for owner, conversation in self.rows
+                if owner == user_id and conversation.id == conversation_id
+            ),
+            None,
+        )
+
+    async def list_recent(self, user_id: UUID, limit: int) -> Sequence[Conversation]:
+        own = [conversation for owner, conversation in self.rows if owner == user_id]
+        return sorted(own, key=lambda conversation: conversation.last_message_at, reverse=True)[
+            :limit
+        ]
+
+    async def touch(self, user_id: UUID, conversation_id: UUID, when: datetime) -> None:
+        self.rows = [
+            (
+                owner,
+                conversation.model_copy(
+                    update={"last_message_at": max(conversation.last_message_at, when)}
+                )
+                if owner == user_id and conversation.id == conversation_id
+                else conversation,
+            )
+            for owner, conversation in self.rows
+        ]
+
+
 class InMemoryChatRepository:
+    """Owns an in-memory `conversations` store the way the database holds both tables. A
+    message's conversation must be one of its user's, as the foreign key and the application
+    layer's lookup guarantee in production."""
+
     def __init__(self) -> None:
         self.rows: list[tuple[UUID, ChatMessage]] = []
+        self.conversations = InMemoryConversationRepository()
 
     async def add(
         self,
         user_id: UUID,
+        conversation_id: UUID,
         role: ChatRole,
         text: str,
         created_at: datetime,
@@ -57,8 +102,10 @@ class InMemoryChatRepository:
         template_id: str | None = None,
         template_version: int | None = None,
     ) -> ChatMessage:
+        assert await self.conversations.get(user_id, conversation_id) is not None
         message = ChatMessage(
             id=uuid4(),
+            conversation_id=conversation_id,
             role=role,
             text=text,
             created_at=created_at,
@@ -69,27 +116,47 @@ class InMemoryChatRepository:
         self.rows.append((user_id, message))
         return message
 
+    async def start(self, user_id: UUID, title: str | None = "A chat") -> UUID:
+        """A test's shortcut: a new conversation for `user_id`, created at `FROZEN_NOW`."""
+        return (await self.conversations.create(user_id, title, FROZEN_NOW)).id
+
+    async def conversation_of(self, user_id: UUID) -> UUID:
+        """A test's shortcut: the first conversation `user_id` started, started now if none."""
+        own = [conversation for owner, conversation in self.conversations.rows if owner == user_id]
+        return own[0].id if own else await self.start(user_id)
+
     def _own(self, user_id: UUID) -> list[ChatMessage]:
         """Ordered by `created_at` like the real repository; ties keep insertion order."""
         own = [message for owner, message in self.rows if owner == user_id]
         return sorted(own, key=lambda message: message.created_at)
 
+    def _thread(self, user_id: UUID, conversation_id: UUID) -> list[ChatMessage]:
+        return [
+            message for message in self._own(user_id) if message.conversation_id == conversation_id
+        ]
+
     async def get(self, user_id: UUID, message_id: UUID) -> ChatMessage | None:
         return next((message for message in self._own(user_id) if message.id == message_id), None)
 
-    async def list_recent(self, user_id: UUID, limit: int) -> Sequence[ChatMessage]:
-        return self._own(user_id)[-limit:]
+    async def list_recent(
+        self, user_id: UUID, conversation_id: UUID, limit: int
+    ) -> Sequence[ChatMessage]:
+        return self._thread(user_id, conversation_id)[-limit:]
 
     async def list_before(
         self, user_id: UUID, before: ChatMessage, limit: int
     ) -> Sequence[ChatMessage]:
-        own = self._own(user_id)
-        return own[: own.index(before)][-limit:]
+        thread = self._thread(user_id, before.conversation_id)
+        return thread[: thread.index(before)][-limit:]
 
     async def list_replies(self, user_id: UUID, to: ChatMessage) -> Sequence[ChatMessage]:
-        own = self._own(user_id)
-        later = own[own.index(to) + 1 :]
+        thread = self._thread(user_id, to.conversation_id)
+        later = thread[thread.index(to) + 1 :]
         return list(takewhile(lambda message: message.role is ChatRole.ASSISTANT, later))
+
+    def all_of(self, user_id: UUID) -> list[ChatMessage]:
+        """Every message of `user_id`, in every conversation, oldest first."""
+        return self._own(user_id)
 
 
 class InMemoryProfile:
@@ -246,6 +313,7 @@ def reply_services(
 ) -> ReplyServices:
     return ReplyServices(
         chat=chat,
+        conversations=chat.conversations,
         profile=profile or InMemoryProfile(),
         conversation=conversation or ScriptedConversation(),
         fast_router=fast_router or ScriptedFastRouter(),
