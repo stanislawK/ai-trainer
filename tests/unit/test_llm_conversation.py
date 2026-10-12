@@ -29,6 +29,7 @@ from ai_trainer.llm.router import ChatTurn, build_router_deps, router_output_typ
 _PROMPTS_ROOT = Path(__file__).parents[2] / "src" / "ai_trainer" / "llm" / "prompts"
 # 23:30 UTC on 30 Sep is already 01:30 on 1 Oct in Warsaw (ADR-0014).
 _NOW = datetime(2026, 9, 30, 23, 30, tzinfo=UTC)
+_THREAD = uuid4()
 _GOAL = Goal(text="Send my first 7a", target_date=date(2027, 6, 1), sport_id="climbing")
 
 
@@ -66,8 +67,16 @@ class RecordingGateway:
 
 def _context() -> ReplyContext:
     history = [
-        ChatMessage(id=uuid4(), role=ChatRole.USER, text="earlier", created_at=_NOW),
-        ChatMessage(id=uuid4(), role=ChatRole.ASSISTANT, text="noted", created_at=_NOW),
+        ChatMessage(
+            id=uuid4(), conversation_id=_THREAD, role=ChatRole.USER, text="earlier", created_at=_NOW
+        ),
+        ChatMessage(
+            id=uuid4(),
+            conversation_id=_THREAD,
+            role=ChatRole.ASSISTANT,
+            text="noted",
+            created_at=_NOW,
+        ),
     ]
     return ReplyContext(
         user_id=uuid4(),

@@ -5,7 +5,7 @@ the "not yet" reply, and nothing saved unless the whole reply came through."""
 import asyncio
 from collections.abc import AsyncGenerator
 from contextlib import aclosing
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from uuid import UUID, uuid4
 
 import pytest
@@ -40,11 +40,14 @@ from tests.chat_support import (
 )
 
 _HI = [Intent(kind="chitchat")]
+_MINUTE = timedelta(minutes=1)
 _RIDE = [Intent(kind="log_session", sport="cycling")]
 
 
 async def _asked(chat: InMemoryChatRepository, user_id: UUID, text: str = "hi!") -> ChatMessage:
-    return await chat.add(user_id, ChatRole.USER, text, FROZEN_NOW)
+    return await chat.add(
+        user_id, await chat.conversation_of(user_id), ChatRole.USER, text, FROZEN_NOW
+    )
 
 
 async def _events(
@@ -94,7 +97,7 @@ async def test_hi_streams_the_chitchat_reply_and_saves_it_for_the_next_page_load
         (),
     )
     assert (reply.template_id, reply.template_version) == ("chitchat", 1)
-    assert await chat.list_recent(user_id, 50) == [asked, reply]
+    assert chat.all_of(user_id) == [asked, reply]
 
 
 async def test_log_my_ride_gets_the_not_yet_reply_with_no_chitchat_call() -> None:
@@ -208,7 +211,7 @@ async def test_a_chitchat_timeout_saves_nothing_and_ends_with_a_failure() -> Non
     events = await _events(chat, user_id, asked, conversation)
 
     assert events[-1] == ReplyFailed(outcome=LlmCallOutcome.TIMEOUT)
-    assert await chat.list_recent(user_id, 50) == [asked]
+    assert chat.all_of(user_id) == [asked]
 
 
 async def test_a_router_failure_ends_with_a_failure_and_no_chitchat_call() -> None:
@@ -220,7 +223,7 @@ async def test_a_router_failure_ends_with_a_failure_and_no_chitchat_call() -> No
 
     assert events == [ReplyPhase("routing"), ReplyFailed(outcome=LlmCallOutcome.ERROR)]
     assert conversation.chitchatted == []
-    assert await chat.list_recent(user_id, 50) == [asked]
+    assert chat.all_of(user_id) == [asked]
 
 
 async def test_a_retry_after_a_timeout_streams_a_fresh_reply() -> None:
@@ -252,7 +255,13 @@ async def test_an_answered_message_replays_its_saved_reply_with_no_model_call() 
 async def test_router_and_chitchat_see_the_recent_turns_profile_and_time() -> None:
     chat, user_id = InMemoryChatRepository(), uuid4()
     for index in range(4):
-        await chat.add(user_id, ChatRole.USER, f"earlier {index}", FROZEN_NOW)
+        await chat.add(
+            user_id,
+            await chat.conversation_of(user_id),
+            ChatRole.USER,
+            f"earlier {index}",
+            FROZEN_NOW,
+        )
     asked = await _asked(chat, user_id)
     goal = Goal(text="Send my first 7a", target_date=date(2027, 6, 1), sport_id="climbing")
     profile = InMemoryProfile(sports={user_id: ["climbing"]}, goals={user_id: [goal]})
@@ -266,6 +275,62 @@ async def test_router_and_chitchat_see_the_recent_turns_profile_and_time() -> No
         assert [turn.text for turn in context.history] == ["earlier 2", "earlier 3"]
         assert (list(context.athlete_sports), list(context.goals)) == (["climbing"], [goal])
         assert (context.now, context.timezone) == (FROZEN_NOW, "Europe/Warsaw")
+
+
+async def test_prompt_history_holds_only_turns_from_the_messages_own_conversation() -> None:
+    chat, user_id = InMemoryChatRepository(), uuid4()
+    gym = await chat.start(user_id, "gym")
+    await chat.add(user_id, gym, ChatRole.USER, "Squats 3x8 at 100 kg", FROZEN_NOW - _MINUTE * 3)
+    await chat.add(user_id, gym, ChatRole.ASSISTANT, "Strong!", FROZEN_NOW - _MINUTE * 2)
+    current = await chat.start(user_id, "current")
+    await chat.add(user_id, current, ChatRole.USER, "Rode 40 km", FROZEN_NOW - _MINUTE)
+    asked = await chat.add(user_id, current, ChatRole.USER, "And 2 more of those", FROZEN_NOW)
+    conversation = ScriptedConversation(intents=[_HI])
+
+    await _events(chat, user_id, asked, conversation)
+
+    for context in (conversation.routed[0], conversation.chitchatted[0]):
+        assert [turn.text for turn in context.history] == ["Rode 40 km"]
+
+
+async def test_the_first_message_of_a_conversation_gets_no_history() -> None:
+    chat, user_id = InMemoryChatRepository(), uuid4()
+    earlier = await chat.start(user_id, "earlier")
+    await chat.add(user_id, earlier, ChatRole.USER, "Squats 3x8", FROZEN_NOW - _MINUTE)
+    fresh = await chat.start(user_id, "fresh")
+    asked = await chat.add(user_id, fresh, ChatRole.USER, "And 2 more of those", FROZEN_NOW)
+    conversation = ScriptedConversation(intents=[_HI])
+
+    await _events(chat, user_id, asked, conversation)
+
+    assert list(conversation.routed[0].history) == []
+    assert list(conversation.chitchatted[0].history) == []
+
+
+async def test_a_saved_reply_joins_the_messages_conversation_and_moves_its_last_activity() -> None:
+    chat, user_id = InMemoryChatRepository(), uuid4()
+    hour_ago = FROZEN_NOW - _MINUTE * 60
+    thread = await chat.conversations.create(user_id, "hi!", hour_ago)
+    asked = await chat.add(user_id, thread.id, ChatRole.USER, "hi!", hour_ago)
+
+    events = await _events(chat, user_id, asked, ScriptedConversation(intents=[_HI]))
+
+    assert {reply.conversation_id for reply in _done(events).messages} == {thread.id}
+    touched = await chat.conversations.get(user_id, thread.id)
+    assert touched is not None
+    assert touched.last_message_at == FROZEN_NOW
+
+
+async def test_a_failed_reply_leaves_the_conversations_last_activity_alone() -> None:
+    chat, user_id = InMemoryChatRepository(), uuid4()
+    hour_ago = FROZEN_NOW - _MINUTE * 60
+    thread = await chat.conversations.create(user_id, "hi!", hour_ago)
+    asked = await chat.add(user_id, thread.id, ChatRole.USER, "hi!", hour_ago)
+    failing = ScriptedConversation(route_outcomes=[LlmCallOutcome.TIMEOUT])
+
+    await _events(chat, user_id, asked, failing)
+
+    assert await chat.conversations.get(user_id, thread.id) == thread
 
 
 async def test_reply_parts_are_stamped_after_the_message_even_on_a_frozen_clock() -> None:
@@ -296,7 +361,7 @@ async def test_closing_the_reply_early_closes_the_chitchat_stream() -> None:
             first = await anext(events)
 
     assert conversation.closed_streams == 1
-    assert await chat.list_recent(user_id, 50) == [asked]
+    assert chat.all_of(user_id) == [asked]
 
 
 async def test_another_users_message_is_not_found() -> None:
@@ -319,7 +384,9 @@ async def test_an_unknown_message_is_not_found() -> None:
 
 async def test_an_assistant_message_gets_no_reply_of_its_own() -> None:
     chat, user_id = InMemoryChatRepository(), uuid4()
-    said = await chat.add(user_id, ChatRole.ASSISTANT, "Hey!", FROZEN_NOW)
+    said = await chat.add(
+        user_id, await chat.conversation_of(user_id), ChatRole.ASSISTANT, "Hey!", FROZEN_NOW
+    )
 
     with pytest.raises(MessageNotFoundError):
         await start_reply(user_id, said.id, timezone="UTC", services=reply_services(chat))

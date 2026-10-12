@@ -7,6 +7,8 @@
     hx-swap="outerHTML"
     data-chat-form
   >
+    {#- The conversation this composer adds to; empty until the first message starts one (ADR-0021). #}
+    <input type="hidden" name="conversation_id" value="{{ conversation_id or '' }}">
     <div class="flex items-end gap-2">
     <textarea
       name="message"

@@ -34,8 +34,15 @@ def _client() -> tuple[TestClient, UUID, InMemoryChatRepository]:
 
 
 async def _reply(chat: InMemoryChatRepository, user_id: UUID, sports: Sequence[str]) -> None:
-    await chat.add(user_id, ChatRole.USER, "hi", FROZEN_NOW)
-    await chat.add(user_id, ChatRole.ASSISTANT, "Hey!", FROZEN_NOW, sports=sports)
+    await chat.add(user_id, await chat.conversation_of(user_id), ChatRole.USER, "hi", FROZEN_NOW)
+    await chat.add(
+        user_id,
+        await chat.conversation_of(user_id),
+        ChatRole.ASSISTANT,
+        "Hey!",
+        FROZEN_NOW,
+        sports=sports,
+    )
 
 
 def _svg(icon_name: str) -> str:
@@ -85,7 +92,9 @@ async def test_an_unknown_stored_sport_shows_the_app_mark_and_logs_a_warning(
 
 async def test_a_streamed_reply_and_the_history_render_the_same_avatar() -> None:
     client, user_id, chat = _client()
-    asked = await chat.add(user_id, ChatRole.USER, "hi", FROZEN_NOW)
+    asked = await chat.add(
+        user_id, await chat.conversation_of(user_id), ChatRole.USER, "hi", FROZEN_NOW
+    )
 
     streamed = client.get(f"/messages/{asked.id}/reply").text
     history = client.get("/").text
@@ -99,7 +108,9 @@ async def test_a_streamed_cycling_reply_and_the_history_both_show_the_bike() -> 
     chat = include_chat(app, build_templates(), conversation=conversation)
     user = sign_in_as(app)
     client = TestClient(app)
-    asked = await chat.add(user.id, ChatRole.USER, "log my ride", FROZEN_NOW)
+    asked = await chat.add(
+        user.id, await chat.conversation_of(user.id), ChatRole.USER, "log my ride", FROZEN_NOW
+    )
 
     streamed = client.get(f"/messages/{asked.id}/reply").text
     history = client.get("/").text

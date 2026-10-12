@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 from typing import Literal
 from uuid import UUID
 
-from ai_trainer.application.ports.chat import ChatRepositoryPort
+from ai_trainer.application.ports.chat import ChatRepositoryPort, ConversationRepositoryPort
 from ai_trainer.application.ports.clock import ClockPort
 from ai_trainer.application.ports.conversation import (
     ConversationModelPort,
@@ -75,12 +75,14 @@ type ReplyEvent = ReplyPhase | ReplyChunk | ReplyDone | ReplyFailed
 @dataclass(frozen=True, slots=True)
 class ReplyServices:
     chat: ChatRepositoryPort
+    conversations: ConversationRepositoryPort
     profile: OnboardingRepositoryPort
     conversation: ConversationModelPort
     fast_router: FastRouterPort
     safety_screen: SafetyScreenPort
     clock: ClockPort
-    # The router and every specialist see this many turns before the message (ADR-0008).
+    # The router and every specialist see this many turns before the message, from its own
+    # conversation only (ADR-0008, ADR-0021).
     history_turns: int
 
 
@@ -242,7 +244,8 @@ async def _save(
     user_id: UUID, message: ChatMessage, answers: Sequence[_Answer], services: ReplyServices
 ) -> list[ChatMessage]:
     """A reply belongs to the message it follows (ADR-0008), so its parts are stamped right
-    after that message, not when they were saved: a later message never splits them off."""
+    after that message, in its conversation, not when they were saved: a later message never
+    splits them off. Each saved part moves the conversation's last activity to now (ADR-0021)."""
     saved: list[ChatMessage] = []
     stamp: datetime = message.created_at
     for answer in answers:
@@ -250,6 +253,7 @@ async def _save(
         saved.append(
             await services.chat.add(
                 user_id,
+                message.conversation_id,
                 ChatRole.ASSISTANT,
                 answer.text,
                 stamp,
@@ -258,4 +262,5 @@ async def _save(
                 template_version=answer.template.version,
             )
         )
+        await services.conversations.touch(user_id, message.conversation_id, services.clock.now())
     return saved

@@ -94,6 +94,7 @@
   "paths": {
     "/": {
       "get": {
+        "description": "The conversation the athlete was last active in, or an empty chat (ADR-0021).",
         "operationId": "index__get",
         "responses": {
           "200": {
@@ -225,6 +226,45 @@
         "summary": "Logout"
       }
     },
+    "/c/{conversation_id}": {
+      "get": {
+        "operationId": "show_conversation_c__conversation_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "conversation_id",
+            "required": true,
+            "schema": {
+              "title": "Conversation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Show Conversation"
+      }
+    },
     "/health": {
       "get": {
         "operationId": "health_health_get",
@@ -245,6 +285,7 @@
     },
     "/messages": {
       "post": {
+        "description": "Adds to the conversation the composer shows; with none, the message starts one.",
         "operationId": "post_message_messages_post",
         "responses": {
           "200": {
