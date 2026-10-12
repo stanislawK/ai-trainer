@@ -52,3 +52,4 @@ The app is multi-user from day one (G1) and users can delete everything (G7). Fo
 - ⚠ Unconfirmed: Safari has been reported to drop `Secure` cookies over `http://localhost`. If it does, the OAuth state cookie is lost and the callback fails with a state mismatch. The sign-in runbook ticket checks this in Safari and records the result here. Until then, Safari users set `SESSION_COOKIE_SECURE=false` locally.
 - Admin-side deletion of a pending account joins G7 in a later change; M0 keeps self-deletion.
 - MCP tools resolve the user from this session (ADR-0010).
+- Superseded in part by [ADR-0023](0023-production-deployment-and-release.md), accepted 2026-10-12: "the POC runs locally" no longer holds. Production builds its OAuth redirect URI from `public_base_url` and uses a separate OAuth client from local development.

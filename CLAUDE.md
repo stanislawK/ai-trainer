@@ -51,10 +51,10 @@ Locked by the ADRs cited below; `docs/adr/README.md` carries each ADR's current 
 - `llm_calls` accounting in Postgres; OpenTelemetry over OTLP, backend from settings — ADR-0018
 - Liquid Glass daisyUI themes (`trainer-dark` default), glass utilities, Claude Design handoff and Playwright parity — ADR-0019
 - Jev decision model (`typesafe/jev-1.13` on OpenRouter, via Pydantic AI `TypeSafeModel`) behind `DecisionGatewayPort` for classify/route/gate/score — ADR-0020 (Proposed)
-- Conversations, prompt history per conversation, 14-day retention with a purge CLI — ADR-0021 (Proposed)
-- Training-session tables: `training_sessions`, `training_session_sources`, `session_drafts`, `clarifications` — ADR-0022 (Proposed)
-- Hetzner + Caddy behind Cloudflare (Full strict, AOP); `v*` tag → attested GHCR image → owner-approved `production` environment → pull-based deploy; age-encrypted backups to R2 — ADR-0023 (Proposed)
-- Expand/contract, forward-only migrations gated by squawk and an upgrade-with-data test — ADR-0024 (Proposed)
+- Conversations, prompt history per conversation, 14-day retention with a purge CLI — ADR-0021
+- Training-session tables: `training_sessions`, `training_session_sources`, `session_drafts`, `clarifications` — ADR-0022
+- Hetzner + Caddy behind Cloudflare (Full strict, AOP); `v*` tag → attested GHCR image → owner-approved `production` environment → pull-based deploy; age-encrypted backups to R2 — ADR-0023
+- Expand/contract, forward-only migrations gated by squawk and an upgrade-with-data test — ADR-0024
 
 ## Commands (available once M0 lands)
 
@@ -93,4 +93,4 @@ uv run ai-trainer-evals run <template-id>   # evals (costs money — run on purp
 
 ## Status
 
-M0 is complete: #2–#17, the design foundation #36–#44 with its fixes #58–#59, and the `make start` dev loop #62–#64 are merged. PRD 0003 (v0.4, sport inference and the sport glyph on replies) is Approved and supersedes PRD 0002 (v0.3, design and installability), which superseded PRD 0001. Accepted: 0001–0009, 0012–0014, 0018, 0019. 0010, 0011 and 0015–0017 stay Proposed until their milestones; 0020 (Jev decision models) is Proposed. The Claude Design design system and screens exist ([docs/design/README.md](docs/design/README.md)). The M1 skeleton decisions are recorded in ADR-0005, ADR-0006 and ADR-0008. PRD 0004 (v0.5: conversations, retention, a hosted POC) is Draft, with ADR-0021–0024 Proposed. Next: once they are approved and accepted, ticket M1a Conversations, M1 Log it and M1z Ship it. The first production deploy comes after M1a and M1; from then on, production data is never deleted (ADR-0024).
+M0 is complete: #2–#17, the design foundation #36–#44 with its fixes #58–#59, and the `make start` dev loop #62–#64 are merged. PRD 0004 (v0.5: conversations, retention, a hosted POC) is Approved and supersedes PRD 0003 (v0.4, sport inference and the sport glyph on replies), which superseded PRD 0002 and PRD 0001. Accepted: 0001–0009, 0012–0014, 0018, 0019, 0021–0024. 0010, 0011 and 0015–0017 stay Proposed until their milestones; 0020 (Jev decision models) is Proposed. The Claude Design design system and screens exist ([docs/design/README.md](docs/design/README.md)). The M1 skeleton decisions are recorded in ADR-0005, ADR-0006 and ADR-0008. Next: M1a Conversations (from #146), M1 Log it and M1z Ship it. The first production deploy comes after M1a and M1; from then on, production data is never deleted (ADR-0024).
