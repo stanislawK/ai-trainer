@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | Proposed |
+| Status | Accepted |
 | Date | 2026-10-10 |
 | Related | PRD-0003 (G1, G3, G6, B3, B14, B17, B23), ADR-0002, ADR-0007, ADR-0008, ADR-0009, ADR-0013, ADR-0015, ADR-0018 |
 
@@ -59,13 +59,15 @@ A loader builds the Pydantic output type at runtime, the way `llm/router.py` bui
 
 **Fallback.** Every decision has a deterministic fallback, used on timeout, on an error, and on any answer below its threshold. The fallback is either the existing LLM path or the safe side of the gate.
 
-**Uses in M1:**
+**Where Jev is used.** Jev is the default for any step that only picks, wherever it is faster or cheaper than an LLM call or makes a decision the pipeline can't make today. Each use is added with `/add-decision`. It isn't limited to a fixed list (owner-directed amendment, 2026-10-12). The first uses, in M1:
 1. **Router fast path.** Jev routes a message only when it holds one confident intent (and sport). Anything multi-request, low-confidence or `unclear` goes to the LLM router, which keeps spans and message order (B14).
 2. **Plausible sports for B23.** These are the athlete's sports at or above a probability floor. One plausible sport means no question. Two or more feed the choice card with exactly those sports (ADR-0015).
 3. **Safety screen.** It runs in parallel with routing and can only *add* `wellbeing_or_injury` (G3).
 4. **Eval check.** A `JevCheck` evaluator grades binary rubric items next to `LLMJudge`.
 
-**Not for Jev:** reply text, extracted values (km, grades, reps), date or load arithmetic. These stay with the LLM or with code.
+**Closed-set draft fields.** Jev may fill a draft field whose value comes from a fixed set, such as a climbing activity's kind or style, the sport, or a gym exercise from the plugin's catalogue. Its pick is read against a threshold like any other, and below it, or on a timeout or error, the field keeps the LLM extraction's value. The athlete still sees the draft and confirms it before anything is saved (F2).
+
+**Not for Jev:** reply text, open values (km, grade strings, reps, names), date or load arithmetic. These stay with the LLM or with code.
 
 ### Invariants
 
@@ -76,12 +78,12 @@ A loader builds the Pydantic output type at runtime, the way `llm/router.py` bui
    - the model is the one the response names;
    - tokens come from the response usage;
    - `cost` is only what the provider returns, otherwise `NULL`.
-4. A decision gates, routes or scores. It never writes data, and it never produces text the athlete sees.
+4. A decision gates, routes, scores or picks a closed-set draft field. It never writes saved data, and it never produces text the athlete sees.
 5. A safety decision can only add the safety intent, never remove or reorder it (ADR-0008 invariant 4).
-6. A decision set has a code-graded eval dataset and a committed baseline (with its thresholds) before it becomes active.
+6. A decision set has a code-graded eval dataset and a committed baseline (with its thresholds) before it becomes active. At least 10 labelled cases suffice for a low-risk decision: one whose wrong answer the athlete sees and can fix before anything is saved (a draft field, a choice card's options), or that costs only a fallback call. A decision that can misroute a message unseen, or that touches safety, needs at least 20.
 7. Numbers and dates are computed in code and passed in the state; Jev is never asked to compute.
 8. Tests never call Jev (ADR-0013); a fake `DecisionGatewayPort` or a fake `DecisionModel` stands in.
-9. No athlete text is sent to Jev until the owner records the data-retention terms that apply to it (OpenRouter's and the TypeSafe upstream's) in this ADR's Consequences.
+9. Jev's state carries only what the decision needs: the message, recent turns, and the athlete's own training context (their sports, goals, recent sessions). It never carries user identity: no name, email, or user, conversation or message ID. Sending it relies on the data-retention terms the owner accepted in this ADR's Consequences.
 
 ## Alternatives considered
 
@@ -97,7 +99,7 @@ A loader builds the Pydantic output type at runtime, the way `llm/router.py` bui
 - **Data retention, recorded and accepted by the owner (2026-10-11, #121).** The call crosses OpenRouter and its TypeSafe upstream, and messages carry injury and health text. Terms as published on 2026-10-11:
   - **TypeSafe** ([Data Processing Addendum](https://typesafe.ai/legal/data-processing), updated 2026-04-24). Customer personal data is kept "for as long as necessary taking into account the purpose of the Processing", with no fixed period. Use is limited to the customer's documented instructions (§2.2(b)). The DPA does not mention training, logging, zero data retention or traffic resold through OpenRouter, and its Schedule I lists sensitive data as "N/A". It does give EU SCCs, the UK Addendum, a subprocessor list at trust.typesafe.ai/subprocessors with 15 days to object, and breach notice within 72 hours.
   - **OpenRouter** ([provider logging](https://openrouter.ai/docs/guides/privacy/provider-logging)). Each endpoint's retention and training policy is published as structured data, and an account setting stops routing to providers that may train on prompts. OpenRouter has no routing rule for retention, and the page does not say what OpenRouter itself stores. The `typesafe/jev-1.13` endpoint (`/api/v1/models/typesafe/jev-1.13/endpoints`, checked 2026-10-11) publishes no data policy.
-  - **Owner decision.** The owner accepts these gaps for the safety screen and the router fast path: open-ended retention, no clause on training, and health data not named. Only the message text is sent, with no user identity (the state is the bare message). Invariant 9 is satisfied. Owner action: turn on OpenRouter's training opt-out in the account's privacy settings. Revisit if TypeSafe publishes a retention period or a zero-retention option, or if OpenRouter lists a policy for the endpoint.
+  - **Owner decision.** The owner accepts these gaps for the safety screen and the router fast path: open-ended retention, no clause on training, and health data not named. Only the message text is sent, with no user identity (the state is the bare message). Invariant 9 is satisfied. Extended to every decision on 2026-10-12 (below). Owner action: turn on OpenRouter's training opt-out in the account's privacy settings. Revisit if TypeSafe publishes a retention period or a zero-retention option, or if OpenRouter lists a policy for the endpoint.
 - **Cost.** OpenRouter's response carries `usage.cost` (OpenAPI example: `1.9992e-05`), but `typesafe-sdk`'s `Usage` ignores extra fields and `TypeSafeModel.decide` copies only token counts into `RequestUsage` (pydantic-ai-slim 2.55, `models/typesafe.py`, checked 2026-10-11). Decision rows therefore store `cost=NULL`, as invariant 3 and ADR-0018 invariant 6 require, rather than a figure priced in code. The OpenRouter activity page holds the real spend. Revisit if Pydantic AI starts carrying `usage.cost`. Real call at #119 acceptance (2026-10-11, fixture text only): the row named `typesafe/jev-1.13-20260917`, with 560 input and 76 output tokens, `cost=NULL` and 530 ms latency. OpenRouter reports non-zero `output_tokens`, so they are stored as given rather than assumed 0.
 - **Telemetry.** `DecisionModel` emits a `decide` span per request. Checked at #119 acceptance with `include_content=False`: no span (`decide`, `chat`, `invoke_agent`) carried the state text (ADR-0018 invariant 4). The `decide` span does carry `pydantic_ai.decision.questions` and `.answers`, which hold the question set's text and Jev's answers, not athlete text.
 - **First eval run, #120 (2026-10-11, dataset text only).** `safety_screen` v1 ran through `ai-trainer-evals` on `typesafe/jev-1.13`: 23 cases × 3 repeats. P(pain) barely jitters: most spreads were 0.00–0.01 and the widest was 0.11, on a figurative "pain in the neck". Every pain case scored 0.71 or more and every literal no-pain case 0.16 or less. The owner approved `SAFETY_SCREEN_PAIN_THRESHOLD=0.3` at the acceptance gate. It accepts two false hits, figurative or fatigue wording at 0.43–0.77. The pass rate is 0.891, and the baseline allows a 0.05 drop. Cost and tokens are as #119 recorded: the SDK gives no cost, so the OpenRouter activity page holds the spend.
@@ -118,8 +120,15 @@ A loader builds the Pydantic output type at runtime, the way `llm/router.py` bui
   - `.claude/rules/llm.md` carries these invariants.
   - The new `/add-decision` skill is the checklist for adding a decision set.
   - Decision sets and threshold changes go through `/tune-prompt`.
-- **Candidates for later milestones.** Each is ticketed with its milestone, through `/add-decision`:
-  - **M1 extraction.** Draft-faithfulness flag on the draft card (F2); gym exercise name mapped onto the plugin catalogue; B16 "same session as the last log?".
+- **Owner-directed amendment, 2026-10-12: Jev wherever it helps.** Jev is fast (about 200 ms P50) and costs about $0.000015 a call, so the owner wants it used beyond the first three uses.
+  - **Uses are open.** "Where Jev is used" no longer lists the only allowed uses. Any step that only picks may use Jev, through `/add-decision`.
+  - **Closed-set draft fields.** Jev may fill a draft field from a fixed set (Decision, invariant 4). Open values stay with the LLM or code.
+  - **Lighter eval bar for low-risk decisions.** At least 10 labelled cases, against 20 for a decision that can misroute unseen or that touches safety (invariant 6). A baseline with its thresholds is still committed before the set goes live.
+  - **Data.** The owner extends the 2026-10-11 retention acceptance above from the safety screen and the router fast path to every decision. The state may carry the message, recent turns and the athlete's own training context, never identity (invariant 9). Re-checked on 2026-10-12: the `typesafe/jev-1.13` endpoint still publishes no data policy (`data_policy: null` at `/api/v1/models/typesafe/jev-1.13/endpoints`), so the gaps accepted on 2026-10-11 are accepted for these uses as well. The revisit triggers stay.
+  - **Unchanged.** Every decision keeps a deterministic fallback. `DECISION_MODEL` stays a pinned, versioned ID. A safety decision can only add the safety intent (invariants 2 and 5).
+  - The owner accepted this ADR, with this amendment, on 2026-10-12.
+- **Candidates for later milestones.** Each is ticketed with its milestone, through `/add-decision`. They are examples, not a closed list:
+  - **M1 extraction.** Draft-faithfulness flag on the draft card (F2); gym exercise name mapped onto the plugin catalogue; a climbing activity's kind and style as closed-set draft fields; the ambiguity gate for an extraction that should ask instead (B3, B17, #164); B16 "same session as the last log?".
   - **M3.** Knowledge-chunk rerank and ingestion tagging (ADR-0011).
   - **M4.** Matching a logged session to a planned one; routing "read my planned session".
   - **M5.** Route and crag candidate disambiguation (B18), where low confidence becomes a choice card; trip recommendation score (B21).
