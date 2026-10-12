@@ -1,0 +1,108 @@
+"""The committed `climbing.extract` eval dataset covers the ticket's cases (ADR-0009, ticket
+#153)."""
+
+from datetime import date
+from pathlib import Path
+from typing import Any
+
+from pydantic_evals import Dataset
+
+from ai_trainer.domain.sports.climbing.extraction import ClimbingExtraction
+from ai_trainer.llm.evals.runner import EvalCaseInputs
+from ai_trainer.llm.extract import ActivitiesMatch, DateMatch, ExtractDeps
+
+_ROOT = Path(__file__).parents[2] / "evals"
+_DATASET = _ROOT / "datasets" / "climbing.extract.yaml"
+_BASELINE = _ROOT / "baselines" / "climbing.extract.json"
+
+
+def _dataset() -> Dataset[EvalCaseInputs, ClimbingExtraction, Any]:
+    return Dataset[EvalCaseInputs, ClimbingExtraction, Any].from_file(
+        _DATASET, custom_evaluator_types=(DateMatch, ActivitiesMatch)
+    )
+
+
+def _cases() -> dict[str, Any]:
+    return {str(case.name): case for case in _dataset().cases}
+
+
+def _expected(name: str) -> ClimbingExtraction:
+    expected = _cases()[name].expected_output
+    assert isinstance(expected, ClimbingExtraction)
+    return expected
+
+
+def test_the_dataset_has_at_least_twenty_cases_graded_in_code() -> None:
+    dataset = _dataset()
+
+    assert len(dataset.cases) >= 20
+    assert {type(evaluator) for evaluator in dataset.evaluators} == {DateMatch, ActivitiesMatch}
+    assert all(case.expected_output is not None for case in dataset.cases)
+
+
+def test_every_case_carries_valid_deps_with_its_message() -> None:
+    for case in _dataset().cases:
+        deps = ExtractDeps.model_validate(case.inputs.deps)
+        assert deps.message == case.inputs.prompt, case.name
+        assert deps.now_local.date() == deps.today, case.name
+        assert deps.now_local.strftime("%A") == deps.weekday, case.name
+
+
+def test_the_dataset_covers_relative_dates_several_activities_and_every_scale() -> None:
+    names = " ".join(_cases())
+
+    for kind in ("relative:", "stated:", "assumed:", "multi-activity:", "scale:", "mixed sport:"):
+        assert kind in names, kind
+    for scale in ("font", "french", "v-scale", "yds", "unrecognised"):
+        assert scale in names, scale
+
+
+def test_three_6a_and_two_6b_boulders_are_two_font_activities() -> None:
+    payload = _expected("multi-activity: font boulders (AC)").to_payload()
+
+    assert [(a.kind, a.count, a.grade) for a in payload.activities] == [
+        ("boulder", 3, payload.activities[0].grade),
+        ("boulder", 2, payload.activities[1].grade),
+    ]
+    assert [(a.grade.original, a.grade.scale) for a in payload.activities if a.grade] == [
+        ("6A", "font"),
+        ("6B", "font"),
+    ]
+
+
+def test_yesterday_from_warsaw_on_16_september_is_the_15th_and_relative() -> None:
+    case = _cases()["relative: yesterday from Warsaw (AC)"]
+    expected = _expected("relative: yesterday from Warsaw (AC)")
+
+    assert case.inputs.prompt == "I did 3 6b+ yesterday"
+    assert case.inputs.deps["today"] == "2026-09-16"
+    assert case.inputs.deps["timezone"] == "Europe/Warsaw"
+    assert (expected.occurred_on, expected.date_source) == (date(2026, 9, 15), "relative")
+
+
+def test_a_message_without_a_date_is_today_and_assumed() -> None:
+    case = _cases()["assumed: no date given (AC)"]
+    expected = _expected("assumed: no date given (AC)")
+
+    assert expected.occurred_on.isoformat() == case.inputs.deps["today"]
+    assert expected.date_source == "assumed_today"
+
+
+def test_an_unrecognised_grade_is_kept_as_typed_with_no_scale() -> None:
+    name = "scale: unrecognised colour grade (AC)"
+    payload = _expected(name).to_payload()
+
+    grades = [activity.grade for activity in payload.activities if activity.grade is not None]
+    assert len(grades) == len(payload.activities)
+    assert [grade.scale for grade in grades] == [None] * len(grades)
+    assert all(grade.original in _cases()[name].inputs.prompt for grade in grades)
+
+
+def test_a_log_without_a_grade_expects_no_invented_grade() -> None:
+    expected = _expected("no grade: none invented")
+
+    assert all(activity.grade is None for activity in expected.activities)
+
+
+def test_the_baseline_is_committed() -> None:
+    assert _BASELINE.is_file()

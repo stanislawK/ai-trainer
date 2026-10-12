@@ -1,0 +1,273 @@
+"""Sport extraction templates: deps, the plugin-named template and its code-graded evaluators
+(ADR-0006, ADR-0008, ADR-0014, ticket #153)."""
+
+import shutil
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+
+import pytest
+from pydantic import BaseModel
+from pydantic_ai import ModelMessage, ModelResponse, ToolCallPart
+from pydantic_ai.models.function import AgentInfo, FunctionModel
+from pydantic_evals.evaluators import EvaluatorContext
+
+from ai_trainer.domain.sports.base import ExtractionSpec, SportPlugin
+from ai_trainer.domain.sports.climbing.extraction import ClimbingExtraction
+from ai_trainer.domain.sports.climbing.payload import Grade
+from ai_trainer.domain.sports.registry import SportRegistry, default_sport_registry
+from ai_trainer.llm.conversation import build_prompt_registry
+from ai_trainer.llm.evals.runner import EvalCaseInputs
+from ai_trainer.llm.extract import (
+    ActivitiesMatch,
+    DateMatch,
+    ExtractDeps,
+    build_extract_deps,
+    extract_template,
+    extract_templates,
+)
+from ai_trainer.llm.prompts.registry import PromptRegistry
+from ai_trainer.llm.prompts.template import PromptTemplateVariableError
+from ai_trainer.llm.router import ChatTurn
+
+_PROMPTS_ROOT = Path(__file__).parents[2] / "src" / "ai_trainer" / "llm" / "prompts"
+_CLIMBING_EXTRACT = "climbing.extract"
+
+# 22:30 UTC on 15 Sep is already 00:30 on Wednesday 16 Sep in Warsaw (ADR-0014).
+_NOW = datetime(2026, 9, 15, 22, 30, tzinfo=UTC)
+
+
+def _deps(**overrides: Any) -> ExtractDeps:
+    values: dict[str, Any] = {
+        "message": "I did 3 6b+ yesterday",
+        "history": [ChatTurn(role="user", text=f"turn {index}") for index in range(12)],
+        "now": _NOW,
+        "timezone": "Europe/Warsaw",
+        "history_turns": 10,
+    }
+    return build_extract_deps(**(values | overrides))
+
+
+def _registry(root: Path = _PROMPTS_ROOT) -> PromptRegistry:
+    return build_prompt_registry(root, default_sport_registry())
+
+
+def _extraction_response(args: dict[str, Any]) -> FunctionModel:
+    def respond(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        return ModelResponse(parts=[ToolCallPart(info.output_tools[0].name, args)])
+
+    return FunctionModel(respond)
+
+
+async def _rendered_instructions(deps: ExtractDeps) -> str:
+    seen: list[str] = []
+
+    def respond(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        seen.append(str(messages[0].instructions))  # type: ignore[union-attr]
+        args = {
+            "occurred_on": "2026-09-15",
+            "date_source": "relative",
+            "activities": [{"kind": "lead", "count": 3, "grade": "6b+"}],
+        }
+        return ModelResponse(parts=[ToolCallPart(info.output_tools[0].name, args)])
+
+    agent = _registry().build_agent(_CLIMBING_EXTRACT, 1)
+    await agent.run(deps.message, deps=deps, model=FunctionModel(respond))
+    return seen[0]
+
+
+def test_build_extract_deps_resolves_today_weekday_and_now_in_the_athletes_timezone() -> None:
+    deps = _deps()
+
+    assert deps.today.isoformat() == "2026-09-16"
+    assert deps.weekday == "Wednesday"
+    assert deps.now_local.isoformat() == "2026-09-16T00:30:00+02:00"
+    assert deps.timezone == "Europe/Warsaw"
+    assert [turn.text for turn in deps.history] == [f"turn {index}" for index in range(2, 12)]
+
+
+def test_build_extract_deps_crosses_a_dst_change_in_local_time() -> None:
+    # 25 Oct 2026, 01:30 UTC: Warsaw is back on CET (+01:00) at 02:30 local.
+    deps = _deps(now=datetime(2026, 10, 25, 1, 30, tzinfo=UTC))
+
+    assert deps.now_local.isoformat() == "2026-10-25T02:30:00+01:00"
+    assert deps.weekday == "Sunday"
+
+
+def test_the_climbing_plugin_names_its_extraction_template() -> None:
+    climbing = default_sport_registry().get("climbing")
+
+    assert climbing.extraction == ExtractionSpec(
+        template_id=_CLIMBING_EXTRACT, version=1, output_type=ClimbingExtraction
+    )
+
+
+def test_extract_template_takes_its_id_version_and_output_from_the_plugin() -> None:
+    spec = ExtractionSpec(template_id=_CLIMBING_EXTRACT, version=1, output_type=ClimbingExtraction)
+    template = extract_template(spec)
+
+    assert (template.id, template.version, template.locale) == (_CLIMBING_EXTRACT, 1, "en")
+    assert template.deps_type is ExtractDeps
+    assert template.output_type is ClimbingExtraction
+    assert template.model_settings_key == "extract_model"
+    assert template.provider_settings_key == "extract_provider"
+    assert template.temperature == 0
+    assert template.output_retries == 2
+
+
+def test_extract_templates_skip_a_sport_without_an_extraction() -> None:
+    sports = SportRegistry(
+        [
+            *default_sport_registry().all(),
+            SportPlugin(id="rowing", label_key="sport.rowing.label", icon="waves"),
+        ]
+    )
+
+    assert [template.id for template in extract_templates(sports)] == [_CLIMBING_EXTRACT]
+
+
+def test_the_app_registry_registers_climbing_extract() -> None:
+    template = _registry().get(_CLIMBING_EXTRACT, 1)
+
+    assert template.output_type is ClimbingExtraction
+
+
+async def test_the_climbing_agent_returns_an_extraction_that_becomes_a_font_payload() -> None:
+    agent = _registry().build_agent(_CLIMBING_EXTRACT, 1)
+    model = _extraction_response(
+        {
+            "occurred_on": "2026-09-16",
+            "date_source": "assumed_today",
+            "activities": [
+                {"kind": "boulder", "count": 3, "grade": "6A"},
+                {"kind": "boulder", "count": 2, "grade": "6B"},
+            ],
+        }
+    )
+
+    result = await agent.run("I climbed 3 6A and 2 6B boulders", deps=_deps(), model=model)
+
+    assert isinstance(result.output, ClimbingExtraction)
+    payload = result.output.to_payload()
+    grades = [(a.count, a.grade) for a in payload.activities]
+    assert grades == [
+        (3, Grade(original="6A", scale="font")),
+        (2, Grade(original="6B", scale="font")),
+    ]
+
+
+async def test_the_rendered_prompt_carries_the_athletes_local_day_and_weekday() -> None:
+    rendered = await _rendered_instructions(_deps())
+
+    assert "2026-09-16" in rendered
+    assert "Wednesday" in rendered
+    assert "Europe/Warsaw" in rendered
+    assert "2026-09-15" not in rendered
+
+
+async def test_the_rendered_prompt_carries_the_message_and_the_recent_turns_only() -> None:
+    rendered = await _rendered_instructions(_deps(message="sent 2 V4 on Tuesday"))
+
+    assert "sent 2 V4 on Tuesday" in rendered
+    assert "turn 1\n" not in rendered
+    assert "turn 2" in rendered
+    assert "turn 11" in rendered
+
+
+def test_a_typo_in_the_climbing_extract_template_fails_the_build(tmp_path: Path) -> None:
+    root = tmp_path / "prompts"
+    shutil.copytree(_PROMPTS_ROOT, root)
+    body = root / _CLIMBING_EXTRACT / "v1.en.md"
+    body.write_text(body.read_text().replace("{{message}}", "{{mesage}}"))
+
+    with pytest.raises(PromptTemplateVariableError):
+        _registry(root).build_agent(_CLIMBING_EXTRACT, 1)
+
+
+def _extraction(**overrides: Any) -> ClimbingExtraction:
+    values: dict[str, Any] = {
+        "occurred_on": "2026-09-15",
+        "date_source": "relative",
+        "activities": [
+            {"kind": "boulder", "count": 3, "grade": "6A"},
+            {"kind": "boulder", "count": 2, "grade": "6B"},
+        ],
+    }
+    return ClimbingExtraction.model_validate(values | overrides)
+
+
+def _ctx(
+    output: BaseModel, expected: BaseModel, metadata: dict[str, Any] | None = None
+) -> EvaluatorContext[EvalCaseInputs, BaseModel]:
+    return EvaluatorContext(
+        name="case",
+        inputs=EvalCaseInputs(prompt="x"),
+        metadata=metadata,
+        expected_output=expected,
+        output=output,
+        duration=0.0,
+        _span_tree=None,  # type: ignore[arg-type]
+        attributes={},
+        metrics={},
+    )
+
+
+def test_date_match_needs_the_same_day_and_date_source() -> None:
+    expected = _extraction()
+
+    assert DateMatch().evaluate(_ctx(_extraction(), expected)) is True
+    assert DateMatch().evaluate(_ctx(_extraction(occurred_on="2026-09-16"), expected)) is False
+    assert DateMatch().evaluate(_ctx(_extraction(date_source="stated"), expected)) is False
+
+
+def test_activities_match_ignores_order_but_not_counts_or_grades() -> None:
+    expected = _extraction()
+    reordered = _extraction(
+        activities=[
+            {"kind": "boulder", "count": 2, "grade": "6B"},
+            {"kind": "boulder", "count": 3, "grade": "6A"},
+        ]
+    )
+    wrong_count = _extraction(
+        activities=[
+            {"kind": "boulder", "count": 2, "grade": "6A"},
+            {"kind": "boulder", "count": 2, "grade": "6B"},
+        ]
+    )
+    rescaled = _extraction(
+        activities=[
+            {"kind": "boulder", "count": 3, "grade": "6a"},
+            {"kind": "boulder", "count": 2, "grade": "6b"},
+        ]
+    )
+
+    assert ActivitiesMatch().evaluate(_ctx(reordered, expected)) is True
+    assert ActivitiesMatch().evaluate(_ctx(wrong_count, expected)) is False
+    assert ActivitiesMatch().evaluate(_ctx(rescaled, expected)) is False
+
+
+def test_activities_match_fails_an_invented_grade_or_a_missing_activity() -> None:
+    expected = _extraction(activities=[{"kind": "boulder", "count": 5, "grade": None}])
+    invented = _extraction(activities=[{"kind": "boulder", "count": 5, "grade": "6A"}])
+    extra = _extraction(
+        activities=[
+            {"kind": "boulder", "count": 5, "grade": None},
+            {"kind": "lead", "count": 1, "grade": None},
+        ]
+    )
+
+    assert ActivitiesMatch().evaluate(_ctx(invented, expected)) is False
+    assert ActivitiesMatch().evaluate(_ctx(extra, expected)) is False
+
+
+def test_activities_match_skips_the_fields_a_case_lists_as_ignored() -> None:
+    expected = _extraction(activities=[{"kind": "lead", "count": 3, "grade": "6b+"}])
+    top_rope = _extraction(
+        activities=[{"kind": "top_rope", "count": 3, "grade": "6b+", "style": "redpoint"}]
+    )
+
+    assert ActivitiesMatch().evaluate(_ctx(top_rope, expected)) is False
+    assert (
+        ActivitiesMatch().evaluate(_ctx(top_rope, expected, {"ignore_fields": ["kind", "style"]}))
+        is True
+    )

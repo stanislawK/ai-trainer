@@ -215,6 +215,44 @@ def test_missing_chitchat_model_raises_naming_it(monkeypatch: pytest.MonkeyPatch
     assert [error["loc"] for error in excinfo.value.errors()] == [("chitchat_model",)]
 
 
+def test_extract_model_is_read_from_its_own_setting(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", DATABASE_URL)
+    monkeypatch.setenv("OPENROUTER_API_KEY", OPENROUTER_API_KEY)
+    monkeypatch.setenv("EVAL_JUDGE_MODEL", EVAL_JUDGE_MODEL)
+    monkeypatch.setenv("EXTRACT_MODEL", "test/extract-model")
+
+    assert Settings(_env_file=None).extract_model == "test/extract-model"
+
+
+def test_missing_extract_model_raises_naming_it(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", DATABASE_URL)
+    monkeypatch.setenv("OPENROUTER_API_KEY", OPENROUTER_API_KEY)
+    monkeypatch.setenv("EVAL_JUDGE_MODEL", EVAL_JUDGE_MODEL)
+    monkeypatch.delenv("EXTRACT_MODEL", raising=False)
+
+    with pytest.raises(ValidationError) as excinfo:
+        Settings(_env_file=None)
+
+    assert [error["loc"] for error in excinfo.value.errors()] == [("extract_model",)]
+
+
+def test_the_extract_provider_is_unpinned_unless_set(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", DATABASE_URL)
+    monkeypatch.setenv("OPENROUTER_API_KEY", OPENROUTER_API_KEY)
+    monkeypatch.setenv("EVAL_JUDGE_MODEL", EVAL_JUDGE_MODEL)
+    monkeypatch.delenv("EXTRACT_PROVIDER", raising=False)
+
+    assert Settings(_env_file=None).extract_provider is None
+
+    monkeypatch.setenv("EXTRACT_PROVIDER", "z-ai")
+
+    assert Settings(_env_file=None).extract_provider == "z-ai"
+
+    monkeypatch.setenv("EXTRACT_PROVIDER", "  ")  # as copied from .env.example
+
+    assert Settings(_env_file=None).extract_provider is None
+
+
 def test_decision_settings_default_to_a_pinned_jev_on_openrouter_and_a_short_timeout(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
