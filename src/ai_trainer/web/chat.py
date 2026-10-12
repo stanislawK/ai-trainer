@@ -234,7 +234,9 @@ def build_chat_router(
         """A fresh placeholder for the error row's Retry: it connects to the stream again."""
         user: User = request.state.user
         try:
-            message = await find_message(user.id, message_id, chat=chat)
+            message = await find_message(
+                user.id, message_id, chat=chat, conversations=conversations
+            )
         except MessageNotFoundError:
             raise HTTPException(status_code=_NOT_FOUND) from None
         return templates.TemplateResponse(request, "partials/chat/retry.html", {"message": message})
@@ -246,7 +248,9 @@ def build_chat_router(
         reply that finished first is shown as it was saved instead of as stopped."""
         user: User = request.state.user
         try:
-            saved = await find_saved_reply(user.id, message_id, chat=chat)
+            saved = await find_saved_reply(
+                user.id, message_id, chat=chat, conversations=conversations
+            )
         except MessageNotFoundError:
             raise HTTPException(status_code=_NOT_FOUND) from None
         if saved:

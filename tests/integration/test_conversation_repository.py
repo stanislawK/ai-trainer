@@ -10,11 +10,31 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai_trainer.adapters.chat_repository import SqlAlchemyChatRepository
 from ai_trainer.adapters.conversation_repository import SqlAlchemyConversationRepository
+from ai_trainer.adapters.onboarding_repository import SqlAlchemyOnboardingRepository
 from ai_trainer.adapters.users_repository import SqlAlchemyUsersRepository
 from ai_trainer.domain.chat import ChatRole
+from ai_trainer.domain.goals import Goal
 from ai_trainer.domain.users import NewUser, UserStatus
 
 _START = datetime(2026, 10, 2, 9, 0, tzinfo=UTC)
+_RETENTION_DAYS = 14
+_PROFILE_TABLES = ("users", "user_sports", "weekly_availability", "goals")
+
+
+class _Clock:
+    def __init__(self, now: datetime) -> None:
+        self.current = now
+
+    def now(self) -> datetime:
+        return self.current
+
+
+def _repository(
+    factory: Callable[[], AsyncSession], now: datetime = _START
+) -> SqlAlchemyConversationRepository:
+    return SqlAlchemyConversationRepository(
+        factory, clock=_Clock(now), retention_days=_RETENTION_DAYS
+    )
 
 
 async def _user(factory: Callable[[], AsyncSession], sub: str) -> UUID:
@@ -29,7 +49,7 @@ async def _user(factory: Callable[[], AsyncSession], sub: str) -> UUID:
 async def test_a_created_conversation_is_found_with_its_title_and_times(
     db_session_factory: Callable[[], AsyncSession],
 ) -> None:
-    repository = SqlAlchemyConversationRepository(db_session_factory)
+    repository = _repository(db_session_factory)
     user_id = await _user(db_session_factory, "conv-a")
 
     created = await repository.create(user_id, "Rode 40 km", _START)
@@ -45,7 +65,7 @@ async def test_a_created_conversation_is_found_with_its_title_and_times(
 async def test_get_finds_only_the_owners_conversation(
     db_session_factory: Callable[[], AsyncSession],
 ) -> None:
-    repository = SqlAlchemyConversationRepository(db_session_factory)
+    repository = _repository(db_session_factory)
     owner = await _user(db_session_factory, "conv-b")
     stranger = await _user(db_session_factory, "conv-c")
     created = await repository.create(owner, None, _START)
@@ -57,7 +77,7 @@ async def test_get_finds_only_the_owners_conversation(
 async def test_list_recent_is_the_users_conversations_latest_activity_first(
     db_session_factory: Callable[[], AsyncSession],
 ) -> None:
-    repository = SqlAlchemyConversationRepository(db_session_factory)
+    repository = _repository(db_session_factory)
     user_id = await _user(db_session_factory, "conv-d")
     other = await _user(db_session_factory, "conv-e")
     oldest = await repository.create(user_id, "oldest", _START)
@@ -74,7 +94,7 @@ async def test_list_recent_is_the_users_conversations_latest_activity_first(
 async def test_touch_moves_last_activity_forward_and_reorders_the_list(
     db_session_factory: Callable[[], AsyncSession],
 ) -> None:
-    repository = SqlAlchemyConversationRepository(db_session_factory)
+    repository = _repository(db_session_factory)
     user_id = await _user(db_session_factory, "conv-f")
     older = await repository.create(user_id, "older", _START)
     await repository.create(user_id, "newer", _START + timedelta(hours=1))
@@ -89,7 +109,7 @@ async def test_touch_moves_last_activity_forward_and_reorders_the_list(
 async def test_touch_never_moves_last_activity_back(
     db_session_factory: Callable[[], AsyncSession],
 ) -> None:
-    repository = SqlAlchemyConversationRepository(db_session_factory)
+    repository = _repository(db_session_factory)
     user_id = await _user(db_session_factory, "conv-g")
     created = await repository.create(user_id, None, _START)
 
@@ -101,7 +121,7 @@ async def test_touch_never_moves_last_activity_back(
 async def test_touch_never_changes_another_users_conversation(
     db_session_factory: Callable[[], AsyncSession],
 ) -> None:
-    repository = SqlAlchemyConversationRepository(db_session_factory)
+    repository = _repository(db_session_factory)
     owner = await _user(db_session_factory, "conv-h")
     stranger = await _user(db_session_factory, "conv-i")
     created = await repository.create(owner, None, _START)
@@ -114,7 +134,7 @@ async def test_touch_never_changes_another_users_conversation(
 async def test_deleting_a_conversation_cascades_its_messages_only(
     db_session_factory: Callable[[], AsyncSession],
 ) -> None:
-    conversations = SqlAlchemyConversationRepository(db_session_factory)
+    conversations = _repository(db_session_factory)
     chat = SqlAlchemyChatRepository(db_session_factory)
     user_id = await _user(db_session_factory, "conv-j")
     gone = await conversations.create(user_id, None, _START)
@@ -128,3 +148,113 @@ async def test_deleting_a_conversation_cascades_its_messages_only(
 
     assert await chat.list_recent(user_id, gone.id, 50) == []
     assert await chat.list_recent(user_id, kept.id, 50) == [stays]
+
+
+# Retention (PRD-0004 B26, ADR-0021, ticket #148).
+
+
+async def test_a_conversation_exactly_at_the_retention_age_is_still_found_and_listed(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    user_id = await _user(db_session_factory, "ret-a")
+    created = await _repository(db_session_factory).create(user_id, "kept", _START)
+    on_the_boundary = _repository(db_session_factory, _START + timedelta(days=_RETENTION_DAYS))
+
+    assert await on_the_boundary.get(user_id, created.id) == created
+    assert await on_the_boundary.list_recent(user_id, 10) == [created]
+
+
+async def test_a_conversation_a_second_past_the_retention_age_is_neither_found_nor_listed(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    user_id = await _user(db_session_factory, "ret-b")
+    created = await _repository(db_session_factory).create(user_id, "expired", _START)
+    past = _repository(db_session_factory, _START + timedelta(days=_RETENTION_DAYS, seconds=1))
+
+    assert await past.get(user_id, created.id) is None
+    assert await past.list_recent(user_id, 10) == []
+
+
+async def test_list_recent_skips_expired_conversations_but_keeps_the_live_ones(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    user_id = await _user(db_session_factory, "ret-c")
+    now = _START + timedelta(days=20)
+    repository = _repository(db_session_factory, now)
+    await repository.create(user_id, "old", _START)
+    live = await repository.create(user_id, "live", now - timedelta(days=1))
+
+    assert await repository.list_recent(user_id, 10) == [live]
+
+
+async def _count(factory: Callable[[], AsyncSession], table: str) -> int:
+    async with factory() as db:
+        return int(await db.scalar(text(f"SELECT count(*) FROM {table}")) or 0)
+
+
+async def _clear_expired(repository: SqlAlchemyConversationRepository, cutoff: datetime) -> None:
+    """The purge is global, so a test first removes whatever expired rows the database already
+    holds; the test's own transaction is rolled back, so nothing real is lost."""
+    await repository.purge_before(cutoff)
+
+
+async def test_purge_deletes_only_expired_conversations_of_every_user_and_returns_the_count(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    now = _START + timedelta(days=30)
+    repository = _repository(db_session_factory, now)
+    await _clear_expired(repository, now - timedelta(days=_RETENTION_DAYS))
+    chat = SqlAlchemyChatRepository(db_session_factory)
+    first = await _user(db_session_factory, "ret-d")
+    second = await _user(db_session_factory, "ret-e")
+    expired_first = await repository.create(first, "old a", now - timedelta(days=15))
+    expired_second = await repository.create(second, "old b", now - timedelta(days=40))
+    boundary = await repository.create(first, "boundary", now - timedelta(days=_RETENTION_DAYS))
+    live = await repository.create(second, "live", now - timedelta(days=1))
+    await chat.add(first, expired_first.id, ChatRole.USER, "gone", now - timedelta(days=15))
+    await chat.add(second, expired_second.id, ChatRole.USER, "gone too", now - timedelta(days=40))
+    kept_message = await chat.add(second, live.id, ChatRole.USER, "stays", now)
+
+    deleted = await repository.purge_before(now - timedelta(days=_RETENTION_DAYS))
+
+    assert deleted == 2
+    assert {c.id for c in await repository.list_recent(first, 10)} == {boundary.id}
+    assert await repository.list_recent(second, 10) == [live]
+    assert await chat.list_recent(second, live.id, 50) == [kept_message]
+    assert await _count(db_session_factory, "chat_messages") == 1
+
+
+async def test_a_second_purge_deletes_nothing(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    now = _START + timedelta(days=30)
+    repository = _repository(db_session_factory, now)
+    cutoff = now - timedelta(days=_RETENTION_DAYS)
+    await _clear_expired(repository, cutoff)
+    user_id = await _user(db_session_factory, "ret-f")
+    await repository.create(user_id, "old", now - timedelta(days=15))
+
+    assert await repository.purge_before(cutoff) == 1
+    assert await repository.purge_before(cutoff) == 0
+
+
+async def test_purge_leaves_goals_and_profile_rows_untouched(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    now = _START + timedelta(days=30)
+    repository = _repository(db_session_factory, now)
+    onboarding = SqlAlchemyOnboardingRepository(db_session_factory)
+    user_id = await _user(db_session_factory, "ret-g")
+    await onboarding.replace_sports(user_id, ["climbing"])
+    await onboarding.replace_availability(user_id, {0: 60})
+    await onboarding.replace_goals(user_id, [Goal(text="Send 8a+ by spring")])
+    await onboarding.finish_onboarding(user_id, "Europe/Warsaw", now)
+    await repository.create(user_id, "old", now - timedelta(days=15))
+    before = [await _count(db_session_factory, table) for table in _PROFILE_TABLES]
+
+    await repository.purge_before(now - timedelta(days=_RETENTION_DAYS))
+
+    assert [await _count(db_session_factory, table) for table in _PROFILE_TABLES] == before
+    assert all(count >= 1 for count in before)
+    assert await onboarding.list_sports(user_id) == ["climbing"]
+    assert await onboarding.list_goals(user_id) == [Goal(text="Send 8a+ by spring")]

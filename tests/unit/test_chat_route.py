@@ -559,3 +559,40 @@ def test_the_composer_ignores_a_second_send_while_the_first_is_in_flight() -> No
     text = client.get("/c/new").text
 
     assert 'hx-sync="this:drop"' in text
+
+
+# Retention (PRD-0004 B26, ADR-0021, ticket #148).
+
+_EXPIRED = timedelta(days=14, seconds=1)
+
+
+async def test_a_conversation_exactly_fourteen_days_old_still_opens() -> None:
+    client, user, repository = _client()
+    shown = await repository.conversations.create(user.id, "kept", FROZEN_NOW - timedelta(days=14))
+
+    assert client.get(f"/c/{shown.id}").status_code == 200
+
+
+async def test_an_expired_conversation_is_not_found_and_root_skips_it() -> None:
+    client, user, repository = _client()
+    expired = await repository.conversations.create(user.id, "old", FROZEN_NOW - _EXPIRED)
+
+    response = client.get(f"/c/{expired.id}")
+    root = client.get("/")
+
+    assert response.status_code == 404
+    assert _hidden_conversation("") in root.text
+
+
+async def test_sending_to_an_expired_conversation_is_not_found() -> None:
+    client, user, repository = _client()
+    expired = await repository.conversations.create(user.id, "old", FROZEN_NOW - _EXPIRED)
+
+    response = client.post(
+        "/messages",
+        data={"message": "hi", "conversation_id": str(expired.id)},
+        headers=_HTMX,
+    )
+
+    assert response.status_code == 404
+    assert repository.rows == []

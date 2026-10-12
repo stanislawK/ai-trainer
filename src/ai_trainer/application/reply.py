@@ -128,20 +128,35 @@ def _plan(intents: Sequence[Intent]) -> list[_Part]:
     ]
 
 
-async def find_message(user_id: UUID, message_id: UUID, *, chat: ChatRepositoryPort) -> ChatMessage:
-    """The athlete's own message, the only kind that gets a reply."""
+async def find_message(
+    user_id: UUID,
+    message_id: UUID,
+    *,
+    chat: ChatRepositoryPort,
+    conversations: ConversationRepositoryPort,
+) -> ChatMessage:
+    """The athlete's own message, the only kind that gets a reply. One in a conversation past
+    its retention window is not found, though the purge hasn't removed it yet (ADR-0021)."""
     message = await chat.get(user_id, message_id)
-    if message is None or message.role is not ChatRole.USER:
+    if (
+        message is None
+        or message.role is not ChatRole.USER
+        or await conversations.get(user_id, message.conversation_id) is None
+    ):
         raise MessageNotFoundError
     return message
 
 
 async def find_saved_reply(
-    user_id: UUID, message_id: UUID, *, chat: ChatRepositoryPort
+    user_id: UUID,
+    message_id: UUID,
+    *,
+    chat: ChatRepositoryPort,
+    conversations: ConversationRepositoryPort,
 ) -> Sequence[ChatMessage]:
     """What was saved for the athlete's own message, nothing if its reply never finished: the
     answer to Stop arriving just after the last token."""
-    message = await find_message(user_id, message_id, chat=chat)
+    message = await find_message(user_id, message_id, chat=chat, conversations=conversations)
     return await chat.list_replies(user_id, message)
 
 
@@ -150,7 +165,9 @@ async def start_reply(
 ) -> AsyncGenerator[ReplyEvent]:
     """Checks the message is the user's before anything streams, then returns the reply's
     events. A message already answered replays its saved reply with no model call."""
-    message = await find_message(user_id, message_id, chat=services.chat)
+    message = await find_message(
+        user_id, message_id, chat=services.chat, conversations=services.conversations
+    )
     return _reply(user_id, message, timezone, services)
 
 

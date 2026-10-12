@@ -50,8 +50,9 @@ class ChatRepositoryPort(Protocol):
 
 
 class ConversationRepositoryPort(Protocol):
-    """Persists an athlete's conversations (ADR-0021). Every method is scoped to one `user_id`
-    from the authenticated session, so another user's conversation is never found."""
+    """Persists an athlete's conversations (ADR-0021). Every method but `purge_before` is scoped
+    to one `user_id` from the authenticated session, so another user's conversation is never
+    found. `get` and `list_recent` never return a conversation past its retention window (B26)."""
 
     async def create(self, user_id: UUID, title: str | None, now: datetime) -> Conversation:
         """A new conversation, created and last active at `now`."""
@@ -67,4 +68,10 @@ class ConversationRepositoryPort(Protocol):
 
     async def touch(self, user_id: UUID, conversation_id: UUID, when: datetime) -> None:
         """Moves the conversation's `last_message_at` forward to `when`, never back."""
+        ...
+
+    async def purge_before(self, cutoff: datetime) -> int:
+        """Hard-deletes every user's conversations last active before `cutoff`, and their
+        messages with them. Returns how many conversations went. A system job, not scoped to a
+        user."""
         ...

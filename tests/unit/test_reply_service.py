@@ -372,7 +372,7 @@ async def test_another_users_message_is_not_found() -> None:
     with pytest.raises(MessageNotFoundError):
         await start_reply(uuid4(), asked.id, timezone="UTC", services=services)
     with pytest.raises(MessageNotFoundError):
-        await find_message(uuid4(), asked.id, chat=chat)
+        await find_message(uuid4(), asked.id, chat=chat, conversations=chat.conversations)
 
 
 async def test_an_unknown_message_is_not_found() -> None:
@@ -396,7 +396,9 @@ async def test_find_message_returns_the_owners_own_message() -> None:
     chat, user_id = InMemoryChatRepository(), uuid4()
     asked = await _asked(chat, user_id)
 
-    assert await find_message(user_id, asked.id, chat=chat) == asked
+    assert (
+        await find_message(user_id, asked.id, chat=chat, conversations=chat.conversations) == asked
+    )
 
 
 async def test_stopping_before_the_first_token_saves_no_reply() -> None:
