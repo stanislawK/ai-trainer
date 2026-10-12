@@ -218,13 +218,15 @@ IDs are stable across revisions. Never reuse a retired ID.
 | M0 Foundations | Project skeleton, docker compose, CI, Google sign-in with approval gating, a minimal admin user list, LLM gateway, prompt registry, eval harness | G1, G6, G7, G8, F6 (sign-in), F7, F8 |
 | M0 Design foundation | Liquid Glass theme, dark default with a remembered toggle, app shell, icons and manifest, sign-in and error pages, first end-to-end specs | G11, F11 |
 | M1a Conversations | Conversations, a new-conversation control, the conversation list, continuing a conversation, retention | B13 (refined), B24–B26, F16, F17 |
-| M1 Log it | Router + `log_session` path; session envelope, `SportRegistry` and the climbing, gym and cycling plugins together; sport inference; draft → confirm; time awareness and session continuity; structured clarification and the choice card; composer suggestions, the thinking indicator and the sport glyph on replies; eval datasets for the router and all three extraction templates | B1–B4, B13–B17, B23, F1, F2, F9, F13–F15, G2–G5, G9 |
+| M1 Log it | Router + `log_session` path; session envelope, `SportRegistry` and the climbing, gym and cycling plugins together; sport inference; draft → confirm, and undo of a just-saved session; time awareness and session continuity; structured clarification and the choice card; composer suggestions, the thinking indicator and the sport glyph on replies; eval datasets for the router and all three extraction templates | B1–B3, B4 (create, and delete through undo), B13–B17, B23, F1, F2, F9, F13–F15, G2–G5, G9 |
 | M1z Ship it | Production host behind the owner's Cloudflare domain, release pipeline only the owner can trigger, offsite backups, migration safety. The first production deploy waits for M1a and M1 | G12, G13 |
-| M2 See it | History, cross-sport load, weekly report, statistics per sport | B5, B6, B12, F3, F5, F12 |
+| M2 See it | History, with reading, editing and deleting saved sessions; cross-sport load, weekly report, statistics per sport | B4 (read, update, delete), B5, B6, B12, F3, F5, F12 |
 | M3 Know it | Ingestion-pipeline ADR → ingestion → cited Q&A | B7, B8 |
 | M4 Plan it | Goals, long-term and weekly plans, re-planning | B9–B11, F4 |
 | M5 Explore it | Grade conversion and route identity, the 8a.nu route lookup, crag geography, area recommendations | B18–B22, F10, G10 |
 
 G7 is delivered in M0 and must stay complete in every later milestone: each new user-owned table joins the account deletion.
+
+B4 is split across milestones, owner-directed 2026-10-12. M1 creates sessions and deletes a just-saved one from the chat (the Chat mock's "Undo"). Reading, editing and deleting any saved session come with M2's History view (F3), the first screen that lists them.
 
 G13 binds from the first production deploy onward. From then on, every schema change preserves existing data (ADR-0024).
