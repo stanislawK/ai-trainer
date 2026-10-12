@@ -60,7 +60,15 @@
         data-sections-trigger
       >{{ icon("menu", "size-5") }}</button>
       <span class="text-[17px] font-semibold">{% block chat_title %}Chat{% endblock %}</span>
-      <span class="size-11" aria-hidden="true"></span>
+      <a
+        href="/c/new"
+        class="btn btn-circle glass-regular glass-rim relative border-0 min-h-11"
+        aria-label="New conversation"
+        hx-get="/c/new"
+        hx-target="#chat-content"
+        hx-swap="outerHTML"
+        hx-push-url="true"
+      >{{ icon("plus", "size-5") }}</a>
     </header>
     <ul
       id="sections-menu"

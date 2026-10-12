@@ -5,6 +5,7 @@
     hx-post="/messages"
     hx-target="#chat-composer"
     hx-swap="outerHTML"
+    hx-sync="this:drop"
     data-chat-form
   >
     {#- The conversation this composer adds to; empty until the first message starts one (ADR-0021). #}
