@@ -9,6 +9,7 @@ from ai_trainer.domain.chat import ChatMessage
 from ai_trainer.domain.conversation import Intent
 from ai_trainer.domain.goals import Goal
 from ai_trainer.domain.llm_calls import LlmCallOutcome
+from ai_trainer.domain.sports.base import SessionExtraction
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,6 +53,16 @@ class FixedReply:
     template: TemplateRef
 
 
+@dataclass(frozen=True, slots=True)
+class Extraction:
+    """A sport extraction's draft, `None` when the call did not succeed, and the template that
+    made it (ADR-0008: the `log_session` specialist is the plugin's extraction template)."""
+
+    output: SessionExtraction | None
+    outcome: LlmCallOutcome
+    template: TemplateRef
+
+
 class ConversationModelPort(Protocol):
     """The router and the specialists behind one port, so the dispatcher stays in the
     application layer while templates and models stay in `llm/` (ADR-0003, ADR-0008)."""
@@ -63,6 +74,14 @@ class ConversationModelPort(Protocol):
 
     def stream_chitchat(self, context: ReplyContext) -> AsyncGenerator[LlmStreamEvent]:
         """The `chitchat` specialist's reply, streamed as the gateway streams it."""
+        ...
+
+    async def extract(self, context: ReplyContext, sport_id: str) -> Extraction:
+        """The sport's extraction template run on the message; the sport must name one."""
+        ...
+
+    def draft_ready(self) -> FixedReply:
+        """The line that introduces a draft card, sent as written with no model call."""
         ...
 
     def not_yet(self) -> FixedReply:

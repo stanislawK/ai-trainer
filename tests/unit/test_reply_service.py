@@ -29,9 +29,12 @@ from ai_trainer.domain.conversation import Intent
 from ai_trainer.domain.goals import Goal
 from ai_trainer.domain.llm_calls import LlmCallOutcome
 from tests.chat_support import (
+    DRAFT_READY_TEXT,
     FROZEN_NOW,
     NOT_YET_TEXT,
+    THREE_6A_TWO_6B,
     InMemoryChatRepository,
+    InMemoryDraftRepository,
     InMemoryProfile,
     ScriptedConversation,
     ScriptedFastRouter,
@@ -56,6 +59,7 @@ async def _events(
     message: ChatMessage,
     conversation: ScriptedConversation,
     *,
+    drafts: InMemoryDraftRepository | None = None,
     profile: InMemoryProfile | None = None,
     fast_router: ScriptedFastRouter | None = None,
     safety_screen: ScriptedSafetyScreen | None = None,
@@ -63,6 +67,7 @@ async def _events(
 ) -> list[ReplyEvent]:
     services = reply_services(
         chat,
+        drafts=drafts,
         profile=profile,
         conversation=conversation,
         fast_router=fast_router,
@@ -156,12 +161,12 @@ async def test_skeleton_routing_sends_these_intents_to_chitchat(kind: str) -> No
 
 async def test_several_not_yet_intents_share_one_not_yet_reply_with_their_sports() -> None:
     chat, user_id = InMemoryChatRepository(), uuid4()
-    asked = await _asked(chat, user_id, "log my ride and my climb, and plan next week")
+    asked = await _asked(chat, user_id, "log my ride and my lifts, and plan next week")
     conversation = ScriptedConversation(
         intents=[
             [
                 Intent(kind="log_session", sport="cycling"),
-                Intent(kind="log_session", sport="climbing"),
+                Intent(kind="log_session", sport="gym"),
                 Intent(kind="log_session", sport="cycling"),
                 Intent(kind="request_plan"),
             ]
@@ -171,7 +176,7 @@ async def test_several_not_yet_intents_share_one_not_yet_reply_with_their_sports
     events = await _events(chat, user_id, asked, conversation)
 
     [reply] = _done(events).messages
-    assert reply.sports == ("cycling", "climbing")
+    assert reply.sports == ("cycling", "gym")
 
 
 async def test_the_reply_reports_routing_then_replying_before_its_first_chunk() -> None:
@@ -519,9 +524,9 @@ async def test_pain_the_router_missed_moves_the_greetings_chitchat_part_first(
     """The router read the log before the greeting and missed the pain: only the screen's
     safety intent puts the pain-first chitchat part ahead of the "not yet" reply."""
     chat, user_id = InMemoryChatRepository(), uuid4()
-    asked = await _asked(chat, user_id, "sore knee from bouldering, log it, anyway hi")
+    asked = await _asked(chat, user_id, "sore knee from squats, log it, anyway hi")
     conversation = ScriptedConversation(
-        intents=[[Intent(kind="log_session", sport="climbing"), Intent(kind="chitchat")]]
+        intents=[[Intent(kind="log_session", sport="gym"), Intent(kind="chitchat")]]
     )
 
     events = await _events(
@@ -535,9 +540,9 @@ async def test_pain_the_router_missed_in_a_log_gets_a_chitchat_part_before_not_y
     """The screen's visible effect in the skeleton: without it a log-only routing gets the
     "not yet" reply alone, and nobody answers the pain."""
     chat, user_id = InMemoryChatRepository(), uuid4()
-    text = "knee's sore after bouldering, log it"
+    text = "knee's sore after squats, log it"
     asked = await _asked(chat, user_id, text)
-    conversation = ScriptedConversation(intents=[[Intent(kind="log_session", sport="climbing")]])
+    conversation = ScriptedConversation(intents=[[Intent(kind="log_session", sport="gym")]])
     # Slower than the router, so the reply has to wait for the screen's answer.
     screen = ScriptedSafetyScreen(pain=True, delay=0.05)
 
@@ -546,7 +551,7 @@ async def test_pain_the_router_missed_in_a_log_gets_a_chitchat_part_before_not_y
     assert _streamed_text(events) == f"Hey! Good to hear from you.{PART_BREAK}{NOT_YET_TEXT}"
     assert [(m.template_id, m.sports) for m in _done(events).messages] == [
         ("chitchat", ()),
-        ("not_yet", ("climbing",)),
+        ("not_yet", ("gym",)),
     ]
 
 
@@ -748,3 +753,153 @@ async def test_an_empty_set_from_jev_falls_back_to_the_llm_routers_sport() -> No
     routing = await _routed(fast, ScriptedConversation(intents=[_RIDE]))
 
     assert routing.plausible_sports == ("cycling",)
+
+
+_CLIMB = "I climbed 3 6A and 2 6B boulders"
+_CLIMB_INTENTS = [Intent(kind="log_session", sport="climbing")]
+
+
+async def test_a_climbing_log_goes_to_climbing_extract_and_saves_a_pending_draft() -> None:
+    chat, drafts, user_id = InMemoryChatRepository(), InMemoryDraftRepository(), uuid4()
+    asked = await _asked(chat, user_id, _CLIMB)
+    conversation = ScriptedConversation(intents=[_CLIMB_INTENTS])
+
+    events = await _events(chat, user_id, asked, conversation, drafts=drafts)
+
+    assert [(context.message, sport) for context, sport in conversation.extracted] == [
+        (_CLIMB, "climbing")
+    ]
+    assert conversation.chitchatted == []
+    [draft] = drafts.all_of(user_id)
+    assert (draft.message_id, draft.conversation_id, draft.sport_id, draft.status) == (
+        asked.id,
+        asked.conversation_id,
+        "climbing",
+        "pending",
+    )
+    assert draft.payload_version == 1
+    assert (draft.draft.occurred_on, draft.draft.date_source, draft.draft.timezone) == (
+        date(2026, 10, 2),
+        "assumed_today",
+        "Europe/Warsaw",
+    )
+    assert draft.draft.payload == THREE_6A_TWO_6B.to_payload().model_dump(mode="json")
+    assert _done(events).drafts == (draft,)
+
+
+async def test_the_draft_part_streams_its_intro_and_records_the_extraction_template() -> None:
+    chat, user_id = InMemoryChatRepository(), uuid4()
+    asked = await _asked(chat, user_id, _CLIMB)
+
+    events = await _events(chat, user_id, asked, ScriptedConversation(intents=[_CLIMB_INTENTS]))
+
+    assert _streamed_text(events) == DRAFT_READY_TEXT
+    [reply] = _done(events).messages
+    assert (reply.text, reply.sports) == (DRAFT_READY_TEXT, ("climbing",))
+    assert (reply.template_id, reply.template_version) == ("climbing.extract", 1)
+    assert chat.all_of(user_id) == [asked, reply]
+
+
+async def test_a_sport_without_an_extraction_template_still_gets_not_yet() -> None:
+    chat, drafts, user_id = InMemoryChatRepository(), InMemoryDraftRepository(), uuid4()
+    asked = await _asked(chat, user_id, "log my ride")
+    conversation = ScriptedConversation(intents=[_RIDE])
+
+    events = await _events(chat, user_id, asked, conversation, drafts=drafts)
+
+    assert conversation.extracted == []
+    assert [m.template_id for m in _done(events).messages] == ["not_yet"]
+    assert drafts.all_of(user_id) == []
+
+
+@pytest.mark.parametrize("outcome", [LlmCallOutcome.TIMEOUT, LlmCallOutcome.ERROR])
+async def test_an_extraction_failure_saves_no_draft_and_no_reply(outcome: LlmCallOutcome) -> None:
+    chat, drafts, user_id = InMemoryChatRepository(), InMemoryDraftRepository(), uuid4()
+    asked = await _asked(chat, user_id, _CLIMB)
+    conversation = ScriptedConversation(intents=[_CLIMB_INTENTS], extract_outcomes=[outcome])
+
+    events = await _events(chat, user_id, asked, conversation, drafts=drafts)
+
+    assert events[-1] == ReplyFailed(outcome=outcome)
+    assert drafts.all_of(user_id) == []
+    assert chat.all_of(user_id) == [asked]
+
+
+async def test_an_extraction_failure_after_a_chitchat_part_still_saves_nothing() -> None:
+    chat, drafts, user_id = InMemoryChatRepository(), InMemoryDraftRepository(), uuid4()
+    asked = await _asked(chat, user_id, f"hi! {_CLIMB}")
+    conversation = ScriptedConversation(
+        intents=[[Intent(kind="chitchat"), *_CLIMB_INTENTS]],
+        extract_outcomes=[LlmCallOutcome.ERROR],
+    )
+
+    events = await _events(chat, user_id, asked, conversation, drafts=drafts)
+
+    assert isinstance(events[-1], ReplyFailed)
+    assert drafts.all_of(user_id) == []
+    assert chat.all_of(user_id) == [asked]
+
+
+async def test_a_retry_after_an_extraction_failure_saves_one_draft() -> None:
+    chat, drafts, user_id = InMemoryChatRepository(), InMemoryDraftRepository(), uuid4()
+    asked = await _asked(chat, user_id, _CLIMB)
+    conversation = ScriptedConversation(
+        intents=[_CLIMB_INTENTS],
+        extract_outcomes=[LlmCallOutcome.TIMEOUT, LlmCallOutcome.SUCCESS],
+    )
+
+    await _events(chat, user_id, asked, conversation, drafts=drafts)
+    events = await _events(chat, user_id, asked, conversation, drafts=drafts)
+
+    assert len(_done(events).drafts) == 1
+    assert len(drafts.all_of(user_id)) == 1
+
+
+async def test_a_log_and_a_greeting_get_two_parts_in_message_order() -> None:
+    chat, user_id = InMemoryChatRepository(), uuid4()
+    asked = await _asked(chat, user_id, f"{_CLIMB}, also hi")
+    conversation = ScriptedConversation(intents=[[*_CLIMB_INTENTS, Intent(kind="chitchat")]])
+
+    events = await _events(chat, user_id, asked, conversation)
+
+    assert [m.template_id for m in _done(events).messages] == ["climbing.extract", "chitchat"]
+    assert _streamed_text(events) == f"{DRAFT_READY_TEXT}{PART_BREAK}Hey! Good to hear from you."
+
+
+async def test_two_climbing_intents_make_one_extraction_and_one_draft() -> None:
+    chat, drafts, user_id = InMemoryChatRepository(), InMemoryDraftRepository(), uuid4()
+    asked = await _asked(chat, user_id, "3 6A boulders, then 2 6B boulders")
+    conversation = ScriptedConversation(intents=[[*_CLIMB_INTENTS, *_CLIMB_INTENTS]])
+
+    await _events(chat, user_id, asked, conversation, drafts=drafts)
+
+    assert len(conversation.extracted) == 1
+    assert len(drafts.all_of(user_id)) == 1
+
+
+async def test_a_replayed_reply_carries_its_pending_drafts_with_no_model_call() -> None:
+    chat, drafts, user_id = InMemoryChatRepository(), InMemoryDraftRepository(), uuid4()
+    asked = await _asked(chat, user_id, _CLIMB)
+    first = ScriptedConversation(intents=[_CLIMB_INTENTS])
+    await _events(chat, user_id, asked, first, drafts=drafts)
+    again = ScriptedConversation(intents=[_CLIMB_INTENTS])
+
+    events = await _events(chat, user_id, asked, again, drafts=drafts)
+
+    assert (again.routed, again.extracted) == ([], [])
+    assert _done(events).drafts == tuple(drafts.all_of(user_id))
+
+
+async def test_the_extraction_sees_the_recent_turns_and_the_athletes_timezone() -> None:
+    chat, user_id = InMemoryChatRepository(), uuid4()
+    earlier = await _asked(chat, user_id, "hey")
+    asked = await chat.add(
+        user_id, earlier.conversation_id, ChatRole.USER, _CLIMB, FROZEN_NOW + _MINUTE
+    )
+    conversation = ScriptedConversation(intents=[_CLIMB_INTENTS])
+
+    await _events(chat, user_id, asked, conversation)
+
+    [(context, _)] = conversation.extracted
+    assert (context.message, context.timezone, context.now) == (_CLIMB, "Europe/Warsaw", FROZEN_NOW)
+    assert [message.text for message in context.history] == ["hey"]

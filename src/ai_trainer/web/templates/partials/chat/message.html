@@ -1,9 +1,20 @@
 {%- from "components/avatar.html" import avatar -%}
 {%- if message.role == "assistant" -%}
+{%- set cards = draft_cards.get(message.id, []) -%}
+{%- if cards -%}
+{#- A part that introduces draft cards is laid out as the Chat mock's state 8: its line indented to the reply text, then the cards (ticket #154). -#}
+<div class="chat-message flex flex-col gap-4">
+  <p class="text-[16px] leading-6 pl-9 whitespace-pre-wrap break-words">{{ message.text }}</p>
+  {%- for card in cards %}
+  {% include "partials/chat/draft_card.html" %}
+  {%- endfor %}
+</div>
+{%- else -%}
 <div class="chat-message flex gap-2.5">
   {{ avatar(reply_glyph(message.sports)) }}
   <p class="min-w-0 max-w-[65ch] text-[16px] leading-6 whitespace-pre-wrap break-words">{{ message.text }}</p>
 </div>
+{%- endif -%}
 {%- else -%}
 <div class="chat-message self-end max-w-[80%] lg:max-w-[70%] glass-regular bg-primary/20 rounded-3xl rounded-br-lg px-4 py-2.5 text-[16px] leading-6 whitespace-pre-wrap break-words">{{ message.text }}</div>
 {%- endif -%}

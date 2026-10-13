@@ -4,6 +4,7 @@ from collections.abc import Iterable, Sequence
 
 from ai_trainer.domain.sports.base import ExtractionSpec, SportPlugin
 from ai_trainer.domain.sports.climbing.extraction import ClimbingExtraction
+from ai_trainer.domain.sports.climbing.payload import CLIMBING_PAYLOAD_VERSION, ClimbingPayload
 
 # Stands in for the glyph when a reply is about no sport or several (PRD-0003 F15). It is not
 # a Lucide icon; templates render it as the app mark.
@@ -50,7 +51,11 @@ def default_sport_registry() -> SportRegistry:
                 label_key="sport.climbing.label",
                 icon="mountain",
                 extraction=ExtractionSpec(
-                    template_id="climbing.extract", version=1, output_type=ClimbingExtraction
+                    template_id="climbing.extract",
+                    version=1,
+                    output_type=ClimbingExtraction,
+                    payload_type=ClimbingPayload,
+                    payload_version=CLIMBING_PAYLOAD_VERSION,
                 ),
             ),
             SportPlugin(id="gym", label_key="sport.gym.label", icon="dumbbell"),

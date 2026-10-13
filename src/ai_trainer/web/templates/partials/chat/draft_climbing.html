@@ -1,0 +1,11 @@
+{#- A climbing draft's activities, one row per activity (owner-chosen at #154's plan gate; the mock shows only one route): the count and grade as typed, then the kind, style, attempts and route when given. -#}
+{%- set kinds = {"boulder": "Boulder", "lead": "Lead", "top_rope": "Top rope"} -%}
+{%- set styles = {"onsight": "Onsight", "flash": "Flash", "redpoint": "Redpoint", "repeat": "Repeat", "attempt": "Attempt"} -%}
+<ul class="flex flex-col gap-2" aria-label="Activities">
+  {%- for activity in card.payload.activities %}
+  <li class="flex items-baseline justify-between gap-4">
+    <span class="text-[16px] font-medium tabular-nums">{{ activity.count }} × {{ activity.grade.original if activity.grade else kinds[activity.kind] }}</span>
+    <span class="text-[12px] text-base-content/70 text-right">{{ kinds[activity.kind] }}{% if activity.style %} · {{ styles[activity.style] }}{% endif %}{% if activity.attempts %} · {{ activity.attempts }} {{ "try" if activity.attempts == 1 else "tries" }}{% endif %}{% if activity.route %} · {{ activity.route.name }}{% endif %}</span>
+  </li>
+  {%- endfor %}
+</ul>

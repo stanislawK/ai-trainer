@@ -5,7 +5,7 @@ because `/` is the signed-in home page use them too."""
 import asyncio
 from collections.abc import AsyncGenerator, Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from itertools import takewhile
 from uuid import UUID, uuid4
 
@@ -14,6 +14,7 @@ from starlette.templating import Jinja2Templates
 
 from ai_trainer.application.ports.clock import ClockPort
 from ai_trainer.application.ports.conversation import (
+    Extraction,
     FixedReply,
     ReplyContext,
     Routing,
@@ -31,7 +32,10 @@ from ai_trainer.domain.chat import ChatMessage, ChatRole, Conversation
 from ai_trainer.domain.conversation import Intent
 from ai_trainer.domain.goals import Goal
 from ai_trainer.domain.llm_calls import LlmCallOutcome
+from ai_trainer.domain.sports.base import SessionExtraction
+from ai_trainer.domain.sports.climbing.extraction import ClimbingExtraction, ExtractedClimb
 from ai_trainer.domain.sports.registry import default_sport_registry
+from ai_trainer.domain.training import SessionDraft, StoredDraft
 from ai_trainer.domain.users import User, UserStatus
 from ai_trainer.web.chat import build_chat_router
 
@@ -225,9 +229,65 @@ class InMemoryProfile:
         raise NotImplementedError
 
 
+class InMemoryDraftRepository:
+    """`session_drafts` in memory. A draft's message must be its user's, as the foreign key and
+    the reply's lookup guarantee in production."""
+
+    def __init__(self) -> None:
+        self.rows: list[tuple[UUID, StoredDraft]] = []
+
+    async def add(
+        self,
+        user_id: UUID,
+        conversation_id: UUID,
+        message_id: UUID,
+        sport_id: str,
+        draft: SessionDraft,
+        *,
+        payload_version: int,
+        created_at: datetime,
+    ) -> StoredDraft:
+        stored = StoredDraft(
+            id=uuid4(),
+            conversation_id=conversation_id,
+            message_id=message_id,
+            sport_id=sport_id,
+            draft=draft,
+            payload_version=payload_version,
+            status="pending",
+            created_at=created_at,
+        )
+        self.rows.append((user_id, stored))
+        return stored
+
+    async def list_pending(self, user_id: UUID, conversation_id: UUID) -> Sequence[StoredDraft]:
+        return [
+            draft
+            for owner, draft in self.rows
+            if owner == user_id
+            and draft.conversation_id == conversation_id
+            and draft.status == "pending"
+        ]
+
+    def all_of(self, user_id: UUID) -> list[StoredDraft]:
+        return [draft for owner, draft in self.rows if owner == user_id]
+
+
 NOT_YET_TEXT = "I can't do that one yet."
+DRAFT_READY_TEXT = "Here's the session."
 CHITCHAT_TEMPLATE = TemplateRef(id="chitchat", version=1)
 NOT_YET_TEMPLATE = TemplateRef(id="not_yet", version=1)
+DRAFT_READY_TEMPLATE = TemplateRef(id="draft_ready", version=1)
+CLIMBING_EXTRACT_TEMPLATE = TemplateRef(id="climbing.extract", version=1)
+# "I climbed 3 6A and 2 6B boulders", sent at `FROZEN_NOW` with no date (Europe/Warsaw).
+THREE_6A_TWO_6B = ClimbingExtraction(
+    occurred_on=date(2026, 10, 2),
+    date_source="assumed_today",
+    activities=[
+        ExtractedClimb(kind="boulder", count=3, grade="6A"),
+        ExtractedClimb(kind="boulder", count=2, grade="6B"),
+    ],
+)
 
 
 @dataclass
@@ -245,8 +305,12 @@ class ScriptedConversation:
     # The router answers `route_delay` seconds after `route_after` is set (at once when unset).
     route_delay: float = 0.0
     route_after: asyncio.Event | None = None
+    # What each extraction call returns: a draft, or `None` with `extract_outcomes`' outcome.
+    extractions: list[SessionExtraction | None] = field(default_factory=lambda: [THREE_6A_TWO_6B])
+    extract_outcomes: list[LlmCallOutcome] = field(default_factory=lambda: [LlmCallOutcome.SUCCESS])
     routed: list[ReplyContext] = field(default_factory=list)
     chitchatted: list[ReplyContext] = field(default_factory=list)
+    extracted: list[tuple[ReplyContext, str]] = field(default_factory=list)
     closed_streams: int = 0
 
     @property
@@ -281,6 +345,20 @@ class ScriptedConversation:
             )
         finally:
             self.closed_streams += 1
+
+    async def extract(self, context: ReplyContext, sport_id: str) -> Extraction:
+        call = len(self.extracted)
+        self.extracted.append((context, sport_id))
+        outcome = self.extract_outcomes[min(call, len(self.extract_outcomes) - 1)]
+        output = self.extractions[min(call, len(self.extractions) - 1)]
+        return Extraction(
+            output=output if outcome is LlmCallOutcome.SUCCESS else None,
+            outcome=outcome,
+            template=TemplateRef(id=f"{sport_id}.extract", version=1),
+        )
+
+    def draft_ready(self) -> FixedReply:
+        return FixedReply(text=DRAFT_READY_TEXT, template=DRAFT_READY_TEMPLATE)
 
     def not_yet(self) -> FixedReply:
         return FixedReply(text=NOT_YET_TEXT, template=NOT_YET_TEMPLATE)
@@ -326,6 +404,7 @@ class ScriptedFastRouter:
 def reply_services(
     chat: InMemoryChatRepository,
     *,
+    drafts: InMemoryDraftRepository | None = None,
     profile: InMemoryProfile | None = None,
     conversation: ScriptedConversation | None = None,
     fast_router: ScriptedFastRouter | None = None,
@@ -335,6 +414,8 @@ def reply_services(
     return ReplyServices(
         chat=chat,
         conversations=chat.conversations,
+        drafts=drafts or InMemoryDraftRepository(),
+        sports=default_sport_registry(),
         profile=profile or InMemoryProfile(),
         conversation=conversation or ScriptedConversation(),
         fast_router=fast_router or ScriptedFastRouter(),
@@ -351,11 +432,12 @@ def include_chat(
     *,
     conversation: ScriptedConversation | None = None,
     profile: InMemoryProfile | None = None,
+    drafts: InMemoryDraftRepository | None = None,
 ) -> InMemoryChatRepository:
     """Mounts the chat router on an in-memory repository and a scripted conversation, and
     returns the repository."""
     repository = chat or InMemoryChatRepository()
-    services = reply_services(repository, profile=profile, conversation=conversation)
+    services = reply_services(repository, drafts=drafts, profile=profile, conversation=conversation)
     app.include_router(
         build_chat_router(
             templates, chat=repository, replies=services, sports=default_sport_registry()

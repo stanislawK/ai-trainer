@@ -21,11 +21,13 @@ from ai_trainer.adapters.orm import (
     SessionOrm,
     UserStatusChangeOrm,
 )
+from ai_trainer.adapters.session_draft_repository import SqlAlchemySessionDraftRepository
 from ai_trainer.adapters.sessions_repository import SqlAlchemySessionsRepository
 from ai_trainer.adapters.users_repository import SqlAlchemyUsersRepository
 from ai_trainer.domain.chat import ChatRole
 from ai_trainer.domain.llm_calls import LlmCallOutcome, NewLlmCall
 from ai_trainer.domain.sessions import NewSession
+from ai_trainer.domain.training import SessionDraft
 from ai_trainer.domain.users import NewUser, User, UserStatus
 from ai_trainer.web.active_user_gate import ActiveUserGateMiddleware
 from ai_trainer.web.auth import SESSION_COOKIE_NAME
@@ -121,6 +123,28 @@ _INSERT_STATUS_CHANGE = text(
 )
 
 
+_TRAINING_TABLES = (
+    "training_sessions",
+    "training_session_sources",
+    "session_drafts",
+    "clarifications",
+)
+_INSERT_TRAINING_SESSION = text(
+    "INSERT INTO training_sessions (id, user_id, sport_id, occurred_on, timezone, payload,"
+    " payload_version, created_at, updated_at) VALUES (:id, :user_id, 'climbing', '2026-10-02',"
+    " 'UTC', '{}', 1, now(), now())"
+)
+_INSERT_TRAINING_SOURCE = text(
+    "INSERT INTO training_session_sources (id, user_id, session_id, raw_text, source, logged_at)"
+    " VALUES (:id, :user_id, :session_id, 'I climbed', 'chat', now())"
+)
+_INSERT_CLARIFICATION = text(
+    "INSERT INTO clarifications (id, user_id, conversation_id, message_id, draft_id, purpose,"
+    " clarification, status, created_at) VALUES (:id, :user_id, :conversation_id, :message_id,"
+    " :draft_id, 'sport', '{}', 'open', now())"
+)
+
+
 async def test_no_user_owned_row_references_the_deleted_user_id(
     db_session_factory: Callable[[], AsyncSession],
 ) -> None:
@@ -163,7 +187,41 @@ async def test_no_user_owned_row_references_the_deleted_user_id(
     sent_at = datetime(2026, 10, 2, tzinfo=UTC)
     for title in ("first", "second"):
         gone = await conversations.create(admin.id, title, sent_at)
-        await chat.add(admin.id, gone.id, ChatRole.USER, "gone with the account", sent_at)
+        log = await chat.add(admin.id, gone.id, ChatRole.USER, "gone with the account", sent_at)
+    # A row in each training-session table (ADR-0022): a saved session with its source, and a
+    # pending draft with an open question in the last conversation.
+    draft = await SqlAlchemySessionDraftRepository(db_session_factory).add(
+        admin.id,
+        gone.id,
+        log.id,
+        "climbing",
+        SessionDraft(
+            occurred_on=sent_at.date(),
+            date_source="assumed_today",
+            timezone="UTC",
+            payload={"sport": "climbing", "activities": []},
+        ),
+        payload_version=1,
+        created_at=sent_at,
+    )
+    session_row_id = uuid4()
+    async with db_session_factory() as db:
+        await db.execute(_INSERT_TRAINING_SESSION, {"id": session_row_id, "user_id": admin.id})
+        await db.execute(
+            _INSERT_TRAINING_SOURCE,
+            {"id": uuid4(), "user_id": admin.id, "session_id": session_row_id},
+        )
+        await db.execute(
+            _INSERT_CLARIFICATION,
+            {
+                "id": uuid4(),
+                "user_id": admin.id,
+                "conversation_id": gone.id,
+                "message_id": log.id,
+                "draft_id": draft.id,
+            },
+        )
+        await db.commit()
     kept = await conversations.create(target.id, "kept", sent_at)
     await chat.add(target.id, kept.id, ChatRole.USER, "stays", sent_at)
     client = _client(users=users, sessions=sessions)
@@ -193,11 +251,18 @@ async def test_no_user_owned_row_references_the_deleted_user_id(
         message_rows = (
             await db.scalars(select(ChatMessageOrm).where(ChatMessageOrm.user_id == admin.id))
         ).all()
+        training_counts = [
+            await db.scalar(
+                text(f"SELECT count(*) FROM {table} WHERE user_id = :id"), {"id": admin.id}
+            )
+            for table in _TRAINING_TABLES
+        ]
     assert session_rows == []
     assert status_change_rows == []
     assert await llm_calls.list_for_user(admin.id) == []
     assert conversation_rows == []
     assert message_rows == []
+    assert training_counts == [0, 0, 0, 0]
     assert await conversations.get(target.id, kept.id) is not None
     assert [m.text for m in await chat.list_recent(target.id, kept.id, 50)] == ["stays"]
 

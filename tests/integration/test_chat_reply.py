@@ -29,6 +29,7 @@ from pydantic_ai.models.decision import (
 )
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 from pydantic_ai.usage import RequestUsage
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.types import ASGIApp, Receive, Scope, Send
 
@@ -36,6 +37,7 @@ from ai_trainer.adapters.chat_repository import SqlAlchemyChatRepository
 from ai_trainer.adapters.conversation_repository import SqlAlchemyConversationRepository
 from ai_trainer.adapters.llm_calls_repository import SqlAlchemyLlmCallsRepository
 from ai_trainer.adapters.onboarding_repository import SqlAlchemyOnboardingRepository
+from ai_trainer.adapters.session_draft_repository import SqlAlchemySessionDraftRepository
 from ai_trainer.adapters.users_repository import SqlAlchemyUsersRepository
 from ai_trainer.application.reply import ReplyServices
 from ai_trainer.domain.chat import ChatMessage, ChatRole
@@ -55,6 +57,8 @@ from tests.chat_support import FROZEN_NOW, FixedClock, sign_in_as
 
 _PROMPTS_ROOT = Path(__file__).parents[2] / "src" / "ai_trainer" / "llm" / "prompts"
 _HTMX = {"HX-Request": "true"}
+_CLIMB = "I climbed 3 6A and 2 6B boulders"
+_TIMES = "\N{MULTIPLICATION SIGN}"
 # The router's answer for each message the athlete sends, as the model would write it.
 _ROUTED = {
     "hi!": '{"intents": [{"kind": "chitchat", "confidence": 0.9, "span": "hi!"}]}',
@@ -76,11 +80,24 @@ _ROUTED = {
         ' "span": "Ran 5k"}, {"kind": "request_plan", "confidence": 0.9,'
         ' "span": "also plan my week"}]}'
     ),
-    "knee's sore after bouldering, log it": (
+    "knee's sore after squats, log it": (
+        '{"intents": [{"kind": "log_session", "sport": "gym", "confidence": 0.9,'
+        ' "span": "knee\'s sore after squats, log it"}]}'
+    ),
+    _CLIMB: (
         '{"intents": [{"kind": "log_session", "sport": "climbing", "confidence": 0.9,'
-        ' "span": "knee\'s sore after bouldering, log it"}]}'
+        f' "span": "{_CLIMB}"}}]}}'
     ),
 }
+# `climbing.extract`'s answer for each climbing log, as the model would write it.
+_EXTRACTED = {
+    _CLIMB: (
+        '{"occurred_on": "2026-10-02", "date_source": "assumed_today", "activities": ['
+        '{"kind": "boulder", "count": 3, "grade": "6A"},'
+        ' {"kind": "boulder", "count": 2, "grade": "6B"}]}'
+    ),
+}
+_EXTRACT_TASK = "turn the athlete's climbing log into structured data"
 _JEV_SNAPSHOT = "typesafe/jev-1.13-20260917"
 
 
@@ -192,8 +209,12 @@ def _prompt(messages: list[ModelMessage]) -> str:
 
 
 def _router(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+    """The router's answer, or `climbing.extract`'s when its instructions are the ones sent."""
+    request = messages[-1]
+    assert isinstance(request, ModelRequest)
+    answers = _EXTRACTED if _EXTRACT_TASK in str(request.instructions) else _ROUTED
     return ModelResponse(
-        parts=[TextPart(_ROUTED[_prompt(messages)])], provider_details={"cost": 0.0001}
+        parts=[TextPart(answers[_prompt(messages)])], provider_details={"cost": 0.0001}
     )
 
 
@@ -283,6 +304,7 @@ def _app(
         sports=default_sport_registry(),
         router_model=settings.router_model,
         chitchat_model=settings.chitchat_model,
+        extract_model=settings.extract_model,
         history_turns=settings.chat_history_turns,
     )
     replies = ReplyServices(
@@ -290,6 +312,8 @@ def _app(
         conversations=SqlAlchemyConversationRepository(
             factory, clock=FixedClock(), retention_days=14
         ),
+        drafts=SqlAlchemySessionDraftRepository(factory),
+        sports=default_sport_registry(),
         profile=SqlAlchemyOnboardingRepository(factory),
         conversation=conversation,
         fast_router=JevFastRouter(
@@ -532,7 +556,7 @@ async def test_pain_missed_in_a_log_gets_a_pain_first_part_before_not_yet(
     user = await _user(db_session_factory, "screen-b")
 
     [body], _ = await _send_and_stream(
-        db_session_factory, user, "knee's sore after bouldering, log it", ScriptedChitchat()
+        db_session_factory, user, "knee's sore after squats, log it", ScriptedChitchat()
     )
 
     [_, pain, later] = await _history(db_session_factory, user.id)
@@ -803,3 +827,42 @@ async def test_another_users_conversation_is_404_to_open_and_to_send_to(
         ).list_recent(stranger.id, 10)
         == []
     )
+
+
+async def test_a_climbing_log_shows_a_draft_card_that_survives_a_reload_and_saves_no_session(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    user = await _user(db_session_factory, "draft-climb")
+
+    [body], page = await _send_and_stream(db_session_factory, user, _CLIMB, ScriptedChitchat())
+
+    for html in (body, page):
+        assert 'aria-label="Draft session"' in html
+        assert f"3 {_TIMES} 6A" in html
+        assert f"2 {_TIMES} 6B" in html
+    [_, reply] = await _history(db_session_factory, user.id)
+    assert (reply.template_id, reply.template_version, reply.sports) == (
+        "climbing.extract",
+        1,
+        ("climbing",),
+    )
+    async with db_session_factory() as db:
+        drafts = await db.scalar(
+            text("SELECT count(*) FROM session_drafts WHERE user_id = :id AND status = 'pending'"),
+            {"id": user.id},
+        )
+        sessions = await db.scalar(
+            text("SELECT count(*) FROM training_sessions WHERE user_id = :id"), {"id": user.id}
+        )
+        sources = await db.scalar(
+            text("SELECT count(*) FROM training_session_sources WHERE user_id = :id"),
+            {"id": user.id},
+        )
+    assert (drafts, sessions, sources) == (1, 0, 0)
+    calls = await SqlAlchemyLlmCallsRepository(db_session_factory).list_for_user(user.id)
+    assert sorted(call.template_id for call in calls) == [
+        "climbing.extract",
+        "router",
+        "router_fast",
+        "safety_screen",
+    ]

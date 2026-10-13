@@ -2,7 +2,7 @@
 (ADR-0006, ADR-0008, ADR-0014, ticket #153)."""
 
 import shutil
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -12,9 +12,13 @@ from pydantic_ai import ModelMessage, ModelResponse, ToolCallPart
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 from pydantic_evals.evaluators import EvaluatorContext
 
-from ai_trainer.domain.sports.base import ExtractionSpec, SportPlugin
+from ai_trainer.domain.sports.base import ExtractionSpec, SessionExtraction, SportPlugin
 from ai_trainer.domain.sports.climbing.extraction import ClimbingExtraction
-from ai_trainer.domain.sports.climbing.payload import Grade
+from ai_trainer.domain.sports.climbing.payload import (
+    CLIMBING_PAYLOAD_VERSION,
+    ClimbingPayload,
+    Grade,
+)
 from ai_trainer.domain.sports.registry import SportRegistry, default_sport_registry
 from ai_trainer.llm.conversation import build_prompt_registry
 from ai_trainer.llm.evals.runner import EvalCaseInputs
@@ -98,12 +102,22 @@ def test_the_climbing_plugin_names_its_extraction_template() -> None:
     climbing = default_sport_registry().get("climbing")
 
     assert climbing.extraction == ExtractionSpec(
-        template_id=_CLIMBING_EXTRACT, version=1, output_type=ClimbingExtraction
+        template_id=_CLIMBING_EXTRACT,
+        version=1,
+        output_type=ClimbingExtraction,
+        payload_type=ClimbingPayload,
+        payload_version=CLIMBING_PAYLOAD_VERSION,
     )
 
 
 def test_extract_template_takes_its_id_version_and_output_from_the_plugin() -> None:
-    spec = ExtractionSpec(template_id=_CLIMBING_EXTRACT, version=1, output_type=ClimbingExtraction)
+    spec = ExtractionSpec(
+        template_id=_CLIMBING_EXTRACT,
+        version=1,
+        output_type=ClimbingExtraction,
+        payload_type=ClimbingPayload,
+        payload_version=1,
+    )
     template = extract_template(spec)
 
     assert (template.id, template.version, template.locale) == (_CLIMBING_EXTRACT, 1, "en")
@@ -271,3 +285,10 @@ def test_activities_match_skips_the_fields_a_case_lists_as_ignored() -> None:
         ActivitiesMatch().evaluate(_ctx(top_rope, expected, {"ignore_fields": ["kind", "style"]}))
         is True
     )
+
+
+def test_an_extraction_base_names_no_payload_until_a_sport_defines_one() -> None:
+    bare = SessionExtraction(occurred_on=date(2026, 10, 2), date_source="stated")
+
+    with pytest.raises(NotImplementedError):
+        bare.to_payload()
