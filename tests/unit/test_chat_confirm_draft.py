@@ -15,7 +15,6 @@ from ai_trainer.domain.chat import ChatRole
 from ai_trainer.domain.sessions import NewSession, Session
 from ai_trainer.domain.sports.climbing.extraction import ClimbingExtraction, ExtractedClimb
 from ai_trainer.domain.sports.climbing.payload import RouteRef
-from ai_trainer.domain.sports.registry import default_sport_registry
 from ai_trainer.domain.training import SessionDraft, StoredDraft
 from ai_trainer.domain.users import NewUser, User
 from ai_trainer.web.active_user_gate import ActiveUserGateMiddleware
@@ -26,6 +25,7 @@ from ai_trainer.web.templating import build_templates
 from tests.chat_support import (
     FROZEN_NOW,
     THREE_6A_TWO_6B,
+    UNLOGGABLE_SPORT,
     FixedClock,
     InMemoryChatRepository,
     InMemoryDraftRepository,
@@ -33,6 +33,7 @@ from tests.chat_support import (
     include_chat,
     pending_draft,
     sign_in_as,
+    sports_with_rowing,
 )
 
 _HTMX = {"HX-Request": "true"}
@@ -299,7 +300,7 @@ async def test_a_confirm_without_the_csrf_token_is_refused_and_writes_nothing() 
     assert drafts.confirmed_at == {}
 
 
-@pytest.mark.parametrize("sport_id", ["surfing", "gym"])
+@pytest.mark.parametrize("sport_id", ["surfing", UNLOGGABLE_SPORT])
 async def test_a_draft_of_an_unknown_sport_or_one_without_extraction_has_no_card(
     sport_id: str,
 ) -> None:
@@ -308,7 +309,7 @@ async def test_a_draft_of_an_unknown_sport_or_one_without_extraction_has_no_card
 
     card = draft_card(
         draft.model_copy(update={"sport_id": sport_id}),
-        sports=default_sport_registry(),
+        sports=sports_with_rowing(),
         today=THREE_6A_TWO_6B.occurred_on,
     )
 

@@ -1,5 +1,5 @@
 """Sport extraction templates: deps, the plugin-named template and its code-graded evaluators
-(ADR-0006, ADR-0008, ADR-0014, tickets #153 and #160)."""
+(ADR-0006, ADR-0008, ADR-0014, tickets #153, #159 and #160)."""
 
 import shutil
 from datetime import UTC, date, datetime
@@ -21,6 +21,7 @@ from ai_trainer.domain.sports.climbing.payload import (
     Grade,
 )
 from ai_trainer.domain.sports.cycling.extraction import CyclingExtraction
+from ai_trainer.domain.sports.gym.extraction import GymExtraction
 from ai_trainer.domain.sports.registry import SportRegistry, default_sport_registry
 from ai_trainer.llm.conversation import build_prompt_registry
 from ai_trainer.llm.evals.runner import EvalCaseInputs
@@ -143,6 +144,7 @@ def test_extract_templates_skip_a_sport_without_an_extraction() -> None:
 
     assert [template.id for template in extract_templates(sports)] == [
         _CLIMBING_EXTRACT,
+        "gym.extract",
         "cycling.extract",
     ]
 
@@ -203,6 +205,41 @@ async def test_the_cycling_prompt_carries_the_local_day_and_the_message() -> Non
     assert "Wednesday 2026-09-16" in rendered
     assert "Rode 62 km with 800 m climbing this morning" in rendered
     assert "cycling log" in rendered
+
+
+async def test_the_gym_agent_returns_a_load_in_lb_that_becomes_kg() -> None:
+    agent = _registry().build_agent("gym.extract", 1)
+    model = _extraction_response(
+        {
+            "occurred_on": "2026-09-15",
+            "date_source": "relative",
+            "activities": [
+                {
+                    "name": "bench",
+                    "sets": 3,
+                    "reps": 8,
+                    "load": {"original": "135 lb", "value": 135, "unit": "lb"},
+                }
+            ],
+        }
+    )
+
+    result = await agent.run("Bench yesterday 3x8 @ 135 lb", deps=_deps(), model=model)
+
+    assert isinstance(result.output, GymExtraction)
+    (exercise,) = result.output.to_payload().activities
+    assert exercise.load is not None
+    assert (exercise.load.original, exercise.load.kg) == ("135 lb", 61.23)
+
+
+async def test_the_gym_prompt_carries_the_local_day_and_the_message() -> None:
+    deps = _deps(message="Bench yesterday 3\N{MULTIPLICATION SIGN}8 @ 60")
+
+    rendered = _registry().render_instructions("gym.extract", 1, deps)
+
+    assert "Wednesday 2026-09-16" in rendered
+    assert "Bench yesterday 3\N{MULTIPLICATION SIGN}8 @ 60" in rendered
+    assert "gym log" in rendered
 
 
 async def test_the_rendered_prompt_carries_the_athletes_local_day_and_weekday() -> None:

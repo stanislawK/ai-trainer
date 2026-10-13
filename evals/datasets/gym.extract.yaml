@@ -1,0 +1,623 @@
+name: gym.extract
+cases:
+- name: 'multi-activity: 5x5 squat then 3 sets of pull-ups (AC)'
+  inputs:
+    prompt: 5x5 squat at 100kg, then 3 sets of pull-ups
+    deps:
+      message: 5x5 squat at 100kg, then 3 sets of pull-ups
+      history: []
+      today: '2026-10-13'
+      weekday: Tuesday
+      now_local: '2026-10-13T19:00:00+02:00'
+      timezone: Europe/Warsaw
+  metadata: null
+  expected_output:
+    occurred_on: '2026-10-13'
+    date_source: assumed_today
+    activities:
+    - name: squat
+      sets: 5
+      reps: 5
+      load:
+        original: 100kg
+        value: 100
+        unit: kg
+      rir: null
+    - name: pull-ups
+      sets: 3
+      reps: null
+      load: null
+      rir: null
+- name: 'relative: bench yesterday 3×8 @ 60 just after midnight (AC)'
+  inputs:
+    prompt: Bench yesterday 3×8 @ 60
+    deps:
+      message: Bench yesterday 3×8 @ 60
+      history: []
+      today: '2026-10-13'
+      weekday: Tuesday
+      now_local: '2026-10-13T00:40:00+02:00'
+      timezone: Europe/Warsaw
+  metadata: null
+  expected_output:
+    occurred_on: '2026-10-12'
+    date_source: relative
+    activities:
+    - name: Bench
+      sets: 3
+      reps: 8
+      load:
+        original: '60'
+        value: 60
+        unit: null
+      rir: null
+- name: 'relative: bench yesterday 3×8 @ 60 in the evening (AC)'
+  inputs:
+    prompt: Bench yesterday 3×8 @ 60
+    deps:
+      message: Bench yesterday 3×8 @ 60
+      history: []
+      today: '2026-10-13'
+      weekday: Tuesday
+      now_local: '2026-10-13T19:00:00+02:00'
+      timezone: Europe/Warsaw
+  metadata: null
+  expected_output:
+    occurred_on: '2026-10-12'
+    date_source: relative
+    activities:
+    - name: Bench
+      sets: 3
+      reps: 8
+      load:
+        original: '60'
+        value: 60
+        unit: null
+      rir: null
+- name: 'units: deadlift in lb (AC)'
+  inputs:
+    prompt: Deadlift 3x5 at 315 lb
+    deps:
+      message: Deadlift 3x5 at 315 lb
+      history: []
+      today: '2026-10-13'
+      weekday: Tuesday
+      now_local: '2026-10-13T19:00:00+02:00'
+      timezone: Europe/Warsaw
+  metadata: null
+  expected_output:
+    occurred_on: '2026-10-13'
+    date_source: assumed_today
+    activities:
+    - name: Deadlift
+      sets: 3
+      reps: 5
+      load:
+        original: 315 lb
+        value: 315
+        unit: lb
+      rir: null
+- name: 'units: curls in lbs'
+  inputs:
+    prompt: Curls 3x10 with 25 lbs
+    deps:
+      message: Curls 3x10 with 25 lbs
+      history: []
+      today: '2026-10-13'
+      weekday: Tuesday
+      now_local: '2026-10-13T19:00:00+02:00'
+      timezone: Europe/Warsaw
+  metadata: null
+  expected_output:
+    occurred_on: '2026-10-13'
+    date_source: assumed_today
+    activities:
+    - name: Curls
+      sets: 3
+      reps: 10
+      load:
+        original: 25 lbs
+        value: 25
+        unit: lb
+      rir: null
+- name: 'units: bench in pounds'
+  inputs:
+    prompt: Bench 3 sets of 10 at 135 pounds
+    deps:
+      message: Bench 3 sets of 10 at 135 pounds
+      history: []
+      today: '2026-10-13'
+      weekday: Tuesday
+      now_local: '2026-10-13T19:00:00+02:00'
+      timezone: Europe/Warsaw
+  metadata: null
+  expected_output:
+    occurred_on: '2026-10-13'
+    date_source: assumed_today
+    activities:
+    - name: Bench
+      sets: 3
+      reps: 10
+      load:
+        original: 135 pounds
+        value: 135
+        unit: lb
+      rir: null
+- name: 'units: half kilos'
+  inputs:
+    prompt: Bench 5x5 @ 82.5kg
+    deps:
+      message: Bench 5x5 @ 82.5kg
+      history: []
+      today: '2026-10-13'
+      weekday: Tuesday
+      now_local: '2026-10-13T19:00:00+02:00'
+      timezone: Europe/Warsaw
+  metadata: null
+  expected_output:
+    occurred_on: '2026-10-13'
+    date_source: assumed_today
+    activities:
+    - name: Bench
+      sets: 5
+      reps: 5
+      load:
+        original: 82.5kg
+        value: 82.5
+        unit: kg
+      rir: null
+- name: 'units: a number with no unit'
+  inputs:
+    prompt: Leg press 3x10 @ 200
+    deps:
+      message: Leg press 3x10 @ 200
+      history: []
+      today: '2026-10-13'
+      weekday: Tuesday
+      now_local: '2026-10-13T19:00:00+02:00'
+      timezone: Europe/Warsaw
+  metadata: null
+  expected_output:
+    occurred_on: '2026-10-13'
+    date_source: assumed_today
+    activities:
+    - name: Leg press
+      sets: 3
+      reps: 10
+      load:
+        original: '200'
+        value: 200
+        unit: null
+      rir: null
+- name: 'relative: this morning'
+  inputs:
+    prompt: Did 4x6 overhead press at 40 kg this morning
+    deps:
+      message: Did 4x6 overhead press at 40 kg this morning
+      history: []
+      today: '2026-10-13'
+      weekday: Tuesday
+      now_local: '2026-10-13T19:00:00+02:00'
+      timezone: Europe/Warsaw
+  metadata: null
+  expected_output:
+    occurred_on: '2026-10-13'
+    date_source: relative
+    activities:
+    - name: overhead press
+      sets: 4
+      reps: 6
+      load:
+        original: 40 kg
+        value: 40
+        unit: kg
+      rir: null
+- name: 'relative: on Saturday'
+  inputs:
+    prompt: 'On Saturday: squat 3x5 at 120 kg'
+    deps:
+      message: 'On Saturday: squat 3x5 at 120 kg'
+      history: []
+      today: '2026-10-13'
+      weekday: Tuesday
+      now_local: '2026-10-13T19:00:00+02:00'
+      timezone: Europe/Warsaw
+  metadata: null
+  expected_output:
+    occurred_on: '2026-10-10'
+    date_source: relative
+    activities:
+    - name: squat
+      sets: 3
+      reps: 5
+      load:
+        original: 120 kg
+        value: 120
+        unit: kg
+      rir: null
+- name: 'relative: last night just after midnight'
+  inputs:
+    prompt: 'Last night: bench 3x5 @ 90 kg'
+    deps:
+      message: 'Last night: bench 3x5 @ 90 kg'
+      history: []
+      today: '2026-10-13'
+      weekday: Tuesday
+      now_local: '2026-10-13T00:40:00+02:00'
+      timezone: Europe/Warsaw
+  metadata: null
+  expected_output:
+    occurred_on: '2026-10-12'
+    date_source: relative
+    activities:
+    - name: bench
+      sets: 3
+      reps: 5
+      load:
+        original: 90 kg
+        value: 90
+        unit: kg
+      rir: null
+- name: 'stated: 8 October'
+  inputs:
+    prompt: On 8 October I did bench 5x5 @ 80kg
+    deps:
+      message: On 8 October I did bench 5x5 @ 80kg
+      history: []
+      today: '2026-10-13'
+      weekday: Tuesday
+      now_local: '2026-10-13T19:00:00+02:00'
+      timezone: Europe/Warsaw
+  metadata: null
+  expected_output:
+    occurred_on: '2026-10-08'
+    date_source: stated
+    activities:
+    - name: bench
+      sets: 5
+      reps: 5
+      load:
+        original: 80kg
+        value: 80
+        unit: kg
+      rir: null
+- name: 'stated: 12.10'
+  inputs:
+    prompt: 12.10 leg press 4x12 at 150 kg
+    deps:
+      message: 12.10 leg press 4x12 at 150 kg
+      history: []
+      today: '2026-10-13'
+      weekday: Tuesday
+      now_local: '2026-10-13T19:00:00+02:00'
+      timezone: Europe/Warsaw
+  metadata: null
+  expected_output:
+    occurred_on: '2026-10-12'
+    date_source: stated
+    activities:
+    - name: leg press
+      sets: 4
+      reps: 12
+      load:
+        original: 150 kg
+        value: 150
+        unit: kg
+      rir: null
+- name: 'assumed: pull-ups 5x8'
+  inputs:
+    prompt: Pull-ups 5x8
+    deps:
+      message: Pull-ups 5x8
+      history: []
+      today: '2026-10-13'
+      weekday: Tuesday
+      now_local: '2026-10-13T19:00:00+02:00'
+      timezone: Europe/Warsaw
+  metadata: null
+  expected_output:
+    occurred_on: '2026-10-13'
+    date_source: assumed_today
+    activities:
+    - name: Pull-ups
+      sets: 5
+      reps: 8
+      load: null
+      rir: null
+- name: 'rir: 2 in reserve'
+  inputs:
+    prompt: Squat 3x5 @ 140 kg, 2 RIR
+    deps:
+      message: Squat 3x5 @ 140 kg, 2 RIR
+      history: []
+      today: '2026-10-13'
+      weekday: Tuesday
+      now_local: '2026-10-13T19:00:00+02:00'
+      timezone: Europe/Warsaw
+  metadata: null
+  expected_output:
+    occurred_on: '2026-10-13'
+    date_source: assumed_today
+    activities:
+    - name: Squat
+      sets: 3
+      reps: 5
+      load:
+        original: 140 kg
+        value: 140
+        unit: kg
+      rir: 2
+- name: 'rir: to failure'
+  inputs:
+    prompt: Dips 3x12 to failure
+    deps:
+      message: Dips 3x12 to failure
+      history: []
+      today: '2026-10-13'
+      weekday: Tuesday
+      now_local: '2026-10-13T19:00:00+02:00'
+      timezone: Europe/Warsaw
+  metadata: null
+  expected_output:
+    occurred_on: '2026-10-13'
+    date_source: assumed_today
+    activities:
+    - name: Dips
+      sets: 3
+      reps: 12
+      load: null
+      rir: 0
+- name: 'bodyweight: added weight'
+  inputs:
+    prompt: Pull-ups 5x3 with 10 kg added
+    deps:
+      message: Pull-ups 5x3 with 10 kg added
+      history: []
+      today: '2026-10-13'
+      weekday: Tuesday
+      now_local: '2026-10-13T19:00:00+02:00'
+      timezone: Europe/Warsaw
+  metadata: null
+  expected_output:
+    occurred_on: '2026-10-13'
+    date_source: assumed_today
+    activities:
+    - name: Pull-ups
+      sets: 5
+      reps: 3
+      load:
+        original: 10 kg
+        value: 10
+        unit: kg
+      rir: null
+- name: 'bodyweight: sets only and reps only'
+  inputs:
+    prompt: 3 sets of push-ups and 50 sit-ups
+    deps:
+      message: 3 sets of push-ups and 50 sit-ups
+      history: []
+      today: '2026-10-13'
+      weekday: Tuesday
+      now_local: '2026-10-13T19:00:00+02:00'
+      timezone: Europe/Warsaw
+  metadata: null
+  expected_output:
+    occurred_on: '2026-10-13'
+    date_source: assumed_today
+    activities:
+    - name: push-ups
+      sets: 3
+      reps: null
+      load: null
+      rir: null
+    - name: sit-ups
+      sets: null
+      reps: 50
+      load: null
+      rir: null
+- name: 'multi-activity: the same lift at two weights'
+  inputs:
+    prompt: Squat 2x5 at 100 kg, then 1x3 at 110 kg
+    deps:
+      message: Squat 2x5 at 100 kg, then 1x3 at 110 kg
+      history: []
+      today: '2026-10-13'
+      weekday: Tuesday
+      now_local: '2026-10-13T19:00:00+02:00'
+      timezone: Europe/Warsaw
+  metadata: null
+  expected_output:
+    occurred_on: '2026-10-13'
+    date_source: assumed_today
+    activities:
+    - name: Squat
+      sets: 2
+      reps: 5
+      load:
+        original: 100 kg
+        value: 100
+        unit: kg
+      rir: null
+    - name: Squat
+      sets: 1
+      reps: 3
+      load:
+        original: 110 kg
+        value: 110
+        unit: kg
+      rir: null
+- name: 'multi-activity: three exercises today'
+  inputs:
+    prompt: 'Today: bench 4x8 at 70kg, rows 4x10 at 60kg, face pulls 3x15'
+    deps:
+      message: 'Today: bench 4x8 at 70kg, rows 4x10 at 60kg, face pulls 3x15'
+      history: []
+      today: '2026-10-13'
+      weekday: Tuesday
+      now_local: '2026-10-13T19:00:00+02:00'
+      timezone: Europe/Warsaw
+  metadata: null
+  expected_output:
+    occurred_on: '2026-10-13'
+    date_source: relative
+    activities:
+    - name: bench
+      sets: 4
+      reps: 8
+      load:
+        original: 70kg
+        value: 70
+        unit: kg
+      rir: null
+    - name: rows
+      sets: 4
+      reps: 10
+      load:
+        original: 60kg
+        value: 60
+        unit: kg
+      rir: null
+    - name: face pulls
+      sets: 3
+      reps: 15
+      load: null
+      rir: null
+- name: 'mixed sport: boulders then deadlifts'
+  inputs:
+    prompt: Climbed 4 boulders at 6B, then deadlifts 3x5 at 100 kg
+    deps:
+      message: Climbed 4 boulders at 6B, then deadlifts 3x5 at 100 kg
+      history: []
+      today: '2026-10-13'
+      weekday: Tuesday
+      now_local: '2026-10-13T19:00:00+02:00'
+      timezone: Europe/Warsaw
+  metadata: null
+  expected_output:
+    occurred_on: '2026-10-13'
+    date_source: assumed_today
+    activities:
+    - name: deadlifts
+      sets: 3
+      reps: 5
+      load:
+        original: 100 kg
+        value: 100
+        unit: kg
+      rir: null
+- name: 'mixed sport: rode to the gym'
+  inputs:
+    prompt: Rode 30 km to the gym and did squats 5x5 at 90kg
+    deps:
+      message: Rode 30 km to the gym and did squats 5x5 at 90kg
+      history: []
+      today: '2026-10-13'
+      weekday: Tuesday
+      now_local: '2026-10-13T19:00:00+02:00'
+      timezone: Europe/Warsaw
+  metadata: null
+  expected_output:
+    occurred_on: '2026-10-13'
+    date_source: assumed_today
+    activities:
+    - name: squats
+      sets: 5
+      reps: 5
+      load:
+        original: 90kg
+        value: 90
+        unit: kg
+      rir: null
+- name: 'polish: przysiady wczoraj'
+  inputs:
+    prompt: Wczoraj przysiady 5x5 na 100 kg
+    deps:
+      message: Wczoraj przysiady 5x5 na 100 kg
+      history: []
+      today: '2026-10-13'
+      weekday: Tuesday
+      now_local: '2026-10-13T19:00:00+02:00'
+      timezone: Europe/Warsaw
+  metadata: null
+  expected_output:
+    occurred_on: '2026-10-12'
+    date_source: relative
+    activities:
+    - name: przysiady
+      sets: 5
+      reps: 5
+      load:
+        original: 100 kg
+        value: 100
+        unit: kg
+      rir: null
+- name: 'polish: podciąganie 4 serie po 8'
+  inputs:
+    prompt: Podciąganie 4 serie po 8
+    deps:
+      message: Podciąganie 4 serie po 8
+      history: []
+      today: '2026-10-13'
+      weekday: Tuesday
+      now_local: '2026-10-13T19:00:00+02:00'
+      timezone: Europe/Warsaw
+  metadata: null
+  expected_output:
+    occurred_on: '2026-10-13'
+    date_source: assumed_today
+    activities:
+    - name: Podciąganie
+      sets: 4
+      reps: 8
+      load: null
+      rir: null
+- name: 'ambiguous: bench and a feeling'
+  inputs:
+    prompt: Did some bench, felt strong
+    deps:
+      message: Did some bench, felt strong
+      history: []
+      today: '2026-10-13'
+      weekday: Tuesday
+      now_local: '2026-10-13T19:00:00+02:00'
+      timezone: Europe/Warsaw
+  metadata: null
+  expected_output:
+    occurred_on: '2026-10-13'
+    date_source: assumed_today
+    activities:
+    - name: bench
+      sets: null
+      reps: null
+      load: null
+      rir: null
+- name: 'ambiguous: earlier turn gave the day'
+  inputs:
+    prompt: Squats 4x6 at 110 kg
+    deps:
+      message: Squats 4x6 at 110 kg
+      history:
+      - role: user
+        text: Leg day yesterday, logging it now
+      - role: assistant
+        text: Go ahead, what did you do?
+      today: '2026-10-13'
+      weekday: Tuesday
+      now_local: '2026-10-13T19:00:00+02:00'
+      timezone: Europe/Warsaw
+  metadata: null
+  expected_output:
+    occurred_on: '2026-10-12'
+    date_source: relative
+    activities:
+    - name: Squats
+      sets: 4
+      reps: 6
+      load:
+        original: 110 kg
+        value: 110
+        unit: kg
+      rir: null
+evaluators:
+- DateMatch
+- ActivitiesMatch

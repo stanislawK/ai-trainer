@@ -43,7 +43,6 @@ from ai_trainer.application.reply import ReplyServices
 from ai_trainer.domain.chat import ChatMessage, ChatRole
 from ai_trainer.domain.conversation import INTENT_KINDS
 from ai_trainer.domain.llm_calls import LlmCall, LlmCallOutcome, NewLlmCall
-from ai_trainer.domain.sports.registry import default_sport_registry
 from ai_trainer.domain.users import NewUser, User, UserStatus
 from ai_trainer.llm.conversation import LlmConversation, build_prompt_registry
 from ai_trainer.llm.decision_gateway import OpenRouterDecisionGateway
@@ -53,7 +52,7 @@ from ai_trainer.llm.safety_screen import JevSafetyScreen
 from ai_trainer.settings import Settings
 from ai_trainer.web.chat import build_chat_router
 from ai_trainer.web.templating import build_templates
-from tests.chat_support import FROZEN_NOW, FixedClock, sign_in_as
+from tests.chat_support import FROZEN_NOW, FixedClock, sign_in_as, sports_with_rowing
 
 _PROMPTS_ROOT = Path(__file__).parents[2] / "src" / "ai_trainer" / "llm" / "prompts"
 _HTMX = {"HX-Request": "true"}
@@ -62,9 +61,9 @@ _TIMES = "\N{MULTIPLICATION SIGN}"
 # The router's answer for each message the athlete sends, as the model would write it.
 _ROUTED = {
     "hi!": '{"intents": [{"kind": "chitchat", "confidence": 0.9, "span": "hi!"}]}',
-    "log my lifts": (
-        '{"intents": [{"kind": "log_session", "sport": "gym", "confidence": 0.9,'
-        ' "span": "log my lifts"}]}'
+    "log my row": (
+        '{"intents": [{"kind": "log_session", "sport": "rowing", "confidence": 0.9,'
+        ' "span": "log my row"}]}'
     ),
     "my knee hurts, also hi": (
         '{"intents": [{"kind": "chitchat", "confidence": 0.8, "span": "also hi"},'
@@ -76,12 +75,12 @@ _ROUTED = {
         ' "span": "knee\'s a bit sore lol, anyway hi"}]}'
     ),
     "Ran 5k, also plan my week": (
-        '{"intents": [{"kind": "log_session", "sport": "gym", "confidence": 0.6,'
+        '{"intents": [{"kind": "log_session", "sport": "rowing", "confidence": 0.6,'
         ' "span": "Ran 5k"}, {"kind": "request_plan", "confidence": 0.9,'
         ' "span": "also plan my week"}]}'
     ),
     "knee's sore after squats, log it": (
-        '{"intents": [{"kind": "log_session", "sport": "gym", "confidence": 0.9,'
+        '{"intents": [{"kind": "log_session", "sport": "rowing", "confidence": 0.9,'
         ' "span": "knee\'s sore after squats, log it"}]}'
     ),
     _CLIMB: (
@@ -299,9 +298,9 @@ def _app(
     )
     chat = SqlAlchemyChatRepository(factory)
     conversation = LlmConversation(
-        registry=build_prompt_registry(_PROMPTS_ROOT, default_sport_registry()),
+        registry=build_prompt_registry(_PROMPTS_ROOT, sports_with_rowing()),
         gateway=gateway,
-        sports=default_sport_registry(),
+        sports=sports_with_rowing(),
         router_model=settings.router_model,
         chitchat_model=settings.chitchat_model,
         extract_model=settings.extract_model,
@@ -313,7 +312,7 @@ def _app(
             factory, clock=FixedClock(), retention_days=14
         ),
         drafts=SqlAlchemySessionDraftRepository(factory),
-        sports=default_sport_registry(),
+        sports=sports_with_rowing(),
         profile=SqlAlchemyOnboardingRepository(factory),
         conversation=conversation,
         fast_router=JevFastRouter(
@@ -332,7 +331,7 @@ def _app(
     app = FastAPI()
     app.include_router(
         build_chat_router(
-            build_templates(), chat=chat, replies=replies, sports=default_sport_registry()
+            build_templates(), chat=chat, replies=replies, sports=sports_with_rowing()
         )
     )
     sign_in_as(app, user)
@@ -405,17 +404,17 @@ async def test_hi_streams_a_reply_that_survives_a_reload_with_a_row_per_model_ca
     ]
 
 
-async def test_log_my_lifts_gets_the_not_yet_reply_and_only_the_router_row(
+async def test_log_my_row_gets_the_not_yet_reply_and_only_the_router_row(
     db_session_factory: Callable[[], AsyncSession],
 ) -> None:
     user = await _user(db_session_factory, "reply-b")
     chitchat = ScriptedChitchat()
 
-    await _send_and_stream(db_session_factory, user, "log my lifts", chitchat)
+    await _send_and_stream(db_session_factory, user, "log my row", chitchat)
 
     assert chitchat.instructions == []
     [_, reply] = await _history(db_session_factory, user.id)
-    assert (reply.template_id, reply.template_version, reply.sports) == ("not_yet", 1, ("gym",))
+    assert (reply.template_id, reply.template_version, reply.sports) == ("not_yet", 1, ("rowing",))
     calls = await SqlAlchemyLlmCallsRepository(db_session_factory).list_for_user(user.id)
     assert sorted(call.template_id for call in calls) == ["router", "router_fast", "safety_screen"]
 
@@ -499,7 +498,7 @@ async def test_a_reply_finishing_after_the_next_message_stays_with_its_own_messa
         user.id,
         await _thread(db_session_factory, user.id),
         ChatRole.USER,
-        "log my lifts",
+        "log my row",
         FROZEN_NOW - timedelta(seconds=5),
     )
     app, gateways = _app(db_session_factory, user)
@@ -600,7 +599,7 @@ async def test_every_message_writes_one_screen_row_under_its_own_decision_id(
         user.id,
         await _thread(db_session_factory, user.id),
         ChatRole.USER,
-        "log my lifts",
+        "log my row",
         FROZEN_NOW - timedelta(seconds=5),
     )
     app, gateways = _app(db_session_factory, user)
@@ -647,8 +646,7 @@ async def test_a_screen_timeout_still_streams_the_router_driven_reply(
 # The Jev router fast path (ADR-0020 use 1, ticket #122).
 
 _HI_FAST: FastAnswer = (0.02, {"intent": ("chitchat", 0.97), "sport": ("gym", 0.4)})
-# Gym names no extraction template yet, so its log gets the "not yet" reply.
-_LIFTS_FAST: FastAnswer = (0.03, {"intent": ("log_session", 0.96), "sport": ("gym", 0.95)})
+_CLIMB_FAST: FastAnswer = (0.03, {"intent": ("log_session", 0.96), "sport": ("climbing", 0.95)})
 
 
 async def test_a_fast_routed_message_writes_a_router_fast_row_and_no_router_row(
@@ -681,15 +679,15 @@ async def test_a_fast_routed_log_takes_its_sport_from_the_athletes_own_sports(
     await SqlAlchemyOnboardingRepository(db_session_factory).replace_sports(
         user.id, ["climbing", "gym"]
     )
-    jev = FakeJev(fast={"log my lifts": _LIFTS_FAST})
+    jev = FakeJev(fast={_CLIMB: _CLIMB_FAST})
 
-    await _send_and_stream(db_session_factory, user, "log my lifts", ScriptedChitchat(), jev=jev)
+    await _send_and_stream(db_session_factory, user, _CLIMB, ScriptedChitchat(), jev=jev)
 
     assert jev.fast_asked == [
-        {"state": "log my lifts", "intent": list(INTENT_KINDS), "sport": ["climbing", "gym"]}
+        {"state": _CLIMB, "intent": list(INTENT_KINDS), "sport": ["climbing", "gym"]}
     ]
     [_, reply] = await _history(db_session_factory, user.id)
-    assert (reply.template_id, reply.sports) == ("not_yet", ("gym",))
+    assert (reply.template_id, reply.sports) == ("climbing.extract", ("climbing",))
     assert "router" not in [name for name, _ in await _calls(db_session_factory, user)]
 
 
@@ -749,14 +747,14 @@ async def test_a_single_sport_athletes_log_gets_their_sport_with_no_sport_questi
     db_session_factory: Callable[[], AsyncSession],
 ) -> None:
     user = await _user(db_session_factory, "fast-e")
-    await SqlAlchemyOnboardingRepository(db_session_factory).replace_sports(user.id, ["gym"])
+    await SqlAlchemyOnboardingRepository(db_session_factory).replace_sports(user.id, ["rowing"])
     jev = FakeJev(fast={"Did an hour": (0.05, {"intent": ("log_session", 0.97)})})
 
     await _send_and_stream(db_session_factory, user, "Did an hour", ScriptedChitchat(), jev=jev)
 
     assert jev.fast_asked == [{"state": "Did an hour", "intent": list(INTENT_KINDS)}]
     [_, reply] = await _history(db_session_factory, user.id)
-    assert (reply.template_id, reply.sports) == ("not_yet", ("gym",))
+    assert (reply.template_id, reply.sports) == ("not_yet", ("rowing",))
     assert "router" not in [name for name, _ in await _calls(db_session_factory, user)]
 
 

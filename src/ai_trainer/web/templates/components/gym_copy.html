@@ -1,0 +1,21 @@
+{#- User-facing gym formats (G5), shared by the gym draft card, its edit fields and its logged row (ticket #159). Import with
+    `{% from "components/gym_copy.html" import exercise_name, kg, kg_value, scheme %}`. A name keeps how it was typed but starts upper case ("Squat", "RDL"); a load shows in kg to one decimal ("142.9", "100"); a scheme is "5 × 5", "3 sets" or "12 reps". -#}
+{% macro exercise_name(name) -%}
+{{ name[:1] | upper }}{{ name[1:] }}
+{%- endmacro %}
+
+{% macro kg(value) -%}
+{{ "%g" | format(value | round(1)) }}
+{%- endmacro %}
+
+{#- The stored kg exactly, for an edit field, so a value left as shown is recognised as kept: "142.88", "100". -#}
+{% macro kg_value(value) -%}
+{{ value | int if value == value | int else value }}
+{%- endmacro %}
+
+{% macro scheme(exercise) -%}
+{%- if exercise.sets and exercise.reps -%}{{ exercise.sets }} × {{ exercise.reps }}
+{%- elif exercise.sets -%}{{ exercise.sets }} {{ "set" if exercise.sets == 1 else "sets" }}
+{%- elif exercise.reps -%}{{ exercise.reps }} {{ "rep" if exercise.reps == 1 else "reps" }}
+{%- endif -%}
+{%- endmacro %}

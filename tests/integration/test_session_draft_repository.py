@@ -22,6 +22,8 @@ from ai_trainer.application.retention import purge_expired_conversations
 from ai_trainer.domain.chat import ChatRole
 from ai_trainer.domain.sports.cycling.extraction import CyclingExtraction
 from ai_trainer.domain.sports.cycling.payload import CYCLING_PAYLOAD_VERSION
+from ai_trainer.domain.sports.gym.extraction import GymExtraction
+from ai_trainer.domain.sports.gym.payload import GYM_PAYLOAD_VERSION
 from ai_trainer.domain.training import (
     DraftConfirmedError,
     DraftDiscardedError,
@@ -382,6 +384,65 @@ async def test_confirming_a_ride_in_miles_saves_it_in_km_with_the_log_as_typed(
         "value": 40,
         "unit": "mi",
         "km": 64.37,
+    }
+
+
+async def test_confirming_lifts_in_lb_saves_them_in_kg_with_the_log_as_typed(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    """A gym draft confirms like a climbing one (ticket #159): its payload keeps the pounds as
+    typed beside the kg, and its source row keeps the athlete's text (B2)."""
+    drafts = SqlAlchemySessionDraftRepository(db_session_factory)
+    user_id, conversation_id, message_id = await _log(
+        db_session_factory, "confirm-lifts", "Deadlift 3x5 at 315 lb, then 3 sets of pull-ups"
+    )
+    payload = GymExtraction.model_validate(
+        {
+            "occurred_on": "2026-10-01",
+            "date_source": "relative",
+            "activities": [
+                {
+                    "name": "Deadlift",
+                    "sets": 3,
+                    "reps": 5,
+                    "load": {"original": "315 lb", "value": 315, "unit": "lb"},
+                },
+                {"name": "pull-ups", "sets": 3},
+            ],
+        }
+    ).to_payload()
+    draft = await drafts.add(
+        user_id,
+        conversation_id,
+        message_id,
+        "gym",
+        _DRAFT.model_copy(
+            update={"occurred_on": date(2026, 10, 1), "payload": payload.model_dump(mode="json")}
+        ),
+        payload_version=GYM_PAYLOAD_VERSION,
+        created_at=_START,
+    )
+
+    confirmed = await drafts.confirm(user_id, draft.id, confirmed_at=_START)
+
+    async with db_session_factory() as db:
+        sport_id, stored, raw_text = (
+            await db.execute(
+                text(
+                    "SELECT s.sport_id, s.payload, src.raw_text FROM training_sessions s"
+                    " JOIN training_session_sources src ON src.session_id = s.id"
+                    " WHERE s.id = :id"
+                ),
+                {"id": confirmed.session_id},
+            )
+        ).one()
+    assert (sport_id, raw_text) == ("gym", "Deadlift 3x5 at 315 lb, then 3 sets of pull-ups")
+    assert [exercise["name"] for exercise in stored["activities"]] == ["Deadlift", "pull-ups"]
+    assert stored["activities"][0]["load"] == {
+        "original": "315 lb",
+        "value": 315,
+        "unit": "lb",
+        "kg": 142.88,
     }
 
 
