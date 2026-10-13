@@ -324,6 +324,46 @@
         "summary": "Confirm"
       }
     },
+    "/drafts/{draft_id}/discard": {
+      "post": {
+        "description": "The draft card's Discard (F2, ADR-0022): throws the athlete's draft away without\nsaving a session and answers with its \"Draft discarded\" row, which replaces the card.\nA second discard answers with the same row. A confirmed draft is a 409 and changes\nnothing.",
+        "operationId": "discard_drafts__draft_id__discard_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "draft_id",
+            "required": true,
+            "schema": {
+              "title": "Draft Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Discard"
+      }
+    },
     "/health": {
       "get": {
         "operationId": "health_health_get",

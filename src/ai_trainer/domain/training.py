@@ -54,3 +54,7 @@ class DraftNotFoundError(Exception):
 
 class DraftDiscardedError(Exception):
     """The draft was discarded, so it can't be confirmed (ADR-0022)."""
+
+
+class DraftConfirmedError(Exception):
+    """The draft was confirmed and its session saved, so it can't be discarded (ADR-0022)."""

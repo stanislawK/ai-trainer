@@ -1,0 +1,4 @@
+{#- A discarded draft, collapsed to a one-line row in the style of the Chat mock's state 9 (F2, ticket #156; the mock has no discarded frame, owner-approved 2026-10-13): no action, since nothing was saved. It also stands in after a reload. -#}
+{%- from "components/icon.html" import icon -%}
+{%- set draft = card.draft if card else draft -%}
+<div class="glass-regular relative rounded-box px-4 py-3 flex items-center gap-3" role="status" data-discarded-draft="{{ draft.id }}">{{ icon("circle-x", "size-5 text-base-content/70") }}<span class="flex-1 text-[15px] text-base-content/70">Draft discarded</span></div>
