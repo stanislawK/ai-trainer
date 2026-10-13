@@ -1,0 +1,4 @@
+{#- A confirmed draft, collapsed to the Chat mock's state 9 row (F2, ticket #155): what was logged, from the plugin's own summary partial, and the day it went to. When the saved draft's payload no longer reads (`card` or its payload is `None`), the row says "session". Undo stays disabled until #157 wires it. -#}
+{%- from "components/icon.html" import icon -%}
+{%- set draft = card.draft if card else draft -%}
+<div class="glass-regular relative rounded-box px-4 py-3 flex items-center gap-3" role="status" data-confirmed-draft="{{ draft.id }}">{{ icon("circle-check", "size-5 text-success") }}<span class="flex-1 text-[15px]">Logged {% if card and card.payload %}{% include card.summary_template %}{% else %}session{% endif %} to {{ draft.draft.occurred_on | dayformat }}</span><button type="button" class="btn btn-ghost btn-sm" disabled>Undo</button></div>

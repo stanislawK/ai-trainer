@@ -35,7 +35,13 @@ from ai_trainer.domain.llm_calls import LlmCallOutcome
 from ai_trainer.domain.sports.base import SessionExtraction
 from ai_trainer.domain.sports.climbing.extraction import ClimbingExtraction, ExtractedClimb
 from ai_trainer.domain.sports.registry import default_sport_registry
-from ai_trainer.domain.training import SessionDraft, StoredDraft
+from ai_trainer.domain.training import (
+    DraftDiscardedError,
+    DraftNotFoundError,
+    DraftStatus,
+    SessionDraft,
+    StoredDraft,
+)
 from ai_trainer.domain.users import User, UserStatus
 from ai_trainer.web.chat import build_chat_router
 
@@ -235,6 +241,7 @@ class InMemoryDraftRepository:
 
     def __init__(self) -> None:
         self.rows: list[tuple[UUID, StoredDraft]] = []
+        self.confirmed_at: dict[UUID, datetime] = {}
 
     async def add(
         self,
@@ -260,13 +267,34 @@ class InMemoryDraftRepository:
         self.rows.append((user_id, stored))
         return stored
 
-    async def list_pending(self, user_id: UUID, conversation_id: UUID) -> Sequence[StoredDraft]:
+    async def list_shown(self, user_id: UUID, conversation_id: UUID) -> Sequence[StoredDraft]:
         return [
             draft
             for owner, draft in self.rows
             if owner == user_id
             and draft.conversation_id == conversation_id
-            and draft.status == "pending"
+            and draft.status != "discarded"
+        ]
+
+    async def confirm(
+        self, user_id: UUID, draft_id: UUID, *, confirmed_at: datetime
+    ) -> StoredDraft:
+        for index, (owner, draft) in enumerate(self.rows):
+            if owner != user_id or draft.id != draft_id:
+                continue
+            if draft.status == "discarded":
+                raise DraftDiscardedError(draft_id)
+            if draft.status == "pending":
+                draft = draft.model_copy(update={"status": "confirmed", "session_id": uuid4()})
+                self.rows[index] = (owner, draft)
+                self.confirmed_at[draft.id] = confirmed_at
+            return draft
+        raise DraftNotFoundError(draft_id)
+
+    def set_status(self, draft_id: UUID, status: DraftStatus) -> None:
+        self.rows = [
+            (owner, draft.model_copy(update={"status": status}) if draft.id == draft_id else draft)
+            for owner, draft in self.rows
         ]
 
     def all_of(self, user_id: UUID) -> list[StoredDraft]:
@@ -467,3 +495,27 @@ def sign_in_as(app: FastAPI, user: User | None = None) -> User:
         return await call_next(request)
 
     return signed_in
+
+
+async def pending_draft(
+    drafts: InMemoryDraftRepository, user_id: UUID, *, status: DraftStatus = "pending"
+) -> StoredDraft:
+    """A test's shortcut: the athlete's climbing draft of `THREE_6A_TWO_6B`, in a conversation
+    and from a log of its own, with `status`."""
+    stored = await drafts.add(
+        user_id,
+        uuid4(),
+        uuid4(),
+        "climbing",
+        SessionDraft(
+            occurred_on=THREE_6A_TWO_6B.occurred_on,
+            date_source=THREE_6A_TWO_6B.date_source,
+            timezone="Europe/Warsaw",
+            payload=THREE_6A_TWO_6B.to_payload().model_dump(mode="json"),
+        ),
+        payload_version=1,
+        created_at=FROZEN_NOW,
+    )
+    if status != "pending":
+        drafts.set_status(stored.id, status)
+    return next(draft for draft in drafts.all_of(user_id) if draft.id == stored.id)

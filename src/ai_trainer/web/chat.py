@@ -29,6 +29,7 @@ from ai_trainer.application.chat import (
     open_conversation,
     send_message,
 )
+from ai_trainer.application.drafts import confirm_draft
 from ai_trainer.application.ports.chat import ChatRepositoryPort
 from ai_trainer.application.reply import (
     MessageNotFoundError,
@@ -44,12 +45,14 @@ from ai_trainer.application.reply import (
 from ai_trainer.domain.chat import ChatMessage, ChatRole, Conversation
 from ai_trainer.domain.llm_calls import LlmCallOutcome
 from ai_trainer.domain.sports.registry import SportRegistry
+from ai_trainer.domain.training import DraftDiscardedError, DraftNotFoundError
 from ai_trainer.domain.users import User
-from ai_trainer.web.drafts import DraftCard, draft_cards
+from ai_trainer.web.drafts import DraftCard, draft_card, draft_cards
 from ai_trainer.web.glyphs import build_reply_glyph
 
 _UNPROCESSABLE = 422
 _NOT_FOUND = 404
+_CONFLICT = 409
 _MORNING_FROM = 5
 _AFTERNOON_FROM = 12
 _EVENING_FROM = 18
@@ -147,7 +150,7 @@ def build_chat_router(
             status_code=_UNPROCESSABLE if error else 200,
         )
 
-    def parse_conversation_id(raw: str) -> UUID:
+    def parse_id(raw: str) -> UUID:
         """A malformed ID is as unknown as a missing one: a 404, never a 422."""
         try:
             return UUID(raw)
@@ -160,10 +163,10 @@ def build_chat_router(
         cards: Mapping[UUID, Sequence[DraftCard]] = {}
         if conversation is not None:
             history = await list_history(user.id, conversation.id, repository=chat)
-            pending = await replies.drafts.list_pending(user.id, conversation.id)
+            shown = await replies.drafts.list_shown(user.id, conversation.id)
             cards = draft_cards(
                 history,
-                pending,
+                shown,
                 sports=sports,
                 today=local_today(user),
                 log_id=await window_log(user, history),
@@ -202,7 +205,7 @@ def build_chat_router(
         user: User = request.state.user
         try:
             conversation = await open_conversation(
-                user.id, parse_conversation_id(conversation_id), conversations=conversations
+                user.id, parse_id(conversation_id), conversations=conversations
             )
         except ConversationNotFoundError:
             raise HTTPException(status_code=_NOT_FOUND) from None
@@ -216,9 +219,7 @@ def build_chat_router(
         raw = form.get("message", "")
         text = raw if isinstance(raw, str) else ""
         raw_id = form.get("conversation_id", "")
-        conversation_id = (
-            parse_conversation_id(raw_id) if isinstance(raw_id, str) and raw_id else None
-        )
+        conversation_id = parse_id(raw_id) if isinstance(raw_id, str) and raw_id else None
         try:
             message = await send_message(
                 user.id,
@@ -298,6 +299,25 @@ def build_chat_router(
             )
         return templates.TemplateResponse(
             request, "partials/chat/reply_stopped.html", {"message_id": message_id}
+        )
+
+    @router.post("/drafts/{draft_id}/confirm", response_class=HTMLResponse)
+    async def confirm(request: Request, draft_id: str) -> HTMLResponse:
+        """The draft card's Confirm (F2, ADR-0022): saves the athlete's draft once and answers
+        with its "Logged … to <date>" row, which replaces the card. A second confirm answers
+        with the same row. A discarded draft is a 409 and writes nothing."""
+        user: User = request.state.user
+        try:
+            draft = await confirm_draft(
+                user.id, parse_id(draft_id), drafts=replies.drafts, clock=clock
+            )
+        except DraftNotFoundError:
+            raise HTTPException(status_code=_NOT_FOUND) from None
+        except DraftDiscardedError:
+            raise HTTPException(status_code=_CONFLICT) from None
+        card = draft_card(draft, sports=sports, today=local_today(user))
+        return templates.TemplateResponse(
+            request, "partials/chat/draft_confirmed.html", {"card": card, "draft": draft}
         )
 
     return router

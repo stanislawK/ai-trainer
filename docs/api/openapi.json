@@ -284,6 +284,46 @@
         "summary": "Show Conversation"
       }
     },
+    "/drafts/{draft_id}/confirm": {
+      "post": {
+        "description": "The draft card's Confirm (F2, ADR-0022): saves the athlete's draft once and answers\nwith its \"Logged \u2026 to <date>\" row, which replaces the card. A second confirm answers\nwith the same row. A discarded draft is a 409 and writes nothing.",
+        "operationId": "confirm_drafts__draft_id__confirm_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "draft_id",
+            "required": true,
+            "schema": {
+              "title": "Draft Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Confirm"
+      }
+    },
     "/health": {
       "get": {
         "operationId": "health_health_get",

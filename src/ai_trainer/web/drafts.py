@@ -1,7 +1,8 @@
-"""The draft cards under a reply (PRD-0004 F2, ADR-0022, ticket #154): each pending draft sits
-under the reply part that introduced it, the part after the athlete's log whose template is
-that sport's extraction template. Its payload is read only through the plugin's model
-(ADR-0022), and the sport-specific card body is the plugin's own partial."""
+"""The draft cards under a reply (PRD-0004 F2, ADR-0022, tickets #154 and #155): each pending
+draft sits under the reply part that introduced it, the part after the athlete's log whose
+template is that sport's extraction template, and a confirmed one shows there as its "Logged …
+to <date>" row. Its payload is read only through the plugin's model (ADR-0022), and the
+sport-specific card body and summary are the plugin's own partials."""
 
 import logging
 from collections.abc import Iterable, Mapping, Sequence
@@ -23,13 +24,27 @@ logger = logging.getLogger(__name__)
 class DraftCard:
     draft: StoredDraft
     sport: SportPlugin
-    payload: BaseModel
+    # `None` only for a confirmed draft whose payload no longer reads: its session is saved, so
+    # its row still shows, saying "session" (ticket #155).
+    payload: BaseModel | None
     # Whether the draft's day is the athlete's today, so an assumed date can say "today".
     is_today: bool
 
     @property
     def body_template(self) -> str:
         return f"partials/chat/draft_{self.sport.id}.html"
+
+    @property
+    def summary_template(self) -> str:
+        """The confirmed row's "what was logged", e.g. `Hades 8a` (the Chat mock's state 9)."""
+        return f"partials/chat/logged_{self.sport.id}.html"
+
+    @property
+    def template(self) -> str:
+        """The pending card, or the row a confirm collapses it to (ticket #155)."""
+        if self.draft.status == "confirmed":
+            return "partials/chat/draft_confirmed.html"
+        return "partials/chat/draft_card.html"
 
 
 def draft_cards(
@@ -57,7 +72,7 @@ def draft_cards(
             if not _is_extraction(message, sport_id, sports):
                 continue
             for draft in pending.pop((log, sport_id), []):
-                card = _card(draft, message, sports=sports, today=today)
+                card = draft_card(draft, sports=sports, today=today)
                 if card is not None:
                     cards.setdefault(message.id, []).append(card)
     return cards
@@ -73,20 +88,28 @@ def _is_extraction(part: ChatMessage, sport_id: str, sports: SportRegistry) -> b
     return spec is not None and part.template_id == spec.template_id
 
 
-def _card(
-    draft: StoredDraft, part: ChatMessage, *, sports: SportRegistry, today: date
-) -> DraftCard | None:
-    """`None` when its stored payload no longer reads: the page still renders, without that
-    card. `part` is already the sport's extraction reply (`_is_extraction`)."""
-    sport = sports.get(draft.sport_id)
-    spec = sport.extraction
-    assert spec is not None
-    assert part.template_id == spec.template_id
+def draft_card(draft: StoredDraft, *, sports: SportRegistry, today: date) -> DraftCard | None:
+    """`None` when its sport is unknown, or when a pending draft's stored payload no longer
+    reads: the page still renders, without that card."""
     try:
-        payload = spec.payload_type.model_validate(draft.draft.payload)
-    except ValidationError:
-        logger.warning("draft %s has a %s payload that doesn't read; not shown", draft.id, sport.id)
+        sport = sports.get(draft.sport_id)
+    except UnknownSportError:
+        logger.warning("draft %s has an unknown sport %r; not shown", draft.id, draft.sport_id)
         return None
+    spec = sport.extraction
+    if spec is None:
+        logger.warning("draft %s is of %s, which has no extraction; not shown", draft.id, sport.id)
+        return None
+    try:
+        payload: BaseModel | None = spec.payload_type.model_validate(draft.draft.payload)
+    except ValidationError:
+        if draft.status != "confirmed":
+            logger.warning(
+                "draft %s has a %s payload that doesn't read; not shown", draft.id, sport.id
+            )
+            return None
+        logger.warning("confirmed draft %s has a %s payload that doesn't read", draft.id, sport.id)
+        payload = None
     return DraftCard(
         draft=draft, sport=sport, payload=payload, is_today=draft.draft.occurred_on == today
     )

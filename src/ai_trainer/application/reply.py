@@ -311,8 +311,8 @@ async def _extract(
 async def _drafts_of(
     user_id: UUID, message: ChatMessage, services: ReplyServices
 ) -> tuple[StoredDraft, ...]:
-    pending = await services.drafts.list_pending(user_id, message.conversation_id)
-    return tuple(draft for draft in pending if draft.message_id == message.id)
+    shown = await services.drafts.list_shown(user_id, message.conversation_id)
+    return tuple(draft for draft in shown if draft.message_id == message.id)
 
 
 def _logged_sports(intents: Sequence[Intent]) -> tuple[str, ...]:

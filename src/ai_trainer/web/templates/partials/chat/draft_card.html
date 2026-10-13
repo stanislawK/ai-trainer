@@ -1,4 +1,4 @@
-{#- A pending session draft (F2, the Chat mock's state 8, ticket #154): its sport, its activities from the plugin's own partial, the date chip, and the actions. An assumed date says so (ADR-0014). Confirm, Edit and Discard stay disabled until #155, #158 and #156 wire them. -#}
+{#- A pending session draft (F2, the Chat mock's state 8, ticket #154): its sport, its activities from the plugin's own partial, the date chip, and the actions. An assumed date says so (ADR-0014). Confirm saves it and swaps the card for its confirmed row (#155): it is disabled while its request runs, so a double tap posts once, and a refusal leaves the card as it is. Edit and Discard stay disabled until #158 and #156 wire them. -#}
 {%- from "components/icon.html" import icon -%}
 {%- from "components/sport_copy.html" import sport_copy -%}
 <article class="glass-regular glass-rim relative rounded-box p-4 flex flex-col gap-3" aria-label="Draft session" data-draft-id="{{ card.draft.id }}">
@@ -6,5 +6,5 @@
   {% include card.body_template %}
   {%- set day = card.draft.draft.occurred_on %}
   <span class="badge badge-outline h-8 gap-1.5 self-start" data-date-source="{{ card.draft.draft.date_source }}">{{ icon("calendar", "size-3.5") }}{% if card.draft.draft.date_source == "assumed_today" %}Assumed: {% if card.is_today %}today, {% endif %}{% endif %}{{ day | dayformat }}</span>
-  <div class="flex gap-2"><button type="button" class="btn btn-primary flex-1" disabled>{{ icon("check", "size-4") }}Confirm</button><button type="button" class="btn btn-ghost" disabled>Edit</button><button type="button" class="btn btn-ghost" disabled>Discard</button></div>
+  <div class="flex gap-2"><button type="button" class="btn btn-primary flex-1" hx-post="/drafts/{{ card.draft.id }}/confirm" hx-target="closest article" hx-swap="outerHTML" hx-disable="this" hx-status:4xx="swap:none">{{ icon("check", "size-4") }}Confirm</button><button type="button" class="btn btn-ghost" disabled>Edit</button><button type="button" class="btn btn-ghost" disabled>Discard</button></div>
 </article>
