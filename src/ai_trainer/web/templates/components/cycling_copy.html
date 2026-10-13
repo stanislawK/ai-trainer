@@ -1,0 +1,14 @@
+{#- User-facing cycling formats (G5), shared by the cycling draft card, its edit fields and its logged row (ticket #160). Import with
+    `{% from "components/cycling_copy.html" import km, km_value, minutes %}`. A distance shows in km to one decimal ("64.4", "62"); a time as "45 min", "2 h" or "1 h 45 min". -#}
+{% macro km(value) -%}
+{{ "%g" | format(value | round(1)) }}
+{%- endmacro %}
+
+{#- The stored km exactly, for an edit field, so a value left as shown is recognised as kept: "64.37", "62". -#}
+{% macro km_value(value) -%}
+{{ value | int if value == value | int else value }}
+{%- endmacro %}
+
+{% macro minutes(total) -%}
+{%- if total < 60 -%}{{ total }} min{%- else -%}{{ total // 60 }} h{% if total % 60 %} {{ total % 60 }} min{% endif %}{%- endif -%}
+{%- endmacro %}

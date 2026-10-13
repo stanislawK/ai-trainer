@@ -1,5 +1,5 @@
 """Sport extraction templates: deps, the plugin-named template and its code-graded evaluators
-(ADR-0006, ADR-0008, ADR-0014, ticket #153)."""
+(ADR-0006, ADR-0008, ADR-0014, tickets #153 and #160)."""
 
 import shutil
 from datetime import UTC, date, datetime
@@ -20,6 +20,7 @@ from ai_trainer.domain.sports.climbing.payload import (
     ClimbingPayload,
     Grade,
 )
+from ai_trainer.domain.sports.cycling.extraction import CyclingExtraction
 from ai_trainer.domain.sports.registry import SportRegistry, default_sport_registry
 from ai_trainer.llm.conversation import build_prompt_registry
 from ai_trainer.llm.evals.runner import EvalCaseInputs
@@ -140,7 +141,10 @@ def test_extract_templates_skip_a_sport_without_an_extraction() -> None:
         ]
     )
 
-    assert [template.id for template in extract_templates(sports)] == [_CLIMBING_EXTRACT]
+    assert [template.id for template in extract_templates(sports)] == [
+        _CLIMBING_EXTRACT,
+        "cycling.extract",
+    ]
 
 
 def test_the_app_registry_registers_climbing_extract() -> None:
@@ -171,6 +175,34 @@ async def test_the_climbing_agent_returns_an_extraction_that_becomes_a_font_payl
         (3, Grade(original="6A", scale="font")),
         (2, Grade(original="6B", scale="font")),
     ]
+
+
+async def test_the_cycling_agent_returns_a_ride_in_miles_that_becomes_km() -> None:
+    agent = _registry().build_agent("cycling.extract", 1)
+    model = _extraction_response(
+        {
+            "occurred_on": "2026-09-15",
+            "date_source": "relative",
+            "activities": [{"distance": {"original": "40 miles", "value": 40, "unit": "mi"}}],
+        }
+    )
+
+    result = await agent.run("Rode 40 miles yesterday", deps=_deps(), model=model)
+
+    assert isinstance(result.output, CyclingExtraction)
+    (ride,) = result.output.to_payload().activities
+    assert ride.distance is not None
+    assert (ride.distance.original, ride.distance.km) == ("40 miles", 64.37)
+
+
+async def test_the_cycling_prompt_carries_the_local_day_and_the_message() -> None:
+    deps = _deps(message="Rode 62 km with 800 m climbing this morning")
+
+    rendered = _registry().render_instructions("cycling.extract", 1, deps)
+
+    assert "Wednesday 2026-09-16" in rendered
+    assert "Rode 62 km with 800 m climbing this morning" in rendered
+    assert "cycling log" in rendered
 
 
 async def test_the_rendered_prompt_carries_the_athletes_local_day_and_weekday() -> None:

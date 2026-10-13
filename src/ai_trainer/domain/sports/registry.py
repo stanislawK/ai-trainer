@@ -6,6 +6,9 @@ from ai_trainer.domain.sports.base import ExtractionSpec, SportPlugin
 from ai_trainer.domain.sports.climbing.edit import apply_climbing_edit
 from ai_trainer.domain.sports.climbing.extraction import ClimbingExtraction
 from ai_trainer.domain.sports.climbing.payload import CLIMBING_PAYLOAD_VERSION, ClimbingPayload
+from ai_trainer.domain.sports.cycling.edit import apply_cycling_edit
+from ai_trainer.domain.sports.cycling.extraction import CyclingExtraction
+from ai_trainer.domain.sports.cycling.payload import CYCLING_PAYLOAD_VERSION, CyclingPayload
 
 # Stands in for the glyph when a reply is about no sport or several (PRD-0003 F15). It is not
 # a Lucide icon; templates render it as the app mark.
@@ -61,6 +64,18 @@ def default_sport_registry() -> SportRegistry:
                 ),
             ),
             SportPlugin(id="gym", label_key="sport.gym.label", icon="dumbbell"),
-            SportPlugin(id="cycling", label_key="sport.cycling.label", icon="bike"),
+            SportPlugin(
+                id="cycling",
+                label_key="sport.cycling.label",
+                icon="bike",
+                extraction=ExtractionSpec(
+                    template_id="cycling.extract",
+                    version=1,
+                    output_type=CyclingExtraction,
+                    payload_type=CyclingPayload,
+                    payload_version=CYCLING_PAYLOAD_VERSION,
+                    apply_edit=apply_cycling_edit,
+                ),
+            ),
         ]
     )

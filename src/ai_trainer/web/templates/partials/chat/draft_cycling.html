@@ -1,0 +1,19 @@
+{#- A cycling draft's rides, one row of stat chips per ride (owner-chosen at #160's plan gate; there is no cycling mock): distance in km, moving time and climbing in metres, "—" for what the log didn't say. A distance or climbing typed in miles or feet says what was typed below, with any training zones. -#}
+{%- from "components/cycling_copy.html" import km, minutes -%}
+<ul class="flex flex-col gap-3" aria-label="Rides">
+  {%- for ride in card.payload.activities %}
+  {%- set typed = [] %}
+  {%- if ride.distance and ride.distance.unit != "km" %}{% set _ = typed.append(ride.distance.original) %}{% endif %}
+  {%- if ride.elevation and ride.elevation.unit != "m" %}{% set _ = typed.append(ride.elevation.original) %}{% endif %}
+  <li class="flex flex-col gap-1">
+    <div class="grid grid-cols-3 gap-2">
+      <div class="flex flex-col"><span class="text-[16px] font-medium tabular-nums">{% if ride.distance %}{{ km(ride.distance.km) }} km{% else %}—{% endif %}</span><span class="text-[12px] text-base-content/70">Distance</span></div>
+      <div class="flex flex-col"><span class="text-[16px] font-medium tabular-nums">{% if ride.moving_time_min %}{{ minutes(ride.moving_time_min) }}{% else %}—{% endif %}</span><span class="text-[12px] text-base-content/70">Moving</span></div>
+      <div class="flex flex-col"><span class="text-[16px] font-medium tabular-nums">{% if ride.elevation %}{{ ride.elevation.m }} m{% else %}—{% endif %}</span><span class="text-[12px] text-base-content/70">Climbing</span></div>
+    </div>
+    {%- if typed or ride.zones %}
+    <span class="text-[12px] text-base-content/70">{% if typed %}Typed: {{ typed | join(" · ") }}{% endif %}{% if typed and ride.zones %} · {% endif %}{% for zone in ride.zones %}Z{{ zone.zone }}{% if zone.minutes %} {{ minutes(zone.minutes) }}{% endif %}{% if not loop.last %}, {% endif %}{% endfor %}</span>
+    {%- endif %}
+  </li>
+  {%- endfor %}
+</ul>

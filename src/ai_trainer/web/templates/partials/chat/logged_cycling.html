@@ -1,0 +1,9 @@
+{#- What a confirmed cycling draft logged, for its "Logged … to <date>" row (ticket #160): one ride by its distance ("62 km ride"), else its moving time ("2 h ride"), else "ride"; several rides are their count ("2 rides"). -#}
+{%- from "components/cycling_copy.html" import km, minutes -%}
+{%- set rides = card.payload.activities -%}
+{%- if rides | length == 1 -%}
+{%- set ride = rides[0] -%}
+{%- if ride.distance -%}{{ km(ride.distance.km) }} km {% elif ride.moving_time_min -%}{{ minutes(ride.moving_time_min) }} {% endif -%}ride
+{%- else -%}
+{{ rides | length }} rides
+{%- endif -%}
