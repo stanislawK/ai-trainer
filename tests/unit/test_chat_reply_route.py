@@ -16,6 +16,7 @@ from ai_trainer.web.templating import build_templates
 from tests.chat_support import (
     FROZEN_NOW,
     NOT_YET_TEXT,
+    UNLOGGABLE_SPORT,
     InMemoryChatRepository,
     ScriptedConversation,
     include_chat,
@@ -103,9 +104,11 @@ async def test_a_reload_before_the_reply_came_through_reconnects_for_it() -> Non
 
 
 async def test_a_log_for_a_sport_without_an_extraction_streams_the_not_yet_reply() -> None:
-    conversation = ScriptedConversation(intents=[[Intent(kind="log_session", sport="gym")]])
+    conversation = ScriptedConversation(
+        intents=[[Intent(kind="log_session", sport=UNLOGGABLE_SPORT)]]
+    )
     client, user_id, chat = _client(conversation)
-    asked = await _asked(chat, user_id, "log my squats")
+    asked = await _asked(chat, user_id, "log my row")
 
     response = client.get(f"/messages/{asked.id}/reply")
 

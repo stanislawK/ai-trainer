@@ -32,9 +32,9 @@ from ai_trainer.domain.chat import ChatMessage, ChatRole, Conversation
 from ai_trainer.domain.conversation import Intent
 from ai_trainer.domain.goals import Goal
 from ai_trainer.domain.llm_calls import LlmCallOutcome
-from ai_trainer.domain.sports.base import SessionExtraction
+from ai_trainer.domain.sports.base import SessionExtraction, SportPlugin
 from ai_trainer.domain.sports.climbing.extraction import ClimbingExtraction, ExtractedClimb
-from ai_trainer.domain.sports.registry import default_sport_registry
+from ai_trainer.domain.sports.registry import SportRegistry, default_sport_registry
 from ai_trainer.domain.training import (
     DraftConfirmedError,
     DraftDiscardedError,
@@ -48,6 +48,20 @@ from ai_trainer.domain.users import User, UserStatus
 from ai_trainer.web.chat import build_chat_router
 
 FROZEN_NOW = datetime(2026, 10, 2, 9, 30, tzinfo=UTC)
+
+# Every app sport names an extraction template since #159, so a log only gets the "not yet"
+# reply for one that doesn't: this test-only sport, registered after the app's own.
+UNLOGGABLE_SPORT = "rowing"
+
+
+def sports_with_rowing() -> SportRegistry:
+    """The app's sports plus `UNLOGGABLE_SPORT`, which names no extraction template."""
+    return SportRegistry(
+        [
+            *default_sport_registry().all(),
+            SportPlugin(id=UNLOGGABLE_SPORT, label_key="sport.rowing.label", icon="route"),
+        ]
+    )
 
 
 class FixedClock:
@@ -495,7 +509,7 @@ def reply_services(
         chat=chat,
         conversations=chat.conversations,
         drafts=drafts or InMemoryDraftRepository(),
-        sports=default_sport_registry(),
+        sports=sports_with_rowing(),
         profile=profile or InMemoryProfile(),
         conversation=conversation or ScriptedConversation(),
         fast_router=fast_router or ScriptedFastRouter(),
@@ -519,9 +533,7 @@ def include_chat(
     repository = chat or InMemoryChatRepository()
     services = reply_services(repository, drafts=drafts, profile=profile, conversation=conversation)
     app.include_router(
-        build_chat_router(
-            templates, chat=repository, replies=services, sports=default_sport_registry()
-        )
+        build_chat_router(templates, chat=repository, replies=services, sports=sports_with_rowing())
     )
     return repository
 

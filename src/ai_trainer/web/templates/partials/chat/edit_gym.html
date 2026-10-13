@@ -1,0 +1,38 @@
+{#- A gym draft's own fields in its edit form (ticket #159): one group per exercise, as on the card, with its name on its own line, then sets, reps, load in kg and RIR side by side. A load left as shown keeps what was typed (pounds); a changed one is in kg. Runs inside `partials/chat/draft_edit.html`, which passes `card`, `values` and `errors`. -#}
+{%- from "components/gym_copy.html" import kg_value -%}
+{%- from "components/draft_field.html" import field_value, field_class, field_error, error_hint -%}
+<fieldset class="flex flex-col gap-3">
+  <legend class="sr-only">Exercises</legend>
+  {%- for exercise in card.payload.activities %}
+  {%- set row = "activities." ~ loop.index0 ~ "." %}
+  <div class="flex flex-col gap-1" role="group" aria-label="Exercise {{ loop.index }}">
+    <label class="flex flex-col gap-1">
+      <span class="text-[12px] text-base-content/70">Exercise</span>
+      <input type="text" name="{{ row }}name" class="input h-11 w-full{{ field_class(row ~ 'name', errors, 'input-error') }}" value="{{ field_value(row ~ 'name', values, exercise.name) }}"{{ field_error(row ~ 'name', errors, card.draft.id) }}>
+    </label>
+    {% call error_hint(row ~ "name", errors, card.draft.id) %}Enter the exercise's name.{% endcall %}
+    <div class="grid grid-cols-4 gap-2">
+      <label class="flex flex-col gap-1">
+        <span class="text-[12px] text-base-content/70">Sets</span>
+        <input type="number" name="{{ row }}sets" inputmode="numeric" min="1" class="input h-11 w-full tabular-nums{{ field_class(row ~ 'sets', errors, 'input-error') }}" value="{{ field_value(row ~ 'sets', values, exercise.sets) }}"{{ field_error(row ~ 'sets', errors, card.draft.id) }}>
+      </label>
+      <label class="flex flex-col gap-1">
+        <span class="text-[12px] text-base-content/70">Reps</span>
+        <input type="number" name="{{ row }}reps" inputmode="numeric" min="1" class="input h-11 w-full tabular-nums{{ field_class(row ~ 'reps', errors, 'input-error') }}" value="{{ field_value(row ~ 'reps', values, exercise.reps) }}"{{ field_error(row ~ 'reps', errors, card.draft.id) }}>
+      </label>
+      <label class="flex flex-col gap-1">
+        <span class="text-[12px] text-base-content/70">Load (kg)</span>
+        <input type="number" name="{{ row }}load" inputmode="decimal" min="0" step="any" class="input h-11 w-full tabular-nums{{ field_class(row ~ 'load', errors, 'input-error') }}" value="{{ field_value(row ~ 'load', values, kg_value(exercise.load.kg) if exercise.load else none) }}"{{ field_error(row ~ 'load', errors, card.draft.id) }}>
+      </label>
+      <label class="flex flex-col gap-1">
+        <span class="text-[12px] text-base-content/70">RIR</span>
+        <input type="number" name="{{ row }}rir" inputmode="numeric" min="0" max="10" class="input h-11 w-full tabular-nums{{ field_class(row ~ 'rir', errors, 'input-error') }}" value="{{ field_value(row ~ 'rir', values, exercise.rir) }}"{{ field_error(row ~ 'rir', errors, card.draft.id) }}>
+      </label>
+    </div>
+    {% call error_hint(row ~ "sets", errors, card.draft.id) %}Enter sets, 1 or more.{% endcall %}
+    {% call error_hint(row ~ "reps", errors, card.draft.id) %}Enter reps, 1 or more.{% endcall %}
+    {% call error_hint(row ~ "load", errors, card.draft.id) %}Enter a load in kg above 0.{% endcall %}
+    {% call error_hint(row ~ "rir", errors, card.draft.id) %}Enter RIR from 0 to 10.{% endcall %}
+  </div>
+  {%- endfor %}
+</fieldset>

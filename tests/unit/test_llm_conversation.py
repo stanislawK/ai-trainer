@@ -23,7 +23,7 @@ from ai_trainer.domain.conversation import Intent
 from ai_trainer.domain.goals import Goal
 from ai_trainer.domain.llm_calls import LlmCallOutcome
 from ai_trainer.domain.sports.climbing.extraction import ClimbingExtraction
-from ai_trainer.domain.sports.registry import default_sport_registry
+from ai_trainer.domain.sports.registry import SportRegistry, default_sport_registry
 from ai_trainer.llm.chitchat import build_chitchat_deps
 from ai_trainer.llm.conversation import (
     DRAFT_READY_REPLY_ID,
@@ -33,6 +33,7 @@ from ai_trainer.llm.conversation import (
 )
 from ai_trainer.llm.extract import build_extract_deps
 from ai_trainer.llm.router import ChatTurn, build_router_deps, router_output_type
+from tests.chat_support import UNLOGGABLE_SPORT, sports_with_rowing
 
 _PROMPTS_ROOT = Path(__file__).parents[2] / "src" / "ai_trainer" / "llm" / "prompts"
 # 23:30 UTC on 30 Sep is already 01:30 on 1 Oct in Warsaw (ADR-0014).
@@ -97,11 +98,13 @@ def _context() -> ReplyContext:
     )
 
 
-def _conversation(gateway: RecordingGateway) -> LlmConversation:
+def _conversation(
+    gateway: RecordingGateway, sports: SportRegistry | None = None
+) -> LlmConversation:
     return LlmConversation(
         registry=build_prompt_registry(_PROMPTS_ROOT, default_sport_registry()),
         gateway=gateway,
-        sports=default_sport_registry(),
+        sports=sports or default_sport_registry(),
         router_model="test/router-model",
         router_provider="test-upstream",
         chitchat_model="test/chitchat-model",
@@ -278,7 +281,7 @@ def test_draft_ready_is_read_from_its_file_with_no_model_call() -> None:
 async def test_extract_refuses_a_sport_that_names_no_extraction_template() -> None:
     gateway = RecordingGateway()
 
-    with pytest.raises(ValueError, match="gym"):
-        await _conversation(gateway).extract(_context(), "gym")
+    with pytest.raises(ValueError, match=UNLOGGABLE_SPORT):
+        await _conversation(gateway, sports_with_rowing()).extract(_context(), UNLOGGABLE_SPORT)
 
     assert gateway.runs == []
