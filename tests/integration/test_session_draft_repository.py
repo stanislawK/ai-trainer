@@ -651,3 +651,104 @@ async def test_undo_leaves_the_users_other_sessions(
     assert await _counts(db_session_factory, user_id) == (1, 1)
     shown = {d.id: d.session_id for d in await drafts.list_shown(user_id, first.conversation_id)}
     assert shown == {first.id: None, second.id: kept.session_id}
+
+
+async def test_get_returns_the_users_draft_whatever_its_status(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    drafts, user_id, draft = await _pending(db_session_factory, "get-ok")
+    assert await drafts.get(user_id, draft.id) == draft
+
+    discarded = await drafts.discard(user_id, draft.id, discarded_at=_START)
+
+    assert await drafts.get(user_id, draft.id) == discarded
+
+
+async def test_get_of_another_users_or_an_unknown_draft_is_not_found(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    drafts, _, draft = await _pending(db_session_factory, "get-owner")
+    stranger, _, _ = await _log(db_session_factory, "get-stranger")
+
+    with pytest.raises(DraftNotFoundError):
+        await drafts.get(stranger, draft.id)
+    with pytest.raises(DraftNotFoundError):
+        await drafts.get(stranger, uuid4())
+
+
+_YESTERDAY_EDIT = _DRAFT.model_copy(
+    update={"occurred_on": date(2026, 10, 1), "date_source": "stated", "rpe": 7}
+)
+
+
+async def test_an_edited_draft_stays_pending_and_its_confirm_saves_the_edit(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    drafts, user_id, draft = await _pending(db_session_factory, "edit-ok")
+
+    edited = await drafts.update(user_id, draft.id, _YESTERDAY_EDIT, payload_version=1)
+    confirmed = await drafts.confirm(user_id, draft.id, confirmed_at=_START)
+
+    assert (edited.id, edited.status, edited.draft) == (draft.id, "pending", _YESTERDAY_EDIT)
+    assert await drafts.get(user_id, draft.id) == confirmed
+    async with db_session_factory() as db:
+        session = (
+            await db.execute(
+                text("SELECT occurred_on, rpe FROM training_sessions WHERE id = :id"),
+                {"id": confirmed.session_id},
+            )
+        ).one()
+    assert tuple(session) == (date(2026, 10, 1), 7)
+
+
+async def test_editing_another_users_or_an_unknown_draft_is_not_found_and_changes_nothing(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    drafts, owner, draft = await _pending(db_session_factory, "edit-owner")
+    stranger, _, _ = await _log(db_session_factory, "edit-stranger")
+
+    with pytest.raises(DraftNotFoundError):
+        await drafts.update(stranger, draft.id, _YESTERDAY_EDIT, payload_version=1)
+    with pytest.raises(DraftNotFoundError):
+        await drafts.update(owner, uuid4(), _YESTERDAY_EDIT, payload_version=1)
+
+    assert await drafts.get(owner, draft.id) == draft
+
+
+async def test_editing_a_confirmed_draft_is_refused_and_changes_nothing(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    drafts, user_id, draft = await _pending(db_session_factory, "edit-confirmed")
+    confirmed = await drafts.confirm(user_id, draft.id, confirmed_at=_START)
+
+    with pytest.raises(DraftConfirmedError):
+        await drafts.update(user_id, draft.id, _YESTERDAY_EDIT, payload_version=1)
+
+    assert await drafts.get(user_id, draft.id) == confirmed
+
+
+async def test_editing_a_discarded_draft_is_refused_and_changes_nothing(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    drafts, user_id, draft = await _pending(db_session_factory, "edit-discarded")
+    discarded = await drafts.discard(user_id, draft.id, discarded_at=_START)
+
+    with pytest.raises(DraftDiscardedError):
+        await drafts.update(user_id, draft.id, _YESTERDAY_EDIT, payload_version=1)
+
+    assert await drafts.get(user_id, draft.id) == discarded
+
+
+async def test_editing_an_undone_draft_is_refused_and_changes_nothing(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    drafts, user_id, draft = await _pending(db_session_factory, "edit-undone")
+    confirmed = await drafts.confirm(user_id, draft.id, confirmed_at=_START)
+    assert confirmed.session_id is not None
+    undone = await drafts.undo(user_id, confirmed.session_id)
+
+    with pytest.raises(DraftConfirmedError):
+        await drafts.update(user_id, draft.id, _YESTERDAY_EDIT, payload_version=1)
+
+    assert await drafts.get(user_id, draft.id) == undone
+    assert await _counts(db_session_factory, user_id) == (0, 0)

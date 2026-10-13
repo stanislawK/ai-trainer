@@ -1,0 +1,20 @@
+{#- Helpers for a draft edit form's fields (ticket #158): a field shows what the athlete typed when the form comes back rejected, else the stored value (blank for none); a rejected field gets its error class and `aria-invalid`, pointing at its hint, whose ID is prefixed with the draft's so two forms on one page never share one. The hint's words are the caller's. -#}
+{% macro field_value(name, values, stored) -%}
+{{ values[name] if name in values else ("" if stored is none else stored) }}
+{%- endmacro %}
+
+{% macro field_class(name, errors, error_class) -%}
+{{ " " ~ error_class if name in errors else "" }}
+{%- endmacro %}
+
+{% macro _hint_id(name, prefix) -%}
+{{ prefix }}-{{ name | replace(".", "-") }}-error
+{%- endmacro %}
+
+{% macro field_error(name, errors, prefix) -%}
+{%- if name in errors %} aria-invalid="true" aria-describedby="{{ _hint_id(name, prefix) }}"{% endif -%}
+{%- endmacro %}
+
+{% macro error_hint(name, errors, prefix) -%}
+{%- if name in errors %}<span class="text-[12px] text-error" id="{{ _hint_id(name, prefix) }}">{{ caller() }}</span>{% endif -%}
+{%- endmacro %}

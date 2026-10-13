@@ -31,6 +31,20 @@ class SessionDraftRepositoryPort(Protocol):
         discarded draft stays so the chat can show it collapsed."""
         ...
 
+    async def get(self, user_id: UUID, draft_id: UUID) -> StoredDraft:
+        """The user's draft `draft_id`, whatever its status. Raises `DraftNotFoundError` when
+        the user has no such draft."""
+        ...
+
+    async def update(
+        self, user_id: UUID, draft_id: UUID, draft: SessionDraft, *, payload_version: int
+    ) -> StoredDraft:
+        """Replaces the user's pending draft `draft_id`'s document with the athlete's edit
+        (F2, ticket #158); it stays `pending`. Raises `DraftNotFoundError` when the user has no
+        such draft, and `DraftConfirmedError` or `DraftDiscardedError` when it is no longer
+        pending; none of them changes anything."""
+        ...
+
     async def confirm(
         self, user_id: UUID, draft_id: UUID, *, confirmed_at: datetime
     ) -> StoredDraft:

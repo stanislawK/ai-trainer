@@ -1,5 +1,5 @@
 {#- What a confirmed climbing draft logged, for its "Logged … to <date>" row (ticket #155, owner-chosen at its plan gate): one activity is named as on the mock, its route and grade ("Hades 8a"), or its count and grade or kind ("3 × 6A"); several activities are their total count ("5 climbs"). -#}
-{%- set kinds = {"boulder": "Boulder", "lead": "Lead", "top_rope": "Top rope"} -%}
+{%- from "components/climbing_copy.html" import climbing_kinds as kinds -%}
 {%- set activities = card.payload.activities -%}
 {%- if activities | length == 1 -%}
 {%- set activity = activities[0] -%}

@@ -1,0 +1,26 @@
+{#- A climbing draft's own fields in its edit form (ticket #158): one row per activity, as on the card, with its kind as the row's caption and its count, grade and style. A grade is typed as the athlete writes it; its scale comes from code. Runs inside `partials/chat/draft_edit.html`, which passes `card`, `values` and `errors`. -#}
+{%- from "components/climbing_copy.html" import climbing_kinds as kinds, climbing_styles as styles -%}
+{%- from "components/draft_field.html" import field_value, field_class, field_error, error_hint -%}
+<fieldset class="flex flex-col gap-3">
+  <legend class="sr-only">Activities</legend>
+  {%- for activity in card.payload.activities %}
+  {%- set row = "activities." ~ loop.index0 ~ "." %}
+  {%- set typed_style = field_value(row ~ "style", values, activity.style) %}
+  <div class="flex flex-col gap-1" role="group" aria-label="{{ kinds[activity.kind] }} {{ loop.index }}">
+    <span class="text-[12px] font-medium text-base-content/70">{{ kinds[activity.kind] }}{% if activity.route %} · {{ activity.route.name }}{% endif %}</span>
+    <div class="grid grid-cols-[4.5rem_1fr_1fr] gap-2">
+      <input type="number" name="{{ row }}count" inputmode="numeric" min="1" aria-label="Count" class="input h-11 w-full tabular-nums{{ field_class(row ~ 'count', errors, 'input-error') }}" value="{{ field_value(row ~ 'count', values, activity.count) }}"{{ field_error(row ~ 'count', errors, card.draft.id) }}>
+      <input type="text" name="{{ row }}grade" aria-label="Grade" autocapitalize="off" autocomplete="off" class="input h-11 w-full tabular-nums{{ field_class(row ~ 'grade', errors, 'input-error') }}" value="{{ field_value(row ~ 'grade', values, activity.grade.original if activity.grade else none) }}"{{ field_error(row ~ 'grade', errors, card.draft.id) }}>
+      <select name="{{ row }}style" aria-label="Style" class="select h-11 w-full{{ field_class(row ~ 'style', errors, 'select-error') }}"{{ field_error(row ~ 'style', errors, card.draft.id) }}>
+        <option value=""{% if not typed_style %} selected{% endif %}>No style</option>
+        {%- for value, label in styles.items() %}
+        <option value="{{ value }}"{% if typed_style == value %} selected{% endif %}>{{ label }}</option>
+        {%- endfor %}
+      </select>
+    </div>
+    {% call error_hint(row ~ "count", errors, card.draft.id) %}Enter a count of at least 1.{% endcall %}
+    {% call error_hint(row ~ "grade", errors, card.draft.id) %}Enter the grade as you'd write it.{% endcall %}
+    {% call error_hint(row ~ "style", errors, card.draft.id) %}Pick a style from the list.{% endcall %}
+  </div>
+  {%- endfor %}
+</fieldset>

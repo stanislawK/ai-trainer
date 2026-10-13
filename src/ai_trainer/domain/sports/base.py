@@ -1,7 +1,8 @@
+from collections.abc import Callable, Mapping
 from datetime import date
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, JsonValue
 
 # How an extraction found `occurred_on` (ADR-0014): typed as a date, resolved from a relative
 # expression, or today because the message gave none.
@@ -20,10 +21,17 @@ class SessionExtraction(BaseModel):
         raise NotImplementedError
 
 
+# The athlete's edit of a draft's payload (F2): the stored payload and the edit form's sport
+# fields in, the payload at the plugin's current version out. Raises `ValidationError` located
+# at the payload's own fields.
+type PayloadEdit = Callable[[Mapping[str, JsonValue], Mapping[str, JsonValue]], BaseModel]
+
+
 class ExtractionSpec(BaseModel):
     """The extraction template a plugin names (ADR-0006): its ID and version under
-    `llm/prompts/`, the model its output is validated against, and the payload version that
-    output's `to_payload` writes (ADR-0022 invariant 4)."""
+    `llm/prompts/`, the model its output is validated against, the payload version that
+    output's `to_payload` writes (ADR-0022 invariant 4), and how the athlete's edit of a draft
+    applies to that payload."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -32,6 +40,7 @@ class ExtractionSpec(BaseModel):
     output_type: type[SessionExtraction]
     payload_type: type[BaseModel]
     payload_version: int
+    apply_edit: PayloadEdit
 
 
 class SportPlugin(BaseModel):

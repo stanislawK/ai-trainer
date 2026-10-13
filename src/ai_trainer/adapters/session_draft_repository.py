@@ -91,6 +91,42 @@ class SqlAlchemySessionDraftRepository:
             )
             return [_to_domain(row) for row in rows.all()]
 
+    async def get(self, user_id: UUID, draft_id: UUID) -> StoredDraft:
+        async with self._session_factory() as session:
+            row = await session.scalar(
+                select(SessionDraftOrm).where(
+                    SessionDraftOrm.id == draft_id, SessionDraftOrm.user_id == user_id
+                )
+            )
+            if row is None:
+                raise DraftNotFoundError(draft_id)
+            return _to_domain(row)
+
+    async def update(
+        self, user_id: UUID, draft_id: UUID, draft: SessionDraft, *, payload_version: int
+    ) -> StoredDraft:
+        """The row is locked first, as in a confirm, so an edit racing a confirm or a discard
+        either goes first, and the confirm saves the edit, or finds the draft resolved and is
+        refused."""
+        async with self._session_factory() as session:
+            row = await session.scalar(
+                select(SessionDraftOrm)
+                .where(SessionDraftOrm.id == draft_id, SessionDraftOrm.user_id == user_id)
+                .with_for_update()
+            )
+            if row is None:
+                raise DraftNotFoundError(draft_id)
+            if row.status == _CONFIRMED:
+                raise DraftConfirmedError(draft_id)
+            if row.status == _DISCARDED:
+                raise DraftDiscardedError(draft_id)
+            row.draft = draft.model_dump(mode="json")
+            row.payload_version = payload_version
+            await session.flush()
+            edited = _to_domain(row)
+            await session.commit()
+            return edited
+
     async def confirm(
         self, user_id: UUID, draft_id: UUID, *, confirmed_at: datetime
     ) -> StoredDraft:

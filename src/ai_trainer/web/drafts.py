@@ -1,10 +1,10 @@
-"""The draft cards under a reply (PRD-0004 F2, ADR-0022, tickets #154, #155 and #156): each
+"""The draft cards under a reply (PRD-0004 F2, ADR-0022, tickets #154 to #158): each
 draft sits under the reply part that introduced it, the part after the athlete's log whose
 template is that sport's extraction template. A pending one is the card, a confirmed one its
 "Logged … to <date>" row, a discarded one its "Draft discarded" row and an undone one its
-"Removed" row. Its payload is read only
-through the plugin's model (ADR-0022), and the sport-specific card body and summary are the
-plugin's own partials."""
+"Removed" row. A pending one opens as its edit form (#158). Its payload is read only through
+the plugin's model (ADR-0022), and the sport-specific card body, edit fields and summary are
+the plugin's own partials."""
 
 import logging
 from collections.abc import Iterable, Mapping, Sequence
@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from datetime import date
 from uuid import UUID
 
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, JsonValue, ValidationError
 
 from ai_trainer.domain.chat import ChatMessage, ChatRole
 from ai_trainer.domain.sports.base import SportPlugin
@@ -20,6 +20,9 @@ from ai_trainer.domain.sports.registry import SportRegistry, UnknownSportError
 from ai_trainer.domain.training import StoredDraft
 
 logger = logging.getLogger(__name__)
+
+# An edit form posts at most this many rows of one list, e.g. a climbing draft's activities.
+_MAX_FORM_ROWS = 50
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,6 +38,11 @@ class DraftCard:
     @property
     def body_template(self) -> str:
         return f"partials/chat/draft_{self.sport.id}.html"
+
+    @property
+    def edit_template(self) -> str:
+        """The sport's own fields in the edit form (ticket #158)."""
+        return f"partials/chat/edit_{self.sport.id}.html"
 
     @property
     def summary_template(self) -> str:
@@ -122,3 +130,23 @@ def draft_card(draft: StoredDraft, *, sports: SportRegistry, today: date) -> Dra
     return DraftCard(
         draft=draft, sport=sport, payload=payload, is_today=draft.draft.occurred_on == today
     )
+
+
+def form_changes(pairs: Iterable[tuple[str, str]]) -> dict[str, JsonValue]:
+    """The edit form's fields as the plugin's edit reads them (ticket #158): `rpe` stays a
+    field, and `activities.0.count` becomes the `count` of row 0 of `activities`. A key that is
+    neither, or a row past the form's limit, is dropped."""
+    changes: dict[str, JsonValue] = {}
+    rows: dict[str, dict[int, dict[str, JsonValue]]] = {}
+    for key, value in pairs:
+        parts = key.split(".")
+        if len(parts) == 1:
+            changes[key] = value
+            continue
+        if len(parts) != 3 or not parts[1].isdigit() or int(parts[1]) >= _MAX_FORM_ROWS:
+            continue
+        name, index, field = parts
+        rows.setdefault(name, {}).setdefault(int(index), {})[field] = value
+    for name, by_index in rows.items():
+        changes[name] = [by_index.get(index, {}) for index in range(max(by_index) + 1)]
+    return changes
