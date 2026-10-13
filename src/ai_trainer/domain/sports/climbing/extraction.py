@@ -1,11 +1,9 @@
 """What `climbing.extract` returns (ADR-0008, ADR-0014): an absolute date, how it was found,
 and each activity with its grade exactly as typed. Code, not the model, decides the scale."""
 
-from datetime import date
-
 from pydantic import BaseModel, Field, field_validator
 
-from ai_trainer.domain.sports.base import DateSource
+from ai_trainer.domain.sports.base import SessionExtraction
 from ai_trainer.domain.sports.climbing.normalize import normalize_grade
 from ai_trainer.domain.sports.climbing.payload import (
     AscentStyle,
@@ -30,9 +28,7 @@ class ExtractedClimb(BaseModel):
         return value if value is None or value.strip() else None
 
 
-class ClimbingExtraction(BaseModel):
-    occurred_on: date
-    date_source: DateSource
+class ClimbingExtraction(SessionExtraction):
     activities: list[ExtractedClimb] = Field(min_length=1)
 
     def to_payload(self) -> ClimbingPayload:

@@ -2,7 +2,8 @@
 routing): routed by the Jev fast path or else the LLM router, while a Jev safety screen runs
 alongside (ADR-0020), dispatched safety first,
 streamed, and saved only once all of it came through, so a retry after a failure always
-streams a fresh reply."""
+streams a fresh reply. A log for a sport whose plugin names an extraction template becomes a
+pending draft the athlete confirms later (PRD-0004 B1, F2, ADR-0022)."""
 
 import asyncio
 from collections.abc import AsyncGenerator, Sequence
@@ -20,6 +21,7 @@ from ai_trainer.application.ports.conversation import (
     Routing,
     TemplateRef,
 )
+from ai_trainer.application.ports.drafts import SessionDraftRepositoryPort
 from ai_trainer.application.ports.fast_router import FastRouterPort
 from ai_trainer.application.ports.llm_gateway import StreamEnd
 from ai_trainer.application.ports.onboarding import OnboardingRepositoryPort
@@ -27,6 +29,8 @@ from ai_trainer.application.ports.safety_screen import SafetyScreenPort
 from ai_trainer.domain.chat import ChatMessage, ChatRole
 from ai_trainer.domain.conversation import Intent, IntentKind
 from ai_trainer.domain.llm_calls import LlmCallOutcome
+from ai_trainer.domain.sports.registry import SportRegistry
+from ai_trainer.domain.training import SessionDraft, StoredDraft
 
 # Until each specialist ships, these go to `chitchat`; the persona carries G3 (ADR-0008).
 _CHITCHAT_KINDS = frozenset({"chitchat", "unclear", "wellbeing_or_injury"})
@@ -57,9 +61,11 @@ class ReplyChunk:
 
 @dataclass(frozen=True, slots=True)
 class ReplyDone:
-    """The whole reply, as saved: one message per part, in the order they were streamed."""
+    """The whole reply, as saved: one message per part, in the order they were streamed, and
+    the pending drafts made from the message."""
 
     messages: Sequence[ChatMessage]
+    drafts: Sequence[StoredDraft] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,6 +82,8 @@ type ReplyEvent = ReplyPhase | ReplyChunk | ReplyDone | ReplyFailed
 class ReplyServices:
     chat: ChatRepositoryPort
     conversations: ConversationRepositoryPort
+    drafts: SessionDraftRepositoryPort
+    sports: SportRegistry
     profile: OnboardingRepositoryPort
     conversation: ConversationModelPort
     fast_router: FastRouterPort
@@ -86,9 +94,12 @@ class ReplyServices:
     history_turns: int
 
 
+type _Specialist = Literal["chitchat", "extract", "not_yet"]
+
+
 @dataclass(frozen=True, slots=True)
 class _Part:
-    specialist: Literal["chitchat", "not_yet"]
+    specialist: _Specialist
     sports: tuple[str, ...] = ()
 
 
@@ -97,6 +108,8 @@ class _Answer:
     text: str
     template: TemplateRef
     sports: tuple[str, ...]
+    # The draft an extraction part made, with its sport and payload version.
+    draft: tuple[str, SessionDraft, int] | None = None
 
 
 def with_screened_safety(intents: Sequence[Intent], *, pain: bool) -> list[Intent]:
@@ -108,24 +121,37 @@ def with_screened_safety(intents: Sequence[Intent], *, pain: bool) -> list[Inten
     return list(intents)
 
 
-def _plan(intents: Sequence[Intent]) -> list[_Part]:
+def _plan(intents: Sequence[Intent], extractable: frozenset[str]) -> list[_Part]:
     """One part per specialist, safety first and then in message order (ADR-0008 invariant 4).
     Intents bound for the same specialist share one part: the chitchat call sees the whole
-    message, and one "not yet" reply covers every intent that has no specialist yet."""
+    message, one extraction per sport sees it too, and one "not yet" reply covers every intent
+    that has no specialist yet. `extractable` are the sports whose plugin names an extraction
+    template (ADR-0006)."""
     ordered = sorted(intents, key=lambda intent: intent.kind != _SAFETY_KIND)
-    order: list[Literal["chitchat", "not_yet"]] = []
-    sports: list[str] = []
+    keys: list[tuple[_Specialist, str | None]] = []
+    not_yet_sports: list[str] = []
     for intent in ordered:
-        specialist: Literal["chitchat", "not_yet"] = (
-            "chitchat" if intent.kind in _CHITCHAT_KINDS else "not_yet"
-        )
-        if specialist not in order:
-            order.append(specialist)
-        if intent.sport is not None and intent.sport not in sports:
-            sports.append(intent.sport)
+        key: tuple[_Specialist, str | None]
+        if intent.kind in _CHITCHAT_KINDS:
+            key = ("chitchat", None)
+        elif intent.kind == _LOG_KIND and intent.sport in extractable:
+            key = ("extract", intent.sport)
+        else:
+            key = ("not_yet", None)
+            if intent.sport is not None and intent.sport not in not_yet_sports:
+                not_yet_sports.append(intent.sport)
+        if key not in keys:
+            keys.append(key)
     return [
-        _Part(specialist, () if specialist == "chitchat" else tuple(sports)) for specialist in order
+        _Part(specialist, (sport,) if sport is not None else ())
+        if specialist != "not_yet"
+        else _Part(specialist, tuple(not_yet_sports))
+        for specialist, sport in keys
     ]
+
+
+def _extractable(sports: SportRegistry) -> frozenset[str]:
+    return frozenset(plugin.id for plugin in sports.all() if plugin.extraction is not None)
 
 
 async def find_message(
@@ -148,16 +174,16 @@ async def find_message(
 
 
 async def find_saved_reply(
-    user_id: UUID,
-    message_id: UUID,
-    *,
-    chat: ChatRepositoryPort,
-    conversations: ConversationRepositoryPort,
-) -> Sequence[ChatMessage]:
-    """What was saved for the athlete's own message, nothing if its reply never finished: the
-    answer to Stop arriving just after the last token."""
-    message = await find_message(user_id, message_id, chat=chat, conversations=conversations)
-    return await chat.list_replies(user_id, message)
+    user_id: UUID, message_id: UUID, *, services: ReplyServices
+) -> ReplyDone:
+    """What was saved for the athlete's own message, with its pending drafts; no messages if
+    its reply never finished: the answer to Stop arriving just after the last token."""
+    message = await find_message(
+        user_id, message_id, chat=services.chat, conversations=services.conversations
+    )
+    saved = await services.chat.list_replies(user_id, message)
+    drafts = await _drafts_of(user_id, message, services) if saved else ()
+    return ReplyDone(messages=saved, drafts=drafts)
 
 
 async def start_reply(
@@ -176,7 +202,7 @@ async def _reply(
 ) -> AsyncGenerator[ReplyEvent]:
     saved = await services.chat.list_replies(user_id, message)
     if saved:
-        yield ReplyDone(messages=saved)
+        yield ReplyDone(messages=saved, drafts=await _drafts_of(user_id, message, services))
         return
 
     context = ReplyContext(
@@ -205,13 +231,22 @@ async def _reply(
     yield ReplyPhase("replying")
 
     answers: list[_Answer] = []
-    for part in _plan(with_screened_safety(routing.intents, pain=pain)):
+    plan = _plan(with_screened_safety(routing.intents, pain=pain), _extractable(services.sports))
+    for part in plan:
         if answers:
             yield ReplyChunk(PART_BREAK)
         if part.specialist == "not_yet":
             fixed = services.conversation.not_yet()
             yield ReplyChunk(fixed.text)
             answers.append(_Answer(fixed.text, fixed.template, part.sports))
+            continue
+        if part.specialist == "extract":
+            answer = await _extract(context, part.sports[0], services)
+            if isinstance(answer, ReplyFailed):
+                yield answer
+                return
+            yield ReplyChunk(answer.text)
+            answers.append(answer)
             continue
         async with aclosing(services.conversation.stream_chitchat(context)) as stream:
             async for event in stream:
@@ -226,7 +261,7 @@ async def _reply(
 
     # Saved in its own task: a reader who leaves now can't cut a reply off halfway through.
     saving = asyncio.ensure_future(_save(user_id, message, answers, services))
-    yield ReplyDone(messages=await asyncio.shield(saving))
+    yield await asyncio.shield(saving)
 
 
 async def route_message(context: ReplyContext, services: ReplyServices) -> Routing:
@@ -248,6 +283,38 @@ async def route_message(context: ReplyContext, services: ReplyServices) -> Routi
     return replace(routed, plausible_sports=fast.plausible_sports)
 
 
+async def _extract(
+    context: ReplyContext, sport_id: str, services: ReplyServices
+) -> _Answer | ReplyFailed:
+    """The sport's extraction, as a draft in the athlete's timezone (ADR-0014, ADR-0022) under
+    a fixed intro line. A failed call ends the reply; nothing of it is kept."""
+    extraction = await services.conversation.extract(context, sport_id)
+    if extraction.output is None:
+        return ReplyFailed(outcome=extraction.outcome)
+    spec = services.sports.get(sport_id).extraction
+    assert spec is not None  # `_plan` only sends sports that name an extraction
+    draft = SessionDraft(
+        occurred_on=extraction.output.occurred_on,
+        date_source=extraction.output.date_source,
+        timezone=context.timezone,
+        payload=extraction.output.to_payload().model_dump(mode="json"),
+    )
+    intro = services.conversation.draft_ready()
+    return _Answer(
+        intro.text,
+        extraction.template,
+        (sport_id,),
+        draft=(sport_id, draft, spec.payload_version),
+    )
+
+
+async def _drafts_of(
+    user_id: UUID, message: ChatMessage, services: ReplyServices
+) -> tuple[StoredDraft, ...]:
+    pending = await services.drafts.list_pending(user_id, message.conversation_id)
+    return tuple(draft for draft in pending if draft.message_id == message.id)
+
+
 def _logged_sports(intents: Sequence[Intent]) -> tuple[str, ...]:
     """The router's own sports, in message order, each once."""
     sports: dict[str, None] = {}
@@ -259,11 +326,14 @@ def _logged_sports(intents: Sequence[Intent]) -> tuple[str, ...]:
 
 async def _save(
     user_id: UUID, message: ChatMessage, answers: Sequence[_Answer], services: ReplyServices
-) -> list[ChatMessage]:
+) -> ReplyDone:
     """A reply belongs to the message it follows (ADR-0008), so its parts are stamped right
     after that message, in its conversation, not when they were saved: a later message never
-    splits them off. Each saved part moves the conversation's last activity to now (ADR-0021)."""
+    splits them off. Each saved part moves the conversation's last activity to now (ADR-0021).
+    A part's draft is stored pending, made from the athlete's message; no session is written
+    (ADR-0022 invariant 3)."""
     saved: list[ChatMessage] = []
+    drafts: list[StoredDraft] = []
     stamp: datetime = message.created_at
     for answer in answers:
         stamp += _TICK
@@ -279,5 +349,18 @@ async def _save(
                 template_version=answer.template.version,
             )
         )
+        if answer.draft is not None:
+            sport_id, draft, payload_version = answer.draft
+            drafts.append(
+                await services.drafts.add(
+                    user_id,
+                    message.conversation_id,
+                    message.id,
+                    sport_id,
+                    draft,
+                    payload_version=payload_version,
+                    created_at=services.clock.now(),
+                )
+            )
         await services.conversations.touch(user_id, message.conversation_id, services.clock.now())
-    return saved
+    return ReplyDone(messages=saved, drafts=tuple(drafts))

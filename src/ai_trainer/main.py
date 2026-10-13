@@ -25,6 +25,7 @@ from ai_trainer.adapters.google_oauth import AuthlibGoogleOAuthClient
 from ai_trainer.adapters.health import PsycopgDatabaseHealth
 from ai_trainer.adapters.llm_calls_repository import SqlAlchemyLlmCallsRepository
 from ai_trainer.adapters.onboarding_repository import SqlAlchemyOnboardingRepository
+from ai_trainer.adapters.session_draft_repository import SqlAlchemySessionDraftRepository
 from ai_trainer.adapters.sessions_repository import SqlAlchemySessionsRepository
 from ai_trainer.adapters.user_status_changer import SqlAlchemyUserStatusChanger
 from ai_trainer.adapters.users_repository import SqlAlchemyUsersRepository
@@ -125,6 +126,8 @@ def create_app(settings: Settings) -> FastAPI:
         router_model=settings.router_model,
         router_provider=settings.router_provider,
         chitchat_model=settings.chitchat_model,
+        extract_model=settings.extract_model,
+        extract_provider=settings.extract_provider,
         history_turns=settings.chat_history_turns,
     )
     decisions = OpenRouterDecisionGateway(settings, llm_calls)
@@ -133,6 +136,8 @@ def create_app(settings: Settings) -> FastAPI:
         conversations=SqlAlchemyConversationRepository(
             session_factory, clock=clock, retention_days=settings.conversation_retention_days
         ),
+        drafts=SqlAlchemySessionDraftRepository(session_factory),
+        sports=sport_registry,
         profile=onboarding,
         conversation=conversation,
         # Routes a message with one confident intent before the LLM router (ADR-0020).

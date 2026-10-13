@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+import pytest
 from pydantic import BaseModel
 
 from ai_trainer.application.ports.conversation import ReplyContext, TemplateRef
@@ -21,9 +22,16 @@ from ai_trainer.domain.chat import ChatMessage, ChatRole
 from ai_trainer.domain.conversation import Intent
 from ai_trainer.domain.goals import Goal
 from ai_trainer.domain.llm_calls import LlmCallOutcome
+from ai_trainer.domain.sports.climbing.extraction import ClimbingExtraction
 from ai_trainer.domain.sports.registry import default_sport_registry
 from ai_trainer.llm.chitchat import build_chitchat_deps
-from ai_trainer.llm.conversation import NOT_YET_REPLY_ID, LlmConversation, build_prompt_registry
+from ai_trainer.llm.conversation import (
+    DRAFT_READY_REPLY_ID,
+    NOT_YET_REPLY_ID,
+    LlmConversation,
+    build_prompt_registry,
+)
+from ai_trainer.llm.extract import build_extract_deps
 from ai_trainer.llm.router import ChatTurn, build_router_deps, router_output_type
 
 _PROMPTS_ROOT = Path(__file__).parents[2] / "src" / "ai_trainer" / "llm" / "prompts"
@@ -97,6 +105,8 @@ def _conversation(gateway: RecordingGateway) -> LlmConversation:
         router_model="test/router-model",
         router_provider="test-upstream",
         chitchat_model="test/chitchat-model",
+        extract_model="test/extract-model",
+        extract_provider="extract-upstream",
         history_turns=10,
     )
 
@@ -202,3 +212,73 @@ def test_not_yet_is_read_from_its_file_with_no_model_call() -> None:
     assert reply.text == (_PROMPTS_ROOT / "not_yet" / "v1.en.md").read_text().strip()
     assert reply.text
     assert (gateway.runs, gateway.streams) == ([], [])
+
+
+_CLIMB_OUTPUT = {
+    "occurred_on": "2026-10-01",
+    "date_source": "assumed_today",
+    "activities": [
+        {"kind": "boulder", "count": 3, "grade": "6A"},
+        {"kind": "boulder", "count": 2, "grade": "6B"},
+    ],
+}
+
+
+async def test_extract_runs_the_sports_extraction_template_through_the_gateway() -> None:
+    gateway = RecordingGateway(run_output=_CLIMB_OUTPUT)
+    context = _context()
+
+    extraction = await _conversation(gateway).extract(context, "climbing")
+
+    assert extraction.outcome is LlmCallOutcome.SUCCESS
+    assert extraction.output == ClimbingExtraction.model_validate(_CLIMB_OUTPUT)
+    assert extraction.template == TemplateRef(id="climbing.extract", version=1)
+    [call] = gateway.runs
+    assert (call["template_id"], call["template_version"], call["model_id"]) == (
+        "climbing.extract",
+        1,
+        "test/extract-model",
+    )
+    assert call["output_type"] is ClimbingExtraction
+    assert (call["user_id"], call["prompt"]) == (context.user_id, context.message)
+    assert (call["temperature"], call["output_retries"]) == (0, 2)
+    assert call["upstream_provider"] == "extract-upstream"
+    deps = build_extract_deps(
+        message=context.message,
+        history=_TURNS,
+        now=_NOW,
+        timezone="Europe/Warsaw",
+        history_turns=10,
+    )
+    expected = build_prompt_registry(_PROMPTS_ROOT, default_sport_registry()).render_instructions(
+        "climbing.extract", 1, deps
+    )
+    assert call["instructions"] == expected
+
+
+async def test_a_failed_extraction_returns_no_draft_and_its_outcome() -> None:
+    gateway = RecordingGateway(run_outcome=LlmCallOutcome.TIMEOUT)
+
+    extraction = await _conversation(gateway).extract(_context(), "climbing")
+
+    assert (extraction.output, extraction.outcome) == (None, LlmCallOutcome.TIMEOUT)
+
+
+def test_draft_ready_is_read_from_its_file_with_no_model_call() -> None:
+    gateway = RecordingGateway()
+
+    reply = _conversation(gateway).draft_ready()
+
+    assert reply.template == TemplateRef(id=DRAFT_READY_REPLY_ID, version=1)
+    assert reply.text == (_PROMPTS_ROOT / "draft_ready" / "v1.en.md").read_text().strip()
+    assert reply.text
+    assert (gateway.runs, gateway.streams) == ([], [])
+
+
+async def test_extract_refuses_a_sport_that_names_no_extraction_template() -> None:
+    gateway = RecordingGateway()
+
+    with pytest.raises(ValueError, match="gym"):
+        await _conversation(gateway).extract(_context(), "gym")
+
+    assert gateway.runs == []

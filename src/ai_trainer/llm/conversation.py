@@ -1,10 +1,11 @@
 """`ConversationModelPort` on the prompt registry and the gateway: the router, the chitchat
-specialist and the "not yet" reply (ADR-0008 skeleton routing)."""
+specialist, each sport's extraction template, and the fixed replies (ADR-0008)."""
 
 from collections.abc import AsyncGenerator, Sequence
 from pathlib import Path
 
 from ai_trainer.application.ports.conversation import (
+    Extraction,
     FixedReply,
     ReplyContext,
     Routing,
@@ -15,12 +16,15 @@ from ai_trainer.domain.chat import ChatMessage
 from ai_trainer.domain.conversation import Intent
 from ai_trainer.domain.sports.registry import SportRegistry
 from ai_trainer.llm.chitchat import build_chitchat_deps, chitchat_template
-from ai_trainer.llm.extract import extract_templates
+from ai_trainer.llm.extract import build_extract_deps, extract_template, extract_templates
 from ai_trainer.llm.prompts.registry import PromptRegistry
 from ai_trainer.llm.router import ROUTER_VERSIONS, ChatTurn, build_router_deps, router_template
 
 NOT_YET_REPLY_ID = "not_yet"
 _NOT_YET_VERSION = 1
+# The line above a draft card, sent as written (ADR-0008 fixed replies).
+DRAFT_READY_REPLY_ID = "draft_ready"
+_DRAFT_READY_VERSION = 1
 
 
 def build_prompt_registry(root: Path, sports: SportRegistry) -> PromptRegistry:
@@ -54,11 +58,16 @@ class LlmConversation:
         sports: SportRegistry,
         router_model: str,
         chitchat_model: str,
+        extract_model: str,
         history_turns: int,
         router_provider: str | None = None,
+        extract_provider: str | None = None,
     ) -> None:
         self._registry = registry
         self._gateway = gateway
+        self._sports = sports
+        self._extract_model = extract_model
+        self._extract_provider = extract_provider
         self._router = router_template(sports)
         self._chitchat = chitchat_template()
         self._router_model = router_model
@@ -120,6 +129,42 @@ class LlmConversation:
                 self._chitchat.id, self._chitchat.version, deps
             ),
             prompt=context.message,
+        )
+
+    async def extract(self, context: ReplyContext, sport_id: str) -> Extraction:
+        spec = self._sports.get(sport_id).extraction
+        if spec is None:
+            raise ValueError(f"sport {sport_id!r} names no extraction template")
+        template = extract_template(spec)
+        deps = build_extract_deps(
+            message=context.message,
+            history=_turns(context.history),
+            now=context.now,
+            timezone=context.timezone,
+            history_turns=self._history_turns,
+        )
+        result = await self._gateway.run(
+            user_id=context.user_id,
+            template_id=template.id,
+            template_version=template.version,
+            model_id=self._extract_model,
+            output_type=spec.output_type,
+            instructions=self._registry.render_instructions(template.id, template.version, deps),
+            prompt=context.message,
+            temperature=template.temperature,
+            output_retries=template.output_retries,
+            upstream_provider=self._extract_provider,
+        )
+        return Extraction(
+            output=result.output,
+            outcome=result.outcome,
+            template=TemplateRef(id=template.id, version=template.version),
+        )
+
+    def draft_ready(self) -> FixedReply:
+        return FixedReply(
+            text=self._registry.load_fixed_reply(DRAFT_READY_REPLY_ID, _DRAFT_READY_VERSION),
+            template=TemplateRef(id=DRAFT_READY_REPLY_ID, version=_DRAFT_READY_VERSION),
         )
 
     def not_yet(self) -> FixedReply:

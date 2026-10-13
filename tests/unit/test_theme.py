@@ -53,6 +53,15 @@ def test_base_layout_body_has_the_wallpaper_class() -> None:
     assert "wallpaper" in response.text
 
 
+def test_base_layout_smooths_text_as_the_mocks_do() -> None:
+    """Every Claude Design mock sets `-webkit-font-smoothing: antialiased` on <html>; without
+    it macOS renders the app's text heavier than its mock (#154's acceptance gate)."""
+    response = _client().get("/")
+    html_tag = response.text.partition("<html")[2].partition(">")[0]
+
+    assert 'class="antialiased"' in html_tag
+
+
 def test_glass_css_defines_the_closed_set_of_utilities() -> None:
     glass_css = (STATIC_DIR / "css" / "glass.css").read_text()
 

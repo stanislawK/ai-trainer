@@ -1,12 +1,15 @@
 """Wires the chat, the main screen: `GET /` (the latest conversation), `GET /c/{id}` (one
 conversation), `GET /c/new` (an empty one), `POST /messages` and the streamed reply,
 `GET /messages/{id}/reply` and `GET /messages/{id}/stop` (PRD-0004 F1, B13, B24, F16, ADR-0008,
-ADR-0012, ADR-0021, tickets #78, #82, #116, #146 and #147).
+ADR-0012, ADR-0021, tickets #78, #82, #116, #146 and #147). A pending session draft shows as a
+card under the reply part that introduced it, on the stream's end and on every page load
+(PRD-0004 F2, ticket #154).
 `user_id` comes only from the authenticated session (ADR-0005), and a conversation ID from the
 URL or the form is always looked up with it: another user's conversation is a 404."""
 
-from collections.abc import AsyncGenerator, AsyncIterable, Sequence
+from collections.abc import AsyncGenerator, AsyncIterable, Mapping, Sequence
 from contextlib import aclosing
+from datetime import date
 from typing import Annotated, Any
 from uuid import UUID
 from zoneinfo import ZoneInfo
@@ -38,10 +41,11 @@ from ai_trainer.application.reply import (
     find_saved_reply,
     start_reply,
 )
-from ai_trainer.domain.chat import ChatMessage, Conversation
+from ai_trainer.domain.chat import ChatMessage, ChatRole, Conversation
 from ai_trainer.domain.llm_calls import LlmCallOutcome
 from ai_trainer.domain.sports.registry import SportRegistry
 from ai_trainer.domain.users import User
+from ai_trainer.web.drafts import DraftCard, draft_cards
 from ai_trainer.web.glyphs import build_reply_glyph
 
 _UNPROCESSABLE = 422
@@ -74,7 +78,25 @@ def build_chat_router(
     def render(template_name: str, **context: Any) -> str:
         return templates.get_template(template_name).render(**context)
 
-    def reply_event(message_id: UUID, event: ReplyEvent) -> ServerSentEvent:
+    def local_today(user: User) -> date:
+        return clock.now().astimezone(ZoneInfo(user.timezone)).date()
+
+    def reply_cards(
+        user: User, message_id: UUID, done: ReplyDone
+    ) -> Mapping[UUID, Sequence[DraftCard]]:
+        return draft_cards(
+            done.messages, done.drafts, sports=sports, today=local_today(user), log_id=message_id
+        )
+
+    async def window_log(user: User, history: Sequence[ChatMessage]) -> UUID | None:
+        """The athlete's message a history window opens on the reply to, when the window cut
+        that message off: its draft cards still belong under that reply (ticket #154)."""
+        if not history or history[0].role is not ChatRole.ASSISTANT:
+            return None
+        before = await chat.list_before(user.id, history[0], 1)
+        return before[0].id if before and before[0].role is ChatRole.USER else None
+
+    def reply_event(user: User, message_id: UUID, event: ReplyEvent) -> ServerSentEvent:
         """Each event is an htmx partial: a phase relabels the thinking indicator, chunks append
         to the streaming text, and the last event swaps the whole placeholder for the saved
         reply or the error row (ADR-0012)."""
@@ -86,7 +108,10 @@ def build_chat_router(
             html = render("partials/chat/reply_chunk.html", message_id=message_id, text=event.text)
         elif isinstance(event, ReplyDone):
             html = render(
-                "partials/chat/reply_done.html", message_id=message_id, messages=event.messages
+                "partials/chat/reply_done.html",
+                message_id=message_id,
+                messages=event.messages,
+                draft_cards=reply_cards(user, message_id, event),
             )
         else:
             html = render(
@@ -131,16 +156,24 @@ def build_chat_router(
 
     async def chat_page(request: Request, conversation: Conversation | None) -> HTMLResponse:
         user: User = request.state.user
-        history: Sequence[ChatMessage] = (
-            await list_history(user.id, conversation.id, repository=chat)
-            if conversation is not None
-            else ()
-        )
+        history: Sequence[ChatMessage] = ()
+        cards: Mapping[UUID, Sequence[DraftCard]] = {}
+        if conversation is not None:
+            history = await list_history(user.id, conversation.id, repository=chat)
+            pending = await replies.drafts.list_pending(user.id, conversation.id)
+            cards = draft_cards(
+                history,
+                pending,
+                sports=sports,
+                today=local_today(user),
+                log_id=await window_log(user, history),
+            )
         local_hour = clock.now().astimezone(ZoneInfo(user.timezone)).hour
         first_name = user.name.split()[0] if user.name and user.name.strip() else None
         context = {
             "conversation_id": conversation.id if conversation is not None else None,
             "history": history,
+            "draft_cards": cards,
             "part_of_day": _part_of_day(local_hour),
             "first_name": first_name,
             "text": "",
@@ -220,14 +253,16 @@ def build_chat_router(
 
     @router.get("/messages/{message_id}/reply", response_class=EventSourceResponse)
     async def stream_reply(
+        request: Request,
         message_id: UUID,
         events: Annotated[AsyncGenerator[ReplyEvent], Depends(reply_events)],
     ) -> AsyncIterable[ServerSentEvent]:
+        user: User = request.state.user
         # Closing the reply closes the model stream too, so a reader who leaves mid-reply
         # still leaves its `llm_calls` row, as `cancelled` (ADR-0018).
         async with aclosing(events):
             async for event in events:
-                yield reply_event(message_id, event)
+                yield reply_event(user, message_id, event)
 
     @router.get("/messages/{message_id}/retry", response_class=HTMLResponse)
     async def retry_reply(request: Request, message_id: UUID) -> HTMLResponse:
@@ -248,16 +283,18 @@ def build_chat_router(
         reply that finished first is shown as it was saved instead of as stopped."""
         user: User = request.state.user
         try:
-            saved = await find_saved_reply(
-                user.id, message_id, chat=chat, conversations=conversations
-            )
+            saved = await find_saved_reply(user.id, message_id, services=replies)
         except MessageNotFoundError:
             raise HTTPException(status_code=_NOT_FOUND) from None
-        if saved:
+        if saved.messages:
             return templates.TemplateResponse(
                 request,
                 "partials/chat/reply_saved.html",
-                {"message_id": message_id, "messages": saved},
+                {
+                    "message_id": message_id,
+                    "messages": saved.messages,
+                    "draft_cards": reply_cards(user, message_id, saved),
+                },
             )
         return templates.TemplateResponse(
             request, "partials/chat/reply_stopped.html", {"message_id": message_id}
