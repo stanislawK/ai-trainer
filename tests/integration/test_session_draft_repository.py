@@ -20,6 +20,8 @@ from ai_trainer.adapters.session_draft_repository import SqlAlchemySessionDraftR
 from ai_trainer.adapters.users_repository import SqlAlchemyUsersRepository
 from ai_trainer.application.retention import purge_expired_conversations
 from ai_trainer.domain.chat import ChatRole
+from ai_trainer.domain.sports.cycling.extraction import CyclingExtraction
+from ai_trainer.domain.sports.cycling.payload import CYCLING_PAYLOAD_VERSION
 from ai_trainer.domain.training import (
     DraftConfirmedError,
     DraftDiscardedError,
@@ -49,8 +51,10 @@ class _Clock:
         return self.current
 
 
-async def _log(factory: Callable[[], AsyncSession], sub: str) -> tuple[UUID, UUID, UUID]:
-    """A user, a conversation of theirs and their climbing log in it."""
+async def _log(
+    factory: Callable[[], AsyncSession], sub: str, log: str = "I climbed 3 6A and 2 6B boulders"
+) -> tuple[UUID, UUID, UUID]:
+    """A user, a conversation of theirs and their log in it, a climbing one by default."""
     user = await SqlAlchemyUsersRepository(factory).create(
         NewUser(
             sub=sub, email=f"{sub}@example.com", name=None, locale="en", status=UserStatus.ACTIVE
@@ -61,7 +65,7 @@ async def _log(factory: Callable[[], AsyncSession], sub: str) -> tuple[UUID, UUI
     )
     conversation = await conversations.create(user.id, "Climbed", _START)
     message = await SqlAlchemyChatRepository(factory).add(
-        user.id, conversation.id, ChatRole.USER, "I climbed 3 6A and 2 6B boulders", _START
+        user.id, conversation.id, ChatRole.USER, log, _START
     )
     return user.id, conversation.id, message.id
 
@@ -329,6 +333,56 @@ async def test_confirm_writes_one_session_and_its_source_and_marks_the_draft_con
     )
     assert tuple(source) == (user_id, "I climbed 3 6A and 2 6B boulders", "chat", _START)
     assert resolved_at == confirmed_at
+
+
+async def test_confirming_a_ride_in_miles_saves_it_in_km_with_the_log_as_typed(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    """A cycling draft confirms like a climbing one (ticket #160): its payload keeps the miles
+    as typed beside the km, and its source row keeps the athlete's text (B2)."""
+    drafts = SqlAlchemySessionDraftRepository(db_session_factory)
+    user_id, conversation_id, message_id = await _log(
+        db_session_factory, "confirm-ride", "Rode 40 miles yesterday"
+    )
+    payload = CyclingExtraction.model_validate(
+        {
+            "occurred_on": "2026-10-01",
+            "date_source": "relative",
+            "activities": [{"distance": {"original": "40 miles", "value": 40, "unit": "mi"}}],
+        }
+    ).to_payload()
+    draft = await drafts.add(
+        user_id,
+        conversation_id,
+        message_id,
+        "cycling",
+        _DRAFT.model_copy(
+            update={"occurred_on": date(2026, 10, 1), "payload": payload.model_dump(mode="json")}
+        ),
+        payload_version=CYCLING_PAYLOAD_VERSION,
+        created_at=_START,
+    )
+
+    confirmed = await drafts.confirm(user_id, draft.id, confirmed_at=_START)
+
+    async with db_session_factory() as db:
+        sport_id, stored, raw_text = (
+            await db.execute(
+                text(
+                    "SELECT s.sport_id, s.payload, src.raw_text FROM training_sessions s"
+                    " JOIN training_session_sources src ON src.session_id = s.id"
+                    " WHERE s.id = :id"
+                ),
+                {"id": confirmed.session_id},
+            )
+        ).one()
+    assert (sport_id, raw_text) == ("cycling", "Rode 40 miles yesterday")
+    assert stored["activities"][0]["distance"] == {
+        "original": "40 miles",
+        "value": 40,
+        "unit": "mi",
+        "km": 64.37,
+    }
 
 
 async def test_confirm_copies_every_envelope_field_the_athlete_gave(

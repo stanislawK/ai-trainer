@@ -62,9 +62,9 @@ _TIMES = "\N{MULTIPLICATION SIGN}"
 # The router's answer for each message the athlete sends, as the model would write it.
 _ROUTED = {
     "hi!": '{"intents": [{"kind": "chitchat", "confidence": 0.9, "span": "hi!"}]}',
-    "log my ride": (
-        '{"intents": [{"kind": "log_session", "sport": "cycling", "confidence": 0.9,'
-        ' "span": "log my ride"}]}'
+    "log my lifts": (
+        '{"intents": [{"kind": "log_session", "sport": "gym", "confidence": 0.9,'
+        ' "span": "log my lifts"}]}'
     ),
     "my knee hurts, also hi": (
         '{"intents": [{"kind": "chitchat", "confidence": 0.8, "span": "also hi"},'
@@ -76,7 +76,7 @@ _ROUTED = {
         ' "span": "knee\'s a bit sore lol, anyway hi"}]}'
     ),
     "Ran 5k, also plan my week": (
-        '{"intents": [{"kind": "log_session", "sport": "cycling", "confidence": 0.6,'
+        '{"intents": [{"kind": "log_session", "sport": "gym", "confidence": 0.6,'
         ' "span": "Ran 5k"}, {"kind": "request_plan", "confidence": 0.9,'
         ' "span": "also plan my week"}]}'
     ),
@@ -405,17 +405,17 @@ async def test_hi_streams_a_reply_that_survives_a_reload_with_a_row_per_model_ca
     ]
 
 
-async def test_log_my_ride_gets_the_not_yet_reply_and_only_the_router_row(
+async def test_log_my_lifts_gets_the_not_yet_reply_and_only_the_router_row(
     db_session_factory: Callable[[], AsyncSession],
 ) -> None:
     user = await _user(db_session_factory, "reply-b")
     chitchat = ScriptedChitchat()
 
-    await _send_and_stream(db_session_factory, user, "log my ride", chitchat)
+    await _send_and_stream(db_session_factory, user, "log my lifts", chitchat)
 
     assert chitchat.instructions == []
     [_, reply] = await _history(db_session_factory, user.id)
-    assert (reply.template_id, reply.template_version, reply.sports) == ("not_yet", 1, ("cycling",))
+    assert (reply.template_id, reply.template_version, reply.sports) == ("not_yet", 1, ("gym",))
     calls = await SqlAlchemyLlmCallsRepository(db_session_factory).list_for_user(user.id)
     assert sorted(call.template_id for call in calls) == ["router", "router_fast", "safety_screen"]
 
@@ -499,7 +499,7 @@ async def test_a_reply_finishing_after_the_next_message_stays_with_its_own_messa
         user.id,
         await _thread(db_session_factory, user.id),
         ChatRole.USER,
-        "log my ride",
+        "log my lifts",
         FROZEN_NOW - timedelta(seconds=5),
     )
     app, gateways = _app(db_session_factory, user)
@@ -600,7 +600,7 @@ async def test_every_message_writes_one_screen_row_under_its_own_decision_id(
         user.id,
         await _thread(db_session_factory, user.id),
         ChatRole.USER,
-        "log my ride",
+        "log my lifts",
         FROZEN_NOW - timedelta(seconds=5),
     )
     app, gateways = _app(db_session_factory, user)
@@ -647,7 +647,8 @@ async def test_a_screen_timeout_still_streams_the_router_driven_reply(
 # The Jev router fast path (ADR-0020 use 1, ticket #122).
 
 _HI_FAST: FastAnswer = (0.02, {"intent": ("chitchat", 0.97), "sport": ("gym", 0.4)})
-_RIDE_FAST: FastAnswer = (0.03, {"intent": ("log_session", 0.96), "sport": ("cycling", 0.95)})
+# Gym names no extraction template yet, so its log gets the "not yet" reply.
+_LIFTS_FAST: FastAnswer = (0.03, {"intent": ("log_session", 0.96), "sport": ("gym", 0.95)})
 
 
 async def test_a_fast_routed_message_writes_a_router_fast_row_and_no_router_row(
@@ -678,17 +679,17 @@ async def test_a_fast_routed_log_takes_its_sport_from_the_athletes_own_sports(
 ) -> None:
     user = await _user(db_session_factory, "fast-b")
     await SqlAlchemyOnboardingRepository(db_session_factory).replace_sports(
-        user.id, ["climbing", "cycling"]
+        user.id, ["climbing", "gym"]
     )
-    jev = FakeJev(fast={"log my ride": _RIDE_FAST})
+    jev = FakeJev(fast={"log my lifts": _LIFTS_FAST})
 
-    await _send_and_stream(db_session_factory, user, "log my ride", ScriptedChitchat(), jev=jev)
+    await _send_and_stream(db_session_factory, user, "log my lifts", ScriptedChitchat(), jev=jev)
 
     assert jev.fast_asked == [
-        {"state": "log my ride", "intent": list(INTENT_KINDS), "sport": ["climbing", "cycling"]}
+        {"state": "log my lifts", "intent": list(INTENT_KINDS), "sport": ["climbing", "gym"]}
     ]
     [_, reply] = await _history(db_session_factory, user.id)
-    assert (reply.template_id, reply.sports) == ("not_yet", ("cycling",))
+    assert (reply.template_id, reply.sports) == ("not_yet", ("gym",))
     assert "router" not in [name for name, _ in await _calls(db_session_factory, user)]
 
 
@@ -700,8 +701,8 @@ async def test_several_requests_go_to_the_llm_router(
     """Jev is sure of the intent and the sport, so only P(several requests), at the
     `Settings` threshold, sends it to the LLM router."""
     user_sports = SqlAlchemyOnboardingRepository(db_session_factory)
-    await user_sports.replace_sports(user.id, ["climbing", "cycling"])
-    several: FastAnswer = (0.93, {"intent": ("log_session", 0.99), "sport": ("cycling", 0.99)})
+    await user_sports.replace_sports(user.id, ["climbing", "gym"])
+    several: FastAnswer = (0.93, {"intent": ("log_session", 0.99), "sport": ("gym", 0.99)})
     jev = FakeJev(fast={"Ran 5k, also plan my week": several})
 
     [body], _ = await _send_and_stream(

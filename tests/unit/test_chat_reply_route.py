@@ -102,10 +102,10 @@ async def test_a_reload_before_the_reply_came_through_reconnects_for_it() -> Non
     assert f'hx-sse:connect="/messages/{asked.id}/reply"' in page.text
 
 
-async def test_log_my_ride_streams_the_not_yet_reply() -> None:
-    conversation = ScriptedConversation(intents=[[Intent(kind="log_session", sport="cycling")]])
+async def test_a_log_for_a_sport_without_an_extraction_streams_the_not_yet_reply() -> None:
+    conversation = ScriptedConversation(intents=[[Intent(kind="log_session", sport="gym")]])
     client, user_id, chat = _client(conversation)
-    asked = await _asked(chat, user_id, "log my ride")
+    asked = await _asked(chat, user_id, "log my squats")
 
     response = client.get(f"/messages/{asked.id}/reply")
 

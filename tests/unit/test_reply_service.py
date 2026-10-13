@@ -44,7 +44,8 @@ from tests.chat_support import (
 
 _HI = [Intent(kind="chitchat")]
 _MINUTE = timedelta(minutes=1)
-_RIDE = [Intent(kind="log_session", sport="cycling")]
+# Gym names no extraction template yet, so its log gets the "not yet" reply.
+_LIFTS = [Intent(kind="log_session", sport="gym")]
 
 
 async def _asked(chat: InMemoryChatRepository, user_id: UUID, text: str = "hi!") -> ChatMessage:
@@ -105,25 +106,25 @@ async def test_hi_streams_the_chitchat_reply_and_saves_it_for_the_next_page_load
     assert chat.all_of(user_id) == [asked, reply]
 
 
-async def test_log_my_ride_gets_the_not_yet_reply_with_no_chitchat_call() -> None:
+async def test_log_my_lifts_gets_the_not_yet_reply_with_no_chitchat_call() -> None:
     chat, user_id = InMemoryChatRepository(), uuid4()
-    asked = await _asked(chat, user_id, "log my ride")
-    conversation = ScriptedConversation(intents=[_RIDE])
+    asked = await _asked(chat, user_id, "log my lifts")
+    conversation = ScriptedConversation(intents=[_LIFTS])
 
     events = await _events(chat, user_id, asked, conversation)
 
     assert conversation.chitchatted == []
     [reply] = _done(events).messages
-    assert (reply.text, reply.sports) == (NOT_YET_TEXT, ("cycling",))
+    assert (reply.text, reply.sports) == (NOT_YET_TEXT, ("gym",))
     assert (reply.template_id, reply.template_version) == ("not_yet", 1)
     assert _streamed_text(events) == NOT_YET_TEXT
 
 
 async def test_pain_is_answered_before_the_rest_of_the_message() -> None:
     chat, user_id = InMemoryChatRepository(), uuid4()
-    asked = await _asked(chat, user_id, "log my ride, my knee hurts")
+    asked = await _asked(chat, user_id, "log my lifts, my knee hurts")
     conversation = ScriptedConversation(
-        intents=[[Intent(kind="log_session", sport="cycling"), Intent(kind="wellbeing_or_injury")]]
+        intents=[[Intent(kind="log_session", sport="gym"), Intent(kind="wellbeing_or_injury")]]
     )
 
     events = await _events(chat, user_id, asked, conversation)
@@ -161,14 +162,13 @@ async def test_skeleton_routing_sends_these_intents_to_chitchat(kind: str) -> No
 
 async def test_several_not_yet_intents_share_one_not_yet_reply_with_their_sports() -> None:
     chat, user_id = InMemoryChatRepository(), uuid4()
-    asked = await _asked(chat, user_id, "log my ride and my lifts, and plan next week")
+    asked = await _asked(chat, user_id, "log my lifts, plan next week, and my squats too")
     conversation = ScriptedConversation(
         intents=[
             [
-                Intent(kind="log_session", sport="cycling"),
                 Intent(kind="log_session", sport="gym"),
-                Intent(kind="log_session", sport="cycling"),
                 Intent(kind="request_plan"),
+                Intent(kind="log_session", sport="gym"),
             ]
         ]
     )
@@ -176,7 +176,7 @@ async def test_several_not_yet_intents_share_one_not_yet_reply_with_their_sports
     events = await _events(chat, user_id, asked, conversation)
 
     [reply] = _done(events).messages
-    assert reply.sports == ("cycling", "gym")
+    assert reply.sports == ("gym",)
 
 
 async def test_the_reply_reports_routing_then_replying_before_its_first_chunk() -> None:
@@ -498,7 +498,7 @@ def test_a_pain_screen_never_duplicates_reorders_or_removes_the_routers_intents(
 
 
 def test_no_pain_keeps_the_routers_intents() -> None:
-    assert with_screened_safety(_RIDE, pain=False) == _RIDE
+    assert with_screened_safety(_LIFTS, pain=False) == _LIFTS
 
 
 async def test_a_greeting_with_pain_the_router_missed_stays_one_chitchat_reply() -> None:
@@ -557,14 +557,14 @@ async def test_pain_the_router_missed_in_a_log_gets_a_chitchat_part_before_not_y
 
 async def test_a_message_without_pain_gets_the_routers_reply() -> None:
     chat, user_id = InMemoryChatRepository(), uuid4()
-    asked = await _asked(chat, user_id, "log my ride")
+    asked = await _asked(chat, user_id, "log my lifts")
     screen = ScriptedSafetyScreen(pain=False)
 
     events = await _events(
-        chat, user_id, asked, ScriptedConversation(intents=[_RIDE]), safety_screen=screen
+        chat, user_id, asked, ScriptedConversation(intents=[_LIFTS]), safety_screen=screen
     )
 
-    assert screen.screened == ["log my ride"]
+    assert screen.screened == ["log my lifts"]
     assert _streamed_text(events) == NOT_YET_TEXT
 
 
@@ -599,7 +599,7 @@ async def test_a_screen_that_timed_out_leaves_the_router_driven_reply() -> None:
     screen = ScriptedSafetyScreen(pain=False, delay=0.05)
 
     events = await _events(
-        chat, user_id, asked, ScriptedConversation(intents=[_RIDE]), safety_screen=screen
+        chat, user_id, asked, ScriptedConversation(intents=[_LIFTS]), safety_screen=screen
     )
 
     assert _streamed_text(events) == NOT_YET_TEXT
@@ -655,23 +655,23 @@ async def test_stopping_during_routing_cancels_the_screen_too() -> None:
 
 async def test_a_fast_routed_message_is_dispatched_with_no_router_call() -> None:
     chat, user_id = InMemoryChatRepository(), uuid4()
-    asked = await _asked(chat, user_id, "log my ride")
+    asked = await _asked(chat, user_id, "log my lifts")
     conversation = ScriptedConversation(intents=[_HI])
-    fast = ScriptedFastRouter(intents=_RIDE)
+    fast = ScriptedFastRouter(intents=_LIFTS)
 
     events = await _events(chat, user_id, asked, conversation, fast_router=fast)
 
     assert conversation.routed == []
-    assert [context.message for context in fast.routed] == ["log my ride"]
+    assert [context.message for context in fast.routed] == ["log my lifts"]
     assert events[0] == ReplyPhase("routing")
     [reply] = _done(events).messages
-    assert (reply.text, reply.sports) == (NOT_YET_TEXT, ("cycling",))
+    assert (reply.text, reply.sports) == (NOT_YET_TEXT, ("gym",))
 
 
 async def test_a_message_the_fast_path_declines_goes_to_the_llm_router() -> None:
     chat, user_id = InMemoryChatRepository(), uuid4()
     asked = await _asked(chat, user_id, "Ran 5k, also plan my week")
-    conversation = ScriptedConversation(intents=[_RIDE, [Intent(kind="request_plan")]])
+    conversation = ScriptedConversation(intents=[_LIFTS, [Intent(kind="request_plan")]])
     fast = ScriptedFastRouter(intents=None)
 
     events = await _events(chat, user_id, asked, conversation, fast_router=fast)
@@ -691,7 +691,7 @@ async def test_the_screen_adds_pain_to_a_fast_routed_message() -> None:
         user_id,
         asked,
         ScriptedConversation(),
-        fast_router=ScriptedFastRouter(intents=_RIDE),
+        fast_router=ScriptedFastRouter(intents=_LIFTS),
         safety_screen=screen,
     )
 
@@ -717,11 +717,11 @@ async def _routed(fast: ScriptedFastRouter, conversation: ScriptedConversation) 
 
 
 async def test_a_fast_routed_message_carries_the_sports_jev_found_plausible() -> None:
-    fast = ScriptedFastRouter(intents=_RIDE, plausible_sports=("cycling",))
+    fast = ScriptedFastRouter(intents=_LIFTS, plausible_sports=("gym",))
 
     routing = await _routed(fast, ScriptedConversation())
 
-    assert routing.plausible_sports == ("cycling",)
+    assert routing.plausible_sports == ("gym",)
 
 
 async def test_a_message_routed_by_the_llm_router_still_carries_jevs_plausible_sports() -> None:
@@ -729,15 +729,17 @@ async def test_a_message_routed_by_the_llm_router_still_carries_jevs_plausible_s
     exactly the sports Jev kept in play."""
     fast = ScriptedFastRouter(intents=None, plausible_sports=("gym", "cycling"))
 
-    routing = await _routed(fast, ScriptedConversation(intents=[_RIDE]))
+    routing = await _routed(fast, ScriptedConversation(intents=[_LIFTS]))
 
-    assert (routing.intents, routing.plausible_sports) == (_RIDE, ("gym", "cycling"))
+    assert (routing.intents, routing.plausible_sports) == (_LIFTS, ("gym", "cycling"))
 
 
 async def test_a_fallback_carries_the_llm_routers_own_sport_alone() -> None:
-    routing = await _routed(ScriptedFastRouter(intents=None), ScriptedConversation(intents=[_RIDE]))
+    routing = await _routed(
+        ScriptedFastRouter(intents=None), ScriptedConversation(intents=[_LIFTS])
+    )
 
-    assert routing.plausible_sports == ("cycling",)
+    assert routing.plausible_sports == ("gym",)
 
 
 async def test_a_fallback_with_no_logged_sport_has_no_plausible_sport() -> None:
@@ -750,9 +752,9 @@ async def test_an_empty_set_from_jev_falls_back_to_the_llm_routers_sport() -> No
     """A floor above every sport leaves nothing in play; the router's own sport stands in."""
     fast = ScriptedFastRouter(intents=None, plausible_sports=())
 
-    routing = await _routed(fast, ScriptedConversation(intents=[_RIDE]))
+    routing = await _routed(fast, ScriptedConversation(intents=[_LIFTS]))
 
-    assert routing.plausible_sports == ("cycling",)
+    assert routing.plausible_sports == ("gym",)
 
 
 _CLIMB = "I climbed 3 6A and 2 6B boulders"
@@ -802,8 +804,8 @@ async def test_the_draft_part_streams_its_intro_and_records_the_extraction_templ
 
 async def test_a_sport_without_an_extraction_template_still_gets_not_yet() -> None:
     chat, drafts, user_id = InMemoryChatRepository(), InMemoryDraftRepository(), uuid4()
-    asked = await _asked(chat, user_id, "log my ride")
-    conversation = ScriptedConversation(intents=[_RIDE])
+    asked = await _asked(chat, user_id, "log my lifts")
+    conversation = ScriptedConversation(intents=[_LIFTS])
 
     events = await _events(chat, user_id, asked, conversation, drafts=drafts)
 
