@@ -1,6 +1,5 @@
 {#- A climbing draft's activities, one row per activity (owner-chosen at #154's plan gate; the mock shows only one route): the count and grade as typed, then the kind, style, attempts and route when given. -#}
-{%- set kinds = {"boulder": "Boulder", "lead": "Lead", "top_rope": "Top rope"} -%}
-{%- set styles = {"onsight": "Onsight", "flash": "Flash", "redpoint": "Redpoint", "repeat": "Repeat", "attempt": "Attempt"} -%}
+{%- from "components/climbing_copy.html" import climbing_kinds as kinds, climbing_styles as styles -%}
 <ul class="flex flex-col gap-2" aria-label="Activities">
   {%- for activity in card.payload.activities %}
   <li class="flex items-baseline justify-between gap-4">

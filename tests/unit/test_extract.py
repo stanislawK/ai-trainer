@@ -13,6 +13,7 @@ from pydantic_ai.models.function import AgentInfo, FunctionModel
 from pydantic_evals.evaluators import EvaluatorContext
 
 from ai_trainer.domain.sports.base import ExtractionSpec, SessionExtraction, SportPlugin
+from ai_trainer.domain.sports.climbing.edit import apply_climbing_edit
 from ai_trainer.domain.sports.climbing.extraction import ClimbingExtraction
 from ai_trainer.domain.sports.climbing.payload import (
     CLIMBING_PAYLOAD_VERSION,
@@ -107,6 +108,7 @@ def test_the_climbing_plugin_names_its_extraction_template() -> None:
         output_type=ClimbingExtraction,
         payload_type=ClimbingPayload,
         payload_version=CLIMBING_PAYLOAD_VERSION,
+        apply_edit=apply_climbing_edit,
     )
 
 
@@ -117,6 +119,7 @@ def test_extract_template_takes_its_id_version_and_output_from_the_plugin() -> N
         output_type=ClimbingExtraction,
         payload_type=ClimbingPayload,
         payload_version=1,
+        apply_edit=apply_climbing_edit,
     )
     template = extract_template(spec)
 

@@ -3,6 +3,7 @@
 from collections.abc import Iterable, Sequence
 
 from ai_trainer.domain.sports.base import ExtractionSpec, SportPlugin
+from ai_trainer.domain.sports.climbing.edit import apply_climbing_edit
 from ai_trainer.domain.sports.climbing.extraction import ClimbingExtraction
 from ai_trainer.domain.sports.climbing.payload import CLIMBING_PAYLOAD_VERSION, ClimbingPayload
 
@@ -56,6 +57,7 @@ def default_sport_registry() -> SportRegistry:
                     output_type=ClimbingExtraction,
                     payload_type=ClimbingPayload,
                     payload_version=CLIMBING_PAYLOAD_VERSION,
+                    apply_edit=apply_climbing_edit,
                 ),
             ),
             SportPlugin(id="gym", label_key="sport.gym.label", icon="dumbbell"),

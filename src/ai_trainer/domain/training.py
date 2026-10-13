@@ -63,3 +63,13 @@ class SessionNotFoundError(Exception):
 
 class DraftConfirmedError(Exception):
     """The draft was confirmed and its session saved, so it can't be discarded (ADR-0022)."""
+
+
+class DraftEditError(Exception):
+    """The athlete's edit of a draft has values its models reject (F2, ticket #158). `fields`
+    names each one as the edit form does, e.g. `rpe` or `activities.0.count`; the draft is left
+    as it was."""
+
+    def __init__(self, fields: frozenset[str]) -> None:
+        super().__init__(f"invalid fields: {sorted(fields)}")
+        self.fields = fields

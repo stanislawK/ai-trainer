@@ -284,6 +284,46 @@
         "summary": "Show Conversation"
       }
     },
+    "/drafts/{draft_id}": {
+      "get": {
+        "description": "The draft as it is stored: the pending card, or the row it collapsed to. The edit\nform's Cancel swaps it back in (ticket #158).",
+        "operationId": "show_draft_drafts__draft_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "draft_id",
+            "required": true,
+            "schema": {
+              "title": "Draft Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Show Draft"
+      }
+    },
     "/drafts/{draft_id}/confirm": {
       "post": {
         "description": "The draft card's Confirm (F2, ADR-0022): saves the athlete's draft once and answers\nwith its \"Logged \u2026 to <date>\" row, which replaces the card. A second confirm answers\nwith the same row. A discarded draft is a 409 and writes nothing.",
@@ -362,6 +402,84 @@
           }
         },
         "summary": "Discard"
+      }
+    },
+    "/drafts/{draft_id}/edit": {
+      "get": {
+        "description": "The card's Edit, or its date chip (F2, ADR-0014 invariant 4): the pending draft's\nfields as an inline form, which replaces the card. A confirmed or discarded draft is a\n409.",
+        "operationId": "open_edit_drafts__draft_id__edit_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "draft_id",
+            "required": true,
+            "schema": {
+              "title": "Draft Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Open Edit"
+      },
+      "post": {
+        "description": "The edit form's Save (F2): updates the pending draft and answers with its card,\nwhich the athlete then confirms as usual. A rejected value is a 422 with the form as\ntyped and that field marked, and the draft unchanged. A confirmed or discarded draft\nis a 409.",
+        "operationId": "save_edit_drafts__draft_id__edit_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "draft_id",
+            "required": true,
+            "schema": {
+              "title": "Draft Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Save Edit"
       }
     },
     "/health": {

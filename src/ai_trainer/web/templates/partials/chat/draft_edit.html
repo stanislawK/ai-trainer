@@ -1,0 +1,34 @@
+{#- A pending draft's inline edit form (F2, ADR-0014 invariant 4, ticket #158; the mocks have no edit frame, so this layout was owner-approved 2026-10-13 at the plan gate): the card's shell and header, the date, the sport's own fields from the plugin's partial, then duration, RPE and feeling. Save updates the draft and swaps the card back in; a rejected value comes back as this form, as typed, with that field marked (422); a refusal (404, 409) leaves it as it is. Cancel swaps in the card as stored. The server validates, so the browser's own validation is off (`novalidate`). `values` is what was typed, `errors` the rejected field names. -#}
+{%- from "components/icon.html" import icon -%}
+{%- from "components/sport_copy.html" import sport_copy -%}
+{%- from "components/draft_field.html" import field_value, field_class, field_error, error_hint -%}
+{%- set draft = card.draft.draft -%}
+<article class="glass-regular glass-rim relative rounded-box p-4 flex flex-col gap-3" aria-label="Edit draft session" data-draft-id="{{ card.draft.id }}">
+  <header class="flex items-center gap-2 text-[13px] font-medium text-base-content/70">{{ icon(card.sport.icon, "size-4") }}{{ sport_copy[card.sport.label_key].label }} · draft</header>
+  <form class="flex flex-col gap-3" novalidate hx-post="/drafts/{{ card.draft.id }}/edit" hx-target="closest article" hx-swap="outerHTML" hx-disable="find button[type=submit]" hx-status:404="swap:none" hx-status:409="swap:none">
+    <label class="flex flex-col gap-1">
+      <span class="text-[12px] text-base-content/70">Date</span>
+      <input type="date" name="occurred_on" class="input h-11 w-full{{ field_class('occurred_on', errors, 'input-error') }}" value="{{ field_value('occurred_on', values, draft.occurred_on.isoformat()) }}"{{ field_error('occurred_on', errors, card.draft.id) }}>
+      {% call error_hint('occurred_on', errors, card.draft.id) %}Enter a date.{% endcall %}
+    </label>
+    {% include card.edit_template %}
+    <div class="grid grid-cols-2 gap-3">
+      <label class="flex flex-col gap-1">
+        <span class="text-[12px] text-base-content/70">Duration (min)</span>
+        <input type="number" name="duration_min" inputmode="numeric" min="1" max="1440" class="input h-11 w-full tabular-nums{{ field_class('duration_min', errors, 'input-error') }}" value="{{ field_value('duration_min', values, draft.duration_min) }}"{{ field_error('duration_min', errors, card.draft.id) }}>
+        {% call error_hint('duration_min', errors, card.draft.id) %}Enter minutes from 1 to 1440.{% endcall %}
+      </label>
+      <label class="flex flex-col gap-1">
+        <span class="text-[12px] text-base-content/70">RPE</span>
+        <input type="number" name="rpe" inputmode="numeric" min="1" max="10" class="input h-11 w-full tabular-nums{{ field_class('rpe', errors, 'input-error') }}" value="{{ field_value('rpe', values, draft.rpe) }}"{{ field_error('rpe', errors, card.draft.id) }}>
+        {% call error_hint('rpe', errors, card.draft.id) %}Enter a whole number from 1 to 10.{% endcall %}
+      </label>
+    </div>
+    <label class="flex flex-col gap-1">
+      <span class="text-[12px] text-base-content/70">Feeling</span>
+      <input type="text" name="feeling" maxlength="200" class="input h-11 w-full{{ field_class('feeling', errors, 'input-error') }}" value="{{ field_value('feeling', values, draft.feeling) }}"{{ field_error('feeling', errors, card.draft.id) }}>
+      {% call error_hint('feeling', errors, card.draft.id) %}Keep it to 200 characters.{% endcall %}
+    </label>
+    <div class="flex gap-2"><button type="submit" class="btn btn-primary flex-1">{{ icon("check", "size-4") }}Save</button><button type="button" class="btn btn-ghost" hx-get="/drafts/{{ card.draft.id }}" hx-target="closest article" hx-swap="outerHTML" hx-status:4xx="swap:none">Cancel</button></div>
+  </form>
+</article>

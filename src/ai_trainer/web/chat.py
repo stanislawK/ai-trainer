@@ -29,7 +29,14 @@ from ai_trainer.application.chat import (
     open_conversation,
     send_message,
 )
-from ai_trainer.application.drafts import confirm_draft, discard_draft, undo_session
+from ai_trainer.application.drafts import (
+    confirm_draft,
+    discard_draft,
+    draft_to_edit,
+    edit_draft,
+    find_draft,
+    undo_session,
+)
 from ai_trainer.application.ports.chat import ChatRepositoryPort
 from ai_trainer.application.reply import (
     MessageNotFoundError,
@@ -48,11 +55,13 @@ from ai_trainer.domain.sports.registry import SportRegistry
 from ai_trainer.domain.training import (
     DraftConfirmedError,
     DraftDiscardedError,
+    DraftEditError,
     DraftNotFoundError,
     SessionNotFoundError,
+    StoredDraft,
 )
 from ai_trainer.domain.users import User
-from ai_trainer.web.drafts import DraftCard, draft_card, draft_cards
+from ai_trainer.web.drafts import DraftCard, draft_card, draft_cards, form_changes
 from ai_trainer.web.glyphs import build_reply_glyph
 
 _UNPROCESSABLE = 422
@@ -305,6 +314,81 @@ def build_chat_router(
         return templates.TemplateResponse(
             request, "partials/chat/reply_stopped.html", {"message_id": message_id}
         )
+
+    def shown_card(user: User, draft: StoredDraft) -> DraftCard:
+        """A pending draft whose payload no longer reads has no card, so it is not found."""
+        card = draft_card(draft, sports=sports, today=local_today(user))
+        if card is None:
+            raise HTTPException(status_code=_NOT_FOUND)
+        return card
+
+    def edit_form(
+        request: Request,
+        card: DraftCard,
+        *,
+        values: Mapping[str, str] | None = None,
+        errors: frozenset[str] = frozenset(),
+    ) -> HTMLResponse:
+        return templates.TemplateResponse(
+            request,
+            "partials/chat/draft_edit.html",
+            {"card": card, "values": values or {}, "errors": errors},
+            status_code=_UNPROCESSABLE if errors else 200,
+        )
+
+    @router.get("/drafts/{draft_id}", response_class=HTMLResponse)
+    async def show_draft(request: Request, draft_id: str) -> HTMLResponse:
+        """The draft as it is stored: the pending card, or the row it collapsed to. The edit
+        form's Cancel swaps it back in (ticket #158)."""
+        user: User = request.state.user
+        try:
+            draft = await find_draft(user.id, parse_id(draft_id), drafts=replies.drafts)
+        except DraftNotFoundError:
+            raise HTTPException(status_code=_NOT_FOUND) from None
+        card = shown_card(user, draft)
+        return templates.TemplateResponse(request, card.template, {"card": card, "draft": draft})
+
+    @router.get("/drafts/{draft_id}/edit", response_class=HTMLResponse)
+    async def open_edit(request: Request, draft_id: str) -> HTMLResponse:
+        """The card's Edit, or its date chip (F2, ADR-0014 invariant 4): the pending draft's
+        fields as an inline form, which replaces the card. A confirmed or discarded draft is a
+        409."""
+        user: User = request.state.user
+        try:
+            draft = await draft_to_edit(user.id, parse_id(draft_id), drafts=replies.drafts)
+        except DraftNotFoundError:
+            raise HTTPException(status_code=_NOT_FOUND) from None
+        except DraftConfirmedError, DraftDiscardedError:
+            raise HTTPException(status_code=_CONFLICT) from None
+        return edit_form(request, shown_card(user, draft))
+
+    @router.post("/drafts/{draft_id}/edit", response_class=HTMLResponse)
+    async def save_edit(request: Request, draft_id: str) -> HTMLResponse:
+        """The edit form's Save (F2): updates the pending draft and answers with its card,
+        which the athlete then confirms as usual. A rejected value is a 422 with the form as
+        typed and that field marked, and the draft unchanged. A confirmed or discarded draft
+        is a 409."""
+        user: User = request.state.user
+        parsed_id = parse_id(draft_id)
+        form = await request.form()
+        values = {key: value for key, value in form.multi_items() if isinstance(value, str)}
+        try:
+            draft = await edit_draft(
+                user.id,
+                parsed_id,
+                form_changes(values.items()),
+                drafts=replies.drafts,
+                sports=sports,
+            )
+        except DraftNotFoundError:
+            raise HTTPException(status_code=_NOT_FOUND) from None
+        except DraftConfirmedError, DraftDiscardedError:
+            raise HTTPException(status_code=_CONFLICT) from None
+        except DraftEditError as error:
+            stored = await find_draft(user.id, parsed_id, drafts=replies.drafts)
+            return edit_form(request, shown_card(user, stored), values=values, errors=error.fields)
+        card = shown_card(user, draft)
+        return templates.TemplateResponse(request, card.template, {"card": card, "draft": draft})
 
     @router.post("/drafts/{draft_id}/confirm", response_class=HTMLResponse)
     async def confirm(request: Request, draft_id: str) -> HTMLResponse:
