@@ -138,7 +138,7 @@ async def test_an_assumed_date_seen_on_a_later_day_drops_today() -> None:
     assert "today," not in card
 
 
-async def test_the_cards_actions_are_shown_but_disabled_until_they_are_wired() -> None:
+async def test_confirm_is_wired_and_edit_and_discard_stay_disabled_until_they_are() -> None:
     client, user_id, chat, _ = _client()
     asked = await _logged(chat, user_id)
 
@@ -150,8 +150,10 @@ async def test_the_cards_actions_are_shown_but_disabled_until_they_are_wired() -
         "Edit",
         "Discard",
     ]
-    assert all(" disabled" in button.split(">")[0] for button in buttons)
-    assert "hx-post" not in card
+    confirm, edit, discard = (button.split(">")[0] for button in buttons)
+    assert "hx-post" in confirm
+    assert " disabled" not in confirm
+    assert all(" disabled" in tag and "hx-post" not in tag for tag in (edit, discard))
 
 
 async def test_an_extraction_failure_ends_with_the_retryable_error_row_and_no_card() -> None:

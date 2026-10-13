@@ -43,4 +43,14 @@ class StoredDraft(BaseModel):
     draft: SessionDraft
     payload_version: int
     status: DraftStatus
+    # The session a confirm produced; `None` until then.
+    session_id: UUID | None = None
     created_at: datetime
+
+
+class DraftNotFoundError(Exception):
+    """No draft of this user has the ID: another user's draft is as unknown as a missing one."""
+
+
+class DraftDiscardedError(Exception):
+    """The draft was discarded, so it can't be confirmed (ADR-0022)."""

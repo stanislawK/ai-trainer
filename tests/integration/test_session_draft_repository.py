@@ -2,20 +2,32 @@
 user and per conversation, only pending ones are listed, and they go with their conversation
 while saved sessions stay (B26, ADR-0022 invariant 1)."""
 
+import asyncio
+import contextlib
 from collections.abc import Callable
 from datetime import UTC, date, datetime, timedelta
+from typing import Any
 from uuid import UUID, uuid4
 
+import pytest
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ai_trainer.adapters.chat_repository import SqlAlchemyChatRepository
 from ai_trainer.adapters.conversation_repository import SqlAlchemyConversationRepository
+from ai_trainer.adapters.db import build_engine
 from ai_trainer.adapters.session_draft_repository import SqlAlchemySessionDraftRepository
 from ai_trainer.adapters.users_repository import SqlAlchemyUsersRepository
+from ai_trainer.application.retention import purge_expired_conversations
 from ai_trainer.domain.chat import ChatRole
-from ai_trainer.domain.training import SessionDraft
+from ai_trainer.domain.training import (
+    DraftDiscardedError,
+    DraftNotFoundError,
+    SessionDraft,
+    StoredDraft,
+)
 from ai_trainer.domain.users import NewUser, UserStatus
+from ai_trainer.settings import Settings
 from tests.chat_support import THREE_6A_TWO_6B
 
 _START = datetime(2026, 10, 2, 9, 0, tzinfo=UTC)
@@ -68,7 +80,7 @@ async def test_an_added_draft_is_listed_pending_with_its_draft_as_given(
         created_at=_START,
     )
 
-    assert await drafts.list_pending(user_id, conversation_id) == [added]
+    assert await drafts.list_shown(user_id, conversation_id) == [added]
     assert (added.message_id, added.sport_id, added.status, added.draft) == (
         message_id,
         "climbing",
@@ -87,11 +99,11 @@ async def test_another_user_never_lists_the_draft(
         owner, conversation_id, message_id, "climbing", _DRAFT, payload_version=1, created_at=_START
     )
 
-    assert await drafts.list_pending(stranger, conversation_id) == []
-    assert await drafts.list_pending(stranger, own_conversation) == []
+    assert await drafts.list_shown(stranger, conversation_id) == []
+    assert await drafts.list_shown(stranger, own_conversation) == []
 
 
-async def test_only_pending_drafts_are_listed_oldest_first(
+async def test_discarded_drafts_are_not_listed_and_the_rest_come_oldest_first(
     db_session_factory: Callable[[], AsyncSession],
 ) -> None:
     drafts = SqlAlchemySessionDraftRepository(db_session_factory)
@@ -130,7 +142,7 @@ async def test_only_pending_drafts_are_listed_oldest_first(
         )
         await db.commit()
 
-    assert await drafts.list_pending(user_id, conversation_id) == [earlier, later]
+    assert await drafts.list_shown(user_id, conversation_id) == [earlier, later]
 
 
 async def test_adding_a_draft_writes_no_training_session(
@@ -236,3 +248,253 @@ async def test_purging_a_conversation_takes_its_drafts_and_questions_but_keeps_s
             )
         ]
     assert counts == [0, 0, 1, 1]
+
+
+async def _pending(
+    factory: Callable[[], AsyncSession], sub: str
+) -> tuple[SqlAlchemySessionDraftRepository, UUID, StoredDraft]:
+    drafts = SqlAlchemySessionDraftRepository(factory)
+    user_id, conversation_id, message_id = await _log(factory, sub)
+    draft = await drafts.add(
+        user_id,
+        conversation_id,
+        message_id,
+        "climbing",
+        _DRAFT,
+        payload_version=1,
+        created_at=_START,
+    )
+    return drafts, user_id, draft
+
+
+async def _counts(factory: Callable[[], AsyncSession], user_id: UUID) -> tuple[int, int]:
+    async with factory() as db:
+        sessions = await db.scalar(
+            text("SELECT count(*) FROM training_sessions WHERE user_id = :id"), {"id": user_id}
+        )
+        sources = await db.scalar(
+            text("SELECT count(*) FROM training_session_sources WHERE user_id = :id"),
+            {"id": user_id},
+        )
+    return sessions or 0, sources or 0
+
+
+async def test_confirm_writes_one_session_and_its_source_and_marks_the_draft_confirmed(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    drafts, user_id, draft = await _pending(db_session_factory, "confirm-ok")
+    confirmed_at = _START + timedelta(minutes=5)
+
+    confirmed = await drafts.confirm(user_id, draft.id, confirmed_at=confirmed_at)
+
+    assert (confirmed.id, confirmed.status) == (draft.id, "confirmed")
+    assert confirmed.session_id is not None
+    async with db_session_factory() as db:
+        session = (
+            await db.execute(
+                text(
+                    "SELECT user_id, sport_id, occurred_on, timezone, payload, payload_version,"
+                    " created_at, updated_at FROM training_sessions WHERE id = :id"
+                ),
+                {"id": confirmed.session_id},
+            )
+        ).one()
+        source = (
+            await db.execute(
+                text(
+                    "SELECT user_id, raw_text, source, logged_at FROM training_session_sources"
+                    " WHERE session_id = :id"
+                ),
+                {"id": confirmed.session_id},
+            )
+        ).one()
+        resolved_at = await db.scalar(
+            text("SELECT resolved_at FROM session_drafts WHERE id = :id"), {"id": draft.id}
+        )
+    assert tuple(session) == (
+        user_id,
+        "climbing",
+        _DRAFT.occurred_on,
+        "Europe/Warsaw",
+        _DRAFT.payload,
+        1,
+        confirmed_at,
+        confirmed_at,
+    )
+    assert tuple(source) == (user_id, "I climbed 3 6A and 2 6B boulders", "chat", _START)
+    assert resolved_at == confirmed_at
+
+
+async def test_confirm_copies_every_envelope_field_the_athlete_gave(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    drafts = SqlAlchemySessionDraftRepository(db_session_factory)
+    user_id, conversation_id, message_id = await _log(db_session_factory, "confirm-envelope")
+    full = _DRAFT.model_copy(
+        update={
+            "started_at": _START - timedelta(hours=2),
+            "duration_min": 90,
+            "rpe": 7,
+            "feeling": "strong",
+            "notes": "fingers tired at the end",
+        }
+    )
+    draft = await drafts.add(
+        user_id, conversation_id, message_id, "climbing", full, payload_version=1, created_at=_START
+    )
+
+    confirmed = await drafts.confirm(user_id, draft.id, confirmed_at=_START)
+
+    async with db_session_factory() as db:
+        row = (
+            await db.execute(
+                text(
+                    "SELECT started_at, duration_min, rpe, feeling, notes FROM training_sessions"
+                    " WHERE id = :id"
+                ),
+                {"id": confirmed.session_id},
+            )
+        ).one()
+    assert tuple(row) == (
+        _START - timedelta(hours=2),
+        90,
+        7,
+        "strong",
+        "fingers tired at the end",
+    )
+
+
+async def test_confirming_twice_returns_the_same_session(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    drafts, user_id, draft = await _pending(db_session_factory, "confirm-twice")
+
+    first = await drafts.confirm(user_id, draft.id, confirmed_at=_START)
+    second = await drafts.confirm(user_id, draft.id, confirmed_at=_START + timedelta(seconds=1))
+
+    assert second == first
+    assert await _counts(db_session_factory, user_id) == (1, 1)
+
+
+class _RacingSession(AsyncSession):
+    """Waits after its first query (the confirm's read of the draft) until the other confirm has
+    read it too, or a short time has passed. Without a row lock both read `pending` and both
+    write; with it, the second read blocks in PostgreSQL until the first confirm commits."""
+
+    barrier: asyncio.Barrier
+
+    async def scalar(self, *args: Any, **kwargs: Any) -> Any:
+        result = await super().scalar(*args, **kwargs)
+        if not self.info.get("raced"):
+            self.info["raced"] = True
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(self.barrier.wait(), timeout=0.5)
+        return result
+
+
+async def test_concurrent_confirms_create_one_session() -> None:
+    """Two confirms on their own connections, committed for real (a double tap that reaches the
+    server twice). The shared test connection can't race, so this test cleans up by deleting its
+    user (CASCADE, G7)."""
+    engine = build_engine(str(Settings().database_url))
+    setup = async_sessionmaker(engine, expire_on_commit=False)
+    _RacingSession.barrier = asyncio.Barrier(2)
+    racing = async_sessionmaker(engine, class_=_RacingSession, expire_on_commit=False)
+    user_id: UUID | None = None
+    try:
+        _, user_id, draft = await _pending(setup, f"confirm-race-{uuid4()}")
+        drafts = SqlAlchemySessionDraftRepository(racing)
+
+        results = await asyncio.gather(
+            drafts.confirm(user_id, draft.id, confirmed_at=_START),
+            drafts.confirm(user_id, draft.id, confirmed_at=_START),
+        )
+
+        assert results[0].session_id == results[1].session_id
+        assert await _counts(setup, user_id) == (1, 1)
+    finally:
+        if user_id is not None:
+            async with setup() as db:
+                await db.execute(text("DELETE FROM users WHERE id = :id"), {"id": user_id})
+                await db.commit()
+        await engine.dispose()
+
+
+async def test_another_users_draft_is_not_found_and_nothing_is_written(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    drafts, owner, draft = await _pending(db_session_factory, "confirm-owner")
+    stranger, _, _ = await _log(db_session_factory, "confirm-stranger")
+
+    with pytest.raises(DraftNotFoundError):
+        await drafts.confirm(stranger, draft.id, confirmed_at=_START)
+
+    assert await drafts.list_shown(owner, draft.conversation_id) == [draft]
+    assert await _counts(db_session_factory, owner) == (0, 0)
+    assert await _counts(db_session_factory, stranger) == (0, 0)
+
+
+async def test_an_unknown_draft_is_not_found(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    drafts, user_id, _ = await _pending(db_session_factory, "confirm-unknown")
+
+    with pytest.raises(DraftNotFoundError):
+        await drafts.confirm(user_id, uuid4(), confirmed_at=_START)
+
+
+async def test_confirming_a_discarded_draft_is_refused_and_writes_nothing(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    drafts, user_id, draft = await _pending(db_session_factory, "confirm-discarded")
+    async with db_session_factory() as db:
+        await db.execute(
+            text("UPDATE session_drafts SET status = 'discarded' WHERE id = :id"),
+            {"id": draft.id},
+        )
+        await db.commit()
+
+    with pytest.raises(DraftDiscardedError):
+        await drafts.confirm(user_id, draft.id, confirmed_at=_START)
+
+    assert await _counts(db_session_factory, user_id) == (0, 0)
+    async with db_session_factory() as db:
+        status = await db.scalar(
+            text("SELECT status FROM session_drafts WHERE id = :id"), {"id": draft.id}
+        )
+    assert status == "discarded"
+
+
+async def test_a_confirmed_draft_is_listed_with_its_session(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    drafts, user_id, draft = await _pending(db_session_factory, "confirm-listed")
+
+    confirmed = await drafts.confirm(user_id, draft.id, confirmed_at=_START)
+
+    assert await drafts.list_shown(user_id, draft.conversation_id) == [confirmed]
+
+
+async def test_a_confirmed_session_survives_the_purge_of_its_conversation(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    drafts, user_id, draft = await _pending(db_session_factory, "confirm-purge")
+    confirmed = await drafts.confirm(user_id, draft.id, confirmed_at=_START)
+    later = _Clock(_START + timedelta(days=15))
+    conversations = SqlAlchemyConversationRepository(
+        db_session_factory, clock=later, retention_days=14
+    )
+
+    # The purge the `purge-conversations` CLI runs (ADR-0021).
+    await purge_expired_conversations(clock=later, conversations=conversations, retention_days=14)
+
+    assert await _counts(db_session_factory, user_id) == (1, 1)
+    async with db_session_factory() as db:
+        raw_text = await db.scalar(
+            text("SELECT raw_text FROM training_session_sources WHERE session_id = :id"),
+            {"id": confirmed.session_id},
+        )
+        drafts_left = await db.scalar(
+            text("SELECT count(*) FROM session_drafts WHERE user_id = :id"), {"id": user_id}
+        )
+    assert (raw_text, drafts_left) == ("I climbed 3 6A and 2 6B boulders", 0)

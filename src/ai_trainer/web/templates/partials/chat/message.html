@@ -6,7 +6,7 @@
 <div class="chat-message flex flex-col gap-4">
   <p class="text-[16px] leading-6 pl-9 whitespace-pre-wrap break-words">{{ message.text }}</p>
   {%- for card in cards %}
-  {% include "partials/chat/draft_card.html" %}
+  {% include card.template %}
   {%- endfor %}
 </div>
 {%- else -%}
