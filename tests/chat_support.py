@@ -41,6 +41,7 @@ from ai_trainer.domain.training import (
     DraftNotFoundError,
     DraftStatus,
     SessionDraft,
+    SessionNotFoundError,
     StoredDraft,
 )
 from ai_trainer.domain.users import User, UserStatus
@@ -244,6 +245,7 @@ class InMemoryDraftRepository:
         self.rows: list[tuple[UUID, StoredDraft]] = []
         self.confirmed_at: dict[UUID, datetime] = {}
         self.discarded_at: dict[UUID, datetime] = {}
+        self.removed_sessions: list[UUID] = []
 
     async def add(
         self,
@@ -306,9 +308,23 @@ class InMemoryDraftRepository:
             return draft
         raise DraftNotFoundError(draft_id)
 
+    async def undo(self, user_id: UUID, session_id: UUID) -> StoredDraft:
+        for index, (owner, draft) in enumerate(self.rows):
+            if owner != user_id or draft.session_id != session_id:
+                continue
+            draft = draft.model_copy(update={"session_id": None})
+            self.rows[index] = (owner, draft)
+            self.removed_sessions.append(session_id)
+            return draft
+        raise SessionNotFoundError(session_id)
+
     def set_status(self, draft_id: UUID, status: DraftStatus) -> None:
+        """A confirmed draft has its session, as a confirm gives it one."""
+        update: dict[str, object] = {"status": status}
+        if status == "confirmed":
+            update["session_id"] = uuid4()
         self.rows = [
-            (owner, draft.model_copy(update={"status": status}) if draft.id == draft_id else draft)
+            (owner, draft.model_copy(update=update) if draft.id == draft_id else draft)
             for owner, draft in self.rows
         ]
 

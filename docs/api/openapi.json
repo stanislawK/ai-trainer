@@ -680,6 +680,46 @@
         "summary": "Confirm Timezone Step"
       }
     },
+    "/sessions/{session_id}/undo": {
+      "post": {
+        "description": "The confirmed row's Undo (B4, ADR-0022): removes the athlete's just-saved session\nand its sources, once the browser's prompt is accepted, and answers with the \"Removed\"\nrow, which replaces the confirmed one. Another user's, an unknown or an already removed\nsession is a 404 and nothing is deleted.",
+        "operationId": "undo_sessions__session_id__undo_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Undo"
+      }
+    },
     "/settings": {
       "get": {
         "operationId": "settings_index_settings_get",

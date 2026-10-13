@@ -1,5 +1,5 @@
 """Answering a session draft (PRD-0004 F2, ADR-0022). Only the athlete's confirm writes a
-training session (ADR-0022 invariant 3)."""
+training session (ADR-0022 invariant 3); only the athlete's undo removes one (B4)."""
 
 from uuid import UUID
 
@@ -22,3 +22,12 @@ async def discard_draft(
     """Throws away the athlete's own draft, now, without saving a session. Discarding it again
     returns the same draft; another user's draft is not found, and a confirmed one is refused."""
     return await drafts.discard(user_id, draft_id, discarded_at=clock.now())
+
+
+async def undo_session(
+    user_id: UUID, session_id: UUID, *, drafts: SessionDraftRepositoryPort
+) -> StoredDraft:
+    """Removes the athlete's own just-saved session and its sources. Its draft stays confirmed,
+    without a session. Another user's session, an unknown one and one already removed are not
+    found."""
+    return await drafts.undo(user_id, session_id)

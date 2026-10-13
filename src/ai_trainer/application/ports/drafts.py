@@ -41,6 +41,13 @@ class SessionDraftRepositoryPort(Protocol):
         when it was discarded; neither writes anything."""
         ...
 
+    async def undo(self, user_id: UUID, session_id: UUID) -> StoredDraft:
+        """In one transaction, hard-deletes the user's training session `session_id` that a
+        draft confirmed, with its source rows (ADR-0022, B4). The draft stays `confirmed` and its
+        `session_id` is cleared; it is returned as it now is. Raises `SessionNotFoundError`
+        when the user has no such session, a removed one included; nothing is deleted."""
+        ...
+
     async def discard(
         self, user_id: UUID, draft_id: UUID, *, discarded_at: datetime
     ) -> StoredDraft:

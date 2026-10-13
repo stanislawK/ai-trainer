@@ -2,7 +2,7 @@ from collections.abc import Callable, Sequence
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai_trainer.adapters.orm import (
@@ -17,6 +17,7 @@ from ai_trainer.domain.training import (
     DraftNotFoundError,
     DraftStatus,
     SessionDraft,
+    SessionNotFoundError,
     StoredDraft,
 )
 
@@ -173,3 +174,26 @@ class SqlAlchemySessionDraftRepository:
             discarded = _to_domain(row)
             await session.commit()
             return discarded
+
+    async def undo(self, user_id: UUID, session_id: UUID) -> StoredDraft:
+        """Deletes the session; its source rows go with it (`ON DELETE CASCADE`) and the
+        draft's `session_id` is cleared by its own key (`SET NULL (session_id)`), so the draft
+        stays `confirmed` (ADR-0022). The draft row is locked first, as in a confirm, so a
+        second undo waits for the first and then finds no session."""
+        async with self._session_factory() as session:
+            row = await session.scalar(
+                select(SessionDraftOrm)
+                .where(SessionDraftOrm.session_id == session_id, SessionDraftOrm.user_id == user_id)
+                .with_for_update()
+            )
+            if row is None:
+                raise SessionNotFoundError(session_id)
+            await session.execute(
+                delete(TrainingSessionOrm).where(
+                    TrainingSessionOrm.id == session_id, TrainingSessionOrm.user_id == user_id
+                )
+            )
+            await session.refresh(row)
+            undone = _to_domain(row)
+            await session.commit()
+            return undone

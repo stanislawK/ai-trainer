@@ -29,7 +29,7 @@ from ai_trainer.application.chat import (
     open_conversation,
     send_message,
 )
-from ai_trainer.application.drafts import confirm_draft, discard_draft
+from ai_trainer.application.drafts import confirm_draft, discard_draft, undo_session
 from ai_trainer.application.ports.chat import ChatRepositoryPort
 from ai_trainer.application.reply import (
     MessageNotFoundError,
@@ -49,6 +49,7 @@ from ai_trainer.domain.training import (
     DraftConfirmedError,
     DraftDiscardedError,
     DraftNotFoundError,
+    SessionNotFoundError,
 )
 from ai_trainer.domain.users import User
 from ai_trainer.web.drafts import DraftCard, draft_card, draft_cards
@@ -342,6 +343,22 @@ def build_chat_router(
         card = draft_card(draft, sports=sports, today=local_today(user))
         return templates.TemplateResponse(
             request, "partials/chat/draft_discarded.html", {"card": card, "draft": draft}
+        )
+
+    @router.post("/sessions/{session_id}/undo", response_class=HTMLResponse)
+    async def undo(request: Request, session_id: str) -> HTMLResponse:
+        """The confirmed row's Undo (B4, ADR-0022): removes the athlete's just-saved session
+        and its sources, once the browser's prompt is accepted, and answers with the "Removed"
+        row, which replaces the confirmed one. Another user's, an unknown or an already removed
+        session is a 404 and nothing is deleted."""
+        user: User = request.state.user
+        try:
+            draft = await undo_session(user.id, parse_id(session_id), drafts=replies.drafts)
+        except SessionNotFoundError:
+            raise HTTPException(status_code=_NOT_FOUND) from None
+        card = draft_card(draft, sports=sports, today=local_today(user))
+        return templates.TemplateResponse(
+            request, "partials/chat/draft_removed.html", {"card": card, "draft": draft}
         )
 
     return router
