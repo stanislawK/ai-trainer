@@ -1,7 +1,8 @@
 """The draft cards under a reply (PRD-0004 F2, ADR-0022, tickets #154, #155 and #156): each
 draft sits under the reply part that introduced it, the part after the athlete's log whose
 template is that sport's extraction template. A pending one is the card, a confirmed one its
-"Logged … to <date>" row and a discarded one its "Draft discarded" row. Its payload is read only
+"Logged … to <date>" row, a discarded one its "Draft discarded" row and an undone one its
+"Removed" row. Its payload is read only
 through the plugin's model (ADR-0022), and the sport-specific card body and summary are the
 plugin's own partials."""
 
@@ -42,8 +43,10 @@ class DraftCard:
 
     @property
     def template(self) -> str:
-        """The pending card, or the row a confirm or a discard collapses it to (tickets #155
-        and #156)."""
+        """The pending card, or the row a confirm, a discard or an undo collapses it to
+        (tickets #155, #156 and #157). A confirmed draft without a session was undone."""
+        if self.draft.status == "confirmed" and self.draft.session_id is None:
+            return "partials/chat/draft_removed.html"
         if self.draft.status == "confirmed":
             return "partials/chat/draft_confirmed.html"
         if self.draft.status == "discarded":

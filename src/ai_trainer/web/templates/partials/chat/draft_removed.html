@@ -1,0 +1,4 @@
+{#- A just-saved session the athlete undid (B4, ticket #157): a one-line row in the style of the Chat mock's state 9, a muted `circle-x` and "Removed" with no action, since the session is gone. The mock has no removed frame (owner-approved 2026-10-13 at the plan gate). It also stands in after a reload: a confirmed draft with no session was undone. -#}
+{%- from "components/icon.html" import icon -%}
+{%- set draft = card.draft if card else draft -%}
+<div class="glass-regular relative rounded-box px-4 py-3 flex items-center gap-3" role="status" data-removed-draft="{{ draft.id }}">{{ icon("circle-x", "size-5 text-base-content/70") }}<span class="flex-1 text-[15px] text-base-content/70">Removed</span></div>

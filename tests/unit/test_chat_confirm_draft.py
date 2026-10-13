@@ -164,13 +164,17 @@ async def test_a_reload_shows_the_confirmed_row_not_the_pending_card() -> None:
     assert 'aria-label="Draft session"' not in page
 
 
-async def test_the_confirmed_rows_undo_is_shown_but_disabled_until_it_is_wired() -> None:
+async def test_the_confirmed_rows_undo_posts_to_its_session() -> None:
     client, user_id, chat, drafts = _client()
     draft = await _draft(chat, drafts, user_id)
 
     row = client.post(f"/drafts/{draft.id}/confirm", headers=_HTMX).text
 
-    assert re.search(r"<button[^>]*disabled[^>]*>Undo</button>", row)
+    (stored,) = drafts.all_of(user_id)
+    assert re.search(
+        rf'<button[^>]*hx-post="/sessions/{stored.session_id}/undo"[^>]*>Undo</button>', row
+    )
+    assert not re.search(r"<button[^>]*\bdisabled>Undo</button>", row)
 
 
 async def test_another_users_draft_is_not_found_and_stays_pending() -> None:
