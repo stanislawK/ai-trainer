@@ -1,8 +1,9 @@
-"""The draft cards under a reply (PRD-0004 F2, ADR-0022, tickets #154 and #155): each pending
+"""The draft cards under a reply (PRD-0004 F2, ADR-0022, tickets #154, #155 and #156): each
 draft sits under the reply part that introduced it, the part after the athlete's log whose
-template is that sport's extraction template, and a confirmed one shows there as its "Logged …
-to <date>" row. Its payload is read only through the plugin's model (ADR-0022), and the
-sport-specific card body and summary are the plugin's own partials."""
+template is that sport's extraction template. A pending one is the card, a confirmed one its
+"Logged … to <date>" row and a discarded one its "Draft discarded" row. Its payload is read only
+through the plugin's model (ADR-0022), and the sport-specific card body and summary are the
+plugin's own partials."""
 
 import logging
 from collections.abc import Iterable, Mapping, Sequence
@@ -24,8 +25,8 @@ logger = logging.getLogger(__name__)
 class DraftCard:
     draft: StoredDraft
     sport: SportPlugin
-    # `None` only for a confirmed draft whose payload no longer reads: its session is saved, so
-    # its row still shows, saying "session" (ticket #155).
+    # `None` only for a resolved draft whose payload no longer reads: its row still shows, a
+    # confirmed one saying "session" (ticket #155).
     payload: BaseModel | None
     # Whether the draft's day is the athlete's today, so an assumed date can say "today".
     is_today: bool
@@ -41,9 +42,12 @@ class DraftCard:
 
     @property
     def template(self) -> str:
-        """The pending card, or the row a confirm collapses it to (ticket #155)."""
+        """The pending card, or the row a confirm or a discard collapses it to (tickets #155
+        and #156)."""
         if self.draft.status == "confirmed":
             return "partials/chat/draft_confirmed.html"
+        if self.draft.status == "discarded":
+            return "partials/chat/draft_discarded.html"
         return "partials/chat/draft_card.html"
 
 
@@ -103,12 +107,14 @@ def draft_card(draft: StoredDraft, *, sports: SportRegistry, today: date) -> Dra
     try:
         payload: BaseModel | None = spec.payload_type.model_validate(draft.draft.payload)
     except ValidationError:
-        if draft.status != "confirmed":
+        if draft.status == "pending":
             logger.warning(
                 "draft %s has a %s payload that doesn't read; not shown", draft.id, sport.id
             )
             return None
-        logger.warning("confirmed draft %s has a %s payload that doesn't read", draft.id, sport.id)
+        logger.warning(
+            "%s draft %s has a %s payload that doesn't read", draft.status, draft.id, sport.id
+        )
         payload = None
     return DraftCard(
         draft=draft, sport=sport, payload=payload, is_today=draft.draft.occurred_on == today

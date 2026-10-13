@@ -36,6 +36,7 @@ from ai_trainer.domain.sports.base import SessionExtraction
 from ai_trainer.domain.sports.climbing.extraction import ClimbingExtraction, ExtractedClimb
 from ai_trainer.domain.sports.registry import default_sport_registry
 from ai_trainer.domain.training import (
+    DraftConfirmedError,
     DraftDiscardedError,
     DraftNotFoundError,
     DraftStatus,
@@ -242,6 +243,7 @@ class InMemoryDraftRepository:
     def __init__(self) -> None:
         self.rows: list[tuple[UUID, StoredDraft]] = []
         self.confirmed_at: dict[UUID, datetime] = {}
+        self.discarded_at: dict[UUID, datetime] = {}
 
     async def add(
         self,
@@ -271,9 +273,7 @@ class InMemoryDraftRepository:
         return [
             draft
             for owner, draft in self.rows
-            if owner == user_id
-            and draft.conversation_id == conversation_id
-            and draft.status != "discarded"
+            if owner == user_id and draft.conversation_id == conversation_id
         ]
 
     async def confirm(
@@ -288,6 +288,21 @@ class InMemoryDraftRepository:
                 draft = draft.model_copy(update={"status": "confirmed", "session_id": uuid4()})
                 self.rows[index] = (owner, draft)
                 self.confirmed_at[draft.id] = confirmed_at
+            return draft
+        raise DraftNotFoundError(draft_id)
+
+    async def discard(
+        self, user_id: UUID, draft_id: UUID, *, discarded_at: datetime
+    ) -> StoredDraft:
+        for index, (owner, draft) in enumerate(self.rows):
+            if owner != user_id or draft.id != draft_id:
+                continue
+            if draft.status == "confirmed":
+                raise DraftConfirmedError(draft_id)
+            if draft.status == "pending":
+                draft = draft.model_copy(update={"status": "discarded"})
+                self.rows[index] = (owner, draft)
+                self.discarded_at[draft.id] = discarded_at
             return draft
         raise DraftNotFoundError(draft_id)
 

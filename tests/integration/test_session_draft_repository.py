@@ -1,6 +1,6 @@
 """`SqlAlchemySessionDraftRepository` on PostgreSQL (ADR-0022, ticket #154): drafts are per
-user and per conversation, only pending ones are listed, and they go with their conversation
-while saved sessions stay (B26, ADR-0022 invariant 1)."""
+user and per conversation, drafts of every status are listed, and they go with their
+conversation while saved sessions stay (B26, ADR-0022 invariant 1)."""
 
 import asyncio
 import contextlib
@@ -21,6 +21,7 @@ from ai_trainer.adapters.users_repository import SqlAlchemyUsersRepository
 from ai_trainer.application.retention import purge_expired_conversations
 from ai_trainer.domain.chat import ChatRole
 from ai_trainer.domain.training import (
+    DraftConfirmedError,
     DraftDiscardedError,
     DraftNotFoundError,
     SessionDraft,
@@ -103,7 +104,7 @@ async def test_another_user_never_lists_the_draft(
     assert await drafts.list_shown(stranger, own_conversation) == []
 
 
-async def test_discarded_drafts_are_not_listed_and_the_rest_come_oldest_first(
+async def test_discarded_drafts_are_listed_with_the_rest_oldest_first(
     db_session_factory: Callable[[], AsyncSession],
 ) -> None:
     drafts = SqlAlchemySessionDraftRepository(db_session_factory)
@@ -133,7 +134,7 @@ async def test_discarded_drafts_are_not_listed_and_the_rest_come_oldest_first(
         "climbing",
         _DRAFT,
         payload_version=1,
-        created_at=_START,
+        created_at=_START + timedelta(minutes=1),
     )
     async with db_session_factory() as db:
         await db.execute(
@@ -142,7 +143,11 @@ async def test_discarded_drafts_are_not_listed_and_the_rest_come_oldest_first(
         )
         await db.commit()
 
-    assert await drafts.list_shown(user_id, conversation_id) == [earlier, later]
+    assert await drafts.list_shown(user_id, conversation_id) == [
+        earlier,
+        resolved.model_copy(update={"status": "discarded"}),
+        later,
+    ]
 
 
 async def test_adding_a_draft_writes_no_training_session(
@@ -498,3 +503,75 @@ async def test_a_confirmed_session_survives_the_purge_of_its_conversation(
             text("SELECT count(*) FROM session_drafts WHERE user_id = :id"), {"id": user_id}
         )
     assert (raw_text, drafts_left) == ("I climbed 3 6A and 2 6B boulders", 0)
+
+
+async def test_discard_marks_the_draft_discarded_and_writes_no_session(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    drafts, user_id, draft = await _pending(db_session_factory, "discard-ok")
+    discarded_at = _START + timedelta(minutes=5)
+
+    discarded = await drafts.discard(user_id, draft.id, discarded_at=discarded_at)
+
+    assert (discarded.id, discarded.status, discarded.session_id) == (draft.id, "discarded", None)
+    async with db_session_factory() as db:
+        row = (
+            await db.execute(
+                text("SELECT status, resolved_at, session_id FROM session_drafts WHERE id = :id"),
+                {"id": draft.id},
+            )
+        ).one()
+    assert tuple(row) == ("discarded", discarded_at, None)
+    assert await _counts(db_session_factory, user_id) == (0, 0)
+    assert await drafts.list_shown(user_id, draft.conversation_id) == [discarded]
+
+
+async def test_discarding_twice_keeps_the_first_time(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    drafts, user_id, draft = await _pending(db_session_factory, "discard-twice")
+    first_at = _START + timedelta(minutes=5)
+    first = await drafts.discard(user_id, draft.id, discarded_at=first_at)
+
+    second = await drafts.discard(user_id, draft.id, discarded_at=first_at + timedelta(hours=1))
+
+    assert second == first
+    async with db_session_factory() as db:
+        resolved_at = await db.scalar(
+            text("SELECT resolved_at FROM session_drafts WHERE id = :id"), {"id": draft.id}
+        )
+    assert resolved_at == first_at
+
+
+async def test_discarding_another_users_draft_is_not_found_and_changes_nothing(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    drafts, owner, draft = await _pending(db_session_factory, "discard-owner")
+    stranger, _, _ = await _log(db_session_factory, "discard-stranger")
+
+    with pytest.raises(DraftNotFoundError):
+        await drafts.discard(stranger, draft.id, discarded_at=_START)
+
+    assert await drafts.list_shown(owner, draft.conversation_id) == [draft]
+
+
+async def test_discarding_an_unknown_draft_is_not_found(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    drafts, user_id, _ = await _pending(db_session_factory, "discard-unknown")
+
+    with pytest.raises(DraftNotFoundError):
+        await drafts.discard(user_id, uuid4(), discarded_at=_START)
+
+
+async def test_discarding_a_confirmed_draft_is_refused_and_changes_nothing(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    drafts, user_id, draft = await _pending(db_session_factory, "discard-confirmed")
+    confirmed = await drafts.confirm(user_id, draft.id, confirmed_at=_START)
+
+    with pytest.raises(DraftConfirmedError):
+        await drafts.discard(user_id, draft.id, discarded_at=_START + timedelta(minutes=1))
+
+    assert await drafts.list_shown(user_id, draft.conversation_id) == [confirmed]
+    assert await _counts(db_session_factory, user_id) == (1, 1)

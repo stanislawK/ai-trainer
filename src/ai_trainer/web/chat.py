@@ -29,7 +29,7 @@ from ai_trainer.application.chat import (
     open_conversation,
     send_message,
 )
-from ai_trainer.application.drafts import confirm_draft
+from ai_trainer.application.drafts import confirm_draft, discard_draft
 from ai_trainer.application.ports.chat import ChatRepositoryPort
 from ai_trainer.application.reply import (
     MessageNotFoundError,
@@ -45,7 +45,11 @@ from ai_trainer.application.reply import (
 from ai_trainer.domain.chat import ChatMessage, ChatRole, Conversation
 from ai_trainer.domain.llm_calls import LlmCallOutcome
 from ai_trainer.domain.sports.registry import SportRegistry
-from ai_trainer.domain.training import DraftDiscardedError, DraftNotFoundError
+from ai_trainer.domain.training import (
+    DraftConfirmedError,
+    DraftDiscardedError,
+    DraftNotFoundError,
+)
 from ai_trainer.domain.users import User
 from ai_trainer.web.drafts import DraftCard, draft_card, draft_cards
 from ai_trainer.web.glyphs import build_reply_glyph
@@ -318,6 +322,26 @@ def build_chat_router(
         card = draft_card(draft, sports=sports, today=local_today(user))
         return templates.TemplateResponse(
             request, "partials/chat/draft_confirmed.html", {"card": card, "draft": draft}
+        )
+
+    @router.post("/drafts/{draft_id}/discard", response_class=HTMLResponse)
+    async def discard(request: Request, draft_id: str) -> HTMLResponse:
+        """The draft card's Discard (F2, ADR-0022): throws the athlete's draft away without
+        saving a session and answers with its "Draft discarded" row, which replaces the card.
+        A second discard answers with the same row. A confirmed draft is a 409 and changes
+        nothing."""
+        user: User = request.state.user
+        try:
+            draft = await discard_draft(
+                user.id, parse_id(draft_id), drafts=replies.drafts, clock=clock
+            )
+        except DraftNotFoundError:
+            raise HTTPException(status_code=_NOT_FOUND) from None
+        except DraftConfirmedError:
+            raise HTTPException(status_code=_CONFLICT) from None
+        card = draft_card(draft, sports=sports, today=local_today(user))
+        return templates.TemplateResponse(
+            request, "partials/chat/draft_discarded.html", {"card": card, "draft": draft}
         )
 
     return router

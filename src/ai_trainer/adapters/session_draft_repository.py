@@ -12,6 +12,7 @@ from ai_trainer.adapters.orm import (
     TrainingSessionSourceOrm,
 )
 from ai_trainer.domain.training import (
+    DraftConfirmedError,
     DraftDiscardedError,
     DraftNotFoundError,
     DraftStatus,
@@ -22,7 +23,6 @@ from ai_trainer.domain.training import (
 _PENDING: DraftStatus = "pending"
 _CONFIRMED: DraftStatus = "confirmed"
 _DISCARDED: DraftStatus = "discarded"
-_SHOWN: tuple[DraftStatus, ...] = (_PENDING, _CONFIRMED)
 _CHAT_SOURCE = "chat"
 
 
@@ -85,7 +85,6 @@ class SqlAlchemySessionDraftRepository:
                 .where(
                     SessionDraftOrm.user_id == user_id,
                     SessionDraftOrm.conversation_id == conversation_id,
-                    SessionDraftOrm.status.in_(_SHOWN),
                 )
                 .order_by(SessionDraftOrm.created_at, SessionDraftOrm.id)
             )
@@ -150,3 +149,27 @@ class SqlAlchemySessionDraftRepository:
             confirmed = _to_domain(row)
             await session.commit()
             return confirmed
+
+    async def discard(
+        self, user_id: UUID, draft_id: UUID, *, discarded_at: datetime
+    ) -> StoredDraft:
+        """Marks the draft `discarded`; it writes no session (ADR-0022 invariant 3). The row is
+        locked first, so a discard racing a confirm either finds it confirmed and is refused,
+        or goes first and makes the confirm refuse."""
+        async with self._session_factory() as session:
+            row = await session.scalar(
+                select(SessionDraftOrm)
+                .where(SessionDraftOrm.id == draft_id, SessionDraftOrm.user_id == user_id)
+                .with_for_update()
+            )
+            if row is None:
+                raise DraftNotFoundError(draft_id)
+            if row.status == _CONFIRMED:
+                raise DraftConfirmedError(draft_id)
+            if row.status == _PENDING:
+                row.status = _DISCARDED
+                row.resolved_at = discarded_at
+            await session.flush()
+            discarded = _to_domain(row)
+            await session.commit()
+            return discarded

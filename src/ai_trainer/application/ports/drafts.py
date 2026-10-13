@@ -27,8 +27,8 @@ class SessionDraftRepositoryPort(Protocol):
         ...
 
     async def list_shown(self, user_id: UUID, conversation_id: UUID) -> Sequence[StoredDraft]:
-        """The user's drafts in the conversation that the chat shows, pending or confirmed,
-        oldest first. A discarded draft is left out."""
+        """The user's drafts in the conversation, whatever their status, oldest first. A
+        discarded draft stays so the chat can show it collapsed."""
         ...
 
     async def confirm(
@@ -39,4 +39,13 @@ class SessionDraftRepositoryPort(Protocol):
         A confirmed draft is returned as it is, so confirming twice gives the same session.
         Raises `DraftNotFoundError` when the user has no such draft and `DraftDiscardedError`
         when it was discarded; neither writes anything."""
+        ...
+
+    async def discard(
+        self, user_id: UUID, draft_id: UUID, *, discarded_at: datetime
+    ) -> StoredDraft:
+        """Marks the user's draft `draft_id` `discarded` and sets its `resolved_at`; no session
+        is written (ADR-0022 invariant 3). A discarded draft is returned as it is, so discarding
+        twice keeps the first time. Raises `DraftNotFoundError` when the user has no such draft
+        and `DraftConfirmedError` when it was confirmed; neither changes anything."""
         ...
