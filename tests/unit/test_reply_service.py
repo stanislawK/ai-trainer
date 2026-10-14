@@ -28,15 +28,19 @@ from ai_trainer.domain.chat import ChatMessage, ChatRole
 from ai_trainer.domain.conversation import Intent
 from ai_trainer.domain.goals import Goal
 from ai_trainer.domain.llm_calls import LlmCallOutcome
+from ai_trainer.domain.sports.climbing.extraction import ClimbingExtraction
+from ai_trainer.domain.training import SessionSpan
 from tests.chat_support import (
     DRAFT_READY_TEXT,
     FROZEN_NOW,
+    MERGE_WINDOW,
     NOT_YET_TEXT,
     THREE_6A_TWO_6B,
     UNLOGGABLE_SPORT,
     InMemoryChatRepository,
     InMemoryDraftRepository,
     InMemoryProfile,
+    InMemoryTrainingSessions,
     ScriptedConversation,
     ScriptedFastRouter,
     ScriptedSafetyScreen,
@@ -62,6 +66,7 @@ async def _events(
     conversation: ScriptedConversation,
     *,
     drafts: InMemoryDraftRepository | None = None,
+    sessions: InMemoryTrainingSessions | None = None,
     profile: InMemoryProfile | None = None,
     fast_router: ScriptedFastRouter | None = None,
     safety_screen: ScriptedSafetyScreen | None = None,
@@ -70,6 +75,7 @@ async def _events(
     services = reply_services(
         chat,
         drafts=drafts,
+        sessions=sessions,
         profile=profile,
         conversation=conversation,
         fast_router=fast_router,
@@ -910,3 +916,74 @@ async def test_the_extraction_sees_the_recent_turns_and_the_athletes_timezone() 
     [(context, _)] = conversation.extracted
     assert (context.message, context.timezone, context.now) == (_CLIMB, "Europe/Warsaw", FROZEN_NOW)
     assert [message.text for message in context.history] == ["hey"]
+
+
+# Session continuity (B16, ADR-0014, ticket #165): the draft is offered as an addition to the
+# athlete's latest same-sport session when the log came within the window of its latest log.
+
+
+def _climbed_at(last_logged_at: datetime, occurred_on: date = date(2026, 10, 2)) -> SessionSpan:
+    return SessionSpan(
+        id=uuid4(),
+        occurred_on=occurred_on,
+        first_logged_at=last_logged_at - timedelta(minutes=20),
+        last_logged_at=last_logged_at,
+    )
+
+
+async def _extends(
+    session: SessionSpan | None,
+    *,
+    sport: str = "climbing",
+    owner: UUID | None = None,
+    extraction: ClimbingExtraction = THREE_6A_TWO_6B,
+) -> UUID | None:
+    """The `extends_session_id` the climbing log sent at `FROZEN_NOW` is stored with, when the
+    latest session in `sport` of `owner` (the athlete by default) is `session`."""
+    chat, drafts, user_id = InMemoryChatRepository(), InMemoryDraftRepository(), uuid4()
+    sessions = InMemoryTrainingSessions()
+    if session is not None:
+        sessions.latest[(owner or user_id, sport)] = session
+    asked = await _asked(chat, user_id, _CLIMB)
+    conversation = ScriptedConversation(intents=[_CLIMB_INTENTS], extractions=[extraction])
+
+    await _events(chat, user_id, asked, conversation, drafts=drafts, sessions=sessions)
+
+    [draft] = drafts.all_of(user_id)
+    return drafts.extends_ids[draft.id]
+
+
+async def test_a_log_minutes_after_a_climbing_session_is_offered_as_an_addition_to_it() -> None:
+    session = _climbed_at(FROZEN_NOW - timedelta(minutes=5))
+
+    assert await _extends(session) == session.id
+
+
+async def test_a_log_exactly_at_the_window_is_offered_and_one_second_later_is_not() -> None:
+    at_the_window = _climbed_at(FROZEN_NOW - MERGE_WINDOW)
+    just_past = _climbed_at(FROZEN_NOW - MERGE_WINDOW - timedelta(seconds=1))
+
+    assert await _extends(at_the_window) == at_the_window.id
+    assert await _extends(just_past) is None
+
+
+async def test_a_log_a_day_after_the_last_session_starts_a_new_one_with_no_question() -> None:
+    yesterday = _climbed_at(FROZEN_NOW - timedelta(days=1), occurred_on=date(2026, 10, 1))
+
+    assert await _extends(yesterday) is None
+
+
+async def test_a_session_in_another_sport_inside_the_window_is_never_offered() -> None:
+    assert await _extends(_climbed_at(FROZEN_NOW - _MINUTE), sport="gym") is None
+
+
+async def test_another_users_session_inside_the_window_is_never_offered() -> None:
+    assert await _extends(_climbed_at(FROZEN_NOW - _MINUTE), owner=uuid4()) is None
+
+
+async def test_a_log_naming_another_day_is_not_offered_even_inside_the_window() -> None:
+    yesterday = THREE_6A_TWO_6B.model_copy(
+        update={"occurred_on": date(2026, 10, 1), "date_source": "relative"}
+    )
+
+    assert await _extends(_climbed_at(FROZEN_NOW - _MINUTE), extraction=yesterday) is None

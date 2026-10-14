@@ -1,5 +1,6 @@
 """Answering a session draft (PRD-0004 F2, ADR-0022). Only the athlete's confirm writes a
-training session (ADR-0022 invariant 3); only the athlete's undo removes one (B4). The
+training session or adds to one (ADR-0022 invariant 3, B16); only the athlete's undo takes a
+log back (B4). The
 athlete's edit changes only a pending draft (ticket #158)."""
 
 from collections.abc import Mapping
@@ -39,13 +40,14 @@ async def discard_draft(
     return await drafts.discard(user_id, draft_id, discarded_at=clock.now())
 
 
-async def undo_session(
-    user_id: UUID, session_id: UUID, *, drafts: SessionDraftRepositoryPort
+async def undo_log(
+    user_id: UUID, draft_id: UUID, *, drafts: SessionDraftRepositoryPort, clock: ClockPort
 ) -> StoredDraft:
-    """Removes the athlete's own just-saved session and its sources. Its draft stays confirmed,
-    without a session. Another user's session, an unknown one and one already removed are not
-    found."""
-    return await drafts.undo(user_id, session_id)
+    """Takes the athlete's own confirmed draft's log back from its session, now: its source and
+    the activities it brought go, and the session too when it was its last log (B4, B16). The
+    draft stays confirmed, without a session. Another user's draft is not found, and one with
+    no session, never saved or already undone, has nothing to undo."""
+    return await drafts.undo(user_id, draft_id, undone_at=clock.now())
 
 
 async def find_draft(

@@ -5,7 +5,7 @@ decision call leaves its `llm_calls` row (ADR-0018), and a reply survives a relo
 
 import asyncio
 from collections.abc import AsyncIterator, Callable
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from uuid import UUID, uuid4
 
@@ -38,7 +38,9 @@ from ai_trainer.adapters.conversation_repository import SqlAlchemyConversationRe
 from ai_trainer.adapters.llm_calls_repository import SqlAlchemyLlmCallsRepository
 from ai_trainer.adapters.onboarding_repository import SqlAlchemyOnboardingRepository
 from ai_trainer.adapters.session_draft_repository import SqlAlchemySessionDraftRepository
+from ai_trainer.adapters.training_session_repository import SqlAlchemyTrainingSessionRepository
 from ai_trainer.adapters.users_repository import SqlAlchemyUsersRepository
+from ai_trainer.application.ports.clock import ClockPort
 from ai_trainer.application.reply import ReplyServices
 from ai_trainer.domain.chat import ChatMessage, ChatRole
 from ai_trainer.domain.conversation import INTENT_KINDS
@@ -53,6 +55,17 @@ from ai_trainer.settings import Settings
 from ai_trainer.web.chat import build_chat_router
 from ai_trainer.web.templating import build_templates
 from tests.chat_support import FROZEN_NOW, FixedClock, sign_in_as, sports_with_rowing
+
+
+class _SteppingClock:
+    """Now, wherever the test sets it."""
+
+    def __init__(self) -> None:
+        self.current = FROZEN_NOW
+
+    def now(self) -> datetime:
+        return self.current
+
 
 _PROMPTS_ROOT = Path(__file__).parents[2] / "src" / "ai_trainer" / "llm" / "prompts"
 _HTMX = {"HX-Request": "true"}
@@ -280,7 +293,9 @@ def _app(
     *,
     timeout: float = 30.0,
     decision_timeout: float = 30.0,
+    clock: ClockPort | None = None,
 ) -> tuple[FastAPI, tuple[OpenRouterGateway, OpenRouterDecisionGateway]]:
+    clock = clock or FixedClock()
     settings = Settings(
         _env_file=None,
         database_url=PostgresDsn("postgresql+psycopg://u:p@localhost:5432/db"),
@@ -308,10 +323,9 @@ def _app(
     )
     replies = ReplyServices(
         chat=chat,
-        conversations=SqlAlchemyConversationRepository(
-            factory, clock=FixedClock(), retention_days=14
-        ),
-        drafts=SqlAlchemySessionDraftRepository(factory),
+        conversations=SqlAlchemyConversationRepository(factory, clock=clock, retention_days=14),
+        drafts=SqlAlchemySessionDraftRepository(factory, sports_with_rowing()),
+        sessions=SqlAlchemyTrainingSessionRepository(factory),
         sports=sports_with_rowing(),
         profile=SqlAlchemyOnboardingRepository(factory),
         conversation=conversation,
@@ -325,8 +339,9 @@ def _app(
             ),
         ),
         safety_screen=JevSafetyScreen(decisions, threshold=settings.safety_screen_pain_threshold),
-        clock=FixedClock(),
+        clock=clock,
         history_turns=settings.chat_history_turns,
+        merge_window=timedelta(minutes=settings.session_merge_window_min),
     )
     app = FastAPI()
     app.include_router(
@@ -366,10 +381,13 @@ async def _send_and_stream(
     jev: FakeJev | None = None,
     decision_timeout: float = 30.0,
     router: Callable[[list[ModelMessage], AgentInfo], ModelResponse] = _router,
+    clock: ClockPort | None = None,
 ) -> tuple[list[str], str]:
     """Sends `text`, reads its reply stream `streams` times (a retry after the first) and
     reloads the page."""
-    app, gateways = _app(factory, user, timeout=timeout, decision_timeout=decision_timeout)
+    app, gateways = _app(
+        factory, user, timeout=timeout, decision_timeout=decision_timeout, clock=clock
+    )
     model = FunctionModel(router, stream_function=chitchat)
     app.add_middleware(_ModelOverride, gateways=gateways, model=model, jev=jev)
     client = TestClient(app)
@@ -865,3 +883,89 @@ async def test_a_climbing_log_shows_a_draft_card_that_survives_a_reload_and_save
         "router_fast",
         "safety_screen",
     ]
+
+
+async def test_three_climbing_logs_sent_close_together_end_as_one_session_with_three_sources(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    """Each log is sent and its draft confirmed in turn (B16, ticket #165); the second and third
+    are offered as additions to the first's session, and their confirms add to it. The scripted
+    models answer by message, so the same log is sent three times; each keeps its own source."""
+    user = await _user(db_session_factory, "draft-continuity")
+    logs = [_CLIMB] * 3
+    clock = _SteppingClock()
+
+    for minutes, log in zip((0, 4, 9), logs, strict=True):
+        clock.current = FROZEN_NOW + timedelta(minutes=minutes)
+        _, page = await _send_and_stream(
+            db_session_factory, user, log, ScriptedChitchat(), clock=clock
+        )
+        async with db_session_factory() as db:
+            draft_id = await db.scalar(
+                text("SELECT id FROM session_drafts WHERE user_id = :id AND status = 'pending'"),
+                {"id": user.id},
+            )
+        app, _ = _app(db_session_factory, user, clock=clock)
+        TestClient(app).post(f"/drafts/{draft_id}/confirm", headers=_HTMX)
+
+    # The session began with the first log, at 09:30 in the athlete's zone (UTC by default).
+    assert "Add to the session at 09:30" in page
+    async with db_session_factory() as db:
+        sessions = await db.scalar(
+            text("SELECT count(*) FROM training_sessions WHERE user_id = :id"), {"id": user.id}
+        )
+        sources = (
+            await db.scalars(
+                text(
+                    "SELECT raw_text FROM training_session_sources WHERE user_id = :id"
+                    " ORDER BY logged_at"
+                ),
+                {"id": user.id},
+            )
+        ).all()
+        activities = await db.scalar(
+            text(
+                "SELECT jsonb_array_length(payload -> 'activities') FROM training_sessions"
+                " WHERE user_id = :id"
+            ),
+            {"id": user.id},
+        )
+    assert sessions == 1
+    assert sources == logs
+    assert activities == 6
+
+
+@pytest.mark.parametrize(
+    ("after", "offered"), [(timedelta(0), True), (timedelta(seconds=1), False)]
+)
+async def test_a_log_at_the_merge_window_is_offered_and_one_second_later_is_not(
+    db_session_factory: Callable[[], AsyncSession], after: timedelta, offered: bool
+) -> None:
+    """Against PostgreSQL, with the clock frozen at the window's end or one second past it."""
+    user = await _user(db_session_factory, f"draft-boundary-{offered}")
+    # `_app` wires the default `session_merge_window_min`.
+    window = timedelta(minutes=Settings.model_fields["session_merge_window_min"].default)
+    clock = _SteppingClock()
+    await _send_and_stream(db_session_factory, user, _CLIMB, ScriptedChitchat(), clock=clock)
+    async with db_session_factory() as db:
+        first = await db.scalar(
+            text("SELECT id FROM session_drafts WHERE user_id = :id"), {"id": user.id}
+        )
+    app, _ = _app(db_session_factory, user, clock=clock)
+    TestClient(app).post(f"/drafts/{first}/confirm", headers=_HTMX)
+    clock.current = FROZEN_NOW + window + after
+
+    _, page = await _send_and_stream(
+        db_session_factory, user, _CLIMB, ScriptedChitchat(), clock=clock
+    )
+
+    async with db_session_factory() as db:
+        extends = await db.scalar(
+            text(
+                "SELECT extends_session_id FROM session_drafts"
+                " WHERE user_id = :id AND status = 'pending'"
+            ),
+            {"id": user.id},
+        )
+    assert (extends is not None) is offered
+    assert ("Add to the session at" in page) is offered

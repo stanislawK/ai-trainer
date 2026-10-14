@@ -234,7 +234,7 @@ async def test_a_confirmed_ride_stays_logged_on_a_reload_and_its_undo_removes_it
     (stored,) = drafts.all_of(user_id)
 
     reloaded = _text(client.get("/").text)
-    undone = client.post(f"/sessions/{stored.session_id}/undo", headers=_HTMX)
+    undone = client.post(f"/drafts/{stored.id}/undo", headers=_HTMX)
 
     assert "Logged 64.4 km ride to Fri 2 Oct" in reloaded
     assert "Cycling · draft" not in reloaded

@@ -35,6 +35,9 @@ class Settings(BaseSettings):
     # A conversation is hidden on read and hard-deleted by `ai-trainer purge-conversations` this
     # many days after its last message (PRD-0004 B26, ADR-0021).
     conversation_retention_days: int = Field(default=14, ge=1)
+    # A log sent within this many minutes of the latest log of the athlete's last session in
+    # the same sport is offered as an addition to it (PRD-0004 B16, ADR-0014).
+    session_merge_window_min: int = Field(default=30, ge=1)
     # One model per template (ADR-0007). No default: a stable/GA OpenRouter id (never a
     # preview) and its cost are an operator choice, like `eval_judge_model` below.
     router_model: str

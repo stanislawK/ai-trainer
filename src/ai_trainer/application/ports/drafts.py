@@ -7,7 +7,8 @@ from ai_trainer.domain.training import SessionDraft, StoredDraft
 
 
 class SessionDraftRepositoryPort(Protocol):
-    """Persists the athlete's session drafts (ADR-0022), never their saved sessions. Every
+    """Persists the athlete's session drafts (ADR-0022); their saved sessions are written only
+    by a draft's confirm or undo. Every
     method is scoped to one `user_id` from the authenticated session; a conversation or message
     ID is always looked up with it."""
 
@@ -21,9 +22,11 @@ class SessionDraftRepositoryPort(Protocol):
         *,
         payload_version: int,
         created_at: datetime,
+        extends_session_id: UUID | None = None,
     ) -> StoredDraft:
         """Stores a pending draft made from the user's message `message_id`, in its
-        conversation `conversation_id`."""
+        conversation `conversation_id`, offered as an addition to the user's session
+        `extends_session_id` when given (B16)."""
         ...
 
     async def list_shown(self, user_id: UUID, conversation_id: UUID) -> Sequence[StoredDraft]:
@@ -50,16 +53,21 @@ class SessionDraftRepositoryPort(Protocol):
     ) -> StoredDraft:
         """In one transaction, saves the user's draft `draft_id` as a training session with a
         source row holding its log's original text, and marks the draft `confirmed` (ADR-0022).
+        A draft that extends a session still there, on a day it can belong to, is added to it
+        instead: its activities are appended, the envelope fields the session lacks are filled,
+        and the source row joins that session (B16); otherwise it no longer extends one.
         A confirmed draft is returned as it is, so confirming twice gives the same session.
         Raises `DraftNotFoundError` when the user has no such draft and `DraftDiscardedError`
         when it was discarded; neither writes anything."""
         ...
 
-    async def undo(self, user_id: UUID, session_id: UUID) -> StoredDraft:
-        """In one transaction, hard-deletes the user's training session `session_id` that a
-        draft confirmed, with its source rows (ADR-0022, B4). The draft stays `confirmed` and its
-        `session_id` is cleared; it is returned as it now is. Raises `SessionNotFoundError`
-        when the user has no such session, a removed one included; nothing is deleted."""
+    async def undo(self, user_id: UUID, draft_id: UUID, *, undone_at: datetime) -> StoredDraft:
+        """In one transaction, takes back the user's confirmed draft `draft_id`'s log from its
+        training session (B4): its source row and the activities it brought go, and the session
+        goes too when that was its last log (ADR-0022). The draft stays `confirmed`, its
+        `session_id` cleared; it is returned as it now is. Raises `DraftNotFoundError` when the
+        user has no such draft and `SessionNotFoundError` when it has no session, a pending,
+        discarded or undone one; neither changes anything."""
         ...
 
     async def discard(

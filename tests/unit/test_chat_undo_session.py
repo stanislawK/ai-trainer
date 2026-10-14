@@ -1,6 +1,6 @@
-"""Undoing a just-saved session from its confirmed row (PRD-0004 B4, ADR-0022, ticket #157):
-`POST /sessions/{id}/undo` removes the session, the row becomes "Removed" and stays so on a
-reload, and someone else's or an unknown session is left as it is."""
+"""Undoing a just-saved log from its confirmed row (PRD-0004 B4, ADR-0022, tickets #157 and
+#165): `POST /drafts/{id}/undo` takes the draft's log back from its session, the row becomes
+"Removed" and stays so on a reload, and someone else's or an unknown draft is left as it is."""
 
 import re
 from uuid import UUID, uuid4
@@ -77,13 +77,13 @@ async def _saved(
     chat: InMemoryChatRepository,
     drafts: InMemoryDraftRepository,
     user_id: UUID,
-) -> UUID:
-    """A draft the athlete confirmed; the ID of the session that saved."""
+) -> tuple[UUID, UUID]:
+    """A draft the athlete confirmed, and the ID of the session that saved."""
     draft = await _draft(chat, drafts, user_id)
     client.post(f"/drafts/{draft.id}/confirm", headers=_HTMX)
     (stored,) = drafts.all_of(user_id)
     assert stored.session_id is not None
-    return stored.session_id
+    return stored.id, stored.session_id
 
 
 def _removed_rows(html: str) -> list[str]:
@@ -92,9 +92,9 @@ def _removed_rows(html: str) -> list[str]:
 
 async def test_undo_collapses_the_row_to_removed_and_removes_the_session() -> None:
     client, user_id, chat, drafts = _client()
-    session_id = await _saved(client, chat, drafts, user_id)
+    draft_id, session_id = await _saved(client, chat, drafts, user_id)
 
-    response = client.post(f"/sessions/{session_id}/undo", headers=_HTMX)
+    response = client.post(f"/drafts/{draft_id}/undo", headers=_HTMX)
 
     assert response.status_code == 200
     (row,) = _removed_rows(response.text)
@@ -108,12 +108,12 @@ async def test_undo_collapses_the_row_to_removed_and_removes_the_session() -> No
 
 async def test_the_undo_button_asks_once_before_it_posts_and_leaves_the_row_on_a_refusal() -> None:
     client, user_id, chat, drafts = _client()
-    session_id = await _saved(client, chat, drafts, user_id)
+    draft_id, _ = await _saved(client, chat, drafts, user_id)
 
     page = client.get("/", headers=_HTMX).text
 
     (button,) = re.findall(r"<button[^>]*>(?:(?!</button>).)*Undo</button>", page, re.S)
-    assert f'hx-post="/sessions/{session_id}/undo"' in button
+    assert f'hx-post="/drafts/{draft_id}/undo"' in button
     assert re.search(r'hx-confirm="[^"]+"', button)
     assert 'hx-disable="this"' in button
     assert 'hx-status:4xx="swap:none"' in button
@@ -123,8 +123,8 @@ async def test_the_undo_button_asks_once_before_it_posts_and_leaves_the_row_on_a
 
 async def test_a_reload_still_reads_removed() -> None:
     client, user_id, chat, drafts = _client()
-    session_id = await _saved(client, chat, drafts, user_id)
-    client.post(f"/sessions/{session_id}/undo", headers=_HTMX)
+    draft_id, _ = await _saved(client, chat, drafts, user_id)
+    client.post(f"/drafts/{draft_id}/undo", headers=_HTMX)
 
     page = client.get("/").text
 
@@ -134,14 +134,14 @@ async def test_a_reload_still_reads_removed() -> None:
     assert 'aria-label="Draft session"' not in page
 
 
-async def test_another_users_session_is_not_found_and_stays() -> None:
+async def test_another_users_draft_is_not_found_and_its_session_stays() -> None:
     client, _, chat, drafts = _client()
     owner = uuid4()
     draft = await _draft(chat, drafts, owner)
     drafts.set_status(draft.id, "confirmed")
     (stored,) = drafts.all_of(owner)
 
-    response = client.post(f"/sessions/{stored.session_id}/undo", headers=_HTMX)
+    response = client.post(f"/drafts/{stored.id}/undo", headers=_HTMX)
 
     assert response.status_code == 404
     assert [d.session_id for d in drafts.all_of(owner)] == [stored.session_id]
@@ -149,20 +149,20 @@ async def test_another_users_session_is_not_found_and_stays() -> None:
 
 
 @pytest.mark.parametrize("raw_id", ["not-a-uuid", str(uuid4())])
-def test_a_malformed_or_unknown_session_id_is_not_found(raw_id: str) -> None:
+def test_a_malformed_or_unknown_draft_id_is_not_found(raw_id: str) -> None:
     client, _, _, _ = _client()
 
-    response = client.post(f"/sessions/{raw_id}/undo", headers=_HTMX)
+    response = client.post(f"/drafts/{raw_id}/undo", headers=_HTMX)
 
     assert response.status_code == 404
 
 
 async def test_undoing_twice_is_not_found_the_second_time() -> None:
     client, user_id, chat, drafts = _client()
-    session_id = await _saved(client, chat, drafts, user_id)
-    client.post(f"/sessions/{session_id}/undo", headers=_HTMX)
+    draft_id, _ = await _saved(client, chat, drafts, user_id)
+    client.post(f"/drafts/{draft_id}/undo", headers=_HTMX)
 
-    second = client.post(f"/sessions/{session_id}/undo", headers=_HTMX)
+    second = client.post(f"/drafts/{draft_id}/undo", headers=_HTMX)
 
     assert second.status_code == 404
 
@@ -219,7 +219,7 @@ async def test_a_signed_out_undo_is_refused_and_removes_nothing() -> None:
     (stored,) = drafts.all_of(owner)
 
     response = TestClient(app, follow_redirects=False).post(
-        f"/sessions/{stored.session_id}/undo", headers=_HTMX
+        f"/drafts/{stored.id}/undo", headers=_HTMX
     )
 
     assert response.status_code == 401
@@ -238,7 +238,7 @@ async def test_an_undo_without_the_csrf_token_is_refused_and_removes_nothing() -
     client = TestClient(app)
     client.cookies.set(SESSION_COOKIE_NAME, str(uuid4()))
 
-    response = client.post(f"/sessions/{stored.session_id}/undo", headers=_HTMX)
+    response = client.post(f"/drafts/{stored.id}/undo", headers=_HTMX)
 
     assert response.status_code == 403
     assert drafts.removed_sessions == []

@@ -370,3 +370,31 @@ def test_conversation_retention_of_zero_days_fails_at_startup(
         Settings(_env_file=None)
 
     assert [error["loc"] for error in excinfo.value.errors()] == [("conversation_retention_days",)]
+
+
+def test_session_merge_window_defaults_to_thirty_minutes(monkeypatch: pytest.MonkeyPatch) -> None:
+    _set_required_keys(monkeypatch)
+    monkeypatch.delenv("SESSION_MERGE_WINDOW_MIN", raising=False)
+
+    assert Settings(_env_file=None).session_merge_window_min == 30
+
+
+def test_session_merge_window_can_be_set_from_the_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _set_required_keys(monkeypatch)
+    monkeypatch.setenv("SESSION_MERGE_WINDOW_MIN", "45")
+
+    assert Settings(_env_file=None).session_merge_window_min == 45
+
+
+def test_a_session_merge_window_of_zero_minutes_fails_at_startup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _set_required_keys(monkeypatch)
+    monkeypatch.setenv("SESSION_MERGE_WINDOW_MIN", "0")
+
+    with pytest.raises(ValidationError) as excinfo:
+        Settings(_env_file=None)
+
+    assert [error["loc"] for error in excinfo.value.errors()] == [("session_merge_window_min",)]

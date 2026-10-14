@@ -2,22 +2,24 @@
 draft sits under the reply part that introduced it, the part after the athlete's log whose
 template is that sport's extraction template. A pending one is the card, a confirmed one its
 "Logged … to <date>" row, a discarded one its "Draft discarded" row and an undone one its
-"Removed" row. A pending one opens as its edit form (#158). Its payload is read only through
-the plugin's model (ADR-0022), and the sport-specific card body, edit fields and summary are
-the plugin's own partials."""
+"Removed" row. A pending one opens as its edit form (#158). One that came close after a
+session offers to add to it, and once confirmed says it was added (#165). Its payload is read
+only through the plugin's model (ADR-0022), and the sport-specific card body, edit fields and
+summary are the plugin's own partials."""
 
 import logging
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, JsonValue, ValidationError
 
 from ai_trainer.domain.chat import ChatMessage, ChatRole
 from ai_trainer.domain.sports.base import SportPlugin
 from ai_trainer.domain.sports.registry import SportRegistry, UnknownSportError
-from ai_trainer.domain.training import StoredDraft
+from ai_trainer.domain.training import StoredDraft, joins_day
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +36,23 @@ class DraftCard:
     payload: BaseModel | None
     # Whether the draft's day is the athlete's today, so an assumed date can say "today".
     is_today: bool
+
+    @property
+    def adds_at(self) -> str | None:
+        """When the session this draft adds to began, as `HH:MM` in the draft's own timezone
+        (ADR-0014): "Add to the session at 11:10" (B16). `None` when it extends no session, or
+        no longer can, since the athlete edited it to another day."""
+        extends = self.draft.extends
+        if extends is None or not joins_day(self.draft.draft, extends.occurred_on):
+            return None
+        local = extends.first_logged_at.astimezone(ZoneInfo(self.draft.draft.timezone))
+        return f"{local:%H:%M}"
+
+    @property
+    def added(self) -> bool:
+        """Whether the confirm added this draft to the session it extends (B16)."""
+        extends = self.draft.extends
+        return extends is not None and self.draft.session_id == extends.id
 
     @property
     def body_template(self) -> str:
