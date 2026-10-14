@@ -42,12 +42,15 @@ from ai_trainer.domain.training import (
     DraftStatus,
     SessionDraft,
     SessionNotFoundError,
+    SessionSpan,
     StoredDraft,
 )
 from ai_trainer.domain.users import User, UserStatus
 from ai_trainer.web.chat import build_chat_router
 
 FROZEN_NOW = datetime(2026, 10, 2, 9, 30, tzinfo=UTC)
+# The default `session_merge_window_min` (B16).
+MERGE_WINDOW = timedelta(minutes=30)
 
 # Every app sport names an extraction template since #159, so a log only gets the "not yet"
 # reply for one that doesn't: this test-only sport, registered after the app's own.
@@ -251,6 +254,16 @@ class InMemoryProfile:
         raise NotImplementedError
 
 
+class InMemoryTrainingSessions:
+    """The athlete's saved sessions as continuity sees them: the latest per user and sport."""
+
+    def __init__(self) -> None:
+        self.latest: dict[tuple[UUID, str], SessionSpan] = {}
+
+    async def latest_in_sport(self, user_id: UUID, sport_id: str) -> SessionSpan | None:
+        return self.latest.get((user_id, sport_id))
+
+
 class InMemoryDraftRepository:
     """`session_drafts` in memory. A draft's message must be its user's, as the foreign key and
     the reply's lookup guarantee in production."""
@@ -260,6 +273,10 @@ class InMemoryDraftRepository:
         self.confirmed_at: dict[UUID, datetime] = {}
         self.discarded_at: dict[UUID, datetime] = {}
         self.removed_sessions: list[UUID] = []
+        self.undone_at: dict[UUID, datetime] = {}
+        # Each draft's `extends_session_id` as added, and the spans `extends` is read from.
+        self.extends_ids: dict[UUID, UUID | None] = {}
+        self.spans: dict[UUID, SessionSpan] = {}
 
     async def add(
         self,
@@ -271,6 +288,7 @@ class InMemoryDraftRepository:
         *,
         payload_version: int,
         created_at: datetime,
+        extends_session_id: UUID | None = None,
     ) -> StoredDraft:
         stored = StoredDraft(
             id=uuid4(),
@@ -280,9 +298,11 @@ class InMemoryDraftRepository:
             draft=draft,
             payload_version=payload_version,
             status="pending",
+            extends=None if extends_session_id is None else self.spans.get(extends_session_id),
             created_at=created_at,
         )
         self.rows.append((user_id, stored))
+        self.extends_ids[stored.id] = extends_session_id
         return stored
 
     async def list_shown(self, user_id: UUID, conversation_id: UUID) -> Sequence[StoredDraft]:
@@ -343,15 +363,18 @@ class InMemoryDraftRepository:
             return draft
         raise DraftNotFoundError(draft_id)
 
-    async def undo(self, user_id: UUID, session_id: UUID) -> StoredDraft:
+    async def undo(self, user_id: UUID, draft_id: UUID, *, undone_at: datetime) -> StoredDraft:
         for index, (owner, draft) in enumerate(self.rows):
-            if owner != user_id or draft.session_id != session_id:
+            if owner != user_id or draft.id != draft_id:
                 continue
+            if draft.session_id is None:
+                raise SessionNotFoundError(draft_id)
+            self.removed_sessions.append(draft.session_id)
+            self.undone_at[draft.id] = undone_at
             draft = draft.model_copy(update={"session_id": None})
             self.rows[index] = (owner, draft)
-            self.removed_sessions.append(session_id)
             return draft
-        raise SessionNotFoundError(session_id)
+        raise DraftNotFoundError(draft_id)
 
     def set_status(self, draft_id: UUID, status: DraftStatus) -> None:
         """A confirmed draft has its session, as a confirm gives it one."""
@@ -499,6 +522,7 @@ def reply_services(
     chat: InMemoryChatRepository,
     *,
     drafts: InMemoryDraftRepository | None = None,
+    sessions: InMemoryTrainingSessions | None = None,
     profile: InMemoryProfile | None = None,
     conversation: ScriptedConversation | None = None,
     fast_router: ScriptedFastRouter | None = None,
@@ -509,6 +533,7 @@ def reply_services(
         chat=chat,
         conversations=chat.conversations,
         drafts=drafts or InMemoryDraftRepository(),
+        sessions=sessions or InMemoryTrainingSessions(),
         sports=sports_with_rowing(),
         profile=profile or InMemoryProfile(),
         conversation=conversation or ScriptedConversation(),
@@ -516,6 +541,7 @@ def reply_services(
         safety_screen=safety_screen or ScriptedSafetyScreen(),
         clock=FixedClock(),
         history_turns=history_turns,
+        merge_window=MERGE_WINDOW,
     )
 
 

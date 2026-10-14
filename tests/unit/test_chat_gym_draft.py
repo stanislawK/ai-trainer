@@ -255,7 +255,7 @@ async def test_confirmed_lifts_stay_logged_on_a_reload_and_their_undo_removes_th
     (stored,) = drafts.all_of(user_id)
 
     reloaded = _text(client.get("/").text)
-    undone = client.post(f"/sessions/{stored.session_id}/undo", headers=_HTMX)
+    undone = client.post(f"/drafts/{stored.id}/undo", headers=_HTMX)
 
     assert "Logged 2 exercises to Fri 2 Oct" in reloaded
     assert "Gym · draft" not in reloaded

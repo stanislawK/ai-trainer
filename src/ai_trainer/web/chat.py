@@ -35,7 +35,7 @@ from ai_trainer.application.drafts import (
     draft_to_edit,
     edit_draft,
     find_draft,
-    undo_session,
+    undo_log,
 )
 from ai_trainer.application.ports.chat import ChatRepositoryPort
 from ai_trainer.application.reply import (
@@ -429,16 +429,19 @@ def build_chat_router(
             request, "partials/chat/draft_discarded.html", {"card": card, "draft": draft}
         )
 
-    @router.post("/sessions/{session_id}/undo", response_class=HTMLResponse)
-    async def undo(request: Request, session_id: str) -> HTMLResponse:
-        """The confirmed row's Undo (B4, ADR-0022): removes the athlete's just-saved session
-        and its sources, once the browser's prompt is accepted, and answers with the "Removed"
-        row, which replaces the confirmed one. Another user's, an unknown or an already removed
-        session is a 404 and nothing is deleted."""
+    @router.post("/drafts/{draft_id}/undo", response_class=HTMLResponse)
+    async def undo(request: Request, draft_id: str) -> HTMLResponse:
+        """The confirmed row's Undo (B4, ADR-0022): takes the athlete's just-saved log back from
+        its session, once the browser's prompt is accepted, and answers with the "Removed" row,
+        which replaces the confirmed one. The session's other logs stay (#165). Another user's
+        or an unknown draft, and one with no session left to undo, is a 404 and nothing is
+        deleted."""
         user: User = request.state.user
         try:
-            draft = await undo_session(user.id, parse_id(session_id), drafts=replies.drafts)
-        except SessionNotFoundError:
+            draft = await undo_log(
+                user.id, parse_id(draft_id), drafts=replies.drafts, clock=replies.clock
+            )
+        except DraftNotFoundError, SessionNotFoundError:
             raise HTTPException(status_code=_NOT_FOUND) from None
         card = draft_card(draft, sports=sports, today=local_today(user))
         return templates.TemplateResponse(

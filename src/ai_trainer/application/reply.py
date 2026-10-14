@@ -3,7 +3,8 @@ routing): routed by the Jev fast path or else the LLM router, while a Jev safety
 alongside (ADR-0020), dispatched safety first,
 streamed, and saved only once all of it came through, so a retry after a failure always
 streams a fresh reply. A log for a sport whose plugin names an extraction template becomes a
-pending draft the athlete confirms later (PRD-0004 B1, F2, ADR-0022)."""
+pending draft the athlete confirms later (PRD-0004 B1, F2, ADR-0022), offered as an addition to
+their latest session in that sport when it came close after it (B16, ADR-0014)."""
 
 import asyncio
 from collections.abc import AsyncGenerator, Sequence
@@ -26,11 +27,12 @@ from ai_trainer.application.ports.fast_router import FastRouterPort
 from ai_trainer.application.ports.llm_gateway import StreamEnd
 from ai_trainer.application.ports.onboarding import OnboardingRepositoryPort
 from ai_trainer.application.ports.safety_screen import SafetyScreenPort
+from ai_trainer.application.ports.training import TrainingSessionRepositoryPort
 from ai_trainer.domain.chat import ChatMessage, ChatRole
 from ai_trainer.domain.conversation import Intent, IntentKind
 from ai_trainer.domain.llm_calls import LlmCallOutcome
 from ai_trainer.domain.sports.registry import SportRegistry
-from ai_trainer.domain.training import SessionDraft, StoredDraft
+from ai_trainer.domain.training import SessionDraft, StoredDraft, joins_session
 
 # Until each specialist ships, these go to `chitchat`; the persona carries G3 (ADR-0008).
 _CHITCHAT_KINDS = frozenset({"chitchat", "unclear", "wellbeing_or_injury"})
@@ -83,6 +85,7 @@ class ReplyServices:
     chat: ChatRepositoryPort
     conversations: ConversationRepositoryPort
     drafts: SessionDraftRepositoryPort
+    sessions: TrainingSessionRepositoryPort
     sports: SportRegistry
     profile: OnboardingRepositoryPort
     conversation: ConversationModelPort
@@ -92,6 +95,9 @@ class ReplyServices:
     # The router and every specialist see this many turns before the message, from its own
     # conversation only (ADR-0008, ADR-0021).
     history_turns: int
+    # A log this close after the latest log of a session in its sport is offered as an addition
+    # to it (`session_merge_window_min`, B16).
+    merge_window: timedelta
 
 
 type _Specialist = Literal["chitchat", "extract", "not_yet"]
@@ -331,7 +337,8 @@ async def _save(
     after that message, in its conversation, not when they were saved: a later message never
     splits them off. Each saved part moves the conversation's last activity to now (ADR-0021).
     A part's draft is stored pending, made from the athlete's message; no session is written
-    (ADR-0022 invariant 3)."""
+    (ADR-0022 invariant 3). It extends the athlete's latest session in its sport when the
+    message was sent within the merge window of that session's latest log (B16)."""
     saved: list[ChatMessage] = []
     drafts: list[StoredDraft] = []
     stamp: datetime = message.created_at
@@ -351,6 +358,12 @@ async def _save(
         )
         if answer.draft is not None:
             sport_id, draft, payload_version = answer.draft
+            latest = await services.sessions.latest_in_sport(user_id, sport_id)
+            extends = None
+            if latest is not None and joins_session(
+                draft, message.created_at, latest, services.merge_window
+            ):
+                extends = latest.id
             drafts.append(
                 await services.drafts.add(
                     user_id,
@@ -360,6 +373,7 @@ async def _save(
                     draft,
                     payload_version=payload_version,
                     created_at=services.clock.now(),
+                    extends_session_id=extends,
                 )
             )
         await services.conversations.touch(user_id, message.conversation_id, services.clock.now())

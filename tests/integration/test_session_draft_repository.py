@@ -700,7 +700,7 @@ async def test_undo_deletes_the_session_and_its_sources_and_keeps_the_draft_conf
     confirmed = await drafts.confirm(user_id, draft.id, confirmed_at=_START)
     assert confirmed.session_id is not None
 
-    undone = await drafts.undo(user_id, confirmed.session_id)
+    undone = await drafts.undo(user_id, draft.id, undone_at=_START)
 
     assert (undone.id, undone.status, undone.session_id) == (draft.id, "confirmed", None)
     assert await _counts(db_session_factory, user_id) == (0, 0)
@@ -722,26 +722,25 @@ async def test_another_users_session_is_not_found_by_undo_and_stays(
     confirmed = await drafts.confirm(owner, draft.id, confirmed_at=_START)
     assert confirmed.session_id is not None
 
-    with pytest.raises(SessionNotFoundError):
-        await drafts.undo(stranger, confirmed.session_id)
+    with pytest.raises(DraftNotFoundError):
+        await drafts.undo(stranger, draft.id, undone_at=_START)
 
     assert await _counts(db_session_factory, owner) == (1, 1)
     (kept,) = await drafts.list_shown(owner, draft.conversation_id)
     assert kept.session_id == confirmed.session_id
 
 
-async def test_an_unknown_or_already_removed_session_is_not_found_by_undo(
+async def test_an_unknown_draft_or_an_already_removed_session_is_not_found_by_undo(
     db_session_factory: Callable[[], AsyncSession],
 ) -> None:
     drafts, user_id, draft = await _pending(db_session_factory, "undo-twice")
-    confirmed = await drafts.confirm(user_id, draft.id, confirmed_at=_START)
-    assert confirmed.session_id is not None
-    await drafts.undo(user_id, confirmed.session_id)
+    await drafts.confirm(user_id, draft.id, confirmed_at=_START)
+    await drafts.undo(user_id, draft.id, undone_at=_START)
 
     with pytest.raises(SessionNotFoundError):
-        await drafts.undo(user_id, confirmed.session_id)
-    with pytest.raises(SessionNotFoundError):
-        await drafts.undo(user_id, uuid4())
+        await drafts.undo(user_id, draft.id, undone_at=_START)
+    with pytest.raises(DraftNotFoundError):
+        await drafts.undo(user_id, uuid4(), undone_at=_START)
 
 
 async def test_undo_leaves_the_users_other_sessions(
@@ -758,10 +757,9 @@ async def test_undo_leaves_the_users_other_sessions(
         created_at=_START,
     )
     kept = await drafts.confirm(user_id, second.id, confirmed_at=_START)
-    removed = await drafts.confirm(user_id, first.id, confirmed_at=_START)
-    assert removed.session_id is not None
+    await drafts.confirm(user_id, first.id, confirmed_at=_START)
 
-    await drafts.undo(user_id, removed.session_id)
+    await drafts.undo(user_id, first.id, undone_at=_START)
 
     assert await _counts(db_session_factory, user_id) == (1, 1)
     shown = {d.id: d.session_id for d in await drafts.list_shown(user_id, first.conversation_id)}
@@ -860,7 +858,7 @@ async def test_editing_an_undone_draft_is_refused_and_changes_nothing(
     drafts, user_id, draft = await _pending(db_session_factory, "edit-undone")
     confirmed = await drafts.confirm(user_id, draft.id, confirmed_at=_START)
     assert confirmed.session_id is not None
-    undone = await drafts.undo(user_id, confirmed.session_id)
+    undone = await drafts.undo(user_id, draft.id, undone_at=_START)
 
     with pytest.raises(DraftConfirmedError):
         await drafts.update(user_id, draft.id, _YESTERDAY_EDIT, payload_version=1)

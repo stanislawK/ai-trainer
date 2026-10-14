@@ -54,3 +54,42 @@ class SportPlugin(BaseModel):
     label_key: str
     icon: str
     extraction: ExtractionSpec | None = None
+
+
+# Every sport payload carries its activities under this key (ADR-0006, ADR-0022).
+_ACTIVITIES = "activities"
+
+
+def extend_payload(
+    payload_type: type[BaseModel],
+    session: Mapping[str, JsonValue],
+    addition: Mapping[str, JsonValue],
+) -> BaseModel:
+    """The session's payload with the addition's activities after its own (B16, ticket #165),
+    read and validated by the sport's payload model. Raises `ValidationError` when either
+    payload, or the result, doesn't read."""
+    own = payload_type.model_validate(session).model_dump(mode="json")
+    added = payload_type.model_validate(addition).model_dump(mode="json")
+    return payload_type.model_validate(
+        {**own, _ACTIVITIES: [*own[_ACTIVITIES], *added[_ACTIVITIES]]}
+    )
+
+
+def withdraw_payload(
+    payload_type: type[BaseModel],
+    session: Mapping[str, JsonValue],
+    addition: Mapping[str, JsonValue],
+) -> BaseModel:
+    """The session's payload without the addition's activities, each removed once, the latest
+    match first (B4 for a log added to a session, ticket #165). An activity the session no
+    longer has is skipped. Raises `ValidationError` when the result doesn't read, e.g. when
+    nothing is left."""
+    own = payload_type.model_validate(session).model_dump(mode="json")
+    added = payload_type.model_validate(addition).model_dump(mode="json")
+    kept = list(own[_ACTIVITIES])
+    for activity in added[_ACTIVITIES]:
+        for index in range(len(kept) - 1, -1, -1):
+            if kept[index] == activity:
+                del kept[index]
+                break
+    return payload_type.model_validate({**own, _ACTIVITIES: kept})

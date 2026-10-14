@@ -27,6 +27,7 @@ from ai_trainer.adapters.llm_calls_repository import SqlAlchemyLlmCallsRepositor
 from ai_trainer.adapters.onboarding_repository import SqlAlchemyOnboardingRepository
 from ai_trainer.adapters.session_draft_repository import SqlAlchemySessionDraftRepository
 from ai_trainer.adapters.sessions_repository import SqlAlchemySessionsRepository
+from ai_trainer.adapters.training_session_repository import SqlAlchemyTrainingSessionRepository
 from ai_trainer.adapters.user_status_changer import SqlAlchemyUserStatusChanger
 from ai_trainer.adapters.users_repository import SqlAlchemyUsersRepository
 from ai_trainer.application.reply import ReplyServices
@@ -136,7 +137,8 @@ def create_app(settings: Settings) -> FastAPI:
         conversations=SqlAlchemyConversationRepository(
             session_factory, clock=clock, retention_days=settings.conversation_retention_days
         ),
-        drafts=SqlAlchemySessionDraftRepository(session_factory),
+        drafts=SqlAlchemySessionDraftRepository(session_factory, sport_registry),
+        sessions=SqlAlchemyTrainingSessionRepository(session_factory),
         sports=sport_registry,
         profile=onboarding,
         conversation=conversation,
@@ -157,6 +159,7 @@ def create_app(settings: Settings) -> FastAPI:
         ),
         clock=clock,
         history_turns=settings.chat_history_turns,
+        merge_window=timedelta(minutes=settings.session_merge_window_min),
     )
     app.include_router(
         build_chat_router(templates, chat=chat, replies=replies, sports=app.state.sport_registry)

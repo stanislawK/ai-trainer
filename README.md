@@ -89,6 +89,8 @@ Run `make` targets from the repo root; see the [Makefile](Makefile) for the comp
 
 `CONVERSATION_RETENTION_DAYS` (default 14, at least 1) is how long a conversation lives after its last message (PRD-0004 B26). Past that it is hidden at once — not listed, not openable (404) — and `make purge-conversations` (`uv run ai-trainer purge-conversations`) deletes it for good, messages included, printing only the count. It never touches goals, profile rows or saved training sessions. Production runs it daily from the host scheduler (ADR-0023).
 
+`SESSION_MERGE_WINDOW_MIN` (default 30, at least 1) is how close after the latest log of a saved session a new log in the same sport must come to be offered as an addition to it, "Add to the session at HH:MM" on its draft card (PRD-0004 B16, ADR-0014).
+
 ## Dev loop
 
 `make start` runs `docker compose watch` (`compose.yaml` plus the dev-only `compose.dev.yaml`) instead of `make up`'s plain `docker compose up -d --build`: same app + Postgres, but the app container runs `uvicorn --reload` and Compose Watch syncs edited files under `src/` straight into the running container — no image rebuild, no manual restart.

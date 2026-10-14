@@ -1,7 +1,7 @@
 """Training-session drafts (PRD-0004 B1, F2, ADR-0022): what an extraction made of a log, held
 until the athlete confirms it. Nothing here is a saved session (ADR-0022 invariant 3)."""
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Literal
 from uuid import UUID
 
@@ -31,6 +31,36 @@ class SessionDraft(BaseModel):
     payload: dict[str, JsonValue]
 
 
+class SessionSpan(BaseModel):
+    """A saved session as continuity sees it (B16, ADR-0014): its day and when its first and
+    latest logs were sent. The merge window runs from `last_logged_at` (ADR-0022)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    id: UUID
+    occurred_on: date
+    first_logged_at: datetime
+    last_logged_at: datetime
+
+
+def joins_day(draft: SessionDraft, occurred_on: date) -> bool:
+    """Whether the draft can belong to a session on `occurred_on`: a log that names another
+    day never does, while one assumed to be today does, so a session running past midnight
+    stays one (ADR-0014 Consequences, ticket #165)."""
+    return draft.date_source == "assumed_today" or draft.occurred_on == occurred_on
+
+
+def joins_session(
+    draft: SessionDraft, logged_at: datetime, session: SessionSpan, window: timedelta
+) -> bool:
+    """Whether a log sent at `logged_at` is offered as an addition to `session` (B16,
+    ADR-0014): sent within `window` of the session's latest log, the boundary included, and on
+    a day it can belong to."""
+    return abs(logged_at - session.last_logged_at) <= window and joins_day(
+        draft, session.occurred_on
+    )
+
+
 class StoredDraft(BaseModel):
     """A `session_drafts` row. `message_id` is the athlete's log it came from."""
 
@@ -43,8 +73,10 @@ class StoredDraft(BaseModel):
     draft: SessionDraft
     payload_version: int
     status: DraftStatus
-    # The session a confirm produced; `None` until then.
+    # The session a confirm produced or added to; `None` until then, and again after an undo.
     session_id: UUID | None = None
+    # The session B16 offers to add this draft to, while it still exists (ticket #165).
+    extends: SessionSpan | None = None
     created_at: datetime
 
 
