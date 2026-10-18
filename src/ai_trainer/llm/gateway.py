@@ -24,6 +24,7 @@ from ai_trainer.application.ports.llm_gateway import (
 )
 from ai_trainer.domain.llm_calls import LlmCallOutcome
 from ai_trainer.llm.call_accounting import CallAccountant, CallKey, CallUsage, sum_cost
+from ai_trainer.llm.debug_log import CallRecorder, LlmDebugLog
 from ai_trainer.settings import Settings
 
 TIMEOUT_MESSAGE = "The AI assistant is taking too long to respond. Please try again in a moment."
@@ -58,11 +59,18 @@ class OpenRouterGateway:
     (ADR-0018 invariant 6; see the ADR for how this was verified).
     """
 
-    def __init__(self, settings: Settings, calls_repository: LlmCallsRepositoryPort) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        calls_repository: LlmCallsRepositoryPort,
+        *,
+        debug_log: LlmDebugLog | None = None,
+    ) -> None:
         self._provider = OpenRouterProvider(api_key=settings.openrouter_api_key.get_secret_value())
         self._accountant = CallAccountant(
             calls_repository, timeout_seconds=settings.llm_call_timeout_seconds
         )
+        self._debug_log = debug_log
         # A placeholder model: every real call overrides it via `model=` below. Tests substitute
         # TestModel/FunctionModel through `agent.override()` (ADR-0007) on this same instance.
         self.agent: Agent[None, str] = Agent(TestModel())
@@ -87,6 +95,7 @@ class OpenRouterGateway:
             model_settings["temperature"] = temperature
         if upstream_provider is not None:
             model_settings["openrouter_provider"] = pinned_upstream(upstream_provider)
+        recorder = self._recorder(template_id, template_version, model_id)
         attempt = await self._accountant.attempt(
             CallKey(user_id, template_id, template_version, model_id),
             self.agent.run(
@@ -96,6 +105,7 @@ class OpenRouterGateway:
                 instructions=instructions,
                 model_settings=model_settings,
                 retries=AgentRetries(output=output_retries) if output_retries is not None else None,
+                capabilities=[recorder] if recorder is not None else None,
             ),
             usage=lambda result: CallUsage(
                 input_tokens=result.usage.input_tokens,
@@ -136,7 +146,10 @@ class OpenRouterGateway:
         started = time.monotonic()
         queue: asyncio.Queue[str | Exception | _Done] = asyncio.Queue()
         state = _StreamState()
-        producer = asyncio.create_task(self._pump(queue, state, model_id, instructions, prompt))
+        recorder = self._recorder(template_id, template_version, model_id)
+        producer = asyncio.create_task(
+            self._pump(queue, state, model_id, instructions, prompt, recorder)
+        )
         # Stays `CANCELLED` only if the consumer closes the generator at a `yield`.
         outcome = LlmCallOutcome.CANCELLED
         parts: list[str] = []
@@ -187,6 +200,7 @@ class OpenRouterGateway:
         model_id: str,
         instructions: str,
         prompt: str,
+        recorder: CallRecorder | None,
     ) -> None:
         model = OpenRouterModel(model_id, provider=self._provider)
         model_settings = OpenRouterModelSettings(openrouter_cache_instructions=True)
@@ -197,14 +211,26 @@ class OpenRouterGateway:
                 output_type=str,
                 instructions=instructions,
                 model_settings=model_settings,
+                capabilities=[recorder] if recorder is not None else None,
             ) as streamed:
                 state.streamed = streamed
                 async for text in streamed.stream_text(delta=True, debounce_by=None):
+                    if recorder is not None:
+                        recorder.streamed(text)
                     await queue.put(text)
         except Exception as exc:
             await queue.put(exc)
             return
         await queue.put(_DONE)
+
+    def _recorder(
+        self, template_id: str, template_version: int, model_id: str
+    ) -> CallRecorder | None:
+        if self._debug_log is None:
+            return None
+        return self._debug_log.recorder(
+            template_id=template_id, template_version=template_version, model=model_id
+        )
 
     async def _finish_stream(
         self,

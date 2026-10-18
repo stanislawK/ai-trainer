@@ -91,6 +91,8 @@ Run `make` targets from the repo root; see the [Makefile](Makefile) for the comp
 
 `SESSION_MERGE_WINDOW_MIN` (default 30, at least 1) is how close after the latest log of a saved session a new log in the same sport must come to be offered as an addition to it, "Add to the session at HH:MM" on its draft card (PRD-0004 B16, ADR-0014).
 
+`LLM_DEBUG_LOG=true` (default off) logs every model request to `.llm-debug/` — see [Debugging LLM calls](#debugging-llm-calls).
+
 ## Dev loop
 
 `make start` runs `docker compose watch` (`compose.yaml` plus the dev-only `compose.dev.yaml`) instead of `make up`'s plain `docker compose up -d --build`: same app + Postgres, but the app container runs `uvicorn --reload` and Compose Watch syncs edited files under `src/` straight into the running container — no image rebuild, no manual restart.
@@ -108,6 +110,51 @@ It's foreground on purpose (`docker compose watch` can't run detached), so use a
 - `make start` first runs `migrate` once in the foreground, so its output — including a blank or missing `Settings` key such as `GOOGLE_CLIENT_ID must not be blank` — shows in your terminal and a failure stops `make start` before anything else starts (`docker compose watch` streams only `app`).
 - A one-shot `migrate` service (#64) runs `alembic upgrade head` against Postgres before `app` starts, on every `make start` — a fresh, empty volume reaches head, and a migration pulled since your last `make start` is applied on the next one; an up-to-date schema makes it a fast no-op. A failing migration keeps `app` from starting at all; its traceback shows in `make logs`.
 - `make up`, the production image and CI's e2e job never use `--reload`, the CSS watcher, the migrate service or `compose.dev.yaml` — this is purely a local dev loop.
+
+## Debugging LLM calls
+
+Two records exist for every model call, and they answer different questions:
+
+- **`llm_calls`** (Postgres, always on): one row per gateway call — template, version, model, total tokens, cost, latency and outcome (`success`, `timeout`, `error`, `cancelled`). It's the accounting record (ADR-0018): what a call cost and how it ended.
+- **`.llm-debug/<UTC date>.jsonl`** (only with `LLM_DEBUG_LOG=true`): one JSON line per *HTTP request* inside a call — what was sent (`instructions`, `messages`, `output_schema`), what came back (`reply`), that request's own tokens, `cost` and `latency_ms`, and for streams `ttft_ms` (time to first text) and, if the stream was cut off, `partial_reply`. Lines of one call share a `call` id and number their `attempt`s; `error` names the exception when a request failed (`CancelledError` for a timeout or a closed stream).
+
+Reach for them when a reply is slow or times out, when a template costs more than expected, when an extraction comes back wrong (to see exactly what the model was given), or when a call retried. The debug log holds athletes' words, so it stays on your machine and out of traces.
+
+**Turn it on.** Set `LLM_DEBUG_LOG=true` in `.env` and restart `make start` (settings are read only at start). `make start` bind-mounts the container's `/app/.llm-debug` to `.llm-debug/` in the repo, git- and docker-ignored. Set it back to `false` when you're done; `rm .llm-debug/*.jsonl` clears old lines.
+
+**Per-call summary** — one object per gateway call, oldest first, with its requests summed:
+
+```bash
+jq -s 'group_by(.call) | sort_by(.[0].at) | map({template: .[0].template_id, v: .[0].template_version, attempts: length, input: (map(.input_tokens)|add), output: (map(.output_tokens)|add), cost: (map(.cost // 0)|add), latency_ms: (map(.latency_ms)|add), errors: (map(.error)|unique)})' .llm-debug/*.jsonl
+```
+
+`attempts` above 1 means an output-validation retry (each one is a billed request); `errors` lists what failed, `[null]` when nothing did. Use it to spot which step of a message was slow or expensive.
+
+**The matching `llm_calls` rows** — the last hour, oldest first, so they line up with the summary above:
+
+```bash
+docker compose exec -T db psql -U ai_trainer -d ai_trainer -c "select template_id, template_version, input_tokens, output_tokens, cost, latency_ms, outcome from llm_calls where created_at > now() - interval '1 hour' order by created_at;"
+```
+
+For a `success` row, the summary's tokens and cost equal the row's, and its `latency_ms` is at most the row's (the row also times setup and validation). Decision sets (`safety_screen`, `router_fast`) show `cost: 0` in the summary and `NULL` in the row: their provider reports no cost. A `timeout` or `error` row records 0 tokens and no cost, while the summary still shows what its completed requests billed — that difference is spend the row doesn't count.
+
+**Everything about one call** — after picking a `call` id from the raw lines (`jq '{call, template_id, attempt, error}' .llm-debug/*.jsonl`):
+
+```bash
+jq 'select(.call == "<call id>")' .llm-debug/*.jsonl
+```
+
+Shows the full instructions, messages, output schema and reply of each attempt — the place to read why an extraction came back wrong, or what the retry prompt told the model.
+
+**Only the failures, retries or slow streams:**
+
+```bash
+jq 'select(.error != null) | {at, template_id, attempt, error, latency_ms, partial_reply}' .llm-debug/*.jsonl
+jq 'select(.attempt > 1) | {at, template_id, call, attempt, error}' .llm-debug/*.jsonl
+jq 'select(.streaming) | {at, template_id, ttft_ms, latency_ms}' .llm-debug/*.jsonl
+```
+
+The first finds requests that failed or were cut off by the timeout; the second, validation retries; the third, how long each streamed reply took to show its first text against its whole length.
 
 ## End-to-end tests
 

@@ -12,6 +12,7 @@ from pydantic_ai.run import AgentRunResult
 from ai_trainer.application.ports.decision_gateway import DecisionResult
 from ai_trainer.application.ports.llm_calls import LlmCallsRepositoryPort
 from ai_trainer.llm.call_accounting import CallAccountant, CallKey, CallUsage, sum_cost
+from ai_trainer.llm.debug_log import LlmDebugLog
 from ai_trainer.settings import Settings
 
 # The TypeSafe SDK appends `/v1/systemone`, which OpenRouter serves in TypeSafe's wire format.
@@ -32,6 +33,7 @@ class OpenRouterDecisionGateway:
         calls_repository: LlmCallsRepositoryPort,
         *,
         http_client: httpx2.AsyncClient | None = None,
+        debug_log: LlmDebugLog | None = None,
     ) -> None:
         provider = TypeSafeProvider(
             base_url=OPENROUTER_SYSTEM_ONE_BASE_URL,
@@ -43,6 +45,7 @@ class OpenRouterDecisionGateway:
         self._accountant = CallAccountant(
             calls_repository, timeout_seconds=settings.decision_call_timeout_seconds
         )
+        self._debug_log = debug_log
         # A placeholder model: every real call overrides it via `model=` below. Tests substitute
         # a fake `DecisionModel` through `agent.override()` on this same instance.
         self.agent: Agent[None, Any] = Agent(TestModel())
@@ -56,9 +59,21 @@ class OpenRouterDecisionGateway:
         output_type: type[OutputT],
         state: str,
     ) -> DecisionResult[OutputT]:
+        recorder = (
+            self._debug_log.recorder(
+                template_id=decision_id, template_version=decision_version, model=self._model_id
+            )
+            if self._debug_log is not None
+            else None
+        )
         attempt = await self._accountant.attempt(
             CallKey(user_id, decision_id, decision_version, self._model_id),
-            self.agent.run(state, model=self._model, output_type=output_type),
+            self.agent.run(
+                state,
+                model=self._model,
+                output_type=output_type,
+                capabilities=[recorder] if recorder is not None else None,
+            ),
             usage=_usage,
         )
         if attempt.value is None:

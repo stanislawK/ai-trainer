@@ -1,4 +1,5 @@
 import re
+from pathlib import Path
 from typing import Annotated, Any, Literal
 
 from pydantic import BeforeValidator, Field, PostgresDsn, SecretStr, ValidationInfo, field_validator
@@ -30,6 +31,11 @@ class Settings(BaseSettings):
     database_url: PostgresDsn
     openrouter_api_key: SecretStr
     llm_call_timeout_seconds: float = 30.0
+    # Local debugging only (ADR-0018, owner's direction 2026-10-14): when on, every model
+    # request the gateways make appends one JSON line, prompt and reply included, under
+    # `llm_debug_log_dir`. Never exported to traces; off by default.
+    llm_debug_log: bool = False
+    llm_debug_log_dir: Path = Path(".llm-debug")
     # Router and every specialist see the same last N chat messages (ADR-0008).
     chat_history_turns: int = Field(default=10, ge=1)
     # A conversation is hidden on read and hard-deleted by `ai-trainer purge-conversations` this

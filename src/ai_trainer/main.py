@@ -33,6 +33,7 @@ from ai_trainer.adapters.users_repository import SqlAlchemyUsersRepository
 from ai_trainer.application.reply import ReplyServices
 from ai_trainer.domain.sports.registry import default_sport_registry
 from ai_trainer.llm.conversation import LlmConversation, build_prompt_registry
+from ai_trainer.llm.debug_log import build_debug_log
 from ai_trainer.llm.decision_gateway import OpenRouterDecisionGateway
 from ai_trainer.llm.gateway import OpenRouterGateway
 from ai_trainer.llm.router_fast import JevFastRouter, RouterFastThresholds
@@ -120,9 +121,10 @@ def create_app(settings: Settings) -> FastAPI:
     app.include_router(build_health_router(health_port))
     sport_registry = app.state.sport_registry
     llm_calls = SqlAlchemyLlmCallsRepository(session_factory)
+    debug_log = build_debug_log(settings, clock)
     conversation = LlmConversation(
         registry=build_prompt_registry(_PROMPTS_ROOT, sport_registry),
-        gateway=OpenRouterGateway(settings, llm_calls),
+        gateway=OpenRouterGateway(settings, llm_calls, debug_log=debug_log),
         sports=sport_registry,
         router_model=settings.router_model,
         router_provider=settings.router_provider,
@@ -131,7 +133,7 @@ def create_app(settings: Settings) -> FastAPI:
         extract_provider=settings.extract_provider,
         history_turns=settings.chat_history_turns,
     )
-    decisions = OpenRouterDecisionGateway(settings, llm_calls)
+    decisions = OpenRouterDecisionGateway(settings, llm_calls, debug_log=debug_log)
     replies = ReplyServices(
         chat=chat,
         conversations=SqlAlchemyConversationRepository(
