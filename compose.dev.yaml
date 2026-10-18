@@ -31,6 +31,12 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
+    # `LLM_DEBUG_LOG=true` writes to /app/.llm-debug (ADR-0018, #178); the bind mount puts
+    # those lines on the host, where `jq . .llm-debug/*.jsonl` reads them. Write-only from the
+    # container, so none of the bind-mount file-watching trouble above applies. Never in
+    # compose.yaml: `make up`, CI and production get no such folder.
+    volumes:
+      - ./.llm-debug:/app/.llm-debug
     develop:
       watch:
         # Covers both Python routes and Jinja templates: both live under src/ai_trainer/.

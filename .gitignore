@@ -238,3 +238,6 @@ src/ai_trainer/web/static/css/daisyui-theme.js
 # Acceptance-gate evidence (ADR-0001): parity and other screenshots a human opens at the
 # acceptance gate, kept after the gate and never committed.
 .acceptance/
+
+# Local LLM traffic log behind LLM_DEBUG_LOG (ADR-0018): prompts and replies, never committed.
+.llm-debug/

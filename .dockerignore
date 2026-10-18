@@ -19,3 +19,6 @@ scripts
 !scripts/dev_start.sh
 .claude
 *.md
+
+# Local LLM traffic log (ADR-0018): prompts and replies never go into an image.
+.llm-debug
