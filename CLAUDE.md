@@ -69,6 +69,7 @@ docker compose up -d             # app + postgres
 make start                       # dev loop: app + postgres with uvicorn --reload and a live Tailwind CSS rebuild over src/ (foreground)
 uv run alembic upgrade head      # migrations
 uv run ai-trainer purge-conversations   # delete conversations past CONVERSATION_RETENTION_DAYS (ADR-0021)
+uv run ai-trainer llm-debug-report [--since <ISO time>]   # summarize LLM_DEBUG_LOG lines per template (ADR-0018)
 uv run playwright install chromium   # one-time browser download for e2e
 uv run pytest tests/e2e          # e2e specs (needs `docker compose up`; excluded from `uv run pytest`)
 uv run ai-trainer-evals run <template-id>   # evals (costs money — run on purpose)

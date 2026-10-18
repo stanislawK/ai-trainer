@@ -1,6 +1,6 @@
 .PHONY: install css test test-unit test-integration coverage lint format format-check \
 	typecheck import-lint openapi openapi-check check up up-build start stop down logs ps \
-	health migrate purge-conversations evals e2e-install e2e
+	health migrate purge-conversations llm-report evals e2e-install e2e
 
 install: ## Install dependencies (uv sync)
 	uv sync
@@ -76,6 +76,9 @@ migrate: ## Apply database migrations (Alembic)
 
 purge-conversations: ## Delete conversations past CONVERSATION_RETENTION_DAYS and print how many (ADR-0021); needs the stack's database up
 	uv run ai-trainer purge-conversations
+
+llm-report: ## Summarize the LLM debug log per template and model (#179); fails when there is no log. Usage: make llm-report [since=2026-10-18T20:00Z]
+	uv run ai-trainer llm-debug-report $(if $(since),--since $(since))
 
 evals: ## Run prompt or decision-set evals — costs money, run on purpose. Usage: make evals template=<id> [version=2] [model=openai/gpt-5] [repeat=3]
 	uv run ai-trainer-evals run $(template) $(if $(version),--version $(version)) $(if $(model),--model $(model)) $(if $(repeat),--repeat $(repeat))

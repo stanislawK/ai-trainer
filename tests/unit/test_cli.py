@@ -1,9 +1,10 @@
-"""`ai-trainer` console script (ADR-0021, ticket #148): `purge-conversations` prints a count and
-nothing of what was deleted."""
+"""`ai-trainer` console script: `purge-conversations` prints a count and nothing of what was
+deleted (ADR-0021, ticket #148); `llm-debug-report` summarizes the debug log (#179)."""
 
 import io
 from collections.abc import Sequence
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from uuid import uuid4
 
 import pytest
@@ -54,10 +55,61 @@ def test_the_parser_requires_a_command(capsys: pytest.CaptureFixture[str]) -> No
 def test_main_runs_the_command_and_returns_zero(monkeypatch: pytest.MonkeyPatch) -> None:
     ran: list[list[str]] = []
 
-    async def fake_run(argv: Sequence[str]) -> None:
+    async def fake_run(argv: Sequence[str]) -> int:
         ran.append(list(argv))
+        return 0
 
     monkeypatch.setattr(cli, "run", fake_run)
 
     assert cli.main(["purge-conversations"]) == 0
     assert ran == [["purge-conversations"]]
+
+
+def test_main_returns_the_commands_exit_code(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def fake_run(argv: Sequence[str]) -> int:
+        return 1
+
+    monkeypatch.setattr(cli, "run", fake_run)
+
+    assert cli.main(["llm-debug-report"]) == 1
+
+
+def test_the_parser_reads_since_as_an_aware_time() -> None:
+    args = cli.parse_args(["llm-debug-report", "--since", "2026-10-18T22:00:00+02:00"])
+
+    assert args.command == "llm-debug-report"
+    assert args.since == datetime(2026, 10, 18, 20, tzinfo=UTC)
+
+
+def test_a_since_without_a_timezone_is_utc() -> None:
+    assert cli.parse_args(["llm-debug-report", "--since", "2026-10-18T20:00"]).since == datetime(
+        2026, 10, 18, 20, tzinfo=UTC
+    )
+
+
+def test_the_report_runs_without_since() -> None:
+    assert cli.parse_args(["llm-debug-report"]).since is None
+
+
+def test_a_since_that_is_not_a_time_is_refused(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as excinfo:
+        cli.parse_args(["llm-debug-report", "--since", "yesterday"])
+
+    assert excinfo.value.code == 2
+    assert "ISO" in capsys.readouterr().err
+
+
+async def test_the_report_reads_the_settings_folder_and_returns_its_exit_code(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    missing = tmp_path / "debug"
+    monkeypatch.setenv("LLM_DEBUG_LOG_DIR", str(missing))
+
+    def no_database(url: str) -> None:
+        raise AssertionError("the report must not open the database")
+
+    monkeypatch.setattr(cli, "build_engine", no_database)
+    output = io.StringIO()
+
+    assert await cli.run(["llm-debug-report"], output=output) == 1
+    assert output.getvalue() == f"no debug log at {missing}\n"
