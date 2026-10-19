@@ -240,6 +240,12 @@ def test_the_router_template_reads_its_upstream_from_the_router_provider_setting
     assert router_template(default_sport_registry()).provider_settings_key == "router_provider"
 
 
+def test_the_router_template_reads_its_reasoning_effort_from_settings() -> None:
+    template = router_template(default_sport_registry())
+
+    assert template.reasoning_effort_settings_key == "router_reasoning_effort"
+
+
 async def test_the_rendered_instructions_carry_history_sports_and_time() -> None:
     registry = PromptRegistry(root=_PROMPTS_ROOT)
     registry.register(router_template(default_sport_registry()))

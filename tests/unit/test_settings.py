@@ -398,3 +398,47 @@ def test_a_session_merge_window_of_zero_minutes_fails_at_startup(
         Settings(_env_file=None)
 
     assert [error["loc"] for error in excinfo.value.errors()] == [("session_merge_window_min",)]
+
+
+@pytest.mark.parametrize("variable", ["ROUTER_REASONING_EFFORT", "EXTRACT_REASONING_EFFORT"])
+def test_a_reasoning_effort_is_unset_unless_given(
+    monkeypatch: pytest.MonkeyPatch, variable: str
+) -> None:
+    monkeypatch.setenv("DATABASE_URL", DATABASE_URL)
+    monkeypatch.setenv("OPENROUTER_API_KEY", OPENROUTER_API_KEY)
+    monkeypatch.setenv("EVAL_JUDGE_MODEL", EVAL_JUDGE_MODEL)
+    field = variable.lower()
+    monkeypatch.delenv(variable, raising=False)
+
+    assert getattr(Settings(_env_file=None), field) is None
+
+    monkeypatch.setenv(variable, "  ")  # as copied from .env.example
+
+    assert getattr(Settings(_env_file=None), field) is None
+
+    for effort in ("none", "minimal", "low", "medium", "high", "xhigh", "max"):
+        monkeypatch.setenv(variable, effort)
+
+        assert getattr(Settings(_env_file=None), field) == effort
+
+
+@pytest.mark.parametrize("variable", ["ROUTER_REASONING_EFFORT", "EXTRACT_REASONING_EFFORT"])
+def test_an_unknown_reasoning_effort_fails_at_startup(
+    monkeypatch: pytest.MonkeyPatch, variable: str
+) -> None:
+    monkeypatch.setenv("DATABASE_URL", DATABASE_URL)
+    monkeypatch.setenv("OPENROUTER_API_KEY", OPENROUTER_API_KEY)
+    monkeypatch.setenv("EVAL_JUDGE_MODEL", EVAL_JUDGE_MODEL)
+    monkeypatch.setenv(variable, "extreme")
+
+    with pytest.raises(ValidationError) as excinfo:
+        Settings(_env_file=None)
+
+    assert [error["loc"] for error in excinfo.value.errors()] == [(variable.lower(),)]
+
+
+def test_a_non_string_reasoning_effort_fails_validation() -> None:
+    with pytest.raises(ValidationError) as excinfo:
+        Settings(_env_file=None, router_reasoning_effort=1)  # type: ignore[arg-type]
+
+    assert ("router_reasoning_effort",) in [error["loc"] for error in excinfo.value.errors()]

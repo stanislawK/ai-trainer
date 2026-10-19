@@ -105,6 +105,7 @@ def router_template(
         output_type=router_output_type(registry),
         model_settings_key="router_model",
         provider_settings_key="router_provider",
+        reasoning_effort_settings_key="router_reasoning_effort",
         temperature=0,
         # One malformed reply in a 132-call eval run aborted the baseline write (#127).
         output_retries=2,

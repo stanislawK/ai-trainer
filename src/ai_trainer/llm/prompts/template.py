@@ -23,6 +23,9 @@ class PromptTemplate[DepsT: BaseModel, OutputT: TemplateOutput]:
     # The `Settings` field naming the OpenRouter upstream to pin, resolved like
     # `model_settings_key`. `None` leaves OpenRouter's own load balancing.
     provider_settings_key: str | None = None
+    # The `Settings` field holding this template's reasoning effort, resolved like
+    # `model_settings_key`. `None`, or an unset field, leaves the model's default.
+    reasoning_effort_settings_key: str | None = None
     # Sampling temperature for a template whose output the app reads (the router pins 0, so a
     # message routes the same way twice). `None` leaves the model's default.
     temperature: float | None = None

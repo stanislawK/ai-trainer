@@ -68,6 +68,14 @@ A log takes 19–43 s from send to draft card, with a median of 35 s (ADR-0025).
   - OpenRouter lists `reasoning_effort` as supported on every glm-5.3-flash upstream.
 - **Unverified, flagged:**
   - Pydantic AI has no first-class `session_id` setting for OpenRouter. The field name and its placement (`extra_body`) are checked against OpenRouter's API reference in the step 4 ticket.
-  - Whether effort `low` cuts glm-5.3-flash's output tokens enough is measured in the step 3 ticket.
+- **Step 3 result (#186, 2026-10-19).**
+  - `ROUTER_REASONING_EFFORT` and `EXTRACT_REASONING_EFFORT` are in `Settings`, unset by default. When one is set, it is sent as `reasoning.effort`.
+  - `get-model` (2026-10-19) lists glm-5.3-flash's efforts as `max`, `high` and `low`, with `max` as the default.
+  - At `low` the evals regress, so `low` is not promoted and both settings stay unset (invariant 2). Figures from `ai-trainer-evals run <id> --repeat 3`, against the committed baselines:
+    - `router`: 0.922 against 1.000 (one run at the default effort scored 0.979 the same day). Three cases fail every repeat: a question followed by a log comes back with its intents out of order, a prompt injection is routed `unclear` rather than `chitchat`, and a single-sport cyclist's "2 hours easy" is routed `request_plan`.
+    - `climbing.extract`: 0.984 against 1.000. French sport grades fail every repeat.
+    - `cycling.extract`: 0.943 against 0.977. A speed read as a distance, "on Tuesday" when today is Tuesday, and a Polish log fail every repeat.
+    - `gym.extract`: 1.000 against 0.994, in one run.
+  - The output-token cut at `low` was not measured, because no regressing setting is promoted. Step 2's model spike carries the latency cut. Its candidates set their own effort through these settings.
 - **Owner check:** a low OpenRouter credit balance adds latency ([latency guide](https://openrouter.ai/docs/guides/best-practices/latency-and-performance)).
 - **Status:** ADR-0025 stays the Accepted baseline; the ADR index notes that its options were picked here.

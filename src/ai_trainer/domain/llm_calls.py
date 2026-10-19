@@ -1,6 +1,7 @@
 from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel
@@ -13,6 +14,11 @@ class LlmCallOutcome(StrEnum):
     TIMEOUT = "timeout"
     ERROR = "error"
     CANCELLED = "cancelled"
+
+
+# OpenRouter's `reasoning.effort` levels (ADR-0026 step 3). A model that lacks the one asked
+# for gets the nearest level it supports; where reasoning is mandatory, `none` is ignored.
+type ReasoningEffort = Literal["none", "minimal", "low", "medium", "high", "xhigh", "max"]
 
 
 class NewLlmCall(BaseModel):

@@ -9,7 +9,7 @@ from typing import Any
 from uuid import uuid4
 
 import pytest
-from pydantic import BaseModel
+from pydantic import BaseModel, PostgresDsn, SecretStr
 
 from ai_trainer.application.ports.conversation import ReplyContext, TemplateRef
 from ai_trainer.application.ports.llm_gateway import (
@@ -33,6 +33,8 @@ from ai_trainer.llm.conversation import (
 )
 from ai_trainer.llm.extract import build_extract_deps
 from ai_trainer.llm.router import ChatTurn, build_router_deps, router_output_type
+from ai_trainer.main import build_llm_conversation
+from ai_trainer.settings import Settings
 from tests.chat_support import UNLOGGABLE_SPORT, sports_with_rowing
 
 _PROMPTS_ROOT = Path(__file__).parents[2] / "src" / "ai_trainer" / "llm" / "prompts"
@@ -110,6 +112,8 @@ def _conversation(
         chitchat_model="test/chitchat-model",
         extract_model="test/extract-model",
         extract_provider="extract-upstream",
+        router_reasoning_effort="low",
+        extract_reasoning_effort="minimal",
         history_turns=10,
     )
 
@@ -145,6 +149,7 @@ async def test_route_runs_the_router_template_and_returns_its_intents_in_order()
     assert call["temperature"] == 0
     assert call["output_retries"] == 2
     assert call["upstream_provider"] == "test-upstream"
+    assert call["reasoning_effort"] == "low"
     assert call["output_type"].model_json_schema() == (
         router_output_type(default_sport_registry()).model_json_schema()
     )
@@ -246,6 +251,7 @@ async def test_extract_runs_the_sports_extraction_template_through_the_gateway()
     assert (call["user_id"], call["prompt"]) == (context.user_id, context.message)
     assert (call["temperature"], call["output_retries"]) == (0, 2)
     assert call["upstream_provider"] == "extract-upstream"
+    assert call["reasoning_effort"] == "minimal"
     deps = build_extract_deps(
         message=context.message,
         history=_TURNS,
@@ -285,3 +291,22 @@ async def test_extract_refuses_a_sport_that_names_no_extraction_template() -> No
         await _conversation(gateway, sports_with_rowing()).extract(_context(), UNLOGGABLE_SPORT)
 
     assert gateway.runs == []
+
+
+async def test_the_app_sends_each_templates_reasoning_effort_from_settings() -> None:
+    settings = Settings(
+        _env_file=None,
+        database_url=PostgresDsn("postgresql+psycopg://u:p@localhost:5432/db"),
+        openrouter_api_key=SecretStr("test-key"),
+        eval_judge_model="test/judge-model",
+        router_reasoning_effort="low",
+        extract_reasoning_effort="high",
+    )
+    gateway = RecordingGateway(run_output=_CLIMB_OUTPUT)
+    conversation = build_llm_conversation(settings, default_sport_registry(), gateway)
+
+    await conversation.extract(_context(), "climbing")
+    gateway.run_output = {"intents": [{"kind": "chitchat", "confidence": 0.8, "span": "hi"}]}
+    await conversation.route(_context())
+
+    assert [call["reasoning_effort"] for call in gateway.runs] == ["high", "low"]

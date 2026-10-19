@@ -5,6 +5,8 @@ from typing import Annotated, Any, Literal
 from pydantic import BeforeValidator, Field, PostgresDsn, SecretStr, ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
+from ai_trainer.domain.llm_calls import ReasoningEffort
+
 
 def _split_comma_separated(value: Any) -> Any:
     if isinstance(value, str):
@@ -51,6 +53,9 @@ class Settings(BaseSettings):
     # Unset lets OpenRouter balance across every endpoint, which made one prompt route the
     # same message differently from call to call (#127).
     router_provider: str | None = None
+    # The router's reasoning effort, sent as `reasoning.effort` (ADR-0026 step 3). Unset sends
+    # none, leaving the model's default (`max` on glm-5.3-flash, OpenRouter `get-model`).
+    router_reasoning_effort: ReasoningEffort | None = None
     # The `chitchat` specialist's model (ADR-0008): answers chitchat, unclear and wellbeing
     # messages in the persona. Required, no default, for the same reason as `router_model`.
     chitchat_model: str
@@ -59,6 +64,8 @@ class Settings(BaseSettings):
     extract_model: str
     # The extraction templates' preferred OpenRouter upstream, like `router_provider`.
     extract_provider: str | None = None
+    # The extraction templates' reasoning effort, like `router_reasoning_effort`.
+    extract_reasoning_effort: ReasoningEffort | None = None
     # Evals (ADR-0009): pinned, distinct from the model under test, set explicitly on every
     # eval run with `set_default_judge_model`. No default here — a stable/GA OpenRouter model
     # id is an operator choice, not a code default (`.claude/rules/llm.md`).
@@ -131,10 +138,18 @@ class Settings(BaseSettings):
             raise ValueError(f"{(info.field_name or '').upper()} must not be blank")
         return value
 
-    @field_validator("router_provider", "extract_provider")
+    @field_validator(
+        "router_provider",
+        "extract_provider",
+        "router_reasoning_effort",
+        "extract_reasoning_effort",
+        mode="before",
+    )
     @classmethod
-    def _blank_is_unset(cls, value: str | None) -> str | None:
-        return value.strip() or None if value is not None else None
+    def _blank_is_unset(cls, value: object) -> object:
+        # Before the type check, so a blank effort is unset rather than an unknown level; a
+        # non-string is left for that check to refuse.
+        return value.strip() or None if isinstance(value, str) else value
 
     @field_validator("decision_model")
     @classmethod
