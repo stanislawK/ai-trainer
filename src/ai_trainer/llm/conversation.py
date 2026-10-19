@@ -14,6 +14,7 @@ from ai_trainer.application.ports.conversation import (
 from ai_trainer.application.ports.llm_gateway import LlmGatewayPort, LlmStreamEvent
 from ai_trainer.domain.chat import ChatMessage
 from ai_trainer.domain.conversation import Intent
+from ai_trainer.domain.llm_calls import ReasoningEffort
 from ai_trainer.domain.sports.registry import SportRegistry
 from ai_trainer.llm.chitchat import build_chitchat_deps, chitchat_template
 from ai_trainer.llm.extract import build_extract_deps, extract_template, extract_templates
@@ -62,16 +63,20 @@ class LlmConversation:
         history_turns: int,
         router_provider: str | None = None,
         extract_provider: str | None = None,
+        router_reasoning_effort: ReasoningEffort | None = None,
+        extract_reasoning_effort: ReasoningEffort | None = None,
     ) -> None:
         self._registry = registry
         self._gateway = gateway
         self._sports = sports
         self._extract_model = extract_model
         self._extract_provider = extract_provider
+        self._extract_reasoning_effort = extract_reasoning_effort
         self._router = router_template(sports)
         self._chitchat = chitchat_template()
         self._router_model = router_model
         self._router_provider = router_provider
+        self._router_reasoning_effort = router_reasoning_effort
         self._chitchat_model = chitchat_model
         self._history_turns = history_turns
 
@@ -101,6 +106,7 @@ class LlmConversation:
             temperature=self._router.temperature,
             output_retries=self._router.output_retries,
             upstream_provider=self._router_provider,
+            reasoning_effort=self._router_reasoning_effort,
         )
         if result.output is None:
             return Routing(intents=(), outcome=result.outcome)
@@ -154,6 +160,7 @@ class LlmConversation:
             temperature=template.temperature,
             output_retries=template.output_retries,
             upstream_provider=self._extract_provider,
+            reasoning_effort=self._extract_reasoning_effort,
         )
         return Extraction(
             output=result.output,

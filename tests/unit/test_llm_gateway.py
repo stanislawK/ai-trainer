@@ -1,4 +1,5 @@
 import asyncio
+import json
 from collections.abc import AsyncIterator
 from contextlib import aclosing
 from datetime import UTC, datetime
@@ -6,12 +7,14 @@ from decimal import Decimal
 from uuid import UUID, uuid4
 
 import anyio
+import httpx2
+import pytest
 from pydantic import BaseModel, PostgresDsn, SecretStr
-from pydantic_ai import ModelMessage, ModelResponse, TextPart
+from pydantic_ai import ModelMessage, ModelResponse, TextPart, models
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 
 from ai_trainer.application.ports.llm_gateway import LlmStreamEvent, StreamEnd, TextChunk
-from ai_trainer.domain.llm_calls import LlmCall, LlmCallOutcome, NewLlmCall
+from ai_trainer.domain.llm_calls import LlmCall, LlmCallOutcome, NewLlmCall, ReasoningEffort
 from ai_trainer.llm.gateway import ERROR_MESSAGE, TIMEOUT_MESSAGE, OpenRouterGateway
 from ai_trainer.settings import Settings
 
@@ -568,6 +571,87 @@ async def test_run_pins_the_requested_upstream_provider_and_keeps_fallbacks() ->
             )
 
     assert seen == [{"order": ["z-ai"], "allow_fallbacks": True}, None]
+
+
+def _captured_requests(bodies: list[dict[str, object]]) -> httpx2.AsyncClient:
+    """Answers every OpenRouter chat completion with a fixed greeting and keeps the JSON body
+    the gateway sent, so a test reads the request as OpenRouter would see it, with no network."""
+
+    def handle(request: httpx2.Request) -> httpx2.Response:
+        bodies.append(json.loads(request.content))
+        return httpx2.Response(
+            200,
+            json={
+                "id": "gen-1",
+                "object": "chat.completion",
+                "created": 0,
+                "model": "z-ai/glm-5.3-flash",
+                "provider": "z-ai",
+                "choices": [
+                    {
+                        "index": 0,
+                        "finish_reason": "stop",
+                        "native_finish_reason": "stop",
+                        "message": {"role": "assistant", "content": '{"text": "hello"}'},
+                    }
+                ],
+                "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+            },
+        )
+
+    return httpx2.AsyncClient(transport=httpx2.MockTransport(handle))
+
+
+async def _run_with_effort(
+    monkeypatch: pytest.MonkeyPatch, effort: ReasoningEffort | None
+) -> dict[str, object]:
+    # The request reaches only the mock transport above, never OpenRouter (ADR-0013).
+    monkeypatch.setattr(models, "ALLOW_MODEL_REQUESTS", True)
+    bodies: list[dict[str, object]] = []
+    gateway = OpenRouterGateway(
+        _settings(), FakeLlmCallsRepository(), http_client=_captured_requests(bodies)
+    )
+
+    result = await gateway.run(
+        user_id=uuid4(),
+        template_id="greeter",
+        template_version=1,
+        model_id="z-ai/glm-5.3-flash",
+        output_type=Greeting,
+        instructions="Greet the user.",
+        prompt="Say hello",
+        reasoning_effort=effort,
+    )
+
+    assert result.output == Greeting(text="hello")
+    [body] = bodies
+    return body
+
+
+async def test_run_sends_the_requested_reasoning_effort_in_the_request_body(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    body = await _run_with_effort(monkeypatch, "low")
+
+    assert body["reasoning"] == {"effort": "low"}
+
+
+async def test_run_sends_an_effort_pydantic_ai_does_not_list_as_given(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`max` is glm-5.3-flash's default effort (OpenRouter `get-model`, 2026-10-19), though
+    Pydantic AI's `OpenRouterReasoning` type stops at `xhigh`."""
+    body = await _run_with_effort(monkeypatch, "max")
+
+    assert body["reasoning"] == {"effort": "max"}
+
+
+async def test_run_without_an_effort_sends_no_reasoning_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    body = await _run_with_effort(monkeypatch, None)
+
+    assert "reasoning" not in body
 
 
 async def test_run_retries_an_invalid_output_as_often_as_requested() -> None:

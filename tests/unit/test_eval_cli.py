@@ -361,6 +361,35 @@ def test_a_model_override_drops_the_upstream_pin() -> None:
     assert "openrouter_provider" not in (other.settings or {})
 
 
+@pytest.mark.parametrize(
+    ("template_id", "version", "field"),
+    [("router", 2, "router_reasoning_effort"), ("climbing.extract", 1, "extract_reasoning_effort")],
+)
+def test_the_model_under_test_runs_at_the_templates_reasoning_effort(
+    template_id: str, version: int, field: str
+) -> None:
+    """Evals measure what the app sends (ADR-0026 step 3), override or not."""
+    settings = _settings().model_copy(update={field: "low"})
+    template = cli_module._default_registry().get(template_id, version)
+
+    for override in (None, "openai/gpt-5"):
+        model = cli_module._model_under_test(
+            template, settings, model_override=override, provider=OpenRouterProvider(api_key="k")
+        )
+
+        assert (model.settings or {}).get("openrouter_reasoning") == {"effort": "low"}
+
+
+def test_the_model_under_test_sends_no_reasoning_effort_unless_set() -> None:
+    template = cli_module._default_registry().get("router", 2)
+
+    model = cli_module._model_under_test(
+        template, _settings(), model_override=None, provider=OpenRouterProvider(api_key="k")
+    )
+
+    assert "openrouter_reasoning" not in (model.settings or {})
+
+
 def test_default_registry_registers_the_router_template() -> None:
     template = cli_module._default_registry().get("router", 2)
 

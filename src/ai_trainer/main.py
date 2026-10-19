@@ -30,8 +30,9 @@ from ai_trainer.adapters.sessions_repository import SqlAlchemySessionsRepository
 from ai_trainer.adapters.training_session_repository import SqlAlchemyTrainingSessionRepository
 from ai_trainer.adapters.user_status_changer import SqlAlchemyUserStatusChanger
 from ai_trainer.adapters.users_repository import SqlAlchemyUsersRepository
+from ai_trainer.application.ports.llm_gateway import LlmGatewayPort
 from ai_trainer.application.reply import ReplyServices
-from ai_trainer.domain.sports.registry import default_sport_registry
+from ai_trainer.domain.sports.registry import SportRegistry, default_sport_registry
 from ai_trainer.llm.conversation import LlmConversation, build_prompt_registry
 from ai_trainer.llm.debug_log import build_debug_log
 from ai_trainer.llm.decision_gateway import OpenRouterDecisionGateway
@@ -63,6 +64,25 @@ _GOOGLE_SERVER_METADATA_URL = "https://accounts.google.com/.well-known/openid-co
 # happens to list it; registering it here makes `StaticFiles`' content-type for the PWA
 # manifest correct regardless of the host OS (ticket #42, PRD-0003 G11).
 mimetypes.add_type("application/manifest+json", ".webmanifest")
+
+
+def build_llm_conversation(
+    settings: Settings, sports: SportRegistry, gateway: LlmGatewayPort
+) -> LlmConversation:
+    """Each template's model, upstream and reasoning effort from `Settings` (ADR-0026)."""
+    return LlmConversation(
+        registry=build_prompt_registry(_PROMPTS_ROOT, sports),
+        gateway=gateway,
+        sports=sports,
+        router_model=settings.router_model,
+        router_provider=settings.router_provider,
+        router_reasoning_effort=settings.router_reasoning_effort,
+        chitchat_model=settings.chitchat_model,
+        extract_model=settings.extract_model,
+        extract_provider=settings.extract_provider,
+        extract_reasoning_effort=settings.extract_reasoning_effort,
+        history_turns=settings.chat_history_turns,
+    )
 
 
 def create_app(settings: Settings) -> FastAPI:
@@ -122,16 +142,10 @@ def create_app(settings: Settings) -> FastAPI:
     sport_registry = app.state.sport_registry
     llm_calls = SqlAlchemyLlmCallsRepository(session_factory)
     debug_log = build_debug_log(settings, clock)
-    conversation = LlmConversation(
-        registry=build_prompt_registry(_PROMPTS_ROOT, sport_registry),
-        gateway=OpenRouterGateway(settings, llm_calls, debug_log=debug_log),
-        sports=sport_registry,
-        router_model=settings.router_model,
-        router_provider=settings.router_provider,
-        chitchat_model=settings.chitchat_model,
-        extract_model=settings.extract_model,
-        extract_provider=settings.extract_provider,
-        history_turns=settings.chat_history_turns,
+    conversation = build_llm_conversation(
+        settings,
+        sport_registry,
+        OpenRouterGateway(settings, llm_calls, debug_log=debug_log),
     )
     decisions = OpenRouterDecisionGateway(settings, llm_calls, debug_log=debug_log)
     replies = ReplyServices(

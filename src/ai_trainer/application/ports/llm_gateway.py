@@ -5,7 +5,7 @@ from uuid import UUID
 
 from pydantic import BaseModel
 
-from ai_trainer.domain.llm_calls import LlmCallOutcome
+from ai_trainer.domain.llm_calls import LlmCallOutcome, ReasoningEffort
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,6 +48,7 @@ class LlmGatewayPort(Protocol):
         temperature: float | None = None,
         output_retries: int | None = None,
         upstream_provider: str | None = None,
+        reasoning_effort: ReasoningEffort | None = None,
     ) -> LlmGatewayResult[OutputT]: ...
 
     def stream(

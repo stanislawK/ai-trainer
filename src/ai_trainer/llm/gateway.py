@@ -2,14 +2,17 @@ import asyncio
 import time
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass
+from typing import cast
 from uuid import UUID
 
+import httpx2
 from pydantic import BaseModel
 from pydantic_ai import Agent, AgentRetries
 from pydantic_ai.models.openrouter import (
     OpenRouterModel,
     OpenRouterModelSettings,
     OpenRouterProviderConfig,
+    OpenRouterReasoning,
 )
 from pydantic_ai.models.test import TestModel
 from pydantic_ai.providers.openrouter import OpenRouterProvider
@@ -22,7 +25,7 @@ from ai_trainer.application.ports.llm_gateway import (
     StreamEnd,
     TextChunk,
 )
-from ai_trainer.domain.llm_calls import LlmCallOutcome
+from ai_trainer.domain.llm_calls import LlmCallOutcome, ReasoningEffort
 from ai_trainer.llm.call_accounting import CallAccountant, CallKey, CallUsage, sum_cost
 from ai_trainer.llm.debug_log import CallRecorder, LlmDebugLog
 from ai_trainer.settings import Settings
@@ -64,9 +67,12 @@ class OpenRouterGateway:
         settings: Settings,
         calls_repository: LlmCallsRepositoryPort,
         *,
+        http_client: httpx2.AsyncClient | None = None,
         debug_log: LlmDebugLog | None = None,
     ) -> None:
-        self._provider = OpenRouterProvider(api_key=settings.openrouter_api_key.get_secret_value())
+        self._provider = OpenRouterProvider(
+            api_key=settings.openrouter_api_key.get_secret_value(), http_client=http_client
+        )
         self._accountant = CallAccountant(
             calls_repository, timeout_seconds=settings.llm_call_timeout_seconds
         )
@@ -88,6 +94,7 @@ class OpenRouterGateway:
         temperature: float | None = None,
         output_retries: int | None = None,
         upstream_provider: str | None = None,
+        reasoning_effort: ReasoningEffort | None = None,
     ) -> LlmGatewayResult[OutputT]:
         model = OpenRouterModel(model_id, provider=self._provider)
         model_settings = OpenRouterModelSettings(openrouter_cache_instructions=True)
@@ -95,6 +102,8 @@ class OpenRouterGateway:
             model_settings["temperature"] = temperature
         if upstream_provider is not None:
             model_settings["openrouter_provider"] = pinned_upstream(upstream_provider)
+        if reasoning_effort is not None:
+            model_settings["openrouter_reasoning"] = reasoning_at(reasoning_effort)
         recorder = self._recorder(template_id, template_version, model_id)
         attempt = await self._accountant.attempt(
             CallKey(user_id, template_id, template_version, model_id),
@@ -256,6 +265,12 @@ class OpenRouterGateway:
         await self._accountant.write(
             CallKey(user_id, template_id, template_version, model_id), usage, started, outcome
         )
+
+
+def reasoning_at(effort: ReasoningEffort) -> OpenRouterReasoning:
+    """OpenRouter's `reasoning` block at `effort` (ADR-0026 step 3). Pydantic AI 2.55 types
+    `effort` without `max`, which glm-5.3-flash takes, and passes the value through as given."""
+    return cast(OpenRouterReasoning, {"effort": effort})
 
 
 def pinned_upstream(slug: str) -> OpenRouterProviderConfig:
