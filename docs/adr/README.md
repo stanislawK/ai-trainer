@@ -28,6 +28,7 @@ ADRs own the *how*: stack, architecture, testing and agent workflow. The current
 | 0022 | [Training-session schema](0022-training-session-schema.md) | Accepted | 2026-10-11 |
 | 0023 | [Production deployment and release](0023-production-deployment-and-release.md) | Accepted | 2026-10-11 |
 | 0024 | [Production data and migration safety](0024-production-data-and-migration-safety.md) | Accepted | 2026-10-11 |
-| 0025 | [LLM token and latency baseline](0025-llm-token-and-latency-baseline.md) | Accepted | 2026-10-18 |
+| 0025 | [LLM token and latency baseline](0025-llm-token-and-latency-baseline.md) | Accepted (options picked in ADR-0026) | 2026-10-18 |
+| 0026 | [LLM latency plan](0026-llm-latency-plan.md) | Accepted | 2026-10-19 |
 
 How to add an ADR: [docs/templates/README.md](../templates/README.md).

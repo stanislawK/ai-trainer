@@ -4,7 +4,7 @@
 |---|---|
 | Product | ai-trainer |
 | Version | 0.5 |
-| Status | Approved |
+| Status | Superseded by [PRD 0005](0005-ai-training-companion.md) |
 | Date | 2026-10-11 |
 | Related | ADR-0001 … ADR-0024 ([index](../adr/README.md)); supersedes [PRD 0003](0003-ai-training-companion.md) v0.4 — adds conversations (B24, B25, F16, F17), conversation retention (B26), and a hosted POC whose data survives every deploy (G12, G13) |
 
