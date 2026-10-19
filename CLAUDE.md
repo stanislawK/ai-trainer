@@ -55,6 +55,7 @@ Locked by the ADRs cited below; `docs/adr/README.md` carries each ADR's current 
 - Training-session tables: `training_sessions`, `training_session_sources`, `session_drafts`, `clarifications` — ADR-0022
 - Hetzner + Caddy behind Cloudflare (Full strict, AOP); `v*` tag → attested GHCR image → owner-approved `production` environment → pull-based deploy; age-encrypted backups to R2 — ADR-0023
 - Expand/contract, forward-only migrations gated by squawk and an upgrade-with-data test — ADR-0024
+- LLM latency plan: model, upstream routing, reasoning effort and timeouts per template from `Settings`, picked on measured latency, cost and evals; follow-up logs routed by the conversation's sport — ADR-0026
 
 ## Commands (available once M0 lands)
 
@@ -87,6 +88,7 @@ uv run ai-trainer-evals run <template-id>   # evals (costs money — run on purp
 - Ambiguity is a choice card with concrete options, never a free-text question (ADR-0015).
 - External lookups are cached and attributed, and carry no user data — only a route, crag or place name (ADR-0016).
 - Look up library APIs with context7 (`.claude/rules/context7.md`) before using them. Several libraries here are newer than most training data: htmx 4, Pydantic AI v2, FastMCP 3.
+- Facts about OpenRouter models, upstreams, prices and live latency come from the OpenRouter MCP server (`.claude/rules/openrouter-mcp.md`), never from memory. Its paid tools run only when the owner asks, and never with athlete data.
 - Only stable/GA OpenRouter model IDs are used outside `/tune-prompt` experiments — no preview or beta models in default `Settings`.
 - Jev only picks, wherever that helps: it classifies, routes, gates, scores or fills a closed-set draft field the athlete confirms. It never writes text, open values or arithmetic. It runs through the decision gateway with a pinned version, question sets as files, thresholds from evals, and a fallback. Its state never carries user identity.
 - UI is built from its Claude Design mock with `/implement-design`; custom CSS lives only in the daisyUI theme and the glass utilities (ADR-0019).
@@ -95,4 +97,4 @@ uv run ai-trainer-evals run <template-id>   # evals (costs money — run on purp
 
 ## Status
 
-M0 is complete: #2–#17, the design foundation #36–#44 with its fixes #58–#59, and the `make start` dev loop #62–#64 are merged. PRD 0004 (v0.5: conversations, retention, a hosted POC) is Approved and supersedes PRD 0003 (v0.4, sport inference and the sport glyph on replies), which superseded PRD 0002 and PRD 0001. Accepted: 0001–0009, 0012–0014, 0018–0025. 0010, 0011 and 0015–0017 stay Proposed until their milestones. The Claude Design design system and screens exist ([docs/design/README.md](docs/design/README.md)). The M1 skeleton decisions are recorded in ADR-0005, ADR-0006 and ADR-0008. Next: M1a Conversations (from #146), M1 Log it and M1z Ship it. The first production deploy comes after M1a and M1; from then on, production data is never deleted (ADR-0024).
+M0 is complete: #2–#17, the design foundation #36–#44 with its fixes #58–#59, and the `make start` dev loop #62–#64 are merged. PRD 0004 (v0.5: conversations, retention, a hosted POC) is Approved and supersedes PRD 0003 (v0.4, sport inference and the sport glyph on replies), which superseded PRD 0002 and PRD 0001. PRD 0005 (v0.6: the logging response-time bound G14) is In review. Accepted: 0001–0009, 0012–0014, 0018–0026. 0010, 0011 and 0015–0017 stay Proposed until their milestones. The Claude Design design system and screens exist ([docs/design/README.md](docs/design/README.md)). The M1 skeleton decisions are recorded in ADR-0005, ADR-0006 and ADR-0008. Next: M1a Conversations (from #146), M1 Log it and M1z Ship it. The first production deploy comes after M1a and M1; from then on, production data is never deleted (ADR-0024).

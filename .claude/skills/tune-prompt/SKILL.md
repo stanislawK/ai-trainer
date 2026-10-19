@@ -13,8 +13,8 @@ The same loop covers a **Jev decision set** (`src/ai_trainer/llm/decisions/<id>/
 
 1. **Cases first.** Add or extend cases in `evals/datasets/<template-id>.yaml` for the behaviour you want: expected outputs for code-graded checks, rubrics for `LLMJudge`. Before finalizing, fan out: have several agents each propose a handful of edge cases from a different angle (ambiguous input, adversarial/safety, unit or locale edge cases, multi-intent messages). Merge and dedupe the proposals, then keep the diverse subset that actually goes into the dataset.
 2. **Baseline.** Run `uv run ai-trainer-evals run <template-id>` on the current active version to see where it stands with the new cases.
-3. **Change.** Write the new version as `src/ai_trainer/llm/prompts/<template-id>/v<N+1>.en.md` (or change the model ID in settings). Never edit a version that has a committed baseline.
-4. **Compare.** Run the new version and compare against the baseline per grader and per case. Investigate every regression.
+3. **Change.** Write the new version as `src/ai_trainer/llm/prompts/<template-id>/v<N+1>.en.md` (or change the model ID, provider routing or reasoning effort in settings). Never edit a version that has a committed baseline. For a model or routing change, shortlist candidates with the OpenRouter MCP first (`.claude/rules/openrouter-mcp.md`): stable/GA, the parameters the template needs, the `reasoning` block from `get-model`, and price and live latency from `list-model-endpoints`. Record why each candidate was picked or dropped (ADR-0026).
+4. **Compare.** Run the new version and compare against the baseline per grader and per case. Investigate every regression. A change aimed at latency also reports p50 and p95 per call and USD per log turn from the latency scenario (ADR-0026 invariant 1).
 5. **HUMAN GATE.** Show the comparison, then `AskUserQuestion`: Approve / Request changes / Reject.
 6. **Promote** (after Approve): switch the active version in the registry and commit the new baseline `evals/baselines/<template-id>.json` in the same change.
 

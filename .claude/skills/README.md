@@ -18,6 +18,8 @@ Skills are step-by-step checklists for complex, recurring tasks. Invoke with `/s
 
 ## Non-invokable references
 
+**OpenRouter facts:** There is no skill for this either. For model, upstream, price, benchmark or live-latency questions, the [openrouter-mcp rule](../rules/openrouter-mcp.md) applies: read-only OpenRouter MCP tools, cited with the date.
+
 **Library lookups:** There is no skill for this. When you need to look up a library, framework, or SDK API, the [context7 rule](../rules/context7.md) applies automatically — it tells you to use Context7 MCP instead of training data. See the rule for the workflow.
 
 ## Execution gates

@@ -5,6 +5,7 @@ Rules load automatically when editing files that match their path scope. Read th
 | Rule | Scope | Governs |
 |---|---|---|
 | [context7.md](context7.md) | *Content-based* | **When:** user asks about a library, framework, SDK, API, CLI or cloud service (React, Prisma, FastAPI, Tailwind, etc.). **How:** Use Context7 MCP to fetch current docs instead of training data. Fetch one concept per query. Do not use for: refactoring, business logic, code review. |
+| [openrouter-mcp.md](openrouter-mcp.md) | *Content-based* | **When:** choosing or comparing a model or provider routing, explaining a slow or failing OpenRouter call, checking prices or benchmarks. **How:** OpenRouter MCP read-only tools (`list-models`, `get-model`, `list-model-endpoints`, `get-endpoint-uptime-history`, `get-generation`); cite tool and date. Paid tools only when the owner asks, never with athlete data. Not for app traffic or evals (ADR-0026). |
 | [python.md](python.md) | `src/**/*.py` | Layering (hexagonal), strict typing, Pydantic validation at boundaries, user scoping, time port, external source ports, SOLID principles. Never `datetime.now()` outside Clock; never prompt text outside tests. |
 | [llm.md](llm.md) | `src/ai_trainer/llm/**` `src/ai_trainer/mcp/**` `src/ai_trainer/knowledge/**` `evals/**` | Prompts as files only (TemplateStr), model IDs from Settings, eval runs with `/tune-prompt`, an `llm_calls` row per call plus content-free OTLP traces, safety-first (wellbeing_or_injury), dates carry timezone, clarifications as choice cards, external data cached with source attribution, Jev decision sets as files with calibrated thresholds and a fallback (ADR-0020). |
 | [tests.md](tests.md) | `tests/**/*.py` | TDD (red → green → refactor), unit/integration/e2e split, no network (models.ALLOW_MODEL_REQUESTS = False), frozen time, fakes over mocks, tenancy tests, MCP tools via FastMCP Client(), pytest-asyncio auto mode, e2e asserts behavior not pixels. |
@@ -21,6 +22,7 @@ Rules load automatically when editing files that match their path scope. Read th
 - **"I'm adding a web page or form"** → read [web.md](web.md)
 - **"I'm writing a database migration"** → read [migrations.md](migrations.md)
 - **"I need a library API"** → read [context7.md](context7.md)
+- **"I'm picking a model, an upstream, or debugging a slow LLM call"** → read [openrouter-mcp.md](openrouter-mcp.md)
 - **"I'm creating or updating docs"** → read [docs.md](docs.md)
 - **"I'm touching the Dockerfile, compose.yaml, README or Makefile"** → read [operability.md](operability.md)
 
