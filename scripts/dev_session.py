@@ -27,7 +27,7 @@ from ai_trainer.application.ports.onboarding import OnboardingRepositoryPort
 from ai_trainer.application.ports.sessions import SessionsRepositoryPort
 from ai_trainer.application.ports.users import UsersRepositoryPort
 from ai_trainer.domain.sessions import NewSession, Session
-from ai_trainer.domain.users import NewUser, UserAlreadyExistsError, UserStatus
+from ai_trainer.domain.users import NewUser, User, UserAlreadyExistsError, UserStatus
 from ai_trainer.settings import Settings
 from ai_trainer.web.auth import SESSION_COOKIE_NAME
 
@@ -37,6 +37,23 @@ DEV_SESSION_EMAIL = "dev-session@example.com"
 # never knocked back to the onboarding sports step.
 DEV_FRESH_SUB = "dev-session-script-not-onboarded"
 DEV_FRESH_EMAIL = "dev-session-not-onboarded@example.com"
+
+
+async def get_or_create_active_user(users: UsersRepositoryPort, *, sub: str, email: str) -> User:
+    """The seeded user `sub`, created `active` on its first run."""
+    user = await users.get_by_sub(sub)
+    if user is not None:
+        return user
+    try:
+        return await users.create(
+            NewUser(sub=sub, email=email, name="Dev session", locale="en", status=UserStatus.ACTIVE)
+        )
+    except UserAlreadyExistsError:
+        # Another concurrent seeder run won the race; its row is now visible.
+        user = await users.get_by_sub(sub)
+        if user is None:
+            raise RuntimeError(f"user {sub!r} vanished after a concurrent create race") from None
+        return user
 
 
 async def seed_dev_session(
@@ -58,25 +75,7 @@ async def seed_dev_session(
     sub, email = (
         (DEV_SESSION_SUB, DEV_SESSION_EMAIL) if onboarded else (DEV_FRESH_SUB, DEV_FRESH_EMAIL)
     )
-    user = await users.get_by_sub(sub)
-    if user is None:
-        try:
-            user = await users.create(
-                NewUser(
-                    sub=sub,
-                    email=email,
-                    name="Dev session",
-                    locale="en",
-                    status=UserStatus.ACTIVE,
-                )
-            )
-        except UserAlreadyExistsError:
-            # Another concurrent `dev_session.py` run won the race; its row is now visible.
-            user = await users.get_by_sub(sub)
-            if user is None:
-                raise RuntimeError(
-                    f"user {sub!r} vanished after a concurrent create race"
-                ) from None
+    user = await get_or_create_active_user(users, sub=sub, email=email)
     if onboarded:
         if user.onboarded_at is None:
             await onboarding.set_onboarded_at(user.id, clock.now())
