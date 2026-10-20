@@ -23,7 +23,7 @@ from ai_trainer.application.ports.conversation import (
     TemplateRef,
 )
 from ai_trainer.application.ports.drafts import SessionDraftRepositoryPort
-from ai_trainer.application.ports.fast_router import FastRouterPort
+from ai_trainer.application.ports.fast_router import FastRoute, FastRouterPort
 from ai_trainer.application.ports.llm_gateway import StreamEnd
 from ai_trainer.application.ports.onboarding import OnboardingRepositoryPort
 from ai_trainer.application.ports.safety_screen import SafetyScreenPort
@@ -272,14 +272,22 @@ async def _reply(
 
 
 async def route_message(context: ReplyContext, services: ReplyServices) -> Routing:
-    """One confident intent from the fast path, else the LLM router (ADR-0008 amendment). A
-    declined message pays the fast path's wait, capped by its timeout, before the router.
-    Either way the routing carries Jev's plausible sports when it gave them (B23), and the
-    router's own logged sports when it did not."""
+    """One confident intent from the fast path, else a follow-up log in the conversation's
+    sport, else the LLM router (ADR-0008 amendment, ADR-0026 step 5). A declined message pays
+    the fast path's wait, capped by its timeout, before the router. Either way the routing
+    carries Jev's plausible sports when it gave them (B23), and the router's own logged sports
+    when it did not."""
     fast = await services.fast_router.route(context)
     if fast.intents is not None:
         return Routing(
             intents=fast.intents,
+            outcome=LlmCallOutcome.SUCCESS,
+            plausible_sports=fast.plausible_sports or (),
+        )
+    sport = await _conversation_sport(context, fast, services)
+    if sport is not None:
+        return Routing(
+            intents=[Intent(kind=_LOG_KIND, sport=sport)],
             outcome=LlmCallOutcome.SUCCESS,
             plausible_sports=fast.plausible_sports or (),
         )
@@ -288,6 +296,29 @@ async def route_message(context: ReplyContext, services: ReplyServices) -> Routi
         # Jev gave none, or a floor above every sport left nothing in play.
         return replace(routed, plausible_sports=_logged_sports(routed.intents))
     return replace(routed, plausible_sports=fast.plausible_sports)
+
+
+async def _conversation_sport(
+    context: ReplyContext, fast: FastRoute, services: ReplyServices
+) -> str | None:
+    """The sport of the conversation's latest draft, for a message Jev is sure is one log
+    whose sport it could not settle: only when that draft's log was sent within the merge
+    window, the boundary included, as B16 measures it between logs, and its sport is among
+    Jev's plausible ones (ADR-0026 invariant 5). A discarded draft gives no sport: the athlete
+    may have discarded it for its sport."""
+    if fast.single_intent != _LOG_KIND or not fast.plausible_sports:
+        return None
+    shown = await services.drafts.list_shown(context.user_id, context.conversation_id)
+    kept = [draft for draft in shown if draft.status != "discarded"]
+    if not kept:
+        return None
+    latest = max(kept, key=lambda draft: draft.created_at)
+    if latest.sport_id not in fast.plausible_sports:
+        return None
+    log = await services.chat.get(context.user_id, latest.message_id)
+    if log is None or context.now - log.created_at > services.merge_window:
+        return None
+    return latest.sport_id
 
 
 async def _extract(

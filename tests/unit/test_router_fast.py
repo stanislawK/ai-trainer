@@ -246,7 +246,9 @@ async def test_a_single_sport_athlete_is_asked_no_sport_question() -> None:
     )
 
     assert route == FastRoute(
-        intents=[Intent(kind="log_session", sport="gym")], plausible_sports=("gym",)
+        intents=[Intent(kind="log_session", sport="gym")],
+        plausible_sports=("gym",),
+        single_intent="log_session",
     )
     assert "sport" not in decisions.asked[0].output_type.model_fields
 
@@ -352,7 +354,9 @@ def test_a_split_sport_log_is_not_routed_but_carries_its_plausible_sports() -> N
         output, probabilities, athlete_sports=("gym", "cycling"), thresholds=THRESHOLDS
     )
 
-    assert route == FastRoute(intents=None, plausible_sports=("gym", "cycling"))
+    assert route == FastRoute(
+        intents=None, plausible_sports=("gym", "cycling"), single_intent="log_session"
+    )
 
 
 def test_a_confident_log_carries_its_plausible_sports_with_its_intent() -> None:
@@ -364,8 +368,20 @@ def test_a_confident_log_carries_its_plausible_sports_with_its_intent() -> None:
     )
 
     assert route == FastRoute(
-        intents=[Intent(kind="log_session", sport="climbing")], plausible_sports=("climbing",)
+        intents=[Intent(kind="log_session", sport="climbing")],
+        plausible_sports=("climbing",),
+        single_intent="log_session",
     )
+
+
+def test_a_confident_request_other_than_a_log_is_its_single_intent() -> None:
+    output, probabilities = _answer(sports=("gym", "cycling"), intent="chitchat", sport="gym")
+
+    route = fast_route(
+        output, probabilities, athlete_sports=("gym", "cycling"), thresholds=THRESHOLDS
+    )
+
+    assert route.single_intent == "chitchat"
 
 
 @pytest.mark.parametrize(
@@ -373,7 +389,7 @@ def test_a_confident_log_carries_its_plausible_sports_with_its_intent() -> None:
     [{"multi": 0.31}, {"p_intent": 0.79}, {"intent": "unclear", "p_intent": 0.99}],
     ids=["several requests", "unsure intent", "unclear"],
 )
-def test_without_one_confident_intent_jevs_sports_are_not_carried(
+def test_without_one_confident_intent_no_sport_or_single_intent_is_carried(
     answer: dict[str, object],
 ) -> None:
     """A multi-request message's sport distribution blends its requests, so the router's own
@@ -385,7 +401,7 @@ def test_without_one_confident_intent_jevs_sports_are_not_carried(
         output, probabilities, athlete_sports=("gym", "cycling"), thresholds=THRESHOLDS
     )
 
-    assert route.plausible_sports is None
+    assert (route.plausible_sports, route.single_intent) == (None, None)
 
 
 async def test_the_router_carries_a_split_sport_logs_plausible_sports_without_routing_it() -> None:
@@ -401,7 +417,9 @@ async def test_the_router_carries_a_split_sport_logs_plausible_sports_without_ro
         _context(uuid4(), "Did intervals", sports=("gym", "cycling"))
     )
 
-    assert route == FastRoute(intents=None, plausible_sports=("gym", "cycling"))
+    assert route == FastRoute(
+        intents=None, plausible_sports=("gym", "cycling"), single_intent="log_session"
+    )
 
 
 @pytest.mark.parametrize(

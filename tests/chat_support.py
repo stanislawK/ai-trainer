@@ -29,7 +29,7 @@ from ai_trainer.application.ports.llm_gateway import (
 )
 from ai_trainer.application.reply import ReplyServices
 from ai_trainer.domain.chat import ChatMessage, ChatRole, Conversation
-from ai_trainer.domain.conversation import Intent
+from ai_trainer.domain.conversation import Intent, IntentKind
 from ai_trainer.domain.goals import Goal
 from ai_trainer.domain.llm_calls import LlmCallOutcome
 from ai_trainer.domain.sports.base import SessionExtraction, SportPlugin
@@ -506,16 +506,21 @@ class ScriptedSafetyScreen:
 @dataclass
 class ScriptedFastRouter:
     """Answers every message with `intents`; `None`, the default, leaves it to the LLM router.
-    `plausible_sports` is what Jev read from the message, `None` when it could not tell.
-    Records each context it was given."""
+    `plausible_sports` is what Jev read from the message, `None` when it could not tell, and
+    `single_intent` the one request Jev is sure it holds. Records each context it was given."""
 
     intents: list[Intent] | None = None
     plausible_sports: tuple[str, ...] | None = None
+    single_intent: IntentKind | None = None
     routed: list[ReplyContext] = field(default_factory=list)
 
     async def route(self, context: ReplyContext) -> FastRoute:
         self.routed.append(context)
-        return FastRoute(intents=self.intents, plausible_sports=self.plausible_sports)
+        return FastRoute(
+            intents=self.intents,
+            plausible_sports=self.plausible_sports,
+            single_intent=self.single_intent,
+        )
 
 
 def reply_services(
