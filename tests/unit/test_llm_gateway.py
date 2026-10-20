@@ -14,7 +14,13 @@ from pydantic_ai import ModelMessage, ModelResponse, TextPart, models
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 
 from ai_trainer.application.ports.llm_gateway import LlmStreamEvent, StreamEnd, TextChunk
-from ai_trainer.domain.llm_calls import LlmCall, LlmCallOutcome, NewLlmCall, ReasoningEffort
+from ai_trainer.domain.llm_calls import (
+    LlmCall,
+    LlmCallOutcome,
+    NewLlmCall,
+    ProviderPreferences,
+    ReasoningEffort,
+)
 from ai_trainer.llm.gateway import ERROR_MESSAGE, TIMEOUT_MESSAGE, OpenRouterGateway
 from ai_trainer.settings import Settings
 
@@ -548,31 +554,6 @@ async def test_run_sends_the_requested_temperature_to_the_model() -> None:
     assert seen == [0]
 
 
-async def test_run_pins_the_requested_upstream_provider_and_keeps_fallbacks() -> None:
-    seen: list[object] = []
-
-    def respond(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
-        seen.append((info.model_settings or {}).get("openrouter_provider"))
-        return _success_response(messages, info)
-
-    gateway = OpenRouterGateway(_settings(), FakeLlmCallsRepository())
-
-    with gateway.agent.override(model=FunctionModel(respond)):
-        for upstream in ("z-ai", None):
-            await gateway.run(
-                user_id=uuid4(),
-                template_id="greeter",
-                template_version=1,
-                model_id="openai/gpt-5-mini",
-                output_type=Greeting,
-                instructions="Greet the user.",
-                prompt="Say hello",
-                upstream_provider=upstream,
-            )
-
-    assert seen == [{"order": ["z-ai"], "allow_fallbacks": True}, None]
-
-
 def _captured_requests(bodies: list[dict[str, object]]) -> httpx2.AsyncClient:
     """Answers every OpenRouter chat completion with a fixed greeting and keeps the JSON body
     the gateway sent, so a test reads the request as OpenRouter would see it, with no network."""
@@ -603,7 +584,11 @@ def _captured_requests(bodies: list[dict[str, object]]) -> httpx2.AsyncClient:
 
 
 async def _run_with_effort(
-    monkeypatch: pytest.MonkeyPatch, effort: ReasoningEffort | None
+    monkeypatch: pytest.MonkeyPatch,
+    effort: ReasoningEffort | None,
+    *,
+    provider: ProviderPreferences | None = None,
+    session_id: str | None = None,
 ) -> dict[str, object]:
     # The request reaches only the mock transport above, never OpenRouter (ADR-0013).
     monkeypatch.setattr(models, "ALLOW_MODEL_REQUESTS", True)
@@ -621,6 +606,8 @@ async def _run_with_effort(
         instructions="Greet the user.",
         prompt="Say hello",
         reasoning_effort=effort,
+        provider=provider,
+        session_id=session_id,
     )
 
     assert result.output == Greeting(text="hello")
@@ -678,3 +665,104 @@ async def test_run_retries_an_invalid_output_as_often_as_requested() -> None:
 
     assert result.outcome is LlmCallOutcome.ERROR
     assert calls == 3
+
+
+async def test_run_sends_the_provider_preferences_and_no_order_pin(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    preferences = ProviderPreferences(
+        sort="latency",
+        preferred_max_latency={"p90": 2.5},
+        quantizations=["fp8", "nvfp4"],
+        only=["modal", "wafer"],
+    )
+
+    body = await _run_with_effort(monkeypatch, None, provider=preferences)
+
+    assert body["provider"] == {
+        "sort": "latency",
+        "preferred_max_latency": {"p90": 2.5},
+        "quantizations": ["fp8", "nvfp4"],
+        "only": ["modal", "wafer"],
+        "allow_fallbacks": True,
+    }
+
+
+async def test_run_sends_only_the_provider_preferences_that_are_set(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    body = await _run_with_effort(
+        monkeypatch, None, provider=ProviderPreferences(preferred_max_latency=3)
+    )
+
+    assert body["provider"] == {"preferred_max_latency": 3, "allow_fallbacks": True}
+
+
+async def test_run_without_provider_preferences_sends_no_provider_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    body = await _run_with_effort(monkeypatch, None)
+
+    assert "provider" not in body
+
+
+async def test_run_sends_the_session_id_at_the_top_of_the_request_body(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """OpenRouter reads `session_id` as a top-level body field and keeps a session on one
+    upstream from its first successful call (prompt-caching guide, `search-docs`, 2026-10-19)."""
+    body = await _run_with_effort(monkeypatch, None, session_id="opaque-session")
+
+    assert body["session_id"] == "opaque-session"
+
+
+async def test_run_without_a_session_id_sends_none(monkeypatch: pytest.MonkeyPatch) -> None:
+    body = await _run_with_effort(monkeypatch, None)
+
+    assert "session_id" not in body
+
+
+async def test_a_call_slower_than_its_own_timeout_ends_as_a_timeout_row() -> None:
+    """A per-template timeout overrides `LLM_CALL_TIMEOUT_SECONDS` for that call (ADR-0026)."""
+    repository = FakeLlmCallsRepository()
+    gateway = OpenRouterGateway(_settings(timeout_seconds=30.0), repository)
+
+    with gateway.agent.override(model=FunctionModel(_hanging_response)):
+        result = await gateway.run(
+            user_id=uuid4(),
+            template_id="router",
+            template_version=2,
+            model_id="openai/gpt-5-mini",
+            output_type=Greeting,
+            instructions="Greet the user.",
+            prompt="Say hello",
+            timeout_seconds=0.05,
+        )
+
+    assert (result.output, result.friendly_error, result.outcome) == (
+        None,
+        TIMEOUT_MESSAGE,
+        LlmCallOutcome.TIMEOUT,
+    )
+    [row] = repository.recorded
+    assert row.outcome is LlmCallOutcome.TIMEOUT
+    assert row.latency_ms < 1000
+
+
+async def test_run_sends_the_session_id_beside_the_provider_and_reasoning_blocks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`extra_body` carries the session; Pydantic AI adds `provider` and `reasoning` to it
+    rather than replacing it, so all three reach OpenRouter."""
+    body = await _run_with_effort(
+        monkeypatch,
+        "low",
+        provider=ProviderPreferences(sort="latency"),
+        session_id="opaque-session",
+    )
+
+    assert (body["session_id"], body["provider"], body["reasoning"]) == (
+        "opaque-session",
+        {"sort": "latency", "allow_fallbacks": True},
+        {"effort": "low"},
+    )

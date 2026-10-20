@@ -7,6 +7,7 @@ import asyncio
 from collections.abc import AsyncIterator, Callable
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Any
 from uuid import UUID, uuid4
 
 import httpx2
@@ -293,6 +294,7 @@ def _app(
     *,
     timeout: float = 30.0,
     decision_timeout: float = 30.0,
+    router_timeout: float | None = None,
     clock: ClockPort | None = None,
 ) -> tuple[FastAPI, tuple[OpenRouterGateway, OpenRouterDecisionGateway]]:
     clock = clock or FixedClock()
@@ -320,6 +322,7 @@ def _app(
         chitchat_model=settings.chitchat_model,
         extract_model=settings.extract_model,
         history_turns=settings.chat_history_turns,
+        router_timeout_seconds=router_timeout,
     )
     replies = ReplyServices(
         chat=chat,
@@ -380,13 +383,19 @@ async def _send_and_stream(
     streams: int = 1,
     jev: FakeJev | None = None,
     decision_timeout: float = 30.0,
-    router: Callable[[list[ModelMessage], AgentInfo], ModelResponse] = _router,
+    router: Callable[[list[ModelMessage], AgentInfo], Any] = _router,
+    router_timeout: float | None = None,
     clock: ClockPort | None = None,
 ) -> tuple[list[str], str]:
     """Sends `text`, reads its reply stream `streams` times (a retry after the first) and
     reloads the page."""
     app, gateways = _app(
-        factory, user, timeout=timeout, decision_timeout=decision_timeout, clock=clock
+        factory,
+        user,
+        timeout=timeout,
+        decision_timeout=decision_timeout,
+        router_timeout=router_timeout,
+        clock=clock,
     )
     model = FunctionModel(router, stream_function=chitchat)
     app.add_middleware(_ModelOverride, gateways=gateways, model=model, jev=jev)
@@ -474,6 +483,36 @@ async def test_a_timeout_leaves_a_timeout_row_and_the_retry_streams_a_fresh_repl
         ("safety_screen", LlmCallOutcome.SUCCESS),
         ("safety_screen", LlmCallOutcome.SUCCESS),
     ]
+
+
+async def _stuck_router(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+    await asyncio.sleep(10)
+    return _router(messages, info)
+
+
+async def test_a_router_slower_than_its_own_timeout_ends_as_timeout_with_the_friendly_error(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    """`ROUTER_CALL_TIMEOUT_SECONDS` bounds the router alone, well under the gateway's default
+    (ADR-0026 step 4): a stuck upstream fails fast and the athlete sees why."""
+    user = await _user(db_session_factory, "reply-timeout-router")
+
+    [body], _ = await _send_and_stream(
+        db_session_factory,
+        user,
+        "hi!",
+        ScriptedChitchat(),
+        timeout=30.0,
+        router=_stuck_router,
+        router_timeout=0.2,
+    )
+
+    assert "took too long" in body
+    calls = await SqlAlchemyLlmCallsRepository(db_session_factory).list_for_user(user.id)
+    [router_call] = [call for call in calls if call.template_id == "router"]
+    assert router_call.outcome is LlmCallOutcome.TIMEOUT
+    assert router_call.latency_ms < 5000
+    assert "chitchat" not in [call.template_id for call in calls]
 
 
 async def test_another_users_message_is_404_for_its_reply_and_retry_with_no_model_call(

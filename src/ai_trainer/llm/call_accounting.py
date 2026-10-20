@@ -53,13 +53,16 @@ class CallAccountant:
         call: Coroutine[Any, Any, T],
         *,
         usage: Callable[[T], CallUsage],
+        timeout_seconds: float | None = None,
     ) -> Attempt[T]:
-        """Awaits `call` under the timeout and records it. Every model or provider failure
-        becomes an outcome, never an exception (ADR-0007); a cancelled caller is recorded as
-        `cancelled` and the cancellation goes on."""
+        """Awaits `call` under `timeout_seconds` (the accountant's own when unset) and records
+        it. Every model or provider failure becomes an outcome, never an exception (ADR-0007);
+        a cancelled caller is recorded as `cancelled` and the cancellation goes on."""
         started = time.monotonic()
         try:
-            value = await asyncio.wait_for(call, timeout=self.timeout_seconds)
+            value = await asyncio.wait_for(
+                call, timeout=self.timeout_seconds if timeout_seconds is None else timeout_seconds
+            )
         except TimeoutError:
             return await self._failed(key, started, LlmCallOutcome.TIMEOUT)
         except asyncio.CancelledError:

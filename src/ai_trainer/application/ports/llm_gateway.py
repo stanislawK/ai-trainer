@@ -5,7 +5,7 @@ from uuid import UUID
 
 from pydantic import BaseModel
 
-from ai_trainer.domain.llm_calls import LlmCallOutcome, ReasoningEffort
+from ai_trainer.domain.llm_calls import LlmCallOutcome, ProviderPreferences, ReasoningEffort
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,9 +47,14 @@ class LlmGatewayPort(Protocol):
         prompt: str,
         temperature: float | None = None,
         output_retries: int | None = None,
-        upstream_provider: str | None = None,
+        provider: ProviderPreferences | None = None,
         reasoning_effort: ReasoningEffort | None = None,
-    ) -> LlmGatewayResult[OutputT]: ...
+        session_id: str | None = None,
+        timeout_seconds: float | None = None,
+    ) -> LlmGatewayResult[OutputT]:
+        """`session_id` is an opaque per-conversation key, never user identity (ADR-0026
+        invariant 4); `timeout_seconds` overrides the gateway's default for this call."""
+        ...
 
     def stream(
         self,

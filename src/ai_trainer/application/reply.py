@@ -213,6 +213,7 @@ async def _reply(
 
     context = ReplyContext(
         user_id=user_id,
+        conversation_id=message.conversation_id,
         message=message.text,
         history=await services.chat.list_before(user_id, message, services.history_turns),
         athlete_sports=await services.profile.list_sports(user_id),

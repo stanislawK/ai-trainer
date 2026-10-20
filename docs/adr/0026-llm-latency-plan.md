@@ -66,8 +66,7 @@ A log takes 19–43 s from send to draft card, with a median of 35 s (ADR-0025).
 - **Verified 2026-10-19:**
   - Pydantic AI 2.55 (installed) passes `openrouter_reasoning` and `openrouter_provider` (including `sort`) into the request body.
   - OpenRouter lists `reasoning_effort` as supported on every glm-5.3-flash upstream.
-- **Unverified, flagged:**
-  - Pydantic AI has no first-class `session_id` setting for OpenRouter. The field name and its placement (`extra_body`) are checked against OpenRouter's API reference in the step 4 ticket.
+- **Verified at #187 (2026-10-19):** Pydantic AI has no first-class `session_id` setting for OpenRouter. OpenRouter reads `session_id` as a top-level request-body field of at most 256 characters, and sticky routing starts from a session's first successful call ([prompt caching](https://openrouter.ai/docs/guides/best-practices/prompt-caching), `search-docs`). The gateway sends it through `extra_body`, which Pydantic AI 2.55 merges with the `provider` and `reasoning` blocks.
 - **Step 3 result (#186, 2026-10-19).**
   - `ROUTER_REASONING_EFFORT` and `EXTRACT_REASONING_EFFORT` are in `Settings`, unset by default. When one is set, it is sent as `reasoning.effort`.
   - `get-model` (2026-10-19) lists glm-5.3-flash's efforts as `max`, `high` and `low`, with `max` as the default.
@@ -77,5 +76,25 @@ A log takes 19–43 s from send to draft card, with a median of 35 s (ADR-0025).
     - `cycling.extract`: 0.943 against 0.977. A speed read as a distance, "on Tuesday" when today is Tuesday, and a Polish log fail every repeat.
     - `gym.extract`: 1.000 against 0.994, in one run.
   - The output-token cut at `low` was not measured, because no regressing setting is promoted. Step 2's model spike carries the latency cut. Its candidates set their own effort through these settings.
+- **Step 4 result (#187, 2026-10-20).**
+  - `ROUTER_PROVIDER_PREFERENCES` and `EXTRACT_PROVIDER_PREFERENCES` replace the single-slug `ROUTER_PROVIDER` and `EXTRACT_PROVIDER` pins and `pinned_upstream()`. Each is a JSON object with `sort`, `preferred_max_latency`, `quantizations` and `only`. Fallbacks stay on, and `order` is refused at startup. A `.env` that still sets an old key fails at startup. The eval CLI sends the same block, and a `--model` override drops it.
+  - `ROUTER_CALL_TIMEOUT_SECONDS` and `EXTRACT_CALL_TIMEOUT_SECONDS` bound each template's call. Unset, they fall back to `LLM_CALL_TIMEOUT_SECONDS`.
+  - Router and extraction calls send `session_id` = sha256 of `ai-trainer-session:<conversation id>`. It is stable within a conversation and different across conversations. It never contains a user ID or email (invariant 4), and it links back to a conversation only for someone holding the database.
+  - Ordering: this step landed before the step 2 model spike (#188). The mechanism does not depend on the model; #188 re-tunes the values when it changes models.
+  - Upstreams of `z-ai/glm-5.3-flash` (`list-model-endpoints`, 2026-10-19, 30-minute window):
+    - the `z-ai` endpoint: p50 3.05 s, p90 9.9 s;
+    - Modal (nvfp4): p50 0.34 s, p90 0.73 s;
+    - Wafer (nvfp4): p50 0.39 s, p90 1.0 s;
+    - BaseTen (fp8): p50 0.45 s, p90 1.9 s.
+    - The quantization filter `["fp8","nvfp4"]` keeps the router off the mixed fp4 stacks that made its evals noisy (#127).
+  - Measured with `make latency-scenario` on 2026-10-20, using `{"sort":"latency","quantizations":["fp8","nvfp4"]}` for both templates and timeouts unset, against ADR-0025's figures (19–43 s per log turn, median 35 s):
+    - 12 log turns: p50 1.7 s, p95 21.1 s, no timeouts or failures.
+    - USD per log turn: 0.000115–0.000712.
+    - Turn 1 alone set the p95: its `climbing.extract` call took 20.4 s for 1036 output tokens, the session's first, cold call. Later extraction calls took 0.6–1.6 s, and the router took 1.2–1.6 s.
+    - G14's p95 still fails on a session's first log; steps 2 and 5 carry that.
+  - Timeouts in `.env.example`, from these measurements:
+    - router: 5 s, about three times its 1.6 s p95;
+    - extraction: 30 s, above its 20.4 s cold p95. A timeout near the warm figures would fail a session's first log.
+  - Router and extraction evals with these preferences were not reported at #187's acceptance gate.
 - **Owner check:** a low OpenRouter credit balance adds latency ([latency guide](https://openrouter.ai/docs/guides/best-practices/latency-and-performance)).
 - **Status:** ADR-0025 stays the Accepted baseline; the ADR index notes that its options were picked here.

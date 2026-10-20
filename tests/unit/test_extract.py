@@ -129,7 +129,7 @@ def test_extract_template_takes_its_id_version_and_output_from_the_plugin() -> N
     assert template.deps_type is ExtractDeps
     assert template.output_type is ClimbingExtraction
     assert template.model_settings_key == "extract_model"
-    assert template.provider_settings_key == "extract_provider"
+    assert template.provider_settings_key == "extract_provider_preferences"
     assert template.reasoning_effort_settings_key == "extract_reasoning_effort"
     assert template.temperature == 0
     assert template.output_retries == 2

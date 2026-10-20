@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from pydantic import BaseModel, PostgresDsn, SecretStr
@@ -21,7 +21,7 @@ from ai_trainer.application.ports.llm_gateway import (
 from ai_trainer.domain.chat import ChatMessage, ChatRole
 from ai_trainer.domain.conversation import Intent
 from ai_trainer.domain.goals import Goal
-from ai_trainer.domain.llm_calls import LlmCallOutcome
+from ai_trainer.domain.llm_calls import LlmCallOutcome, ProviderPreferences
 from ai_trainer.domain.sports.climbing.extraction import ClimbingExtraction
 from ai_trainer.domain.sports.registry import SportRegistry, default_sport_registry
 from ai_trainer.llm.chitchat import build_chitchat_deps
@@ -76,7 +76,11 @@ class RecordingGateway:
         )
 
 
-def _context() -> ReplyContext:
+_ROUTER_PREFERENCES = ProviderPreferences(sort="latency")
+_EXTRACT_PREFERENCES = ProviderPreferences(preferred_max_latency={"p90": 2})
+
+
+def _context(conversation_id: UUID = _THREAD, user_id: UUID | None = None) -> ReplyContext:
     history = [
         ChatMessage(
             id=uuid4(), conversation_id=_THREAD, role=ChatRole.USER, text="earlier", created_at=_NOW
@@ -90,7 +94,8 @@ def _context() -> ReplyContext:
         ),
     ]
     return ReplyContext(
-        user_id=uuid4(),
+        user_id=user_id or uuid4(),
+        conversation_id=conversation_id,
         message="log my ride, also hi",
         history=history,
         athlete_sports=["climbing", "cycling"],
@@ -108,10 +113,12 @@ def _conversation(
         gateway=gateway,
         sports=sports or default_sport_registry(),
         router_model="test/router-model",
-        router_provider="test-upstream",
+        router_provider=_ROUTER_PREFERENCES,
+        router_timeout_seconds=7.5,
         chitchat_model="test/chitchat-model",
         extract_model="test/extract-model",
-        extract_provider="extract-upstream",
+        extract_provider=_EXTRACT_PREFERENCES,
+        extract_timeout_seconds=9.0,
         router_reasoning_effort="low",
         extract_reasoning_effort="minimal",
         history_turns=10,
@@ -148,7 +155,8 @@ async def test_route_runs_the_router_template_and_returns_its_intents_in_order()
     assert (call["user_id"], call["prompt"]) == (context.user_id, "log my ride, also hi")
     assert call["temperature"] == 0
     assert call["output_retries"] == 2
-    assert call["upstream_provider"] == "test-upstream"
+    assert call["provider"] == _ROUTER_PREFERENCES
+    assert call["timeout_seconds"] == 7.5
     assert call["reasoning_effort"] == "low"
     assert call["output_type"].model_json_schema() == (
         router_output_type(default_sport_registry()).model_json_schema()
@@ -250,7 +258,8 @@ async def test_extract_runs_the_sports_extraction_template_through_the_gateway()
     assert call["output_type"] is ClimbingExtraction
     assert (call["user_id"], call["prompt"]) == (context.user_id, context.message)
     assert (call["temperature"], call["output_retries"]) == (0, 2)
-    assert call["upstream_provider"] == "extract-upstream"
+    assert call["provider"] == _EXTRACT_PREFERENCES
+    assert call["timeout_seconds"] == 9.0
     assert call["reasoning_effort"] == "minimal"
     deps = build_extract_deps(
         message=context.message,
@@ -310,3 +319,83 @@ async def test_the_app_sends_each_templates_reasoning_effort_from_settings() -> 
     await conversation.route(_context())
 
     assert [call["reasoning_effort"] for call in gateway.runs] == ["high", "low"]
+
+
+async def test_the_app_sends_each_templates_provider_preferences_and_timeout_from_settings() -> (
+    None
+):
+    settings = Settings(
+        _env_file=None,
+        database_url=PostgresDsn("postgresql+psycopg://u:p@localhost:5432/db"),
+        openrouter_api_key=SecretStr("test-key"),
+        eval_judge_model="test/judge-model",
+        router_provider_preferences=_ROUTER_PREFERENCES,
+        extract_provider_preferences=_EXTRACT_PREFERENCES,
+        router_call_timeout_seconds=4.0,
+        extract_call_timeout_seconds=6.0,
+    )
+    gateway = RecordingGateway(run_output=_CLIMB_OUTPUT)
+    conversation = build_llm_conversation(settings, default_sport_registry(), gateway)
+
+    await conversation.extract(_context(), "climbing")
+    gateway.run_output = {"intents": [{"kind": "chitchat", "confidence": 0.8, "span": "hi"}]}
+    await conversation.route(_context())
+
+    assert [(call["provider"], call["timeout_seconds"]) for call in gateway.runs] == [
+        (_EXTRACT_PREFERENCES, 6.0),
+        (_ROUTER_PREFERENCES, 4.0),
+    ]
+
+
+async def test_unset_template_timeouts_leave_the_gateway_default() -> None:
+    settings = Settings(
+        _env_file=None,
+        database_url=PostgresDsn("postgresql+psycopg://u:p@localhost:5432/db"),
+        openrouter_api_key=SecretStr("test-key"),
+        eval_judge_model="test/judge-model",
+    )
+    gateway = RecordingGateway(run_output=_CLIMB_OUTPUT)
+    conversation = build_llm_conversation(settings, default_sport_registry(), gateway)
+
+    await conversation.extract(_context(), "climbing")
+
+    [call] = gateway.runs
+    assert (call["provider"], call["timeout_seconds"]) == (None, None)
+
+
+async def _session_ids(gateway: RecordingGateway, *contexts: ReplyContext) -> list[str]:
+    conversation = _conversation(gateway)
+    for context in contexts:
+        gateway.run_output = {"intents": [{"kind": "chitchat", "confidence": 0.8, "span": "hi"}]}
+        await conversation.route(context)
+        gateway.run_output = _CLIMB_OUTPUT
+        await conversation.extract(context, "climbing")
+    return [call["session_id"] for call in gateway.runs]
+
+
+async def test_calls_in_one_conversation_share_a_session_id_and_another_gets_its_own() -> None:
+    """Follow-ups stay on the upstream that holds their warm cache (ADR-0026 step 4)."""
+    gateway = RecordingGateway()
+    other_thread = uuid4()
+
+    ids = await _session_ids(gateway, _context(), _context(), _context(other_thread))
+
+    assert ids[0] == ids[1] == ids[2] == ids[3]
+    assert ids[4] == ids[5]
+    assert ids[4] != ids[0]
+
+
+async def test_the_session_id_carries_no_user_identity() -> None:
+    """Invariant 4 of ADR-0026: opaque, never a user ID or email (ADR-0018, ADR-0020)."""
+    user_id = uuid4()
+    gateway = RecordingGateway()
+
+    [routed, extracted] = await _session_ids(gateway, _context(user_id=user_id))
+
+    assert routed == extracted
+    assert 0 < len(routed) <= 256  # OpenRouter's limit
+    for identity in (str(user_id), user_id.hex, "athlete@example.com"):
+        assert identity not in routed
+    # Not the conversation's own database ID either, so nothing sent links back to a row.
+    assert str(_THREAD) not in routed
+    assert _THREAD.hex not in routed

@@ -69,17 +69,20 @@ mimetypes.add_type("application/manifest+json", ".webmanifest")
 def build_llm_conversation(
     settings: Settings, sports: SportRegistry, gateway: LlmGatewayPort
 ) -> LlmConversation:
-    """Each template's model, upstream and reasoning effort from `Settings` (ADR-0026)."""
+    """Each template's model, provider preferences, reasoning effort and call timeout from
+    `Settings` (ADR-0026)."""
     return LlmConversation(
         registry=build_prompt_registry(_PROMPTS_ROOT, sports),
         gateway=gateway,
         sports=sports,
         router_model=settings.router_model,
-        router_provider=settings.router_provider,
+        router_provider=settings.router_provider_preferences,
+        router_timeout_seconds=settings.router_call_timeout_seconds,
         router_reasoning_effort=settings.router_reasoning_effort,
         chitchat_model=settings.chitchat_model,
         extract_model=settings.extract_model,
-        extract_provider=settings.extract_provider,
+        extract_provider=settings.extract_provider_preferences,
+        extract_timeout_seconds=settings.extract_call_timeout_seconds,
         extract_reasoning_effort=settings.extract_reasoning_effort,
         history_turns=settings.chat_history_turns,
     )

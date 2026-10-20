@@ -20,8 +20,8 @@ class PromptTemplate[DepsT: BaseModel, OutputT: TemplateOutput]:
     # resolves it with `getattr(settings, template.model_settings_key)` before building the
     # `Model` it passes to the agent's `run`/`run_sync` (ADR-0007).
     model_settings_key: str
-    # The `Settings` field naming the OpenRouter upstream to pin, resolved like
-    # `model_settings_key`. `None` leaves OpenRouter's own load balancing.
+    # The `Settings` field holding this template's OpenRouter provider preferences, resolved
+    # like `model_settings_key`. `None`, or an unset field, leaves OpenRouter's own balancing.
     provider_settings_key: str | None = None
     # The `Settings` field holding this template's reasoning effort, resolved like
     # `model_settings_key`. `None`, or an unset field, leaves the model's default.

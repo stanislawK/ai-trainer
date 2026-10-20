@@ -27,7 +27,7 @@ from pydantic_ai.providers.openrouter import OpenRouterProvider
 from pydantic_ai.providers.typesafe import TypeSafeProvider
 from pydantic_evals.evaluators import Evaluator
 
-from ai_trainer.domain.llm_calls import ReasoningEffort
+from ai_trainer.domain.llm_calls import ProviderPreferences, ReasoningEffort
 from ai_trainer.domain.sports.registry import default_sport_registry
 from ai_trainer.llm.conversation import build_prompt_registry
 from ai_trainer.llm.decision_gateway import OPENROUTER_SYSTEM_ONE_BASE_URL
@@ -43,7 +43,7 @@ from ai_trainer.llm.evals.runner import (
     run_eval,
 )
 from ai_trainer.llm.extract import ActivitiesMatch, DateMatch, extract_templates
-from ai_trainer.llm.gateway import pinned_upstream, reasoning_at
+from ai_trainer.llm.gateway import provider_config, reasoning_at
 from ai_trainer.llm.prompts.registry import PromptRegistry
 from ai_trainer.llm.prompts.template import (
     PromptTemplate,
@@ -260,9 +260,9 @@ def _model_under_test(
     model_override: str | None,
     provider: OpenRouterProvider,
 ) -> OpenRouterModel:
-    """The template's model from `Settings`, pinned to its upstream and at its reasoning effort,
-    as the app sends it. A `--model` override runs unpinned, since the pinned upstream may not
-    serve that model, but keeps the effort."""
+    """The template's model from `Settings`, with its provider preferences and at its reasoning
+    effort, as the app sends it. A `--model` override drops the preferences, since an `only`
+    list or quantization may not fit that model, but keeps the effort."""
     model_settings = OpenRouterModelSettings()
     effort: ReasoningEffort | None = (
         getattr(settings, template.reasoning_effort_settings_key)
@@ -274,13 +274,13 @@ def _model_under_test(
     if model_override is not None:
         return OpenRouterModel(model_override, provider=provider, settings=model_settings or None)
     model_id: str = getattr(settings, template.model_settings_key)
-    upstream: str | None = (
+    preferences: ProviderPreferences | None = (
         getattr(settings, template.provider_settings_key)
         if template.provider_settings_key is not None
         else None
     )
-    if upstream is not None:
-        model_settings["openrouter_provider"] = pinned_upstream(upstream)
+    if preferences is not None:
+        model_settings["openrouter_provider"] = provider_config(preferences)
     return OpenRouterModel(model_id, provider=provider, settings=model_settings or None)
 
 

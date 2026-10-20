@@ -1,8 +1,10 @@
 """`ConversationModelPort` on the prompt registry and the gateway: the router, the chitchat
 specialist, each sport's extraction template, and the fixed replies (ADR-0008)."""
 
+import hashlib
 from collections.abc import AsyncGenerator, Sequence
 from pathlib import Path
+from uuid import UUID
 
 from ai_trainer.application.ports.conversation import (
     Extraction,
@@ -14,7 +16,7 @@ from ai_trainer.application.ports.conversation import (
 from ai_trainer.application.ports.llm_gateway import LlmGatewayPort, LlmStreamEvent
 from ai_trainer.domain.chat import ChatMessage
 from ai_trainer.domain.conversation import Intent
-from ai_trainer.domain.llm_calls import ReasoningEffort
+from ai_trainer.domain.llm_calls import ProviderPreferences, ReasoningEffort
 from ai_trainer.domain.sports.registry import SportRegistry
 from ai_trainer.llm.chitchat import build_chitchat_deps, chitchat_template
 from ai_trainer.llm.extract import build_extract_deps, extract_template, extract_templates
@@ -39,6 +41,13 @@ def build_prompt_registry(root: Path, sports: SportRegistry) -> PromptRegistry:
     return registry
 
 
+def session_id(conversation_id: UUID) -> str:
+    """OpenRouter's sticky-routing key for one conversation (ADR-0026 step 4): a hash of the
+    conversation's random ID, so it is stable across the conversation's calls, names no user,
+    and links back to a conversation only for someone holding our database (invariant 4)."""
+    return hashlib.sha256(f"ai-trainer-session:{conversation_id}".encode()).hexdigest()
+
+
 def _turns(history: Sequence[ChatMessage]) -> list[ChatTurn]:
     return [
         ChatTurn.model_validate({"role": message.role.value, "text": message.text})
@@ -61,8 +70,10 @@ class LlmConversation:
         chitchat_model: str,
         extract_model: str,
         history_turns: int,
-        router_provider: str | None = None,
-        extract_provider: str | None = None,
+        router_provider: ProviderPreferences | None = None,
+        extract_provider: ProviderPreferences | None = None,
+        router_timeout_seconds: float | None = None,
+        extract_timeout_seconds: float | None = None,
         router_reasoning_effort: ReasoningEffort | None = None,
         extract_reasoning_effort: ReasoningEffort | None = None,
     ) -> None:
@@ -72,11 +83,13 @@ class LlmConversation:
         self._extract_model = extract_model
         self._extract_provider = extract_provider
         self._extract_reasoning_effort = extract_reasoning_effort
+        self._extract_timeout_seconds = extract_timeout_seconds
         self._router = router_template(sports)
         self._chitchat = chitchat_template()
         self._router_model = router_model
         self._router_provider = router_provider
         self._router_reasoning_effort = router_reasoning_effort
+        self._router_timeout_seconds = router_timeout_seconds
         self._chitchat_model = chitchat_model
         self._history_turns = history_turns
 
@@ -105,8 +118,10 @@ class LlmConversation:
             prompt=context.message,
             temperature=self._router.temperature,
             output_retries=self._router.output_retries,
-            upstream_provider=self._router_provider,
+            provider=self._router_provider,
             reasoning_effort=self._router_reasoning_effort,
+            session_id=session_id(context.conversation_id),
+            timeout_seconds=self._router_timeout_seconds,
         )
         if result.output is None:
             return Routing(intents=(), outcome=result.outcome)
@@ -159,8 +174,10 @@ class LlmConversation:
             prompt=context.message,
             temperature=template.temperature,
             output_retries=template.output_retries,
-            upstream_provider=self._extract_provider,
+            provider=self._extract_provider,
             reasoning_effort=self._extract_reasoning_effort,
+            session_id=session_id(context.conversation_id),
+            timeout_seconds=self._extract_timeout_seconds,
         )
         return Extraction(
             output=result.output,
