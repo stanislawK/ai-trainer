@@ -219,5 +219,21 @@ A log takes 19–43 s from send to draft card, with a median of 35 s (ADR-0025).
     | Timeouts / failures | 0 / 0 | 0 / 0 |
     | USD per log turn, median / mean / max | 0.000095 / 0.000142 / 0.000253 | 0.000107 / 0.000134 / 0.000213 |
 
+- **Step 8 result (#192, 2026-10-20): background replies are not needed.** G14 holds after steps 2–7, so step 8 gets no ADR.
+  - Measured with `make latency-scenario`, four runs on `main` at `2557e31` (steps 2–7 merged; the models, provider preferences and timeouts of log turns as in `.env.example`), pooled over 48 log turns, nearest rank as in the Step 2 result:
+
+    | | p50 | p95 | Max | Timeouts / failures |
+    |---|---|---|---|---|
+    | Run 1 | 1.8 s | 4.1 s | 4.1 s | 0 / 0 |
+    | Run 2 | 1.6 s | 3.3 s | 3.3 s | 0 / 0 |
+    | Run 3 | 1.4 s | 2.5 s | 2.5 s | 0 / 0 |
+    | Run 4 | 1.4 s | 3.0 s | 3.0 s | 0 / 0 |
+    | **Pooled** | **1.6 s** | **3.0 s** | **4.1 s** | **0 / 0** |
+
+  - USD per log turn, min / median / mean / max: 0.000084 / 0.000093 / 0.000128 / 0.000282.
+  - Calls over the 48 log turns, p95 / max: `climbing.extract` 2.5 s / 3.7 s; `router` 1.1 s / 1.1 s, on the 16 turns that reached it; Jev's `router_fast` and `safety_screen` 0.4 s / 0.7 s.
+  - The cold first extraction that set #187's and #188's tail (20–23 s) did not recur: each run's first log took 1.1–2.0 s, its extraction 0.8–1.4 s. #188's single runs reached a 22.8 s p95, so a slow upstream can still push one run past 10 s. The 30 s extraction timeout stays the guard, and the next latency ticket's scenario run (invariant 1) is the check.
+  - The scenario's athlete is climbing-only. A multi-sport athlete's first log in a conversation goes through the router, which adds about 1 s here (router p95 1.1 s).
+  - Summaries: `.llm-debug/latency-scenario-20261020T1708*.json` and `…T1709*.json`.
 - **Owner check:** a low OpenRouter credit balance adds latency ([latency guide](https://openrouter.ai/docs/guides/best-practices/latency-and-performance)).
 - **Status:** ADR-0025 stays the Accepted baseline; the ADR index notes that its options were picked here.
