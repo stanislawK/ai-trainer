@@ -29,7 +29,7 @@ from ai_trainer.domain.conversation import Intent
 from ai_trainer.domain.goals import Goal
 from ai_trainer.domain.llm_calls import LlmCallOutcome
 from ai_trainer.domain.sports.climbing.extraction import ClimbingExtraction
-from ai_trainer.domain.training import SessionSpan
+from ai_trainer.domain.training import SessionDraft, SessionSpan
 from tests.chat_support import (
     DRAFT_READY_TEXT,
     FROZEN_NOW,
@@ -1005,3 +1005,187 @@ async def test_a_log_naming_another_day_is_not_offered_even_inside_the_window() 
     )
 
     assert await _extends(_climbed_at(FROZEN_NOW - _MINUTE), extraction=yesterday) is None
+
+
+# A follow-up log takes its sport from the conversation (ticket #189, ADR-0026 step 5, B23).
+
+_CLIMBER_LIFTER = ["climbing", "gym"]
+_FOLLOW_UP = "two more 6b+"
+
+
+def _split_log(*plausible: str) -> ScriptedFastRouter:
+    """Jev is sure of one log but not of its sport, the case the fast path declines."""
+    return ScriptedFastRouter(intents=None, plausible_sports=plausible, single_intent="log_session")
+
+
+async def _drafted_before(
+    chat: InMemoryChatRepository,
+    drafts: InMemoryDraftRepository,
+    user_id: UUID,
+    conversation_id: UUID,
+    ago: timedelta,
+    *,
+    sport: str = "climbing",
+    drafted_ago: timedelta | None = None,
+) -> UUID:
+    """A draft of an earlier log in the conversation, sent `ago` before the follow-up and
+    drafted `drafted_ago` before it, right after the log by default."""
+    log = await chat.add(
+        user_id, conversation_id, ChatRole.USER, "I climbed 3 6A", FROZEN_NOW - ago
+    )
+    stored = await drafts.add(
+        user_id,
+        conversation_id,
+        log.id,
+        sport,
+        SessionDraft(
+            occurred_on=date(2026, 10, 2),
+            date_source="assumed_today",
+            timezone="Europe/Warsaw",
+            payload={},
+        ),
+        payload_version=1,
+        created_at=FROZEN_NOW - (ago if drafted_ago is None else drafted_ago),
+    )
+    return stored.id
+
+
+async def _follow_up(
+    fast: ScriptedFastRouter,
+    *,
+    ago: timedelta = 10 * _MINUTE,
+    drafted_ago: timedelta | None = None,
+    sport: str = "climbing",
+    in_new_conversation: bool = False,
+    discarded: bool = False,
+) -> tuple[ScriptedConversation, list[ReplyEvent]]:
+    chat, drafts, user_id = InMemoryChatRepository(), InMemoryDraftRepository(), uuid4()
+    earlier = await chat.conversation_of(user_id)
+    draft_id = await _drafted_before(
+        chat, drafts, user_id, earlier, ago, sport=sport, drafted_ago=drafted_ago
+    )
+    if discarded:
+        await drafts.discard(user_id, draft_id, discarded_at=FROZEN_NOW - _MINUTE)
+    conversation_id = await chat.start(user_id) if in_new_conversation else earlier
+    asked = await chat.add(user_id, conversation_id, ChatRole.USER, _FOLLOW_UP, FROZEN_NOW)
+    conversation = ScriptedConversation(intents=[[Intent(kind="log_session", sport="gym")]])
+    events = await _events(
+        chat,
+        user_id,
+        asked,
+        conversation,
+        drafts=drafts,
+        profile=InMemoryProfile({user_id: _CLIMBER_LIFTER}),
+        fast_router=fast,
+    )
+    return conversation, events
+
+
+async def test_a_follow_up_log_after_a_climbing_draft_drafts_climbing_with_no_router_call() -> None:
+    conversation, events = await _follow_up(_split_log("climbing", "gym"))
+
+    assert conversation.routed == []
+    assert [(context.message, sport) for context, sport in conversation.extracted] == [
+        (_FOLLOW_UP, "climbing")
+    ]
+    [draft] = _done(events).drafts
+    assert draft.sport_id == "climbing"
+
+
+async def test_a_conversation_sport_jev_does_not_find_plausible_goes_to_the_llm_router() -> None:
+    conversation, _ = await _follow_up(_split_log("gym"))
+
+    assert [context.message for context in conversation.routed] == [_FOLLOW_UP]
+    assert [sport for _, sport in conversation.extracted] == ["gym"]
+
+
+async def test_a_follow_up_after_the_merge_window_goes_to_the_llm_router() -> None:
+    conversation, _ = await _follow_up(
+        _split_log("climbing", "gym"), ago=MERGE_WINDOW + timedelta(seconds=1)
+    )
+
+    assert [context.message for context in conversation.routed] == [_FOLLOW_UP]
+
+
+async def test_a_draft_made_late_for_a_log_sent_before_the_window_goes_to_the_llm_router() -> None:
+    """B16 measures the window between logs: a reply prepared long after its log was sent
+    does not bring that log into the window."""
+    conversation, _ = await _follow_up(
+        _split_log("climbing", "gym"), ago=2 * MERGE_WINDOW, drafted_ago=_MINUTE
+    )
+
+    assert [context.message for context in conversation.routed] == [_FOLLOW_UP]
+
+
+async def test_a_draft_exactly_at_the_merge_window_still_gives_its_sport() -> None:
+    conversation, _ = await _follow_up(_split_log("climbing", "gym"), ago=MERGE_WINDOW)
+
+    assert conversation.routed == []
+    assert [sport for _, sport in conversation.extracted] == ["climbing"]
+
+
+async def test_a_new_conversation_never_takes_its_sport_from_another_conversations_draft() -> None:
+    conversation, _ = await _follow_up(_split_log("climbing", "gym"), in_new_conversation=True)
+
+    assert [context.message for context in conversation.routed] == [_FOLLOW_UP]
+
+
+async def test_a_discarded_latest_draft_gives_no_sport() -> None:
+    """The athlete may have discarded it for its sport, so the LLM router decides."""
+    conversation, _ = await _follow_up(_split_log("climbing", "gym"), discarded=True)
+
+    assert [context.message for context in conversation.routed] == [_FOLLOW_UP]
+
+
+@pytest.mark.parametrize("single_intent", [None, "chitchat"], ids=["several requests", "not a log"])
+async def test_a_message_jev_does_not_read_as_one_log_goes_to_the_llm_router(
+    single_intent: str | None,
+) -> None:
+    fast = ScriptedFastRouter(
+        intents=None,
+        plausible_sports=("climbing", "gym"),
+        single_intent=single_intent,  # type: ignore[arg-type]
+    )
+
+    conversation, _ = await _follow_up(fast)
+
+    assert [context.message for context in conversation.routed] == [_FOLLOW_UP]
+
+
+async def test_a_sport_jev_is_sure_of_wins_over_the_conversations_sport() -> None:
+    """A "5x5 squats" log after a climb is gym: the conversation only breaks a split sport."""
+    fast = ScriptedFastRouter(
+        intents=[Intent(kind="log_session", sport="gym")],
+        plausible_sports=("gym",),
+        single_intent="log_session",
+    )
+
+    conversation, _ = await _follow_up(fast)
+
+    assert conversation.routed == []
+    assert [sport for _, sport in conversation.extracted] == ["gym"]
+
+
+async def test_routing_by_the_conversation_carries_jevs_plausible_sports() -> None:
+    chat, drafts, user_id = InMemoryChatRepository(), InMemoryDraftRepository(), uuid4()
+    conversation_id = await chat.conversation_of(user_id)
+    await _drafted_before(chat, drafts, user_id, conversation_id, 10 * _MINUTE)
+    context = ReplyContext(
+        user_id=user_id,
+        conversation_id=conversation_id,
+        message=_FOLLOW_UP,
+        history=(),
+        athlete_sports=_CLIMBER_LIFTER,
+        goals=(),
+        now=FROZEN_NOW,
+        timezone="Europe/Warsaw",
+    )
+    services = reply_services(chat, drafts=drafts, fast_router=_split_log("climbing", "gym"))
+
+    routing = await route_message(context, services)
+
+    assert routing == Routing(
+        intents=[Intent(kind="log_session", sport="climbing")],
+        outcome=LlmCallOutcome.SUCCESS,
+        plausible_sports=("climbing", "gym"),
+    )

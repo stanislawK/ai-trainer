@@ -111,6 +111,29 @@ async def test_another_user_never_lists_the_draft(
     assert await drafts.list_shown(stranger, own_conversation) == []
 
 
+async def test_a_users_other_conversation_never_lists_the_draft(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    """A follow-up log takes its sport only from its own conversation's drafts (#189)."""
+    drafts = SqlAlchemySessionDraftRepository(db_session_factory)
+    user_id, conversation_id, message_id = await _log(db_session_factory, "draft-two-chats")
+    conversations = SqlAlchemyConversationRepository(
+        db_session_factory, clock=_Clock(_START), retention_days=14
+    )
+    other = await conversations.create(user_id, "Lifted", _START)
+    await drafts.add(
+        user_id,
+        conversation_id,
+        message_id,
+        "climbing",
+        _DRAFT,
+        payload_version=1,
+        created_at=_START,
+    )
+
+    assert await drafts.list_shown(user_id, other.id) == []
+
+
 async def test_discarded_drafts_are_listed_with_the_rest_oldest_first(
     db_session_factory: Callable[[], AsyncSession],
 ) -> None:

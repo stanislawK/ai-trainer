@@ -157,5 +157,10 @@ A log takes 19–43 s from send to draft card, with a median of 35 s (ADR-0025).
     - The eval path applies no per-call timeout. One stuck upstream call held a whole router run for 26 minutes.
   - **Seen on gpt-6-luna:** Pydantic AI drops `temperature` for it even at effort `none`. Its judge, `EVAL_JUDGE_MODEL` (`openai/gpt-6-luna-pro`), is of the same family. Both matter only if gpt-6-luna is reconsidered.
   - **Integration tests** run against the dev database. `test_purge_deletes_only_expired_conversations_of_every_user_and_returns_the_count` counts every `chat_messages` row, so it fails once the scenario's athletes exist. That happens on `main` too.
+- **Step 5 result (#189, 2026-10-20).**
+  - `route_message` tries the conversation's sport after the Jev fast path and before the LLM router. `FastRoute.single_intent` carries the one request Jev is sure of, even when its sport is too split to route on.
+  - A follow-up skips the router only when all of these hold: that request is `log_session`; the conversation's latest draft is not discarded (the athlete may have discarded it for its sport); its sport is among Jev's plausible sports (invariant 5); and its log was sent within `session_merge_window_min` of now, boundary included. The window runs between logs, as B16 measures it, not from when the draft was saved.
+  - A sport Jev is sure of still wins over the conversation's sport.
+  - No template, model, threshold or decision set changed, so no eval ran. `make latency-scenario` cannot show this step: its athlete is climbing-only, and a single-sport athlete's confident log already skips the router. The owner confirmed it on a climbing and gym account with `make llm-report`.
 - **Owner check:** a low OpenRouter credit balance adds latency ([latency guide](https://openrouter.ai/docs/guides/best-practices/latency-and-performance)).
 - **Status:** ADR-0025 stays the Accepted baseline; the ADR index notes that its options were picked here.

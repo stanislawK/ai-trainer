@@ -70,11 +70,11 @@ def _confident_intent(
     probabilities: Mapping[str, Mapping[str, float]],
     *,
     thresholds: RouterFastThresholds,
-) -> str | None:
+) -> IntentKind | None:
     """The intent Jev picked when the message holds one request and Jev is sure of it."""
     if float(getattr(output, _MULTI_REQUEST)) > thresholds.multi_request:
         return None
-    kind: str = getattr(output, _INTENT)
+    kind: IntentKind = getattr(output, _INTENT)
     if kind == _UNCLEAR or _picked(probabilities, _INTENT, kind) < thresholds.intent:
         return None
     return kind
@@ -111,9 +111,9 @@ def fast_route(
     even for a log whose sport is too split to route on: that message goes to the LLM router
     still carrying exactly the sports left in play. Several requests blur a sport
     distribution, so then the router's own sports stand in, unless the athlete has no sport
-    to choose between."""
-    confident = _confident_intent(output, probabilities, thresholds=thresholds) is not None
-    sure_of_sport = confident or len(athlete_sports) <= 1
+    to choose between. The confident intent rides along as `single_intent`."""
+    single = _confident_intent(output, probabilities, thresholds=thresholds)
+    sure_of_sport = single is not None or len(athlete_sports) <= 1
     return FastRoute(
         intents=fast_intents(
             output, probabilities, athlete_sports=athlete_sports, thresholds=thresholds
@@ -123,6 +123,7 @@ def fast_route(
             if sure_of_sport
             else None
         ),
+        single_intent=single,
     )
 
 
