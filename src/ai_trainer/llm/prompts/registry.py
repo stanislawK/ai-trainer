@@ -49,18 +49,26 @@ class PromptRegistry:
         self, template_id: str, version: int, deps: BaseModel, *, persona_version: int = 1
     ) -> str:
         """The instructions `build_agent`'s agent sends the model, as one string: persona, then
-        the template rendered with `deps`. The gateway takes plain instructions (ADR-0007), so
-        the app sends the model exactly what the template's eval runs sent it (ADR-0009)."""
+        the template rendered with `deps`, or the template alone when it opts out of the persona.
+        The gateway takes plain instructions (ADR-0007), so the app sends the model exactly what
+        the template's eval runs sent it (ADR-0009)."""
         template = self.get(template_id, version)
         if not isinstance(deps, template.deps_type):
             raise TypeError(
                 f"Template {template_id!r} v{version} takes {template.deps_type.__name__}, "
                 f"not {type(deps).__name__}"
             )
-        persona = self.load_persona(version=persona_version, locale=template.locale)
+        persona = self._persona_for(template, version=persona_version)
         body = TemplateStr(self.load_body(template), deps_type=template.deps_type).render(deps)
         # Pydantic AI's own joining of an instructions list (`InstructionPart.join`).
         return "\n\n".join(part.strip() for part in (persona, body) if part.strip())
+
+    def _persona_for(
+        self, template: PromptTemplate[BaseModel, TemplateOutput], *, version: int
+    ) -> str:
+        return (
+            self.load_persona(version=version, locale=template.locale) if template.persona else ""
+        )
 
     def _body_path(self, template_id: str, version: int, locale: str) -> Path:
         return self._root / template_id / f"v{version}.{locale}.md"
@@ -68,7 +76,8 @@ class PromptRegistry:
     def build_agent(
         self, template_id: str, version: int, *, persona_version: int = 1
     ) -> Agent[BaseModel, TemplateOutput]:
-        """Composes persona + template into an `Agent` (ADR-0008).
+        """Composes persona + template into an `Agent` (ADR-0008), or the template alone when
+        it opts out of the persona.
 
         Built with a placeholder `TestModel`, the same convention `OpenRouterGateway` uses
         (`src/ai_trainer/llm/gateway.py`): a caller passes the real, `Settings`-resolved model
@@ -76,7 +85,7 @@ class PromptRegistry:
         `agent.override()` rather than rebuilding the agent per model.
         """
         template = self.get(template_id, version)
-        persona = self.load_persona(version=persona_version, locale=template.locale)
+        persona = self._persona_for(template, version=persona_version)
         body = self.load_body(template)
 
         try:
@@ -98,7 +107,7 @@ class PromptRegistry:
             TestModel(),
             deps_type=template.deps_type,
             output_type=template.output_type,
-            instructions=[persona, body_template],
+            instructions=[persona, body_template] if persona else [body_template],
             model_settings=model_settings,
             retries=_retries(template.output_retries),
         )

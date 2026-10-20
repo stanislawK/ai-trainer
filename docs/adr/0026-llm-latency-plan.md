@@ -162,5 +162,38 @@ A log takes 19–43 s from send to draft card, with a median of 35 s (ADR-0025).
   - A follow-up skips the router only when all of these hold: that request is `log_session`; the conversation's latest draft is not discarded (the athlete may have discarded it for its sport); its sport is among Jev's plausible sports (invariant 5); and its log was sent within `session_merge_window_min` of now, boundary included. The window runs between logs, as B16 measures it, not from when the draft was saved.
   - A sport Jev is sure of still wins over the conversation's sport.
   - No template, model, threshold or decision set changed, so no eval ran. `make latency-scenario` cannot show this step: its athlete is climbing-only, and a single-sport athlete's confident log already skips the router. The owner confirmed it on a climbing and gym account with `make llm-report`.
+- **Step 6 result (#190, 2026-10-20), for extraction.** The router's share of step 6 is #191.
+  - `PromptTemplate.persona` (default on) lets a template do without the persona. `render_instructions` and `build_agent` both honour it, so the app and evals send the same instructions. Every `<sport>.extract` turns it off, at every version. Chitchat and the router keep the persona.
+  - `ExtractDeps` keeps only the athlete's own turns. It drops them within the same `chat_history_turns` window of both roles, so extraction sees about half that many messages. The filter sits on the deps model, so eval cases, whose deps hold assistant lines, read like the app.
+  - Each extraction template's v2 puts the date, the athlete's recent messages and the latest message after the rules. Two renders a minute apart share every character up to `Today is`.
+  - Three v2 wordings came from the evals. None is a new rule, and each file is one line longer than its v1:
+    - The history sentence says earlier climbs, exercises or rides "are already logged and are not part of this one". Without the assistant line, the model re-listed them.
+    - Climbing's grade rule reads "Never translate, correct, convert or invent it." A longer rule allowing a grade from "those" made the model drop grades that the message did give.
+    - Cycling's ride rule adds "(the way out and the way home are two)". With the rules further from the message, "there and back" became one ride.
+  - **Evals** (`ai-trainer-evals run <id> --repeat 3`, glm-5.3-flash). Nine reference and follow-up cases were added first: four for climbing, three for gym, two for cycling. v1 was run on them before any code change:
+
+    | Template | committed v1 | v1 on the new cases | final v2, pooled | v2 recorded |
+    |---|---|---|---|---|
+    | `climbing.extract` (36 cases) | 1.000 | 0.958 | 0.988 over 9 repeats | 0.981 |
+    | `gym.extract` (29) | 1.000 | 1.000 | 0.996 over 9 repeats | 1.000 |
+    | `cycling.extract` (31) | 0.983 | 0.984 | 0.984 over 3 repeats | 0.984 |
+
+    - "and 2 more of those" after "3 × 6b" gives 2 × 6b, lead, in every v2 repeat. v1 missed it once in 3.
+    - Gym's two misses were one each, on cases with no history: a date read `stated` rather than `relative`, and a "3x5" read as 5 × 5.
+    - The stale climbing case, "follow-up: only the new activities, day from history", still fails some repeats. It now fails mostly on re-listing history's 3 × 6A rather than on the date. It stays open, as the Step 2 result says.
+    - The gym and cycling cases test that earlier activities are not carried over. A true "2 more sets of those" has no single answer under their rules ("the name exactly as written", "never estimate a missing value"), so only climbing has cases where the reference must be resolved.
+    - The owner approved the promotion, and chose to commit climbing's 0.981 as the CLI recorded it. "scale: french sport routes" failed 2 of 3 in that run.
+  - **Latency scenario** (`make latency-scenario`, 2026-10-20), against the run on #188's setup earlier that day:
+
+    | | v1 | v2 |
+    |---|---|---|
+    | Log-turn p50 / p95 | 1.7 s / 3.5 s | 2.0 s / 3.5 s |
+    | Timeouts / failures | 0 / 0 | 0 / 0 |
+    | USD per log turn, median / mean / max | 0.000117 / 0.000189 / 0.000589 | 0.000096 / 0.000142 / 0.000253 |
+    | `climbing.extract` input / output tokens, mean | 1416 / 157 | 1180 / 91 |
+    | `climbing.extract` instructions / history chars, mean (`make llm-report`) | 2676 / 471 | 1938 / 212 |
+
+    Output tokens fell by 42%, consistent with less deliberation. p50 moved by 0.2 s in a single run, and G14 still holds.
+  - `make llm-report` also recognises v2's heading, `## The athlete's recent messages`, as history.
 - **Owner check:** a low OpenRouter credit balance adds latency ([latency guide](https://openrouter.ai/docs/guides/best-practices/latency-and-performance)).
 - **Status:** ADR-0025 stays the Accepted baseline; the ADR index notes that its options were picked here.

@@ -2,13 +2,13 @@
 (ADR-0006, ADR-0008, ADR-0014, tickets #153, #159 and #160)."""
 
 import shutil
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 import pytest
 from pydantic import BaseModel
-from pydantic_ai import ModelMessage, ModelResponse, ToolCallPart
+from pydantic_ai import ModelMessage, ModelResponse, TextPart, ToolCallPart, UnexpectedModelBehavior
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 from pydantic_evals.evaluators import EvaluatorContext
 
@@ -34,7 +34,7 @@ from ai_trainer.llm.extract import (
     extract_templates,
 )
 from ai_trainer.llm.prompts.registry import PromptRegistry
-from ai_trainer.llm.prompts.template import PromptTemplateVariableError
+from ai_trainer.llm.prompts.template import PromptTemplate, PromptTemplateVariableError
 from ai_trainer.llm.router import ChatTurn
 
 _PROMPTS_ROOT = Path(__file__).parents[2] / "src" / "ai_trainer" / "llm" / "prompts"
@@ -106,7 +106,7 @@ def test_the_climbing_plugin_names_its_extraction_template() -> None:
 
     assert climbing.extraction == ExtractionSpec(
         template_id=_CLIMBING_EXTRACT,
-        version=1,
+        version=2,
         output_type=ClimbingExtraction,
         payload_type=ClimbingPayload,
         payload_version=CLIMBING_PAYLOAD_VERSION,
@@ -143,10 +143,13 @@ def test_extract_templates_skip_a_sport_without_an_extraction() -> None:
         ]
     )
 
-    assert [template.id for template in extract_templates(sports)] == [
-        _CLIMBING_EXTRACT,
-        "gym.extract",
-        "cycling.extract",
+    assert [(template.id, template.version) for template in extract_templates(sports)] == [
+        (_CLIMBING_EXTRACT, 1),
+        (_CLIMBING_EXTRACT, 2),
+        ("gym.extract", 1),
+        ("gym.extract", 2),
+        ("cycling.extract", 1),
+        ("cycling.extract", 2),
     ]
 
 
@@ -365,3 +368,128 @@ def test_an_extraction_base_names_no_payload_until_a_sport_defines_one() -> None
 
     with pytest.raises(NotImplementedError):
         bare.to_payload()
+
+
+_ACTIVE_EXTRACT_TEMPLATES = [
+    extract_template(plugin.extraction)
+    for plugin in default_sport_registry().all()
+    if plugin.extraction is not None
+]
+_PERSONA_LINE = "You are the athlete's training companion"
+
+
+def _render_active(template_id: str, version: int, deps: ExtractDeps) -> str:
+    return _registry().render_instructions(template_id, version, deps)
+
+
+def test_every_sport_runs_extraction_v2() -> None:
+    assert {(template.id, template.version) for template in _ACTIVE_EXTRACT_TEMPLATES} == {
+        ("climbing.extract", 2),
+        ("gym.extract", 2),
+        ("cycling.extract", 2),
+    }
+
+
+def test_every_extraction_version_stays_registered_for_evals() -> None:
+    registry = _registry()
+
+    for template in _ACTIVE_EXTRACT_TEMPLATES:
+        for version in range(1, template.version + 1):
+            assert registry.get(template.id, version).version == version
+
+
+@pytest.mark.parametrize("template", _ACTIVE_EXTRACT_TEMPLATES, ids=lambda t: t.id)
+async def test_extraction_instructions_carry_no_persona(
+    template: PromptTemplate[ExtractDeps, BaseModel],
+) -> None:
+    """Extraction never writes to the athlete, so it does without the persona, in the app and
+    in evals alike (ADR-0026 step 6). Chitchat keeps it (`test_chitchat.py`)."""
+    deps = _deps()
+    seen: list[str] = []
+
+    def respond(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        seen.append(str(messages[0].instructions))  # type: ignore[union-attr]
+        return ModelResponse(parts=[TextPart("{}")])
+
+    agent = _registry().build_agent(template.id, template.version)
+    with pytest.raises(UnexpectedModelBehavior):
+        await agent.run(deps.message, deps=deps, model=FunctionModel(respond))
+
+    assert template.persona is False
+    assert _PERSONA_LINE not in seen[0]
+    assert _PERSONA_LINE not in _render_active(template.id, template.version, deps)
+    assert _PERSONA_LINE in _registry().load_persona()
+
+
+def test_extraction_history_holds_only_the_athletes_own_messages() -> None:
+    history = [
+        ChatTurn(role="user", text="Did 3 \N{MULTIPLICATION SIGN} 6b today"),
+        ChatTurn(role="assistant", text="Check it before it's saved."),
+        ChatTurn(role="user", text="also a 6c"),
+    ]
+
+    deps = _deps(message="and 2 more of those", history=history)
+
+    assert deps.history == [history[0], history[2]]
+
+
+def test_eval_deps_drop_assistant_lines_too() -> None:
+    """Eval datasets pass deps as written, so the deps model itself keeps the athlete's turns:
+    evals read what the app reads."""
+    deps = ExtractDeps.model_validate(
+        {
+            "message": "and 2 more of those",
+            "history": [
+                {"role": "user", "text": "3 \N{MULTIPLICATION SIGN} 6b"},
+                {"role": "assistant", "text": "Nice! Here's your draft."},
+            ],
+            "today": "2026-09-16",
+            "weekday": "Wednesday",
+            "now_local": "2026-09-16T19:00:00+02:00",
+            "timezone": "Europe/Warsaw",
+        }
+    )
+
+    assert deps.history == [ChatTurn(role="user", text="3 \N{MULTIPLICATION SIGN} 6b")]
+
+
+@pytest.mark.parametrize("template", _ACTIVE_EXTRACT_TEMPLATES, ids=lambda t: t.id)
+def test_rendered_extraction_history_contains_no_assistant_line(
+    template: PromptTemplate[ExtractDeps, BaseModel],
+) -> None:
+    history = [
+        ChatTurn(role="user", text="Did 3 \N{MULTIPLICATION SIGN} 6b today"),
+        ChatTurn(role="assistant", text="Check it before it's saved."),
+    ]
+
+    rendered = _render_active(
+        template.id, template.version, _deps(message="and 2 more", history=history)
+    )
+
+    assert "Did 3 \N{MULTIPLICATION SIGN} 6b today" in rendered
+    assert "assistant" not in rendered
+    assert "Check it before it's saved." not in rendered
+
+
+@pytest.mark.parametrize("template", _ACTIVE_EXTRACT_TEMPLATES, ids=lambda t: t.id)
+def test_two_renders_a_minute_apart_share_the_static_prefix(
+    template: PromptTemplate[ExtractDeps, BaseModel],
+) -> None:
+    """Every rule comes before the first dynamic part, so the static prefix can be cached
+    (ADR-0026 step 6); the date, time, history and message come last."""
+    first = _render_active(template.id, template.version, _deps(now=_NOW))
+    second = _render_active(
+        template.id,
+        template.version,
+        _deps(now=_NOW + timedelta(minutes=1), message="and 2 more", history=[]),
+    )
+
+    dynamic_start = first.index("Today is")
+    assert second.index("Today is") == dynamic_start
+    assert first[:dynamic_start] == second[:dynamic_start]
+    assert first[dynamic_start:] != second[dynamic_start:]
+    static = first[:dynamic_start]
+    for heading in ("## Date", "## Activities"):
+        assert heading in static
+    assert "turn 11" in first[dynamic_start:]
+    assert "I did 3 6b+ yesterday" in first[dynamic_start:]

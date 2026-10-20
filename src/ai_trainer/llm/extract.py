@@ -8,7 +8,7 @@ from datetime import date, datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from pydantic_evals.evaluators import Evaluator, EvaluatorContext
 
 from ai_trainer.domain.sports.base import ExtractionSpec
@@ -21,7 +21,9 @@ from ai_trainer.llm.router import ChatTurn, recent_turns
 class ExtractDeps(BaseModel):
     """Every extraction template's variables (ADR-0008): the message, the recent turns, and
     the time context (ADR-0014). `weekday` is computed here, so "on Tuesday" never depends on
-    the model knowing what day a date falls on."""
+    the model knowing what day a date falls on. History keeps only the athlete's own turns: the
+    assistant's are fixed lines with no draft content (ADR-0026 step 6). This deps model drops
+    them itself, so an eval case's deps read like the app's."""
 
     message: str
     history: list[ChatTurn] = []
@@ -29,6 +31,11 @@ class ExtractDeps(BaseModel):
     weekday: str
     now_local: datetime
     timezone: str
+
+    @field_validator("history")
+    @classmethod
+    def _athletes_turns_only(cls, history: list[ChatTurn]) -> list[ChatTurn]:
+        return [turn for turn in history if turn.role == "user"]
 
 
 def build_extract_deps(
@@ -52,10 +59,13 @@ def build_extract_deps(
     )
 
 
-def extract_template(spec: ExtractionSpec) -> PromptTemplate[ExtractDeps, BaseModel]:
+def extract_template(
+    spec: ExtractionSpec, *, version: int | None = None
+) -> PromptTemplate[ExtractDeps, BaseModel]:
+    """The plugin's template at its active version, or at an earlier `version` for evals."""
     return PromptTemplate(
         id=spec.template_id,
-        version=spec.version,
+        version=spec.version if version is None else version,
         locale="en",
         deps_type=ExtractDeps,
         output_type=spec.output_type,
@@ -65,15 +75,19 @@ def extract_template(spec: ExtractionSpec) -> PromptTemplate[ExtractDeps, BaseMo
         # The app reads the output: the same log should give the same draft twice.
         temperature=0,
         output_retries=2,
+        # It never writes to the athlete (ADR-0026 step 6).
+        persona=False,
     )
 
 
 def extract_templates(sports: SportRegistry) -> list[PromptTemplate[ExtractDeps, BaseModel]]:
-    """One template per sport that names one, in registry order."""
+    """Every version of each sport's template, in registry order. Earlier versions stay
+    registered so evals can compare them (ADR-0008 invariant 2); the app runs the active one."""
     return [
-        extract_template(plugin.extraction)
+        extract_template(plugin.extraction, version=version)
         for plugin in sports.all()
         if plugin.extraction is not None
+        for version in range(1, plugin.extraction.version + 1)
     ]
 
 

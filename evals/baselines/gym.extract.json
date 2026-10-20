@@ -1,6 +1,6 @@
 {
   "template_id": "gym.extract",
-  "version": 1,
+  "version": 2,
   "model": "z-ai/glm-5.3-flash",
   "assertions": 1.0,
   "scores": {},

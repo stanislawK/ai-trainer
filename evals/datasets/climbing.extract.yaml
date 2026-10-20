@@ -760,6 +760,98 @@ cases:
       style: onsight
       attempts: null
       route: null
+- name: 'follow-up: "2 more of those" takes the grade from the athlete''s turn (#190)'
+  inputs:
+    prompt: and 2 more of those
+    deps:
+      message: and 2 more of those
+      history:
+      - role: user
+        text: Did 3 × 6b
+      today: '2026-09-16'
+      weekday: Wednesday
+      now_local: '2026-09-16T19:00:00+02:00'
+      timezone: Europe/Warsaw
+  metadata: null
+  expected_output:
+    occurred_on: '2026-09-16'
+    date_source: assumed_today
+    activities:
+    - kind: lead
+      count: 2
+      grade: 6b
+      style: null
+      attempts: null
+      route: null
+- name: 'follow-up: "one more at that grade" takes the grade, not the count (#190)'
+  inputs:
+    prompt: one more at that grade
+    deps:
+      message: one more at that grade
+      history:
+      - role: user
+        text: Did 4 6B
+      today: '2026-09-16'
+      weekday: Wednesday
+      now_local: '2026-09-16T19:00:00+02:00'
+      timezone: Europe/Warsaw
+  metadata: null
+  expected_output:
+    occurred_on: '2026-09-16'
+    date_source: assumed_today
+    activities:
+    - kind: boulder
+      count: 1
+      grade: 6B
+      style: null
+      attempts: null
+      route: null
+- name: 'follow-up polish: "i jeszcze 2 takie" after routes (#190)'
+  inputs:
+    prompt: i jeszcze 2 takie
+    deps:
+      message: i jeszcze 2 takie
+      history:
+      - role: user
+        text: Zrobiłem 3 drogi 6a+
+      today: '2026-09-16'
+      weekday: Wednesday
+      now_local: '2026-09-16T19:00:00+02:00'
+      timezone: Europe/Warsaw
+  metadata: null
+  expected_output:
+    occurred_on: '2026-09-16'
+    date_source: assumed_today
+    activities:
+    - kind: lead
+      count: 2
+      grade: 6a+
+      style: null
+      attempts: null
+      route: null
+- name: 'follow-up: "after those" adds a new climb, earlier ones not copied (#190)'
+  inputs:
+    prompt: After those I also led a 6b+
+    deps:
+      message: After those I also led a 6b+
+      history:
+      - role: user
+        text: Did 4 6B boulders
+      today: '2026-09-16'
+      weekday: Wednesday
+      now_local: '2026-09-16T19:00:00+02:00'
+      timezone: Europe/Warsaw
+  metadata: null
+  expected_output:
+    occurred_on: '2026-09-16'
+    date_source: assumed_today
+    activities:
+    - kind: lead
+      count: 1
+      grade: 6b+
+      style: null
+      attempts: null
+      route: null
 evaluators:
 - DateMatch
 - ActivitiesMatch
