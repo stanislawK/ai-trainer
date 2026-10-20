@@ -5,7 +5,7 @@ from datetime import date, datetime
 from typing import Annotated, Any, Literal, Union
 from zoneinfo import ZoneInfo
 
-from pydantic import BaseModel, Field, create_model
+from pydantic import BaseModel, Field, create_model, model_validator
 from pydantic_evals.evaluators import Evaluator, EvaluatorContext
 
 from ai_trainer.domain.conversation import INTENT_KINDS
@@ -16,8 +16,11 @@ from ai_trainer.llm.prompts.template import PromptTemplate
 ROUTER_TEMPLATE_ID = "router"
 # Every version with a body file stays registered so evals can compare them (ADR-0008
 # invariant 2); the app runs the active one.
-ROUTER_VERSIONS = (1, 2)
-ACTIVE_ROUTER_VERSION = 2
+ROUTER_VERSIONS = (1, 2, 3)
+ACTIVE_ROUTER_VERSION = 3
+# From this version the router names one flat intent object and does without the persona
+# (ADR-0026 steps 6-7); earlier versions keep their union and persona for comparison.
+_LEAN_ROUTER_VERSION = 3
 
 
 _SPORT_INTENT_KIND = "log_session"
@@ -79,18 +82,56 @@ def _intent_model(kind: str, **fields: Any) -> type[BaseModel]:
     )
 
 
-def router_output_type(registry: SportRegistry) -> type[BaseModel]:
-    """`RouterOutput(intents: list[Intent])`, `Intent` a union discriminated on `kind`.
-    `log_session.sport` is the registry's ids, so a new sport needs no code or template edit
-    (ADR-0006, ADR-0008)."""
-    sport_ids = tuple(plugin.id for plugin in registry.all())
+class _FlatIntent(BaseModel):
+    """The checks the flat intent's schema cannot carry: only `log_session` names a sport,
+    and it must. A reply that breaks them fails validation, so the model is asked again."""
+
+    @model_validator(mode="before")
+    @classmethod
+    def _sport_only_for_a_log(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        if data.get("kind") != _SPORT_INTENT_KIND:
+            return {key: value for key, value in data.items() if key != "sport"}
+        if data.get("sport") is None:
+            raise ValueError("a log_session needs its sport")
+        return data
+
+
+def _flat_intent(sport_ids: tuple[str, ...]) -> Any:
+    return create_model(
+        "Intent",
+        __base__=_FlatIntent,
+        kind=(Literal[INTENT_KINDS], ...),
+        sport=(Literal[sport_ids] | None, None),
+        span=(str, ...),
+        confidence=(float, Field(ge=0, le=1)),
+    )
+
+
+def _discriminated_intent(sport_ids: tuple[str, ...]) -> Any:
     intent_models = [
         _intent_model(kind, sport=(Literal[sport_ids], ...))
         if kind == _SPORT_INTENT_KIND
         else _intent_model(kind)
         for kind in INTENT_KINDS
     ]
-    intent: Any = Annotated[Union[tuple(intent_models)], Field(discriminator="kind")]  # noqa: UP007
+    return Annotated[Union[tuple(intent_models)], Field(discriminator="kind")]  # noqa: UP007
+
+
+def router_output_type(
+    registry: SportRegistry, *, version: int = ACTIVE_ROUTER_VERSION
+) -> type[BaseModel]:
+    """`RouterOutput(intents: list[Intent])`. From v3, `Intent` is one object with a `kind` enum
+    and a `sport` only a `log_session` carries (ADR-0026 step 7); before, a union discriminated
+    on `kind`. `sport` is the registry's ids, so a new sport needs no code or template edit
+    (ADR-0006, ADR-0008)."""
+    sport_ids = tuple(plugin.id for plugin in registry.all())
+    intent: Any = (
+        _flat_intent(sport_ids)
+        if version >= _LEAN_ROUTER_VERSION
+        else _discriminated_intent(sport_ids)
+    )
     return create_model("RouterOutput", intents=(Annotated[list[intent], Field(min_length=1)], ...))
 
 
@@ -102,13 +143,15 @@ def router_template(
         version=version,
         locale="en",
         deps_type=RouterDeps,
-        output_type=router_output_type(registry),
+        output_type=router_output_type(registry, version=version),
         model_settings_key="router_model",
         provider_settings_key="router_provider_preferences",
         reasoning_effort_settings_key="router_reasoning_effort",
         temperature=0,
         # One malformed reply in a 132-call eval run aborted the baseline write (#127).
         output_retries=2,
+        # The router never writes to the athlete (ADR-0026 step 6).
+        persona=version < _LEAN_ROUTER_VERSION,
     )
 
 

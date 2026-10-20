@@ -27,6 +27,10 @@ from ai_trainer.llm.router import (
     router_template,
 )
 
+# v1 and v2 route with a union discriminated on `kind`; v3 with one flat intent (ADR-0026 step 7).
+_EVERY_SHAPE = pytest.mark.parametrize("version", [2, 3])
+_FLAT_VERSION = 3
+
 _PROMPTS_ROOT = Path(__file__).parents[2] / "src" / "ai_trainer" / "llm" / "prompts"
 _FIXTURES_ROOT = Path(__file__).parent.parent / "fixtures" / "prompts"
 
@@ -67,8 +71,9 @@ def test_every_adr_0008_intent_kind_is_declared() -> None:
     )
 
 
-def test_output_accepts_a_mixed_log_and_question() -> None:
-    output_type = router_output_type(default_sport_registry())
+@_EVERY_SHAPE
+def test_output_accepts_a_mixed_log_and_question(version: int) -> None:
+    output_type = router_output_type(default_sport_registry(), version=version)
 
     output = output_type.model_validate(
         {
@@ -82,8 +87,9 @@ def test_output_accepts_a_mixed_log_and_question() -> None:
     assert [intent.kind for intent in output.intents] == ["log_session", "ask_training_question"]  # type: ignore[attr-defined]
 
 
-def test_output_rejects_an_unknown_intent_kind() -> None:
-    output_type = router_output_type(default_sport_registry())
+@_EVERY_SHAPE
+def test_output_rejects_an_unknown_intent_kind(version: int) -> None:
+    output_type = router_output_type(default_sport_registry(), version=version)
 
     with pytest.raises(ValidationError):
         output_type.model_validate(
@@ -91,13 +97,16 @@ def test_output_rejects_an_unknown_intent_kind() -> None:
         )
 
 
-def test_output_rejects_an_empty_intent_list() -> None:
+@_EVERY_SHAPE
+def test_output_rejects_an_empty_intent_list(version: int) -> None:
     with pytest.raises(ValidationError):
-        router_output_type(default_sport_registry()).model_validate({"intents": []})
+        router_output_type(default_sport_registry(), version=version).model_validate(
+            {"intents": []}
+        )
 
 
-def test_every_intent_names_its_kind_before_its_span_and_confidence() -> None:
-    schema = router_output_type(default_sport_registry()).model_json_schema()
+def test_every_v2_intent_names_its_kind_before_its_span_and_confidence() -> None:
+    schema = router_output_type(default_sport_registry(), version=2).model_json_schema()
 
     for name, variant in schema["$defs"].items():
         fields = list(variant["properties"])
@@ -139,9 +148,10 @@ async def test_the_agent_rejects_and_retries_an_unknown_intent_kind_twice() -> N
     assert calls == 3
 
 
+@_EVERY_SHAPE
 @pytest.mark.parametrize("confidence", [-0.1, 1.1])
-def test_output_rejects_a_confidence_outside_zero_to_one(confidence: float) -> None:
-    output_type = router_output_type(default_sport_registry())
+def test_output_rejects_a_confidence_outside_zero_to_one(version: int, confidence: float) -> None:
+    output_type = router_output_type(default_sport_registry(), version=version)
 
     with pytest.raises(ValidationError):
         output_type.model_validate(
@@ -149,8 +159,9 @@ def test_output_rejects_a_confidence_outside_zero_to_one(confidence: float) -> N
         )
 
 
-def test_output_rejects_a_log_session_without_a_sport_from_the_registry() -> None:
-    output_type = router_output_type(default_sport_registry())
+@_EVERY_SHAPE
+def test_output_rejects_a_log_session_without_a_sport_from_the_registry(version: int) -> None:
+    output_type = router_output_type(default_sport_registry(), version=version)
 
     with pytest.raises(ValidationError):
         output_type.model_validate(
@@ -162,17 +173,20 @@ def test_output_rejects_a_log_session_without_a_sport_from_the_registry() -> Non
         )
 
 
-def test_a_fourth_sport_reaches_the_router_options_without_a_template_edit() -> None:
+@_EVERY_SHAPE
+def test_a_fourth_sport_reaches_the_router_options_without_a_template_edit(version: int) -> None:
     payload = {
         "intents": [{"kind": "log_session", "sport": "running", "confidence": 0.9, "span": "10k"}]
     }
 
     with pytest.raises(ValidationError):
-        router_output_type(default_sport_registry()).model_validate(payload)
-    output = router_output_type(_fourth_sport_registry()).model_validate(payload)
+        router_output_type(default_sport_registry(), version=version).model_validate(payload)
+    output = router_output_type(_fourth_sport_registry(), version=version).model_validate(payload)
 
     assert output.intents[0].sport == "running"  # type: ignore[attr-defined]
-    schema = router_template(_fourth_sport_registry()).output_type.model_json_schema()
+    schema = router_template(
+        _fourth_sport_registry(), version=version
+    ).output_type.model_json_schema()
     assert "running" in str(schema)
 
 
@@ -297,8 +311,8 @@ def test_build_router_deps_resolves_today_and_now_local_in_the_user_timezone() -
     assert deps.athlete_sports == ["gym"]
 
 
-def test_the_active_router_version_is_two() -> None:
-    assert ACTIVE_ROUTER_VERSION == 2
+def test_the_active_router_version_is_three() -> None:
+    assert ACTIVE_ROUTER_VERSION == 3
     assert router_template(default_sport_registry()).version == ACTIVE_ROUTER_VERSION
 
 
@@ -309,7 +323,7 @@ def test_an_earlier_router_version_can_still_be_built_for_comparison() -> None:
 def test_the_prompt_registry_holds_every_router_version_with_a_body() -> None:
     registry = build_prompt_registry(_PROMPTS_ROOT, default_sport_registry())
 
-    for version in (1, 2):
+    for version in (1, 2, 3):
         assert registry.get(ROUTER_TEMPLATE_ID, version).version == version
         assert registry.build_agent(ROUTER_TEMPLATE_ID, version) is not None
 
@@ -325,3 +339,107 @@ def test_the_eval_agent_carries_the_templates_temperature() -> None:
 
     assert isinstance(agent.model_settings, dict)
     assert agent.model_settings.get("temperature") == 0
+
+
+def test_v3_offers_every_intent_kind_in_one_intent_object() -> None:
+    """One object with a `kind` enum replaces the ten near-identical `$defs` (ADR-0026 step 7)."""
+    schema = router_output_type(default_sport_registry(), version=_FLAT_VERSION).model_json_schema()
+
+    assert list(schema["$defs"]) == ["Intent"]
+    intent = schema["$defs"]["Intent"]
+    assert list(intent["properties"]) == ["kind", "sport", "span", "confidence"]
+    assert intent["properties"]["kind"]["enum"] == list(INTENT_KINDS)
+    assert sorted(intent["required"]) == ["confidence", "kind", "span"]
+    sport_ids = [plugin.id for plugin in default_sport_registry().all()]
+    assert {"enum": sport_ids, "type": "string"} in intent["properties"]["sport"]["anyOf"]
+
+
+@pytest.mark.parametrize("sport", [None, "climbing", "running"])
+def test_v3_ignores_the_sport_of_any_kind_but_log_session(sport: str | None) -> None:
+    output = router_output_type(default_sport_registry(), version=_FLAT_VERSION).model_validate(
+        {"intents": [{"kind": "chitchat", "sport": sport, "confidence": 0.9, "span": "hi"}]}
+    )
+
+    assert output.intents[0].sport is None  # type: ignore[attr-defined]
+
+
+def test_v3_rejects_a_log_session_whose_sport_is_null() -> None:
+    with pytest.raises(ValidationError, match="log_session needs its sport"):
+        router_output_type(default_sport_registry(), version=_FLAT_VERSION).model_validate(
+            {"intents": [{"kind": "log_session", "sport": None, "confidence": 1, "span": "x"}]}
+        )
+
+
+def test_v3_rejects_an_intent_that_is_not_an_object() -> None:
+    with pytest.raises(ValidationError):
+        router_output_type(default_sport_registry(), version=_FLAT_VERSION).model_validate(
+            {"intents": ["chitchat"]}
+        )
+
+
+async def test_v3_retries_a_log_session_without_a_sport() -> None:
+    registry = PromptRegistry(root=_PROMPTS_ROOT)
+    registry.register(router_template(default_sport_registry(), version=_FLAT_VERSION))
+    agent = registry.build_agent(ROUTER_TEMPLATE_ID, _FLAT_VERSION)
+    replies = [
+        {"kind": "log_session", "confidence": 0.9, "span": "5x5"},
+        {"kind": "log_session", "sport": "gym", "confidence": 0.9, "span": "5x5"},
+    ]
+    calls = 0
+
+    def respond(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        nonlocal calls
+        intent = replies[calls]
+        calls += 1
+        return ModelResponse(parts=[ToolCallPart(info.output_tools[0].name, {"intents": [intent]})])
+
+    result = await agent.run("x", deps=_deps(), model=FunctionModel(respond))
+
+    assert calls == 2
+    assert result.output.intents[0].sport == "gym"  # type: ignore[union-attr]
+
+
+async def test_v3_instructions_carry_no_persona() -> None:
+    """The router never writes to the athlete, so v3 does without the persona, in the app and in
+    evals alike (ADR-0026 step 6). v2 keeps it, so the comparison runs v2 as it was."""
+    registry = build_prompt_registry(_PROMPTS_ROOT, default_sport_registry())
+    persona_line = registry.load_persona().splitlines()[0]
+    seen: list[str] = []
+
+    def respond(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        seen.append(str(messages[0].instructions))  # type: ignore[union-attr]
+        return ModelResponse(parts=[TextPart("{}")])
+
+    agent = registry.build_agent(ROUTER_TEMPLATE_ID, _FLAT_VERSION)
+    with pytest.raises(UnexpectedModelBehavior):
+        await agent.run("x", deps=_deps(), model=FunctionModel(respond))
+
+    assert router_template(default_sport_registry(), version=_FLAT_VERSION).persona is False
+    assert persona_line not in seen[0]
+    assert persona_line not in registry.render_instructions(ROUTER_TEMPLATE_ID, 3, _deps())
+    assert persona_line in registry.render_instructions(ROUTER_TEMPLATE_ID, 2, _deps())
+
+
+def test_two_v3_renders_share_the_static_prefix() -> None:
+    """Every rule comes before the first dynamic part, so the static prefix can be cached
+    (ADR-0026 step 6); the date, sports, history and message come last."""
+    registry = build_prompt_registry(_PROMPTS_ROOT, default_sport_registry())
+    first = registry.render_instructions(
+        ROUTER_TEMPLATE_ID,
+        _FLAT_VERSION,
+        _deps(history=[{"role": "user", "text": "Went bouldering"}], athlete_sports=["climbing"]),
+    )
+    second = registry.render_instructions(
+        ROUTER_TEMPLATE_ID,
+        _FLAT_VERSION,
+        _deps(message="and 2 more", today="2026-10-01", now_local="2026-10-01T08:00:00+02:00"),
+    )
+
+    dynamic_start = first.index("Today is")
+    assert second.index("Today is") == dynamic_start
+    assert first[:dynamic_start] == second[:dynamic_start]
+    static, dynamic = first[:dynamic_start], first[dynamic_start:]
+    for heading in ("## Intents", "## Rules"):
+        assert heading in static
+    for value in ("Went bouldering", "climbing", "Did 5x5 squats at 100 kg", "2026-09-30"):
+        assert value in dynamic

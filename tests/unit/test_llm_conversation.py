@@ -149,7 +149,7 @@ async def test_route_runs_the_router_template_and_returns_its_intents_in_order()
     [call] = gateway.runs
     assert (call["template_id"], call["template_version"], call["model_id"]) == (
         "router",
-        2,
+        3,
         "test/router-model",
     )
     assert (call["user_id"], call["prompt"]) == (context.user_id, "log my ride, also hi")
@@ -170,9 +170,11 @@ async def test_route_runs_the_router_template_and_returns_its_intents_in_order()
         history_turns=10,
     )
     expected = build_prompt_registry(_PROMPTS_ROOT, default_sport_registry()).render_instructions(
-        "router", 2, deps
+        "router", 3, deps
     )
     assert call["instructions"] == expected
+    # No persona (ADR-0026 step 6).
+    assert expected.startswith("# Task: route the athlete's message")
 
 
 async def test_a_failed_router_call_routes_nowhere_and_reports_its_outcome() -> None:
