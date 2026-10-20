@@ -59,7 +59,7 @@ def default_sport_registry() -> SportRegistry:
                 icon="mountain",
                 extraction=ExtractionSpec(
                     template_id="climbing.extract",
-                    version=1,
+                    version=2,
                     output_type=ClimbingExtraction,
                     payload_type=ClimbingPayload,
                     payload_version=CLIMBING_PAYLOAD_VERSION,
@@ -72,7 +72,7 @@ def default_sport_registry() -> SportRegistry:
                 icon="dumbbell",
                 extraction=ExtractionSpec(
                     template_id="gym.extract",
-                    version=1,
+                    version=2,
                     output_type=GymExtraction,
                     payload_type=GymPayload,
                     payload_version=GYM_PAYLOAD_VERSION,
@@ -85,7 +85,7 @@ def default_sport_registry() -> SportRegistry:
                 icon="bike",
                 extraction=ExtractionSpec(
                     template_id="cycling.extract",
-                    version=1,
+                    version=2,
                     output_type=CyclingExtraction,
                     payload_type=CyclingPayload,
                     payload_version=CYCLING_PAYLOAD_VERSION,

@@ -661,6 +661,53 @@ cases:
         value: 300
         unit: ft
       zones: []
+- name: 'follow-up: an added ride is listed alone, nothing carried over (#190)'
+  inputs:
+    prompt: And another 20 km on the way home
+    deps:
+      message: And another 20 km on the way home
+      history:
+      - role: user
+        text: Rode 62 km with 800 m climbing
+      today: '2026-09-16'
+      weekday: Wednesday
+      now_local: '2026-09-16T19:00:00+02:00'
+      timezone: Europe/Warsaw
+  metadata: null
+  expected_output:
+    occurred_on: '2026-09-16'
+    date_source: assumed_today
+    activities:
+    - distance:
+        original: 20 km
+        value: 20
+        unit: km
+      moving_time_min: null
+      elevation: null
+      zones: []
+- name: 'follow-up polish: a trainer ride added after an earlier ride (#190)'
+  inputs:
+    prompt: Do tego 1:15 na trenażerze w Z2
+    deps:
+      message: Do tego 1:15 na trenażerze w Z2
+      history:
+      - role: user
+        text: 45 km z kolegami
+      today: '2026-09-16'
+      weekday: Wednesday
+      now_local: '2026-09-16T19:00:00+02:00'
+      timezone: Europe/Warsaw
+  metadata: null
+  expected_output:
+    occurred_on: '2026-09-16'
+    date_source: assumed_today
+    activities:
+    - distance: null
+      moving_time_min: 75
+      elevation: null
+      zones:
+      - zone: 2
+        minutes: 75
 evaluators:
 - DateMatch
 - ActivitiesMatch

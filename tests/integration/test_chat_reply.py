@@ -899,7 +899,7 @@ async def test_a_climbing_log_shows_a_draft_card_that_survives_a_reload_and_save
     [_, reply] = await _history(db_session_factory, user.id)
     assert (reply.template_id, reply.template_version, reply.sports) == (
         "climbing.extract",
-        1,
+        2,
         ("climbing",),
     )
     async with db_session_factory() as db:

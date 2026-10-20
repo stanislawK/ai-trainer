@@ -184,7 +184,7 @@ def test_the_registry_wires_cycling_to_its_extraction_template_and_payload() -> 
 
     assert (plugin.icon, plugin.label_key) == ("bike", "sport.cycling.label")
     assert plugin.extraction is not None
-    assert (plugin.extraction.template_id, plugin.extraction.version) == ("cycling.extract", 1)
+    assert (plugin.extraction.template_id, plugin.extraction.version) == ("cycling.extract", 2)
     assert plugin.extraction.output_type is CyclingExtraction
     assert plugin.extraction.payload_type is CyclingPayload
     assert plugin.extraction.payload_version == CYCLING_PAYLOAD_VERSION

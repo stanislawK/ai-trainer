@@ -297,6 +297,16 @@ def test_history_and_message_sections_are_taken_out_of_the_instructions() -> Non
     )
 
 
+def test_the_extraction_v2_heading_counts_as_history_too() -> None:
+    """Extraction v2 names its history after the athlete (#190); it is still history."""
+    instructions = "rules\n## The athlete's recent messages\n- 3 6b\n## Latest message\n2 more"
+
+    parts = _parts(instructions, [])
+
+    assert (parts.history, parts.message) == (len("- 3 6b"), len("2 more"))
+    assert parts.instructions == len(instructions) - len("- 3 6b") - len("2 more")
+
+
 def test_an_empty_history_and_the_blank_lines_around_sections_are_instructions() -> None:
     instructions = "rules\n\n## Recent messages\n\n\n## Latest message\nsent 6b\n\n## Rules\nmore"
 

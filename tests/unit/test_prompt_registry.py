@@ -150,3 +150,36 @@ def test_render_instructions_rejects_deps_of_another_type() -> None:
 
 def test_load_fixed_reply_reads_a_reply_file_by_id_and_version() -> None:
     assert _registry().load_fixed_reply("fixed_reply", 1) == "Coming soon."
+
+
+_NO_PERSONA_TEMPLATE = PromptTemplate(
+    id="sample",
+    version=1,
+    locale="en",
+    deps_type=SampleDeps,
+    output_type=SampleOutput,
+    model_settings_key="sample_template_model",
+    persona=False,
+)
+
+
+async def test_a_template_that_opts_out_of_the_persona_gets_none_in_app_and_evals() -> None:
+    """A template that never writes to the athlete does without the persona (ADR-0026 step 6):
+    neither `render_instructions` (the app) nor `build_agent` (the eval runner) adds it."""
+    registry = PromptRegistry(root=_FIXTURES_ROOT)
+    registry.register(_NO_PERSONA_TEMPLATE)
+    deps = SampleDeps(name="Alex", sport="climbing")
+    seen: list[str] = []
+
+    def respond(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        request = messages[0]
+        assert isinstance(request, ModelRequest)
+        seen.append(str(request.instructions))
+        return _reply_response(messages, info)
+
+    await registry.build_agent("sample", 1).run("hi", deps=deps, model=FunctionModel(respond))
+    rendered = registry.render_instructions("sample", 1, deps)
+
+    assert rendered == seen[0]
+    assert "supportive training companion" not in rendered
+    assert rendered.startswith("Greet Alex, who trains climbing.")

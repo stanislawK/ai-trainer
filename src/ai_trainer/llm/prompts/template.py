@@ -32,6 +32,9 @@ class PromptTemplate[DepsT: BaseModel, OutputT: TemplateOutput]:
     # How often a reply that fails the output schema is sent back to the model. `None` leaves
     # Pydantic AI's default of 1.
     output_retries: int | None = None
+    # Whether the persona comes before the template. A template that never writes to the
+    # athlete (the extraction templates) does without it (ADR-0026 step 6).
+    persona: bool = True
 
 
 class UnknownPromptTemplateError(LookupError):

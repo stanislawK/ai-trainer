@@ -618,6 +618,83 @@ cases:
         value: 110
         unit: kg
       rir: null
+- name: 'follow-up: 2 more sets of the squat from an earlier message (#190)'
+  inputs:
+    prompt: And 2 more sets of squat, 5 reps at 100kg
+    deps:
+      message: And 2 more sets of squat, 5 reps at 100kg
+      history:
+      - role: user
+        text: squat 3x5 at 100kg
+      today: '2026-09-16'
+      weekday: Wednesday
+      now_local: '2026-09-16T19:00:00+02:00'
+      timezone: Europe/Warsaw
+  metadata: null
+  expected_output:
+    occurred_on: '2026-09-16'
+    date_source: assumed_today
+    activities:
+    - name: squat
+      sets: 2
+      reps: 5
+      load:
+        original: 100kg
+        value: 100
+        unit: kg
+      rir: null
+- name: 'follow-up polish: jeszcze wyciskanie after an earlier bench (#190)'
+  inputs:
+    prompt: Jeszcze wyciskanie 2x6 na 75 kg
+    deps:
+      message: Jeszcze wyciskanie 2x6 na 75 kg
+      history:
+      - role: user
+        text: Wyciskanie 3x8 na 70 kg
+      today: '2026-09-16'
+      weekday: Wednesday
+      now_local: '2026-09-16T19:00:00+02:00'
+      timezone: Europe/Warsaw
+  metadata: null
+  expected_output:
+    occurred_on: '2026-09-16'
+    date_source: assumed_today
+    activities:
+    - name: wyciskanie
+      sets: 2
+      reps: 6
+      load:
+        original: 75 kg
+        value: 75
+        unit: kg
+      rir: null
+- name: 'follow-up: only the new exercise after two earlier lifts (#190)'
+  inputs:
+    prompt: Also face pulls 3x15 at 20 kg
+    deps:
+      message: Also face pulls 3x15 at 20 kg
+      history:
+      - role: user
+        text: Bench 4x8 at 70kg
+      - role: user
+        text: Rows 4x10 at 60kg
+      today: '2026-09-16'
+      weekday: Wednesday
+      now_local: '2026-09-16T19:00:00+02:00'
+      timezone: Europe/Warsaw
+  metadata: null
+  expected_output:
+    occurred_on: '2026-09-16'
+    date_source: assumed_today
+    activities:
+    - name: face pulls
+      sets: 3
+      reps: 15
+      load:
+        original: 20 kg
+        value: 20
+        unit: kg
+      rir: null
 evaluators:
 - DateMatch
 - ActivitiesMatch

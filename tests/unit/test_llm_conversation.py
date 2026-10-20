@@ -248,11 +248,11 @@ async def test_extract_runs_the_sports_extraction_template_through_the_gateway()
 
     assert extraction.outcome is LlmCallOutcome.SUCCESS
     assert extraction.output == ClimbingExtraction.model_validate(_CLIMB_OUTPUT)
-    assert extraction.template == TemplateRef(id="climbing.extract", version=1)
+    assert extraction.template == TemplateRef(id="climbing.extract", version=2)
     [call] = gateway.runs
     assert (call["template_id"], call["template_version"], call["model_id"]) == (
         "climbing.extract",
-        1,
+        2,
         "test/extract-model",
     )
     assert call["output_type"] is ClimbingExtraction
@@ -269,9 +269,13 @@ async def test_extract_runs_the_sports_extraction_template_through_the_gateway()
         history_turns=10,
     )
     expected = build_prompt_registry(_PROMPTS_ROOT, default_sport_registry()).render_instructions(
-        "climbing.extract", 1, deps
+        "climbing.extract", 2, deps
     )
     assert call["instructions"] == expected
+    # The athlete's own turn only, and no persona (ADR-0026 step 6).
+    assert "- earlier\n" in call["instructions"]
+    assert "noted" not in call["instructions"]
+    assert "training companion" not in call["instructions"]
 
 
 async def test_a_failed_extraction_returns_no_draft_and_its_outcome() -> None:

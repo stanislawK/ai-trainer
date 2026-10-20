@@ -3,8 +3,9 @@
 Lines are grouped into gateway calls by their `call` id; a call's latency and tokens are the sums
 of its lines, as for its `llm_calls` row (ADR-0018). Prompt size is attributed in characters, never
 estimated tokens (ADR-0018 invariant 6): every template renders the recent turns and the latest
-message into its instructions under `## Recent messages` and `## Latest message`, so those sections
-count as history and message rather than instructions.
+message into its instructions under `## Recent messages` (extraction v2: `## The athlete's recent
+messages`) and `## Latest message`, so those sections count as history and message rather than
+instructions.
 """
 
 import json
@@ -18,7 +19,11 @@ from typing import TextIO
 
 from pydantic import AwareDatetime, BaseModel, JsonValue, ValidationError
 
-_SECTION = re.compile(r"^## (Recent messages|Latest message)\n(.*?)(?=\n## |\Z)", re.M | re.S)
+_SECTION = re.compile(
+    r"^## (Recent messages|The athlete's recent messages|Latest message)\n(.*?)(?=\n## |\Z)",
+    re.M | re.S,
+)
+_HISTORY_SECTIONS = ("Recent messages", "The athlete's recent messages")
 _TIMED_OUT = "CancelledError"
 
 
@@ -114,7 +119,7 @@ def prompt_parts(line: DebugLogLine) -> PromptParts:
     instructions = line.instructions or ""
     # The blank lines a template leaves around a section are layout, so they stay instructions.
     sections = {name: len(body.strip()) for name, body in _SECTION.findall(instructions)}
-    history = sections.get("Recent messages", 0)
+    history = sum(sections.get(name, 0) for name in _HISTORY_SECTIONS)
     message = sections.get("Latest message", 0)
     parts = [part for item in line.messages for part in _parts_of(item)]
     last_prompt = max(
