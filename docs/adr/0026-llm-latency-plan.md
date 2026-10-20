@@ -99,5 +99,63 @@ A log takes 19–43 s from send to draft card, with a median of 35 s (ADR-0025).
     - `climbing.extract`: 0.984 against 1.000. That is a regression (invariant 2), the same figure #186 got at effort `low`.
     - `router`: ran at v1 rather than the active v2, so it is not comparable.
     - So `.env.example` recommends no provider preferences, the committed baselines stay as they were, and the code defaults stay unset. #188 picks the values on its own evals and the latency scenario.
+- **Step 2 result (#188, 2026-10-20).** The owner kept `z-ai/glm-5.3-flash` at its default reasoning effort for the router and every extraction template, and promoted #187's routing, `{"sort":"latency","quantizations":["fp8","nvfp4"]}`, with timeouts of 5 s for the router and 30 s for extraction. `.env.example` carries those values, so the Step 4 result's "no provider preferences" recommendation no longer holds.
+  - **Shortlist** (`get-model`, `list-model-endpoints`, 2026-10-20). At model level, every candidate lists tools, structured outputs and `reasoning_effort`.
+    - `z-ai/glm-5.3-flash`: reasoning is mandatory (`max`, `high`, `low`; default `max`). It costs $0.048/$0.16 per M tokens on its cheapest upstream (fp4) and $0.15/$0.50 on the fast fp8 upstreams. Tested at default effort as the control, and at `low`.
+    - `deepseek/deepseek-v4-flash-0731` at `none`: reasoning is optional. A dated snapshot, 81 days old rather than days old. Its fast fp8 upstreams cost $0.06–0.13/$0.18–0.28.
+    - `openai/gpt-6-luna` at `none`: reasoning is optional. 28 days old, GA, and moderated.
+      - It costs $0.10/$0.50 on the default OpenAI and Azure tiers. The regional Azure endpoints and Bedrock cost $0.11/$0.55, the priority tier $0.20/$1.00, and the flex tier $0.05/$0.25 (p50 9.5 s).
+      - Every endpoint reports quantization `unknown`, so a `quantizations` filter matches none of them.
+    - **Per upstream:** gpt-6-luna offers all three capabilities on every endpoint. glm and DeepSeek have gaps on upstreams these variants can reach:
+      - BaseTen and CoreWeave report `tool_choice` `required: false`.
+      - BaseTen's DeepSeek endpoint lists no `structured_outputs`.
+      - Several fp8 hosts lack `structured_outputs`: Z.AI, SiliconFlow, AtlasCloud, GMICloud, Novita and StreamLake.
+      - Preferences set no `require_parameters`, so OpenRouter may route to such an upstream. No eval or scenario error came from a missing capability.
+  - **Method.**
+    - Evals: `ai-trainer-evals run <id> --repeat 3`, with `router` at v2, compared with the committed baselines (router 1.000, climbing 1.000, cycling 0.977, gym 0.994).
+    - Latency: `make latency-scenario` against a second app on :8001 with the cell's settings. Percentiles are the scenario's nearest rank. The athlete is climbing-only, so latency is measured on `climbing.extract` only.
+    - Each cell was measured once with timeouts unset. The two final setups were measured four times each, with their timeouts set, and pooled over 48 log turns.
+    - USD is per log turn, as min / median / mean / max. Per-run summaries are under `.llm-debug/latency-scenario-20261020T*.json`.
+
+    | Model · effort · routing | router | climbing | cycling | gym | p50 | p95 | Timeouts / errors | USD per log turn |
+    |---|---|---|---|---|---|---|---|---|
+    | **glm-5.3-flash · default · fp8 + nvfp4 (#187's), 4 runs** | **0.972** | **0.995** | **0.983** | **1.000** | **2.0 s** | **9.4 s** | **none** | **0.000091 / 0.000103 / 0.000226 / 0.001722** |
+    | glm-5.3-flash · default · fp8 | 1.000 | 0.984 | 0.983 | 1.000 | 11.8 s | 30.5 s | 1 timeout | mean 0.000814 |
+    | glm-5.3-flash · default · only baseten, morph | 1.000 | 0.984 | 0.989 | 1.000 | 8.5 s | 52.3 s | 3 timeouts | mean 0.000692 |
+    | glm-5.3-flash · low · fp8 | 1.000 | 0.984 | 0.971 | 1.000 | 3.8 s | 9.3 s | none | mean 0.000490 |
+    | glm-5.3-flash · low · only baseten, morph | 1.000 | 0.984 | 0.971 | 0.987 | 2.7 s | 9.0 s | none | mean 0.000450 |
+    | deepseek-v4-flash-0731 · none · fp8 | 0.950 | 0.979 | 0.966 | 0.981 | 3.1 s | 16.6 s | none | mean 0.000246 |
+    | deepseek-v4-flash-0731 · none · only coreweave, deepinfra, baseten | 0.965† | 0.984† | 0.966† | 0.981† | 3.7 s | 7.8 s | 6 errored turns | mean 0.000097 |
+    | gpt-6-luna · none · sort latency, 4 runs | 1.000 | 0.984 | 1.000 | 1.000 | 2.8 s | 10.5 s | none | 0.000129 / 0.000142 / 0.000210 / 0.000364 |
+    | gpt-6-luna · none · only azure | 1.000 | 0.984 | 1.000 | 1.000 | 2.8 s | 14.1 s | none | mean 0.000210 |
+
+    † Scored over the cases that completed. 18 cases errored on upstream 429 rate limits (BaseTen and DeepInfra's shared pool) and 504 provider timeouts, not on a missing capability. `llm_calls` records only `outcome: error` for the six scenario turns, so their cause is inferred from the eval errors.
+  - **Dropped, with reasons:**
+    - glm at default effort on fp8 alone: misses G14 by 3× and times out. That filter excludes the fast nvfp4 upstreams (Modal, Wafer), leaving slower fp8 hosts while extraction writes 340–1,480 reasoning tokens.
+    - glm at `low`: regresses `cycling.extract` on both routings, and `gym.extract` on the `only` list. That repeats #186's finding, this time on clean routing.
+    - DeepSeek on fp8: regresses the three extraction templates. Its router's 0.950 falls within the router's allowed drop of 0.05.
+    - DeepSeek on its `only` list: errors, as above.
+    - gpt-6-luna on `only: ["azure"]`: 14.1 s p95.
+    - gpt-6-luna on `sort: latency` was the runner-up: the best evals, with router, cycling and gym at 1.000. Over four runs it missed G14's p95 by 0.5 s (single runs 6.0, 8.5, 10.9 and 12.9 s), and its median USD per log turn was 13% above #187's.
+  - **The pick against G14:** pooled over 48 log turns, p50 is 2.0 s and p95 9.4 s, with no timeouts or failures, so G14 is met. Single runs varied: p95 3.2, 2.7, 12.7 and 22.8 s. The tail is spiky. Calls took:
+    - router: p95 1.4 s, maximum 1.4 s;
+    - `climbing.extract`: p95 7.8 s, maximum 22.5 s, from one slow call.
+  - **Evals against the committed baselines:**
+    - `router` 0.972 lies within its allowed drop of 0.05. "mixed log and plan" and "mixed question then log" fail some repeats, as they did with DeepSeek.
+    - `climbing.extract` 0.995 is the stale case below, failing 1 of 3 repeats.
+    - `cycling.extract` 0.983 and `gym.extract` 1.000 are above their baselines and are promoted.
+    - `router` and `climbing.extract` keep their committed 1.000, so a future run is held to the higher figure.
+  - **Cost:** against #187's figures for the same setup (0.000115 / 0.000126 / 0.000224 / 0.000712), the median USD per log turn fell to 0.000103. The mean was 0.000226, and the maximum rose to 0.001722 on the slow call. The owner approved the pick with these figures shown, including the higher maximum (invariant 6).
+  - **Timeouts:** 5 s for the router and 30 s for extraction, #187's values, are kept above the measured maxima (1.4 s and 22.5 s). A timeout near p95 would fail a slow but normal answer, which G14 rules out. This refines step 4's "from the measured p95": the p95 informs the value and the maximum bounds it. No timeout fired in the four runs.
+  - **Stale climbing case.** "follow-up: only the new activities, day from history" expects `date_source: relative`.
+    - The template's rule gives `assumed_today` when the latest message names no day, and the draft card then shows "Assumed: today".
+    - Every candidate failed it, and so did glm at default effort on `only: ["z-ai"]`, the upstream the 1.000 was recorded on: 0.984, failing 3 of 3 repeats. The case, the rule and the baseline date from #153, so model or upstream behaviour on an ambiguous rule has shifted since.
+    - Whether a day carried over from an earlier turn counts as `relative` is settled in a follow-up through `/tune-prompt`, where the label or the prompt changes and the baseline is re-recorded.
+  - **Eval CLI gotchas found here**, for a follow-up ticket:
+    - `--version` defaults to 1, while the router's active version is 2.
+    - A run saves its baseline even when it regresses or runs another version, because the file is keyed by template ID only.
+    - The eval path applies no per-call timeout. One stuck upstream call held a whole router run for 26 minutes.
+  - **Seen on gpt-6-luna:** Pydantic AI drops `temperature` for it even at effort `none`. Its judge, `EVAL_JUDGE_MODEL` (`openai/gpt-6-luna-pro`), is of the same family. Both matter only if gpt-6-luna is reconsidered.
+  - **Integration tests** run against the dev database. `test_purge_deletes_only_expired_conversations_of_every_user_and_returns_the_count` counts every `chat_messages` row, so it fails once the scenario's athletes exist. That happens on `main` too.
 - **Owner check:** a low OpenRouter credit balance adds latency ([latency guide](https://openrouter.ai/docs/guides/best-practices/latency-and-performance)).
 - **Status:** ADR-0025 stays the Accepted baseline; the ADR index notes that its options were picked here.
