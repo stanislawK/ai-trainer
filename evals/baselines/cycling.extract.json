@@ -2,7 +2,7 @@
   "template_id": "cycling.extract",
   "version": 1,
   "model": "z-ai/glm-5.3-flash",
-  "assertions": 0.9770114942528735,
+  "assertions": 0.9827586206896551,
   "scores": {},
   "thresholds": {
     "max_assertions_drop": 0.0,
