@@ -95,6 +95,9 @@ A log takes 19–43 s from send to draft card, with a median of 35 s (ADR-0025).
   - Timeouts in `.env.example`, from these measurements:
     - router: 5 s, about three times its 1.6 s p95;
     - extraction: 30 s, above its 20.4 s cold p95. A timeout near the warm figures would fail a session's first log.
-  - Router and extraction evals with these preferences were not reported at #187's acceptance gate.
+  - Evals with these preferences (`ai-trainer-evals run <id>`, one run each, 2026-10-20):
+    - `climbing.extract`: 0.984 against 1.000. That is a regression (invariant 2), the same figure #186 got at effort `low`.
+    - `router`: ran at v1 rather than the active v2, so it is not comparable.
+    - So `.env.example` recommends no provider preferences, the committed baselines stay as they were, and the code defaults stay unset. #188 picks the values on its own evals and the latency scenario.
 - **Owner check:** a low OpenRouter credit balance adds latency ([latency guide](https://openrouter.ai/docs/guides/best-practices/latency-and-performance)).
 - **Status:** ADR-0025 stays the Accepted baseline; the ADR index notes that its options were picked here.
