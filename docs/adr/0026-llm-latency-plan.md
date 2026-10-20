@@ -195,5 +195,29 @@ A log takes 19–43 s from send to draft card, with a median of 35 s (ADR-0025).
 
     Output tokens fell by 42%, consistent with less deliberation. p50 moved by 0.2 s in a single run, and G14 still holds.
   - `make llm-report` also recognises v2's heading, `## The athlete's recent messages`, as history.
+- **Steps 6–7 result for the router (#191, 2026-10-20).**
+  - Router v3 names one `Intent` object: a `kind` enum over `INTENT_KINDS`, a `sport` from the registry, `span` and `confidence`. Only `log_session` carries `sport`, and it must: a log without one fails output validation and is retried (`output_retries=2`); any other kind's `sport` is dropped. The schema the model is given falls from 4538 to 795 characters, with one `$defs` entry, `Intent`, in place of ten.
+  - v3 does without the persona, and puts the date, the athlete's sports, the recent messages and the latest message after the rules. Its wording is v2's; no rule was added or removed. v1 and v2 stay registered unchanged, with their union and persona. Rendered instructions fall from 3940 to 3129 characters.
+  - **Evals** (`ai-trainer-evals run router --version <N> --repeat 3`, glm-5.3-flash with `{"sort":"latency","quantizations":["fp8","nvfp4"]}`, 47 cases, 2026-10-20). The dataset is unchanged, so v2's figures compare directly:
+
+    | | Intent kinds | `LogSessionSportMatch` | Failing repeats |
+    |---|---|---|---|
+    | v2, committed | 1.000 | 1.000 | — |
+    | v2, same day | 0.979 | 1.000 | "mixed question then log" 1/3, "mixed log and plan" 2/3 |
+    | v3, promoted | 0.993 | 0.993 | "plausible sport single-sport athlete" 1/3 |
+
+    - v3's miss routed a cyclist's "2 hours easy" `request_plan`, the case #186 found ambiguous. With no `log_session` there, the sport counts as missed too; every log v3 gave carried the right sport.
+    - The owner approved the promotion, and v3's figures are the committed baseline.
+  - **Latency scenario** (`make latency-scenario`, 2026-10-20), against #190's run that day. The router ran on the same four turns in both, at version 3 in the second (`llm_calls`):
+
+    | | v2 | v3 |
+    |---|---|---|
+    | Router input tokens, mean (per call) | 2094 (2002–2143) | 1452 (1342–1520) |
+    | Router output tokens, mean | 54 | 56 |
+    | Router latency | 749–1239 ms | 688–995 ms |
+    | Log-turn p50 / p95 | 2.0 s / 3.5 s | 1.8 s / 2.6 s |
+    | Timeouts / failures | 0 / 0 | 0 / 0 |
+    | USD per log turn, median / mean / max | 0.000095 / 0.000142 / 0.000253 | 0.000107 / 0.000134 / 0.000213 |
+
 - **Owner check:** a low OpenRouter credit balance adds latency ([latency guide](https://openrouter.ai/docs/guides/best-practices/latency-and-performance)).
 - **Status:** ADR-0025 stays the Accepted baseline; the ADR index notes that its options were picked here.

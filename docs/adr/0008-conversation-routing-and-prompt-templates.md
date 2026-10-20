@@ -25,6 +25,7 @@ message + recent turns
 **Intents** — a discriminated union on `kind`; every intent carries a confidence (0–1) and the text span it covers:
 `log_session(sport)` · `edit_session` · `ask_training_question` · `request_plan` · `adjust_plan` · `request_report` · `update_profile` · `wellbeing_or_injury` · `chitchat` · `unclear`.
 The `sport` values are generated from `SportRegistry` (ADR-0006). For `log_session`, the specialist is the sport plugin's extraction template.
+From router v3 the output carries the same choice as one intent object with a `kind` enum and a `sport` that only `log_session` names, in place of the union (ADR-0026 step 7, #191).
 
 **Router rules:** `wellbeing_or_injury` is handled first (G3). `unclear`, or a confidence below the threshold in settings, produces a structured `Clarification` — a short list of options to pick from, not a free-text question (B3, B17, ADR-0015). The router and every specialist see the last `chat_history_turns` messages (one setting), so follow-ups like "oh, and 2 more 6B" resolve.
 
