@@ -16,9 +16,11 @@ from ai_trainer.domain.sports.base import SessionExtraction
 class ReplyContext:
     """What the router and every specialist see (ADR-0008): the message, the recent turns
     before it, the athlete's sports and goals, and the time context (ADR-0014). `now` is a UTC
-    moment from the `Clock` port; `timezone` is the athlete's."""
+    moment from the `Clock` port; `timezone` is the athlete's. `conversation_id` names the
+    thread the message is in, so its calls can share one upstream (ADR-0026 step 4)."""
 
     user_id: UUID
+    conversation_id: UUID
     message: str
     history: Sequence[ChatMessage]
     athlete_sports: Sequence[str]

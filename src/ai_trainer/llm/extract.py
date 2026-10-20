@@ -60,7 +60,7 @@ def extract_template(spec: ExtractionSpec) -> PromptTemplate[ExtractDeps, BaseMo
         deps_type=ExtractDeps,
         output_type=spec.output_type,
         model_settings_key="extract_model",
-        provider_settings_key="extract_provider",
+        provider_settings_key="extract_provider_preferences",
         reasoning_effort_settings_key="extract_reasoning_effort",
         # The app reads the output: the same log should give the same draft twice.
         temperature=0,

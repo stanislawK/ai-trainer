@@ -209,6 +209,7 @@ class FakeDecisions:
 def _context(user_id: UUID, message: str, sports: tuple[str, ...] = ALL_SPORTS) -> ReplyContext:
     return ReplyContext(
         user_id=user_id,
+        conversation_id=uuid4(),
         message=message,
         history=(),
         athlete_sports=sports,

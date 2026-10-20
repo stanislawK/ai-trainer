@@ -25,7 +25,7 @@ from ai_trainer.application.ports.llm_gateway import (
     StreamEnd,
     TextChunk,
 )
-from ai_trainer.domain.llm_calls import LlmCallOutcome, ReasoningEffort
+from ai_trainer.domain.llm_calls import LlmCallOutcome, ProviderPreferences, ReasoningEffort
 from ai_trainer.llm.call_accounting import CallAccountant, CallKey, CallUsage, sum_cost
 from ai_trainer.llm.debug_log import CallRecorder, LlmDebugLog
 from ai_trainer.settings import Settings
@@ -93,15 +93,20 @@ class OpenRouterGateway:
         prompt: str,
         temperature: float | None = None,
         output_retries: int | None = None,
-        upstream_provider: str | None = None,
+        provider: ProviderPreferences | None = None,
         reasoning_effort: ReasoningEffort | None = None,
+        session_id: str | None = None,
+        timeout_seconds: float | None = None,
     ) -> LlmGatewayResult[OutputT]:
         model = OpenRouterModel(model_id, provider=self._provider)
         model_settings = OpenRouterModelSettings(openrouter_cache_instructions=True)
         if temperature is not None:
             model_settings["temperature"] = temperature
-        if upstream_provider is not None:
-            model_settings["openrouter_provider"] = pinned_upstream(upstream_provider)
+        if provider is not None:
+            model_settings["openrouter_provider"] = provider_config(provider)
+        if session_id is not None:
+            # A top-level body field Pydantic AI has no setting for (ADR-0026 Consequences).
+            model_settings["extra_body"] = {"session_id": session_id}
         if reasoning_effort is not None:
             model_settings["openrouter_reasoning"] = reasoning_at(reasoning_effort)
         recorder = self._recorder(template_id, template_version, model_id)
@@ -121,6 +126,7 @@ class OpenRouterGateway:
                 output_tokens=result.usage.output_tokens,
                 cost=sum_cost(result.all_messages()),
             ),
+            timeout_seconds=timeout_seconds,
         )
         if attempt.value is None:
             friendly_error = _FRIENDLY_ERRORS[attempt.outcome]
@@ -273,7 +279,11 @@ def reasoning_at(effort: ReasoningEffort) -> OpenRouterReasoning:
     return cast(OpenRouterReasoning, {"effort": effort})
 
 
-def pinned_upstream(slug: str) -> OpenRouterProviderConfig:
-    """OpenRouter tries `slug` first and falls back to its other endpoints only when that one
-    fails, so one template sees one serving stack instead of a random quantization per call."""
-    return OpenRouterProviderConfig(order=[slug], allow_fallbacks=True)
+def provider_config(preferences: ProviderPreferences) -> OpenRouterProviderConfig:
+    """OpenRouter's `provider` block from a template's preferences, only the fields set, with
+    fallbacks kept (ADR-0026 step 4). Pydantic AI 2.55 types the block without
+    `preferred_max_latency` and passes it through as given."""
+    return cast(
+        OpenRouterProviderConfig,
+        {**preferences.model_dump(exclude_none=True), "allow_fallbacks": True},
+    )

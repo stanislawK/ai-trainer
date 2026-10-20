@@ -237,7 +237,10 @@ def test_the_router_template_reads_its_model_from_the_router_model_setting() -> 
 
 
 def test_the_router_template_reads_its_upstream_from_the_router_provider_setting() -> None:
-    assert router_template(default_sport_registry()).provider_settings_key == "router_provider"
+    assert (
+        router_template(default_sport_registry()).provider_settings_key
+        == "router_provider_preferences"
+    )
 
 
 def test_the_router_template_reads_its_reasoning_effort_from_settings() -> None:

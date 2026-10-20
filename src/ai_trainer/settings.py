@@ -1,3 +1,4 @@
+import json
 import re
 from pathlib import Path
 from typing import Annotated, Any, Literal
@@ -5,7 +6,7 @@ from typing import Annotated, Any, Literal
 from pydantic import BeforeValidator, Field, PostgresDsn, SecretStr, ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
-from ai_trainer.domain.llm_calls import ReasoningEffort
+from ai_trainer.domain.llm_calls import ProviderPreferences, ReasoningEffort
 
 
 def _split_comma_separated(value: Any) -> Any:
@@ -15,6 +16,23 @@ def _split_comma_separated(value: Any) -> Any:
 
 
 CommaSeparated = Annotated[list[str], NoDecode, BeforeValidator(_split_comma_separated)]
+
+
+def _json_object(value: Any) -> Any:
+    # Decoded here, not by pydantic-settings, so a blank value copied from `.env.example` is
+    # unset rather than invalid JSON; the object is then checked field by field.
+    if isinstance(value, str):
+        return json.loads(value) if value.strip() else None
+    return value
+
+
+# A template's OpenRouter provider preferences as one JSON object, e.g.
+# `{"sort": "latency", "preferred_max_latency": {"p90": 2}}` (ADR-0026 step 4).
+ProviderPreferencesSetting = Annotated[
+    ProviderPreferences | None, NoDecode, BeforeValidator(_json_object)
+]
+# A template's own call timeout; unset falls back to `llm_call_timeout_seconds`.
+CallTimeout = Annotated[float | None, Field(gt=0)]
 
 # A Jev ID carries a version number; aliases such as `~typesafe/jev-latest` move under a
 # calibrated threshold, so they are refused (ADR-0020).
@@ -49,10 +67,13 @@ class Settings(BaseSettings):
     # One model per template (ADR-0007). No default: a stable/GA OpenRouter id (never a
     # preview) and its cost are an operator choice, like `eval_judge_model` below.
     router_model: str
-    # The OpenRouter upstream slug the router prefers (e.g. "z-ai"), fallbacks still allowed.
-    # Unset lets OpenRouter balance across every endpoint, which made one prompt route the
-    # same message differently from call to call (#127).
-    router_provider: str | None = None
+    # How OpenRouter picks the router's upstream (ADR-0026 step 4), replacing the single-slug
+    # `ROUTER_PROVIDER` pin (#127), whose `order` turned off latency-aware routing. Unset lets
+    # OpenRouter balance across every endpoint; `quantizations` or `only` keep the router on
+    # one serving stack, which #127 found its evals need.
+    router_provider_preferences: ProviderPreferencesSetting = None
+    # The router's call timeout, set from its measured p95 so a stuck upstream fails fast.
+    router_call_timeout_seconds: CallTimeout = None
     # The router's reasoning effort, sent as `reasoning.effort` (ADR-0026 step 3). Unset sends
     # none, leaving the model's default (`max` on glm-5.3-flash, OpenRouter `get-model`).
     router_reasoning_effort: ReasoningEffort | None = None
@@ -62,8 +83,9 @@ class Settings(BaseSettings):
     # Every sport's extraction template (`<sport>.extract`, ADR-0006, ADR-0008): turns a log
     # into a session draft. Required, no default, for the same reason as `router_model`.
     extract_model: str
-    # The extraction templates' preferred OpenRouter upstream, like `router_provider`.
-    extract_provider: str | None = None
+    # The extraction templates' provider preferences and call timeout, like the router's.
+    extract_provider_preferences: ProviderPreferencesSetting = None
+    extract_call_timeout_seconds: CallTimeout = None
     # The extraction templates' reasoning effort, like `router_reasoning_effort`.
     extract_reasoning_effort: ReasoningEffort | None = None
     # Evals (ADR-0009): pinned, distinct from the model under test, set explicitly on every
@@ -139,15 +161,15 @@ class Settings(BaseSettings):
         return value
 
     @field_validator(
-        "router_provider",
-        "extract_provider",
+        "router_call_timeout_seconds",
+        "extract_call_timeout_seconds",
         "router_reasoning_effort",
         "extract_reasoning_effort",
         mode="before",
     )
     @classmethod
     def _blank_is_unset(cls, value: object) -> object:
-        # Before the type check, so a blank effort is unset rather than an unknown level; a
+        # Before the type check, so a blank effort or timeout is unset rather than invalid; a
         # non-string is left for that check to refuse.
         return value.strip() or None if isinstance(value, str) else value
 

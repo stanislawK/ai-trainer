@@ -12,6 +12,7 @@ from pydantic_ai.providers.openrouter import OpenRouterProvider
 from pydantic_evals import Case, Dataset
 from pydantic_evals.evaluators import EqualsExpected, Evaluator, EvaluatorContext
 
+from ai_trainer.domain.llm_calls import ProviderPreferences
 from ai_trainer.llm.decision_gateway import OPENROUTER_SYSTEM_ONE_BASE_URL
 from ai_trainer.llm.decisions.loader import DecisionSetLoader
 from ai_trainer.llm.evals import cli as cli_module
@@ -333,8 +334,11 @@ def test_main_returns_one_with_a_clear_message_when_the_api_key_is_blank(
     assert ".env" in stderr
 
 
-def test_the_model_under_test_pins_the_templates_upstream_provider() -> None:
-    settings = _settings().model_copy(update={"router_provider": "z-ai"})
+def test_the_model_under_test_routes_by_the_templates_provider_preferences() -> None:
+    """The eval sends the same `provider` block the app sends (ADR-0026 step 4)."""
+    settings = _settings().model_copy(
+        update={"router_provider_preferences": ProviderPreferences(sort="latency")}
+    )
     template = cli_module._default_registry().get("router", 2)
 
     pinned = cli_module._model_under_test(
@@ -343,14 +347,17 @@ def test_the_model_under_test_pins_the_templates_upstream_provider() -> None:
 
     assert pinned.model_name == settings.router_model
     assert (pinned.settings or {}).get("openrouter_provider") == {
-        "order": ["z-ai"],
+        "sort": "latency",
         "allow_fallbacks": True,
     }
 
 
-def test_a_model_override_drops_the_upstream_pin() -> None:
-    """The pinned upstream may not serve another model, so `--model` runs unpinned."""
-    settings = _settings().model_copy(update={"router_provider": "z-ai"})
+def test_a_model_override_drops_the_provider_preferences() -> None:
+    """An `only` list or quantization may not fit another model, so `--model` runs without
+    the template's preferences."""
+    settings = _settings().model_copy(
+        update={"router_provider_preferences": ProviderPreferences(only=["modal"])}
+    )
     template = cli_module._default_registry().get("router", 2)
 
     other = cli_module._model_under_test(
@@ -425,7 +432,7 @@ def test_default_registry_registers_climbing_extract_on_the_extract_model() -> N
     template = cli_module._default_registry().get("climbing.extract", 1)
 
     assert template.model_settings_key == "extract_model"
-    assert template.provider_settings_key == "extract_provider"
+    assert template.provider_settings_key == "extract_provider_preferences"
 
 
 def test_parser_takes_a_repeat_count_defaulting_to_one() -> None:

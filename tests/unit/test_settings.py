@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
+from ai_trainer.domain.llm_calls import ProviderPreferences
 from ai_trainer.settings import Settings
 
 ENV_EXAMPLE = Path(__file__).parents[2] / ".env.example"
@@ -152,24 +153,6 @@ def test_router_settings_default_to_ten_turns_and_a_named_model(
     assert settings.router_model == "test/router-model"
 
 
-def test_the_router_provider_is_unpinned_unless_set(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("DATABASE_URL", DATABASE_URL)
-    monkeypatch.setenv("OPENROUTER_API_KEY", OPENROUTER_API_KEY)
-    monkeypatch.setenv("EVAL_JUDGE_MODEL", EVAL_JUDGE_MODEL)
-    monkeypatch.setenv("ROUTER_MODEL", "test/router-model")
-    monkeypatch.delenv("ROUTER_PROVIDER", raising=False)
-
-    assert Settings(_env_file=None).router_provider is None
-
-    monkeypatch.setenv("ROUTER_PROVIDER", "z-ai")
-
-    assert Settings(_env_file=None).router_provider == "z-ai"
-
-    monkeypatch.setenv("ROUTER_PROVIDER", "  ")  # as copied from .env.example
-
-    assert Settings(_env_file=None).router_provider is None
-
-
 def test_missing_router_model_raises_naming_it(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DATABASE_URL", DATABASE_URL)
     monkeypatch.setenv("OPENROUTER_API_KEY", OPENROUTER_API_KEY)
@@ -234,23 +217,6 @@ def test_missing_extract_model_raises_naming_it(monkeypatch: pytest.MonkeyPatch)
         Settings(_env_file=None)
 
     assert [error["loc"] for error in excinfo.value.errors()] == [("extract_model",)]
-
-
-def test_the_extract_provider_is_unpinned_unless_set(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("DATABASE_URL", DATABASE_URL)
-    monkeypatch.setenv("OPENROUTER_API_KEY", OPENROUTER_API_KEY)
-    monkeypatch.setenv("EVAL_JUDGE_MODEL", EVAL_JUDGE_MODEL)
-    monkeypatch.delenv("EXTRACT_PROVIDER", raising=False)
-
-    assert Settings(_env_file=None).extract_provider is None
-
-    monkeypatch.setenv("EXTRACT_PROVIDER", "z-ai")
-
-    assert Settings(_env_file=None).extract_provider == "z-ai"
-
-    monkeypatch.setenv("EXTRACT_PROVIDER", "  ")  # as copied from .env.example
-
-    assert Settings(_env_file=None).extract_provider is None
 
 
 def test_decision_settings_default_to_a_pinned_jev_on_openrouter_and_a_short_timeout(
@@ -442,3 +408,99 @@ def test_a_non_string_reasoning_effort_fails_validation() -> None:
         Settings(_env_file=None, router_reasoning_effort=1)  # type: ignore[arg-type]
 
     assert ("router_reasoning_effort",) in [error["loc"] for error in excinfo.value.errors()]
+
+
+def _llm_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", DATABASE_URL)
+    monkeypatch.setenv("OPENROUTER_API_KEY", OPENROUTER_API_KEY)
+    monkeypatch.setenv("EVAL_JUDGE_MODEL", EVAL_JUDGE_MODEL)
+
+
+@pytest.mark.parametrize("prefix", ["ROUTER", "EXTRACT"])
+def test_provider_preferences_are_unset_unless_given(
+    monkeypatch: pytest.MonkeyPatch, prefix: str
+) -> None:
+    _llm_env(monkeypatch)
+    key = f"{prefix}_PROVIDER_PREFERENCES"
+    field = key.lower()
+    monkeypatch.delenv(key, raising=False)
+
+    assert getattr(Settings(_env_file=None), field) is None
+
+    monkeypatch.setenv(
+        key,
+        '{"sort": "latency", "preferred_max_latency": {"p90": 2}, '
+        '"quantizations": ["fp8", "nvfp4"], "only": ["modal", "wafer"]}',
+    )
+
+    assert getattr(Settings(_env_file=None), field) == ProviderPreferences(
+        sort="latency",
+        preferred_max_latency={"p90": 2},
+        quantizations=["fp8", "nvfp4"],
+        only=["modal", "wafer"],
+    )
+
+    monkeypatch.setenv(key, "  ")  # as copied from .env.example
+
+    assert getattr(Settings(_env_file=None), field) is None
+
+
+def test_provider_preferences_refuse_an_order_pin(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An explicit `order` turns off OpenRouter's latency-aware load balancing (ADR-0026)."""
+    _llm_env(monkeypatch)
+    monkeypatch.setenv("ROUTER_PROVIDER_PREFERENCES", '{"order": ["z-ai"]}')
+
+    with pytest.raises(ValidationError) as excinfo:
+        Settings(_env_file=None)
+
+    assert excinfo.value.errors()[0]["loc"][:2] == ("router_provider_preferences", "order")
+
+
+def test_provider_preferences_refuse_an_unknown_sort(monkeypatch: pytest.MonkeyPatch) -> None:
+    _llm_env(monkeypatch)
+    monkeypatch.setenv("EXTRACT_PROVIDER_PREFERENCES", '{"sort": "fastest"}')
+
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None)
+
+
+def test_a_leftover_single_slug_pin_in_the_env_file_fails_at_startup(tmp_path: Path) -> None:
+    """`ROUTER_PROVIDER` and `EXTRACT_PROVIDER` are gone (#187): a `.env` still setting one
+    fails loudly rather than quietly losing the pin it meant."""
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        f"DATABASE_URL={DATABASE_URL}\nOPENROUTER_API_KEY={OPENROUTER_API_KEY}\n"
+        f"EVAL_JUDGE_MODEL={EVAL_JUDGE_MODEL}\nROUTER_PROVIDER=z-ai\n"
+    )
+
+    with pytest.raises(ValidationError) as excinfo:
+        Settings(_env_file=env_file)
+
+    assert ("router_provider",) in [error["loc"] for error in excinfo.value.errors()]
+
+
+@pytest.mark.parametrize("prefix", ["ROUTER", "EXTRACT"])
+def test_a_template_call_timeout_is_unset_unless_given(
+    monkeypatch: pytest.MonkeyPatch, prefix: str
+) -> None:
+    _llm_env(monkeypatch)
+    key = f"{prefix}_CALL_TIMEOUT_SECONDS"
+    monkeypatch.delenv(key, raising=False)
+
+    assert getattr(Settings(_env_file=None), key.lower()) is None
+
+    monkeypatch.setenv(key, "12.5")
+
+    assert getattr(Settings(_env_file=None), key.lower()) == 12.5
+
+    monkeypatch.setenv(key, "")  # as copied from .env.example
+
+    assert getattr(Settings(_env_file=None), key.lower()) is None
+
+
+def test_a_template_call_timeout_must_be_positive(monkeypatch: pytest.MonkeyPatch) -> None:
+    _llm_env(monkeypatch)
+    monkeypatch.setenv("ROUTER_CALL_TIMEOUT_SECONDS", "0")
+
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None)

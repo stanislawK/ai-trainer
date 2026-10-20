@@ -307,6 +307,23 @@ async def test_prompt_history_holds_only_turns_from_the_messages_own_conversatio
         assert [turn.text for turn in context.history] == ["Rode 40 km"]
 
 
+async def test_router_and_extraction_see_the_conversation_the_message_is_in() -> None:
+    """Its calls share that conversation's OpenRouter session (ADR-0026 step 4), so the
+    context names the message's own conversation, never another or the user."""
+    chat, user_id = InMemoryChatRepository(), uuid4()
+    other = await chat.start(user_id, "other")
+    await chat.add(user_id, other, ChatRole.USER, "hi", FROZEN_NOW - _MINUTE)
+    current = await chat.start(user_id, "current")
+    asked = await chat.add(user_id, current, ChatRole.USER, "3 boulders at 6A", FROZEN_NOW)
+    conversation = ScriptedConversation(intents=[[Intent(kind="log_session", sport="climbing")]])
+
+    await _events(chat, user_id, asked, conversation)
+
+    [(extracted, _)] = conversation.extracted
+    assert conversation.routed[0].conversation_id == extracted.conversation_id == current
+    assert current != other
+
+
 async def test_the_first_message_of_a_conversation_gets_no_history() -> None:
     chat, user_id = InMemoryChatRepository(), uuid4()
     earlier = await chat.start(user_id, "earlier")
@@ -716,6 +733,7 @@ async def test_the_screen_adds_pain_to_a_fast_routed_message() -> None:
 async def _routed(fast: ScriptedFastRouter, conversation: ScriptedConversation) -> Routing:
     context = ReplyContext(
         user_id=uuid4(),
+        conversation_id=uuid4(),
         message="Did intervals",
         history=(),
         athlete_sports=("gym", "cycling"),
