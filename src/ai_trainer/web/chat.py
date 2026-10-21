@@ -3,7 +3,8 @@ conversation), `GET /c/new` (an empty one), `POST /messages` and the streamed re
 `GET /messages/{id}/reply` and `GET /messages/{id}/stop` (PRD-0004 F1, B13, B24, F16, ADR-0008,
 ADR-0012, ADR-0021, tickets #78, #82, #116, #146 and #147). A pending session draft shows as a
 card under the reply part that introduced it, on the stream's end and on every page load
-(PRD-0004 F2, ticket #154).
+(PRD-0004 F2, ticket #154). A question that blocks a log is a choice card in place of its line,
+answered or skipped with one POST (B17, F9, ADR-0015, ticket #162).
 `user_id` comes only from the authenticated session (ADR-0005), and a conversation ID from the
 URL or the form is always looked up with it: another user's conversation is a 404."""
 
@@ -39,17 +40,26 @@ from ai_trainer.application.drafts import (
 )
 from ai_trainer.application.ports.chat import ChatRepositoryPort
 from ai_trainer.application.reply import (
+    ClarificationAnswered,
     MessageNotFoundError,
     ReplyChunk,
     ReplyDone,
     ReplyEvent,
+    ReplyFailed,
     ReplyPhase,
     ReplyServices,
+    abandon_clarification,
+    answer_clarification,
     find_message,
     find_saved_reply,
     start_reply,
 )
 from ai_trainer.domain.chat import ChatMessage, ChatRole, Conversation
+from ai_trainer.domain.clarification import (
+    ClarificationNotFoundError,
+    ClarificationResolvedError,
+    UnknownOptionError,
+)
 from ai_trainer.domain.llm_calls import LlmCallOutcome
 from ai_trainer.domain.sports.registry import SportRegistry
 from ai_trainer.domain.training import (
@@ -61,6 +71,7 @@ from ai_trainer.domain.training import (
     StoredDraft,
 )
 from ai_trainer.domain.users import User
+from ai_trainer.web.clarifications import ChoiceCard, choice_cards
 from ai_trainer.web.drafts import DraftCard, draft_card, draft_cards, form_changes
 from ai_trainer.web.glyphs import build_reply_glyph
 
@@ -129,6 +140,7 @@ def build_chat_router(
                 message_id=message_id,
                 messages=event.messages,
                 draft_cards=reply_cards(user, message_id, event),
+                choice_cards=choice_cards(event.messages, event.clarifications, log_id=message_id),
             )
         else:
             html = render(
@@ -175,15 +187,18 @@ def build_chat_router(
         user: User = request.state.user
         history: Sequence[ChatMessage] = ()
         cards: Mapping[UUID, Sequence[DraftCard]] = {}
+        questions: Mapping[UUID, ChoiceCard] = {}
         if conversation is not None:
             history = await list_history(user.id, conversation.id, repository=chat)
             shown = await replies.drafts.list_shown(user.id, conversation.id)
+            log_id = await window_log(user, history)
             cards = draft_cards(
+                history, shown, sports=sports, today=local_today(user), log_id=log_id
+            )
+            questions = choice_cards(
                 history,
-                shown,
-                sports=sports,
-                today=local_today(user),
-                log_id=await window_log(user, history),
+                await replies.clarifications.list_shown(user.id, conversation.id),
+                log_id=log_id,
             )
         local_hour = clock.now().astimezone(ZoneInfo(user.timezone)).hour
         first_name = user.name.split()[0] if user.name and user.name.strip() else None
@@ -191,6 +206,7 @@ def build_chat_router(
             "conversation_id": conversation.id if conversation is not None else None,
             "history": history,
             "draft_cards": cards,
+            "choice_cards": questions,
             "part_of_day": _part_of_day(local_hour),
             "first_name": first_name,
             "text": "",
@@ -309,6 +325,9 @@ def build_chat_router(
                     "message_id": message_id,
                     "messages": saved.messages,
                     "draft_cards": reply_cards(user, message_id, saved),
+                    "choice_cards": choice_cards(
+                        saved.messages, saved.clarifications, log_id=message_id
+                    ),
                 },
             )
         return templates.TemplateResponse(
@@ -446,6 +465,75 @@ def build_chat_router(
         card = draft_card(draft, sports=sports, today=local_today(user))
         return templates.TemplateResponse(
             request, "partials/chat/draft_removed.html", {"card": card, "draft": draft}
+        )
+
+    def choice_answer(
+        request: Request, answered: ClarificationAnswered, *, user: User
+    ) -> HTMLResponse:
+        reply = answered.reply
+        return templates.TemplateResponse(
+            request,
+            "partials/chat/choice_answer.html",
+            {
+                "card": ChoiceCard(answered.clarification),
+                "messages": reply.messages,
+                "choice_cards": {},
+                "draft_cards": draft_cards(
+                    reply.messages,
+                    reply.drafts,
+                    sports=sports,
+                    today=local_today(user),
+                    log_id=answered.clarification.message_id,
+                ),
+            },
+        )
+
+    @router.post("/clarifications/{clarification_id}/answer", response_class=HTMLResponse)
+    async def answer(request: Request, clarification_id: str) -> HTMLResponse:
+        """A choice card's tap (B17, B23, F9, ADR-0015): the option IDs the athlete picked
+        resume the log's extraction in that sport, and the card collapses to the chosen option
+        above the new draft. An option the question never offered is a 422, an answered or
+        skipped question a 409, another user's or an unknown one a 404, and a failed extraction
+        the card again with a retry note, still open; none of them writes anything."""
+        user: User = request.state.user
+        parsed_id = parse_id(clarification_id)
+        form = await request.form()
+        option_ids = [value for value in form.getlist("option_ids") if isinstance(value, str)]
+        try:
+            answered = await answer_clarification(
+                user.id, parsed_id, option_ids, timezone=user.timezone, services=replies
+            )
+        except ClarificationNotFoundError, MessageNotFoundError:
+            raise HTTPException(status_code=_NOT_FOUND) from None
+        except ClarificationResolvedError:
+            raise HTTPException(status_code=_CONFLICT) from None
+        except UnknownOptionError:
+            raise HTTPException(status_code=_UNPROCESSABLE) from None
+        if isinstance(answered, ReplyFailed):
+            card = ChoiceCard(await replies.clarifications.get(user.id, parsed_id))
+            return templates.TemplateResponse(
+                request,
+                "partials/chat/choice_card.html",
+                {"card": card, "error": True},
+            )
+        return choice_answer(request, answered, user=user)
+
+    @router.post("/clarifications/{clarification_id}/abandon", response_class=HTMLResponse)
+    async def abandon(request: Request, clarification_id: str) -> HTMLResponse:
+        """A choice card's "Let me type instead" (F9, invariant 2 of ADR-0015): closes the
+        question and writes nothing else; the composer takes focus after the swap. An answered
+        or skipped question is a 409, another user's or an unknown one a 404."""
+        user: User = request.state.user
+        try:
+            skipped = await abandon_clarification(
+                user.id, parse_id(clarification_id), services=replies
+            )
+        except ClarificationNotFoundError:
+            raise HTTPException(status_code=_NOT_FOUND) from None
+        except ClarificationResolvedError:
+            raise HTTPException(status_code=_CONFLICT) from None
+        return templates.TemplateResponse(
+            request, "partials/chat/choice_card.html", {"card": ChoiceCard(skipped)}
         )
 
     return router

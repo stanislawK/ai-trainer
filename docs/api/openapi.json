@@ -284,6 +284,86 @@
         "summary": "Show Conversation"
       }
     },
+    "/clarifications/{clarification_id}/abandon": {
+      "post": {
+        "description": "A choice card's \"Let me type instead\" (F9, invariant 2 of ADR-0015): closes the\nquestion and writes nothing else; the composer takes focus after the swap. An answered\nor skipped question is a 409, another user's or an unknown one a 404.",
+        "operationId": "abandon_clarifications__clarification_id__abandon_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "clarification_id",
+            "required": true,
+            "schema": {
+              "title": "Clarification Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Abandon"
+      }
+    },
+    "/clarifications/{clarification_id}/answer": {
+      "post": {
+        "description": "A choice card's tap (B17, B23, F9, ADR-0015): the option IDs the athlete picked\nresume the log's extraction in that sport, and the card collapses to the chosen option\nabove the new draft. An option the question never offered is a 422, an answered or\nskipped question a 409, another user's or an unknown one a 404, and a failed extraction\nthe card again with a retry note, still open; none of them writes anything.",
+        "operationId": "answer_clarifications__clarification_id__answer_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "clarification_id",
+            "required": true,
+            "schema": {
+              "title": "Clarification Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Answer"
+      }
+    },
     "/drafts/{draft_id}": {
       "get": {
         "description": "The draft as it is stored: the pending card, or the row it collapsed to. The edit\nform's Cancel swaps it back in (ticket #158).",

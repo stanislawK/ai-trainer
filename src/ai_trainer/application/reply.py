@@ -4,7 +4,9 @@ alongside (ADR-0020), dispatched safety first,
 streamed, and saved only once all of it came through, so a retry after a failure always
 streams a fresh reply. A log for a sport whose plugin names an extraction template becomes a
 pending draft the athlete confirms later (PRD-0004 B1, F2, ADR-0022), offered as an addition to
-their latest session in that sport when it came close after it (B16, ADR-0014)."""
+their latest session in that sport when it came close after it (B16, ADR-0014). A log whose
+sport stays split between two or more of the athlete's sports is a choice card first, and the
+draft follows the tap (B17, B23, ADR-0015)."""
 
 import asyncio
 from collections.abc import AsyncGenerator, Sequence
@@ -15,6 +17,7 @@ from typing import Literal
 from uuid import UUID
 
 from ai_trainer.application.ports.chat import ChatRepositoryPort, ConversationRepositoryPort
+from ai_trainer.application.ports.clarifications import ClarificationRepositoryPort
 from ai_trainer.application.ports.clock import ClockPort
 from ai_trainer.application.ports.conversation import (
     ConversationModelPort,
@@ -29,6 +32,15 @@ from ai_trainer.application.ports.onboarding import OnboardingRepositoryPort
 from ai_trainer.application.ports.safety_screen import SafetyScreenPort
 from ai_trainer.application.ports.training import TrainingSessionRepositoryPort
 from ai_trainer.domain.chat import ChatMessage, ChatRole
+from ai_trainer.domain.clarification import (
+    SPORT_PURPOSE,
+    ChoiceOption,
+    Clarification,
+    ClarificationNotFoundError,
+    ClarificationResolvedError,
+    StoredClarification,
+    UnknownOptionError,
+)
 from ai_trainer.domain.conversation import Intent, IntentKind
 from ai_trainer.domain.llm_calls import LlmCallOutcome
 from ai_trainer.domain.sports.registry import SportRegistry
@@ -43,6 +55,8 @@ PART_BREAK = "\n\n"
 # Each reply part is stamped this far after what it follows, so it sorts right under the
 # message it answers even when the athlete sent another message before it came through.
 _TICK = timedelta(microseconds=1)
+# A question needs at least two options (ADR-0015).
+_MIN_OPTIONS = 2
 
 
 class MessageNotFoundError(Exception):
@@ -63,11 +77,12 @@ class ReplyChunk:
 
 @dataclass(frozen=True, slots=True)
 class ReplyDone:
-    """The whole reply, as saved: one message per part, in the order they were streamed, and
-    the pending drafts made from the message."""
+    """The whole reply, as saved: one message per part, in the order they were streamed, the
+    pending drafts made from the message, and the questions it asks (ADR-0015)."""
 
     messages: Sequence[ChatMessage]
     drafts: Sequence[StoredDraft] = ()
+    clarifications: Sequence[StoredClarification] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,6 +100,7 @@ class ReplyServices:
     chat: ChatRepositoryPort
     conversations: ConversationRepositoryPort
     drafts: SessionDraftRepositoryPort
+    clarifications: ClarificationRepositoryPort
     sessions: TrainingSessionRepositoryPort
     sports: SportRegistry
     profile: OnboardingRepositoryPort
@@ -98,6 +114,8 @@ class ReplyServices:
     # A log this close after the latest log of a session in its sport is offered as an addition
     # to it (`session_merge_window_min`, B16).
     merge_window: timedelta
+    # A question offers at most this many options (`max_clarification_options`, ADR-0015).
+    max_clarification_options: int
 
 
 type _Specialist = Literal["chitchat", "extract", "not_yet"]
@@ -188,8 +206,7 @@ async def find_saved_reply(
         user_id, message_id, chat=services.chat, conversations=services.conversations
     )
     saved = await services.chat.list_replies(user_id, message)
-    drafts = await _drafts_of(user_id, message, services) if saved else ()
-    return ReplyDone(messages=saved, drafts=drafts)
+    return await _replayed(user_id, message, saved, services)
 
 
 async def start_reply(
@@ -208,19 +225,10 @@ async def _reply(
 ) -> AsyncGenerator[ReplyEvent]:
     saved = await services.chat.list_replies(user_id, message)
     if saved:
-        yield ReplyDone(messages=saved, drafts=await _drafts_of(user_id, message, services))
+        yield await _replayed(user_id, message, saved, services)
         return
 
-    context = ReplyContext(
-        user_id=user_id,
-        conversation_id=message.conversation_id,
-        message=message.text,
-        history=await services.chat.list_before(user_id, message, services.history_turns),
-        athlete_sports=await services.profile.list_sports(user_id),
-        goals=await services.profile.list_goals(user_id),
-        now=services.clock.now(),
-        timezone=timezone,
-    )
+    context = await _context(user_id, message, timezone, services)
     # Started before the router is awaited, so the screen adds no wait when the router is
     # slower; cancelled with the reply if the reader leaves while routing.
     screening = asyncio.ensure_future(services.safety_screen.finds_pain(user_id, message.text))
@@ -233,6 +241,12 @@ async def _reply(
         screening.cancel()
     if routing.outcome is not LlmCallOutcome.SUCCESS:
         yield ReplyFailed(outcome=routing.outcome)
+        return
+
+    if routing.sport_choice and not pain:
+        # Saved in its own task, as the reply is: a reader who leaves now still finds the card.
+        asking = asyncio.ensure_future(_ask_sport(user_id, message, routing.sport_choice, services))
+        yield await asyncio.shield(asking)
         return
 
     yield ReplyPhase("replying")
@@ -271,12 +285,43 @@ async def _reply(
     yield await asyncio.shield(saving)
 
 
+async def _context(
+    user_id: UUID, message: ChatMessage, timezone: str, services: ReplyServices
+) -> ReplyContext:
+    return ReplyContext(
+        user_id=user_id,
+        conversation_id=message.conversation_id,
+        message=message.text,
+        history=await services.chat.list_before(user_id, message, services.history_turns),
+        athlete_sports=await services.profile.list_sports(user_id),
+        goals=await services.profile.list_goals(user_id),
+        now=services.clock.now(),
+        timezone=timezone,
+    )
+
+
+async def _replayed(
+    user_id: UUID, message: ChatMessage, saved: Sequence[ChatMessage], services: ReplyServices
+) -> ReplyDone:
+    """What was saved for the message, with the drafts and questions it left; none of either
+    when its reply never finished."""
+    if not saved:
+        return ReplyDone(messages=saved)
+    asked = await services.clarifications.list_shown(user_id, message.conversation_id)
+    return ReplyDone(
+        messages=saved,
+        drafts=await _drafts_of(user_id, message, services),
+        clarifications=tuple(question for question in asked if question.message_id == message.id),
+    )
+
+
 async def route_message(context: ReplyContext, services: ReplyServices) -> Routing:
     """One confident intent from the fast path, else a follow-up log in the conversation's
     sport, else the LLM router (ADR-0008 amendment, ADR-0026 step 5). A declined message pays
-    the fast path's wait, capped by its timeout, before the router. Either way the routing
-    carries Jev's plausible sports when it gave them (B23), and the router's own logged sports
-    when it did not."""
+    the fast path's wait, capped by its timeout, before the router, unless the sport is still
+    split between two or more loggable sports: then the athlete is asked (B23, ADR-0015).
+    Either way the routing carries Jev's plausible sports when it gave them (B23), and the
+    router's own logged sports when it did not."""
     fast = await services.fast_router.route(context)
     if fast.intents is not None:
         return Routing(
@@ -291,11 +336,32 @@ async def route_message(context: ReplyContext, services: ReplyServices) -> Routi
             outcome=LlmCallOutcome.SUCCESS,
             plausible_sports=fast.plausible_sports or (),
         )
+    choice = _sport_choice(fast, services)
+    if choice:
+        # The likeliest sport stands in for the intent, for a reply that cannot wait on the
+        # athlete's tap (a pain mention); the router is not called, since it would only guess.
+        return Routing(
+            intents=[Intent(kind=_LOG_KIND, sport=choice[0])],
+            outcome=LlmCallOutcome.SUCCESS,
+            plausible_sports=fast.plausible_sports or (),
+            sport_choice=choice,
+        )
     routed = await services.conversation.route(context)
     if not fast.plausible_sports:
         # Jev gave none, or a floor above every sport left nothing in play.
         return replace(routed, plausible_sports=_logged_sports(routed.intents))
     return replace(routed, plausible_sports=fast.plausible_sports)
+
+
+def _sport_choice(fast: FastRoute, services: ReplyServices) -> tuple[str, ...]:
+    """The sports to ask between: one log whose sport Jev left split, and two or more of the
+    plausible sports can be logged, likeliest first, cut to `max_clarification_options`. A sport
+    with no extraction template is not offered, since the athlete could not get a draft."""
+    if fast.single_intent != _LOG_KIND or not fast.plausible_sports:
+        return ()
+    loggable = _extractable(services.sports)
+    options = tuple(sport for sport in fast.plausible_sports if sport in loggable)
+    return options[: services.max_clarification_options] if len(options) >= _MIN_OPTIONS else ()
 
 
 async def _conversation_sport(
@@ -363,17 +429,23 @@ def _logged_sports(intents: Sequence[Intent]) -> tuple[str, ...]:
 
 
 async def _save(
-    user_id: UUID, message: ChatMessage, answers: Sequence[_Answer], services: ReplyServices
+    user_id: UUID,
+    message: ChatMessage,
+    answers: Sequence[_Answer],
+    services: ReplyServices,
+    *,
+    after: datetime | None = None,
 ) -> ReplyDone:
     """A reply belongs to the message it follows (ADR-0008), so its parts are stamped right
     after that message, in its conversation, not when they were saved: a later message never
     splits them off. Each saved part moves the conversation's last activity to now (ADR-0021).
     A part's draft is stored pending, made from the athlete's message; no session is written
     (ADR-0022 invariant 3). It extends the athlete's latest session in its sport when the
-    message was sent within the merge window of that session's latest log (B16)."""
+    message was sent within the merge window of that session's latest log (B16). `after` stamps
+    the parts after a reply already saved to the message, as a draft after its question."""
     saved: list[ChatMessage] = []
     drafts: list[StoredDraft] = []
-    stamp: datetime = message.created_at
+    stamp: datetime = after or message.created_at
     for answer in answers:
         stamp += _TICK
         saved.append(
@@ -410,3 +482,124 @@ async def _save(
             )
         await services.conversations.touch(user_id, message.conversation_id, services.clock.now())
     return ReplyDone(messages=saved, drafts=tuple(drafts))
+
+
+async def _ask_sport(
+    user_id: UUID, message: ChatMessage, sports: Sequence[str], services: ReplyServices
+) -> ReplyDone:
+    """The question as the reply to the athlete's log, and its open `clarifications` row. No
+    draft and no session is written before the athlete picks (ADR-0015 invariant 3)."""
+    question = services.conversation.sport_question()
+    saved = await services.chat.add(
+        user_id,
+        message.conversation_id,
+        ChatRole.ASSISTANT,
+        question.text,
+        message.created_at + _TICK,
+        template_id=question.template.id,
+        template_version=question.template.version,
+    )
+    asked = await services.clarifications.add(
+        user_id,
+        message.conversation_id,
+        message.id,
+        SPORT_PURPOSE,
+        Clarification(
+            question=question.text,
+            options=tuple(
+                ChoiceOption(id=sport, copy_key=services.sports.get(sport).label_key)
+                for sport in sports
+            ),
+            pending=_LOG_KIND,
+        ),
+        created_at=services.clock.now(),
+    )
+    await services.conversations.touch(user_id, message.conversation_id, services.clock.now())
+    return ReplyDone(messages=[saved], clarifications=(asked,))
+
+
+@dataclass(frozen=True, slots=True)
+class ClarificationAnswered:
+    """The question as answered, and the reply its answer resumed: the draft's intro line and
+    the pending draft in the chosen sport."""
+
+    clarification: StoredClarification
+    reply: ReplyDone
+
+
+def _chosen_sport(question: StoredClarification, option_ids: Sequence[str]) -> str:
+    """The one sport the athlete tapped. The option ID is trusted, label text never is: an ID
+    the question did not offer is an error, not a guess (ADR-0015 invariant 4)."""
+    offered = {option.id for option in question.clarification.options}
+    if len(option_ids) != 1 or option_ids[0] not in offered:
+        raise UnknownOptionError(option_ids)
+    return option_ids[0]
+
+
+async def answer_clarification(
+    user_id: UUID,
+    clarification_id: UUID,
+    option_ids: Sequence[str],
+    *,
+    timezone: str,
+    services: ReplyServices,
+) -> ClarificationAnswered | ReplyFailed:
+    """Resumes the extraction the question blocked with the tapped sport (B23, ADR-0015). The
+    question is answered, and its draft stored, only once the extraction came through, so a
+    failed one leaves the card to tap again; two taps at once leave one draft, because the
+    second finds the question already answered before anything is written. Raises
+    `ClarificationNotFoundError`, `ClarificationResolvedError` or `UnknownOptionError`
+    (nothing is called or written then), and `MessageNotFoundError` for a log past its
+    conversation's retention."""
+    question = await services.clarifications.get(user_id, clarification_id)
+    if question.purpose != SPORT_PURPOSE:
+        raise ClarificationNotFoundError(clarification_id)
+    if question.status != "open":
+        raise ClarificationResolvedError(clarification_id)
+    sport = _chosen_sport(question, option_ids)
+    message = await find_message(
+        user_id, question.message_id, chat=services.chat, conversations=services.conversations
+    )
+    answer = await _extract(await _context(user_id, message, timezone, services), sport, services)
+    if isinstance(answer, ReplyFailed):
+        return answer
+
+    async def resume() -> ClarificationAnswered:
+        resolved = await services.clarifications.resolve(
+            user_id,
+            clarification_id,
+            "answered",
+            option_ids=[sport],
+            resolved_at=services.clock.now(),
+        )
+        asked = await services.chat.list_replies(user_id, message)
+        try:
+            reply = await _save(
+                user_id,
+                message,
+                [answer],
+                services,
+                after=max((part.created_at for part in asked), default=None),
+            )
+        except BaseException:
+            # The draft did not come through, so the card goes back to be tapped again.
+            await asyncio.shield(services.clarifications.reopen(user_id, clarification_id))
+            raise
+        return ClarificationAnswered(clarification=resolved, reply=reply)
+
+    # Saved in its own task: a reader who leaves now can't cut the draft off after the answer.
+    return await asyncio.shield(asyncio.ensure_future(resume()))
+
+
+async def abandon_clarification(
+    user_id: UUID, clarification_id: UUID, *, services: ReplyServices
+) -> StoredClarification:
+    """ "Let me type instead" (F9): closes the question with no answer, and nothing else is
+    written. Raises `ClarificationNotFoundError` or `ClarificationResolvedError`."""
+    return await services.clarifications.resolve(
+        user_id,
+        clarification_id,
+        "abandoned",
+        option_ids=None,
+        resolved_at=services.clock.now(),
+    )

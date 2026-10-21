@@ -1,0 +1,4 @@
+{#- The answer to a choice card (F9, ticket #162): the card collapsed to the chosen option, then the reply it resumed: the draft's line and its card. Swapped over the card. -#}
+{%- from "components/choice_card.html" import choice_card -%}
+{{ choice_card(card) }}
+{% for message in messages %}{% include "partials/chat/message.html" %}{% endfor %}

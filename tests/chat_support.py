@@ -29,6 +29,13 @@ from ai_trainer.application.ports.llm_gateway import (
 )
 from ai_trainer.application.reply import ReplyServices
 from ai_trainer.domain.chat import ChatMessage, ChatRole, Conversation
+from ai_trainer.domain.clarification import (
+    Clarification,
+    ClarificationNotFoundError,
+    ClarificationResolvedError,
+    ClarificationStatus,
+    StoredClarification,
+)
 from ai_trainer.domain.conversation import Intent, IntentKind
 from ai_trainer.domain.goals import Goal
 from ai_trainer.domain.llm_calls import LlmCallOutcome
@@ -390,11 +397,90 @@ class InMemoryDraftRepository:
         return [draft for owner, draft in self.rows if owner == user_id]
 
 
+class InMemoryClarificationRepository:
+    """`clarifications` in memory, with the one-way `open` to `answered`/`abandoned` move."""
+
+    def __init__(self) -> None:
+        self.rows: list[tuple[UUID, StoredClarification]] = []
+
+    async def add(
+        self,
+        user_id: UUID,
+        conversation_id: UUID,
+        message_id: UUID,
+        purpose: str,
+        clarification: Clarification,
+        *,
+        created_at: datetime,
+    ) -> StoredClarification:
+        stored = StoredClarification(
+            id=uuid4(),
+            conversation_id=conversation_id,
+            message_id=message_id,
+            purpose=purpose,
+            clarification=clarification,
+            status="open",
+            created_at=created_at,
+        )
+        self.rows.append((user_id, stored))
+        return stored
+
+    async def list_shown(
+        self, user_id: UUID, conversation_id: UUID
+    ) -> Sequence[StoredClarification]:
+        return [
+            row
+            for owner, row in self.rows
+            if owner == user_id and row.conversation_id == conversation_id
+        ]
+
+    async def get(self, user_id: UUID, clarification_id: UUID) -> StoredClarification:
+        for owner, row in self.rows:
+            if owner == user_id and row.id == clarification_id:
+                return row
+        raise ClarificationNotFoundError(clarification_id)
+
+    async def resolve(
+        self,
+        user_id: UUID,
+        clarification_id: UUID,
+        status: ClarificationStatus,
+        *,
+        option_ids: Sequence[str] | None,
+        resolved_at: datetime,
+    ) -> StoredClarification:
+        for index, (owner, row) in enumerate(self.rows):
+            if owner != user_id or row.id != clarification_id:
+                continue
+            if row.status != "open":
+                raise ClarificationResolvedError(clarification_id)
+            row = row.model_copy(
+                update={
+                    "status": status,
+                    "answer_option_ids": None if option_ids is None else tuple(option_ids),
+                }
+            )
+            self.rows[index] = (owner, row)
+            return row
+        raise ClarificationNotFoundError(clarification_id)
+
+    async def reopen(self, user_id: UUID, clarification_id: UUID) -> None:
+        for index, (owner, row) in enumerate(self.rows):
+            if owner == user_id and row.id == clarification_id and row.status == "answered":
+                reopened = row.model_copy(update={"status": "open", "answer_option_ids": None})
+                self.rows[index] = (owner, reopened)
+
+    def all_of(self, user_id: UUID) -> list[StoredClarification]:
+        return [row for owner, row in self.rows if owner == user_id]
+
+
 NOT_YET_TEXT = "I can't do that one yet."
 DRAFT_READY_TEXT = "Here's the session."
+SPORT_QUESTION_TEXT = "Which sport was that?"
 CHITCHAT_TEMPLATE = TemplateRef(id="chitchat", version=1)
 NOT_YET_TEMPLATE = TemplateRef(id="not_yet", version=1)
 DRAFT_READY_TEMPLATE = TemplateRef(id="draft_ready", version=1)
+SPORT_QUESTION_TEMPLATE = TemplateRef(id="sport_question", version=1)
 CLIMBING_EXTRACT_TEMPLATE = TemplateRef(id="climbing.extract", version=1)
 # "I climbed 3 6A and 2 6B boulders", sent at `FROZEN_NOW` with no date (Europe/Warsaw).
 THREE_6A_TWO_6B = ClimbingExtraction(
@@ -480,6 +566,9 @@ class ScriptedConversation:
     def not_yet(self) -> FixedReply:
         return FixedReply(text=NOT_YET_TEXT, template=NOT_YET_TEMPLATE)
 
+    def sport_question(self) -> FixedReply:
+        return FixedReply(text=SPORT_QUESTION_TEXT, template=SPORT_QUESTION_TEMPLATE)
+
 
 @dataclass
 class ScriptedSafetyScreen:
@@ -527,17 +616,20 @@ def reply_services(
     chat: InMemoryChatRepository,
     *,
     drafts: InMemoryDraftRepository | None = None,
+    clarifications: InMemoryClarificationRepository | None = None,
     sessions: InMemoryTrainingSessions | None = None,
     profile: InMemoryProfile | None = None,
     conversation: ScriptedConversation | None = None,
     fast_router: ScriptedFastRouter | None = None,
     safety_screen: ScriptedSafetyScreen | None = None,
     history_turns: int = 10,
+    max_clarification_options: int = 5,
 ) -> ReplyServices:
     return ReplyServices(
         chat=chat,
         conversations=chat.conversations,
         drafts=drafts or InMemoryDraftRepository(),
+        clarifications=clarifications or InMemoryClarificationRepository(),
         sessions=sessions or InMemoryTrainingSessions(),
         sports=sports_with_rowing(),
         profile=profile or InMemoryProfile(),
@@ -547,6 +639,7 @@ def reply_services(
         clock=FixedClock(),
         history_turns=history_turns,
         merge_window=MERGE_WINDOW,
+        max_clarification_options=max_clarification_options,
     )
 
 
@@ -558,11 +651,20 @@ def include_chat(
     conversation: ScriptedConversation | None = None,
     profile: InMemoryProfile | None = None,
     drafts: InMemoryDraftRepository | None = None,
+    clarifications: InMemoryClarificationRepository | None = None,
+    fast_router: ScriptedFastRouter | None = None,
 ) -> InMemoryChatRepository:
     """Mounts the chat router on an in-memory repository and a scripted conversation, and
     returns the repository."""
     repository = chat or InMemoryChatRepository()
-    services = reply_services(repository, drafts=drafts, profile=profile, conversation=conversation)
+    services = reply_services(
+        repository,
+        drafts=drafts,
+        clarifications=clarifications,
+        profile=profile,
+        conversation=conversation,
+        fast_router=fast_router,
+    )
     app.include_router(
         build_chat_router(templates, chat=repository, replies=services, sports=sports_with_rowing())
     )

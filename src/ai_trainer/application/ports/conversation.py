@@ -34,11 +34,14 @@ class Routing:
     """The router's intents, in message order; empty when the call did not succeed.
     `plausible_sports` are the athlete's sports still in play for the message, most likely
     first (B23): Jev's reading when it gave one, else the sports of the router's own
-    `log_session` intents."""
+    `log_session` intents. `sport_choice` is set when the message is one log whose sport stays
+    split between those loggable sports: the athlete is asked which, and the intent carries the
+    likeliest one for a reply that cannot wait (B17, ADR-0015)."""
 
     intents: Sequence[Intent]
     outcome: LlmCallOutcome
     plausible_sports: tuple[str, ...] = ()
+    sport_choice: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,4 +91,8 @@ class ConversationModelPort(Protocol):
 
     def not_yet(self) -> FixedReply:
         """The skeleton's reply for an intent whose specialist hasn't shipped (ADR-0008)."""
+        ...
+
+    def sport_question(self) -> FixedReply:
+        """The question above the choice card that asks which sport a log was (B23)."""
         ...
