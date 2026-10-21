@@ -48,6 +48,23 @@ class SessionDraftRepositoryPort(Protocol):
         pending; none of them changes anything."""
         ...
 
+    async def change_sport(
+        self,
+        user_id: UUID,
+        draft_id: UUID,
+        sport_id: str,
+        draft: SessionDraft,
+        *,
+        payload_version: int,
+        extends_session_id: UUID | None,
+    ) -> StoredDraft:
+        """Replaces the user's pending draft `draft_id` with one in `sport_id`, extracted again
+        from the same log (B23, ticket #163): its sport, document, payload version and the
+        session it extends (B16) all change, and it keeps its ID and stays `pending`. Raises
+        `DraftNotFoundError` when the user has no such draft, and `DraftConfirmedError` or
+        `DraftDiscardedError` when it is no longer pending; none of them changes anything."""
+        ...
+
     async def confirm(
         self, user_id: UUID, draft_id: UUID, *, confirmed_at: datetime
     ) -> StoredDraft:

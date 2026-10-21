@@ -97,6 +97,12 @@ class DraftConfirmedError(Exception):
     """The draft was confirmed and its session saved, so it can't be discarded (ADR-0022)."""
 
 
+class DraftSportNotOfferedError(Exception):
+    """The athlete asked to move a draft to a sport its card never offered: not one of theirs,
+    one with no extraction, or the draft's own (B23, ticket #163). An ID is trusted, never
+    guessed (ADR-0015 invariant 4)."""
+
+
 class DraftEditError(Exception):
     """The athlete's edit of a draft has values its models reject (F2, ticket #158). `fields`
     names each one as the edit form does, e.g. `rpe` or `activities.0.count`; the draft is left

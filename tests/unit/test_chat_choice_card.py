@@ -3,6 +3,7 @@ that stays split between two of the athlete's sports streams a card, a tap posts
 and swaps the card for the chosen option above the draft, "Let me type instead" skips it, and
 nothing is saved before the tap."""
 
+import re
 from datetime import date
 from uuid import UUID, uuid4
 
@@ -144,7 +145,12 @@ async def test_tapping_cycling_collapses_the_card_to_the_answer_and_shows_a_cycl
     assert "Which sport was that?" in response.text
     assert "Cycling" in response.text
     assert "data-choice-option" not in response.text
-    assert "Cycling · draft" in response.text
+    # The athlete also has gym, so the draft's sport is a chip that offers it (#163).
+    header = re.search(r"<header.*?</header>", response.text, re.S)
+    assert header is not None
+    assert " ".join(re.sub(r"<[^>]+>", " ", header.group()).split()).startswith(
+        "Cycling , change sport Gym · draft"
+    )
     [draft] = app.drafts.all_of(app.user.id)
     assert (draft.sport_id, draft.status) == ("cycling", "pending")
     assert [sport for _, sport in app.conversation.extracted] == ["cycling"]

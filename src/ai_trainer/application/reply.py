@@ -6,7 +6,8 @@ streams a fresh reply. A log for a sport whose plugin names an extraction templa
 pending draft the athlete confirms later (PRD-0004 B1, F2, ADR-0022), offered as an addition to
 their latest session in that sport when it came close after it (B16, ADR-0014). A log whose
 sport stays split between two or more of the athlete's sports is a choice card first, and the
-draft follows the tap (B17, B23, ADR-0015)."""
+draft follows the tap (B17, B23, ADR-0015). A pending draft's sport can be changed on its card,
+which extracts the same log again in the new sport (B23, ticket #163)."""
 
 import asyncio
 from collections.abc import AsyncGenerator, Sequence
@@ -16,6 +17,7 @@ from datetime import datetime, timedelta
 from typing import Literal
 from uuid import UUID
 
+from ai_trainer.application.drafts import draft_to_edit
 from ai_trainer.application.ports.chat import ChatRepositoryPort, ConversationRepositoryPort
 from ai_trainer.application.ports.clarifications import ClarificationRepositoryPort
 from ai_trainer.application.ports.clock import ClockPort
@@ -44,7 +46,12 @@ from ai_trainer.domain.clarification import (
 from ai_trainer.domain.conversation import Intent, IntentKind
 from ai_trainer.domain.llm_calls import LlmCallOutcome
 from ai_trainer.domain.sports.registry import SportRegistry
-from ai_trainer.domain.training import SessionDraft, StoredDraft, joins_session
+from ai_trainer.domain.training import (
+    DraftSportNotOfferedError,
+    SessionDraft,
+    StoredDraft,
+    joins_session,
+)
 
 # Until each specialist ships, these go to `chitchat`; the persona carries G3 (ADR-0008).
 _CHITCHAT_KINDS = frozenset({"chitchat", "unclear", "wellbeing_or_injury"})
@@ -462,12 +469,7 @@ async def _save(
         )
         if answer.draft is not None:
             sport_id, draft, payload_version = answer.draft
-            latest = await services.sessions.latest_in_sport(user_id, sport_id)
-            extends = None
-            if latest is not None and joins_session(
-                draft, message.created_at, latest, services.merge_window
-            ):
-                extends = latest.id
+            extends = await _extended_session(user_id, message, sport_id, draft, services)
             drafts.append(
                 await services.drafts.add(
                     user_id,
@@ -482,6 +484,23 @@ async def _save(
             )
         await services.conversations.touch(user_id, message.conversation_id, services.clock.now())
     return ReplyDone(messages=saved, drafts=tuple(drafts))
+
+
+async def _extended_session(
+    user_id: UUID,
+    message: ChatMessage,
+    sport_id: str,
+    draft: SessionDraft,
+    services: ReplyServices,
+) -> UUID | None:
+    """The athlete's latest session in the sport, when the log was sent within the merge
+    window of its latest log, on a day the draft can belong to (B16)."""
+    latest = await services.sessions.latest_in_sport(user_id, sport_id)
+    if latest is not None and joins_session(
+        draft, message.created_at, latest, services.merge_window
+    ):
+        return latest.id
+    return None
 
 
 async def _ask_sport(
@@ -603,3 +622,59 @@ async def abandon_clarification(
         option_ids=None,
         resolved_at=services.clock.now(),
     )
+
+
+def sports_to_switch_to(
+    athlete_sports: Sequence[str], current: str, sports: SportRegistry
+) -> tuple[str, ...]:
+    """The sports a draft's card offers to move it to (B23, ticket #163): the athlete's own, in
+    their order, that name an extraction template, without the draft's own sport."""
+    loggable = _extractable(sports)
+    return tuple(sport for sport in athlete_sports if sport in loggable and sport != current)
+
+
+async def change_draft_sport(
+    user_id: UUID,
+    draft_id: UUID,
+    sport_id: str,
+    *,
+    timezone: str,
+    services: ReplyServices,
+) -> StoredDraft | ReplyFailed:
+    """The card's sport chip (B23, F2, ticket #163): re-runs `sport_id`'s extraction on the
+    draft's own log and replaces the pending draft in place, offered again as an addition to
+    the new sport's latest session when it came close after it (B16). No session is written
+    (ADR-0022 invariant 3), and a failed extraction changes nothing. Raises
+    `DraftNotFoundError`, `DraftConfirmedError` or `DraftDiscardedError`, and
+    `DraftSportNotOfferedError` for a sport the card never offered (nothing is called then), and
+    `MessageNotFoundError` for a log past its conversation's retention."""
+    stored = await draft_to_edit(user_id, draft_id, drafts=services.drafts)
+    offered = sports_to_switch_to(
+        await services.profile.list_sports(user_id), stored.sport_id, services.sports
+    )
+    if sport_id not in offered:
+        raise DraftSportNotOfferedError(sport_id)
+    message = await find_message(
+        user_id, stored.message_id, chat=services.chat, conversations=services.conversations
+    )
+    # Read as of when the log was sent, as its first extraction was, so a switch after
+    # midnight still dates "yesterday" or an unstated day from the log (ADR-0014).
+    context = replace(await _context(user_id, message, timezone, services), now=message.created_at)
+    answer = await _extract(context, sport_id, services)
+    if isinstance(answer, ReplyFailed):
+        return answer
+    assert answer.draft is not None  # an extraction's answer always carries its draft
+    _, draft, payload_version = answer.draft
+
+    async def replace_draft() -> StoredDraft:
+        return await services.drafts.change_sport(
+            user_id,
+            draft_id,
+            sport_id,
+            draft,
+            payload_version=payload_version,
+            extends_session_id=await _extended_session(user_id, message, sport_id, draft, services),
+        )
+
+    # Saved in its own task: a reader who leaves now can't cut the replacement off.
+    return await asyncio.shield(asyncio.ensure_future(replace_draft()))
