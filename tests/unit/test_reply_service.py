@@ -1099,22 +1099,30 @@ async def test_a_conversation_sport_jev_does_not_find_plausible_goes_to_the_llm_
     assert [sport for _, sport in conversation.extracted] == ["gym"]
 
 
-async def test_a_follow_up_after_the_merge_window_goes_to_the_llm_router() -> None:
-    conversation, _ = await _follow_up(
+def _asked_which_sport(conversation: ScriptedConversation, events: list[ReplyEvent]) -> None:
+    """Nothing settled the sport, so the athlete is asked, with no router or extraction call
+    (ticket #162)."""
+    [question] = _done(events).clarifications
+    assert [option.id for option in question.clarification.options] == ["climbing", "gym"]
+    assert (conversation.routed, conversation.extracted) == ([], [])
+
+
+async def test_a_follow_up_after_the_merge_window_asks_which_sport() -> None:
+    conversation, events = await _follow_up(
         _split_log("climbing", "gym"), ago=MERGE_WINDOW + timedelta(seconds=1)
     )
 
-    assert [context.message for context in conversation.routed] == [_FOLLOW_UP]
+    _asked_which_sport(conversation, events)
 
 
-async def test_a_draft_made_late_for_a_log_sent_before_the_window_goes_to_the_llm_router() -> None:
+async def test_a_draft_made_late_for_a_log_sent_before_the_window_asks_which_sport() -> None:
     """B16 measures the window between logs: a reply prepared long after its log was sent
     does not bring that log into the window."""
-    conversation, _ = await _follow_up(
+    conversation, events = await _follow_up(
         _split_log("climbing", "gym"), ago=2 * MERGE_WINDOW, drafted_ago=_MINUTE
     )
 
-    assert [context.message for context in conversation.routed] == [_FOLLOW_UP]
+    _asked_which_sport(conversation, events)
 
 
 async def test_a_draft_exactly_at_the_merge_window_still_gives_its_sport() -> None:
@@ -1125,16 +1133,16 @@ async def test_a_draft_exactly_at_the_merge_window_still_gives_its_sport() -> No
 
 
 async def test_a_new_conversation_never_takes_its_sport_from_another_conversations_draft() -> None:
-    conversation, _ = await _follow_up(_split_log("climbing", "gym"), in_new_conversation=True)
+    conversation, events = await _follow_up(_split_log("climbing", "gym"), in_new_conversation=True)
 
-    assert [context.message for context in conversation.routed] == [_FOLLOW_UP]
+    _asked_which_sport(conversation, events)
 
 
 async def test_a_discarded_latest_draft_gives_no_sport() -> None:
-    """The athlete may have discarded it for its sport, so the LLM router decides."""
-    conversation, _ = await _follow_up(_split_log("climbing", "gym"), discarded=True)
+    """The athlete may have discarded it for its sport, so they are asked."""
+    conversation, events = await _follow_up(_split_log("climbing", "gym"), discarded=True)
 
-    assert [context.message for context in conversation.routed] == [_FOLLOW_UP]
+    _asked_which_sport(conversation, events)
 
 
 @pytest.mark.parametrize("single_intent", [None, "chitchat"], ids=["several requests", "not a log"])

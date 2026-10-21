@@ -125,6 +125,9 @@ class Settings(BaseSettings):
     # 0.1 sits in that gap. Recorded in the `router_fast` baseline; change it only through
     # `/tune-prompt router_fast`.
     router_fast_plausible_sport_floor: float = Field(default=0.1, ge=0, le=1)
+    # ADR-0015: a question offers at most this many options, so a longer list of plausible
+    # sports is cut to the likeliest.
+    max_clarification_options: int = Field(default=5, ge=2)
 
     # Google sign-in (ADR-0005). No Google access or refresh token is ever stored.
     # Required and non-blank: a blank value otherwise fails only on Google's own page.

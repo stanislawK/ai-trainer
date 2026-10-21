@@ -15,6 +15,7 @@ from ai_trainer.application.ports.conversation import (
 )
 from ai_trainer.application.ports.llm_gateway import LlmGatewayPort, LlmStreamEvent
 from ai_trainer.domain.chat import ChatMessage
+from ai_trainer.domain.clarification import SPORT_QUESTION_TEMPLATE_ID
 from ai_trainer.domain.conversation import Intent
 from ai_trainer.domain.llm_calls import ProviderPreferences, ReasoningEffort
 from ai_trainer.domain.sports.registry import SportRegistry
@@ -28,6 +29,9 @@ _NOT_YET_VERSION = 1
 # The line above a draft card, sent as written (ADR-0008 fixed replies).
 DRAFT_READY_REPLY_ID = "draft_ready"
 _DRAFT_READY_VERSION = 1
+# The question above the choice card that asks which sport a log was, sent as written (ADR-0015).
+SPORT_QUESTION_REPLY_ID = SPORT_QUESTION_TEMPLATE_ID
+_SPORT_QUESTION_VERSION = 1
 
 
 def build_prompt_registry(root: Path, sports: SportRegistry) -> PromptRegistry:
@@ -195,4 +199,10 @@ class LlmConversation:
         return FixedReply(
             text=self._registry.load_fixed_reply(NOT_YET_REPLY_ID, _NOT_YET_VERSION),
             template=TemplateRef(id=NOT_YET_REPLY_ID, version=_NOT_YET_VERSION),
+        )
+
+    def sport_question(self) -> FixedReply:
+        return FixedReply(
+            text=self._registry.load_fixed_reply(SPORT_QUESTION_REPLY_ID, _SPORT_QUESTION_VERSION),
+            template=TemplateRef(id=SPORT_QUESTION_REPLY_ID, version=_SPORT_QUESTION_VERSION),
         )

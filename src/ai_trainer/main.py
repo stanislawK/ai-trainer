@@ -18,6 +18,7 @@ from pydantic_ai import Agent, InstrumentationSettings
 from starlette.middleware.sessions import SessionMiddleware
 
 from ai_trainer.adapters.chat_repository import SqlAlchemyChatRepository
+from ai_trainer.adapters.clarification_repository import SqlAlchemyClarificationRepository
 from ai_trainer.adapters.clock import UtcClock
 from ai_trainer.adapters.conversation_repository import SqlAlchemyConversationRepository
 from ai_trainer.adapters.db import build_engine, build_session_factory
@@ -157,6 +158,7 @@ def create_app(settings: Settings) -> FastAPI:
             session_factory, clock=clock, retention_days=settings.conversation_retention_days
         ),
         drafts=SqlAlchemySessionDraftRepository(session_factory, sport_registry),
+        clarifications=SqlAlchemyClarificationRepository(session_factory),
         sessions=SqlAlchemyTrainingSessionRepository(session_factory),
         sports=sport_registry,
         profile=onboarding,
@@ -179,6 +181,7 @@ def create_app(settings: Settings) -> FastAPI:
         clock=clock,
         history_turns=settings.chat_history_turns,
         merge_window=timedelta(minutes=settings.session_merge_window_min),
+        max_clarification_options=settings.max_clarification_options,
     )
     app.include_router(
         build_chat_router(templates, chat=chat, replies=replies, sports=app.state.sport_registry)

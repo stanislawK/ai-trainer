@@ -35,6 +35,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from ai_trainer.adapters.chat_repository import SqlAlchemyChatRepository
+from ai_trainer.adapters.clarification_repository import SqlAlchemyClarificationRepository
 from ai_trainer.adapters.conversation_repository import SqlAlchemyConversationRepository
 from ai_trainer.adapters.llm_calls_repository import SqlAlchemyLlmCallsRepository
 from ai_trainer.adapters.onboarding_repository import SqlAlchemyOnboardingRepository
@@ -328,6 +329,7 @@ def _app(
         chat=chat,
         conversations=SqlAlchemyConversationRepository(factory, clock=clock, retention_days=14),
         drafts=SqlAlchemySessionDraftRepository(factory, sports_with_rowing()),
+        clarifications=SqlAlchemyClarificationRepository(factory),
         sessions=SqlAlchemyTrainingSessionRepository(factory),
         sports=sports_with_rowing(),
         profile=SqlAlchemyOnboardingRepository(factory),
@@ -345,6 +347,7 @@ def _app(
         clock=clock,
         history_turns=settings.chat_history_turns,
         merge_window=timedelta(minutes=settings.session_merge_window_min),
+        max_clarification_options=settings.max_clarification_options,
     )
     app = FastAPI()
     app.include_router(
