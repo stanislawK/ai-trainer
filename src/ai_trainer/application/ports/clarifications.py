@@ -20,8 +20,10 @@ class ClarificationRepositoryPort(Protocol):
         clarification: Clarification,
         *,
         created_at: datetime,
+        draft_id: UUID | None = None,
     ) -> StoredClarification:
-        """Stores an `open` question blocking the user's message `message_id`."""
+        """Stores an `open` question blocking the user's message `message_id`, and their draft
+        `draft_id` when given."""
         ...
 
     async def list_shown(

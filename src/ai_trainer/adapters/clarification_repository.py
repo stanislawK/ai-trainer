@@ -26,6 +26,7 @@ def _to_domain(row: ClarificationOrm) -> StoredClarification:
             "purpose": row.purpose,
             "clarification": Clarification.model_validate(row.clarification),
             "status": row.status,
+            "draft_id": row.draft_id,
             "answer_option_ids": row.answer_option_ids,
             "created_at": row.created_at,
         }
@@ -34,8 +35,8 @@ def _to_domain(row: ClarificationOrm) -> StoredClarification:
 
 class SqlAlchemyClarificationRepository:
     """Implements `ClarificationRepositoryPort` (ADR-0004, ADR-0015, ADR-0022). The conversation
-    and message keys are composite with `user_id`, so a question can't block another user's
-    message."""
+    message and draft keys are composite with `user_id`, so a question can't block another
+    user's message or draft."""
 
     def __init__(self, session_factory: Callable[[], AsyncSession]) -> None:
         self._session_factory = session_factory
@@ -49,12 +50,14 @@ class SqlAlchemyClarificationRepository:
         clarification: Clarification,
         *,
         created_at: datetime,
+        draft_id: UUID | None = None,
     ) -> StoredClarification:
         async with self._session_factory() as session:
             row = ClarificationOrm(
                 user_id=user_id,
                 conversation_id=conversation_id,
                 message_id=message_id,
+                draft_id=draft_id,
                 purpose=purpose,
                 clarification=clarification.model_dump(mode="json"),
                 status=_OPEN,

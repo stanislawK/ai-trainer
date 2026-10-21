@@ -11,7 +11,13 @@ from pydantic import JsonValue, ValidationError
 
 from ai_trainer.domain.sports.base import extend_payload, withdraw_payload
 from ai_trainer.domain.sports.climbing.payload import ClimbingPayload
-from ai_trainer.domain.training import SessionDraft, SessionSpan, joins_day, joins_session
+from ai_trainer.domain.training import (
+    SessionDraft,
+    SessionSpan,
+    continuity,
+    joins_day,
+    joins_session,
+)
 
 _LAST_LOG = datetime(2026, 10, 2, 16, 0, tzinfo=UTC)
 _WINDOW = timedelta(minutes=30)
@@ -111,3 +117,56 @@ def test_withdrawing_an_activity_the_session_lacks_leaves_the_rest() -> None:
     withdrawn = withdraw_payload(ClimbingPayload, _payload(_SIX_A), _payload(_SIX_B_PLUS))
 
     assert withdrawn.model_dump(mode="json") == _payload(_SIX_A)
+
+
+# Beyond the window, on the session's own day, the athlete is asked (B16, ADR-0014, ticket
+# #166). The day is the draft's resolved `occurred_on`, so a log sent after midnight about the
+# evening before counts as the evening's day.
+
+_EVENING = SessionSpan(
+    id=uuid4(),
+    occurred_on=date(2026, 10, 2),
+    first_logged_at=datetime(2026, 10, 2, 19, 0, tzinfo=UTC),
+    last_logged_at=datetime(2026, 10, 2, 19, 30, tzinfo=UTC),
+)
+# 00:10 in Warsaw (CEST, UTC+2) on 3 October.
+_AFTER_MIDNIGHT = datetime(2026, 10, 2, 22, 10, tzinfo=UTC)
+
+
+def test_a_log_within_the_window_joins_with_no_question() -> None:
+    assert continuity(_draft(), _LAST_LOG + _WINDOW, _SESSION, _WINDOW) == "join"
+
+
+def test_a_log_three_hours_later_on_the_same_day_is_asked_about() -> None:
+    assert continuity(_draft(), _LAST_LOG + timedelta(hours=3), _SESSION, _WINDOW) == "ask"
+
+
+def test_a_log_one_second_past_the_window_on_the_same_day_is_asked_about() -> None:
+    just_past = _LAST_LOG + _WINDOW + timedelta(seconds=1)
+
+    assert continuity(_draft(), just_past, _SESSION, _WINDOW) == "ask"
+
+
+def test_a_log_on_another_local_day_starts_a_new_session_with_no_question() -> None:
+    tomorrow = _draft(date(2026, 10, 3))
+
+    assert continuity(tomorrow, _LAST_LOG + timedelta(days=1), _SESSION, _WINDOW) == "new"
+
+
+@pytest.mark.parametrize("source", ["stated", "relative"])
+def test_a_log_after_midnight_about_the_evening_before_counts_as_that_day(source: str) -> None:
+    last_night = _draft(date(2026, 10, 2), source)
+
+    assert continuity(last_night, _AFTER_MIDNIGHT, _EVENING, _WINDOW) == "ask"
+
+
+def test_an_unstated_log_after_midnight_beyond_the_window_is_its_own_day() -> None:
+    today = _draft(date(2026, 10, 3), "assumed_today")
+
+    assert continuity(today, _AFTER_MIDNIGHT, _EVENING, _WINDOW) == "new"
+
+
+def test_a_log_naming_another_day_inside_the_window_starts_a_new_session() -> None:
+    yesterday = _draft(date(2026, 10, 1), "relative")
+
+    assert continuity(yesterday, _LAST_LOG + timedelta(minutes=5), _SESSION, _WINDOW) == "new"

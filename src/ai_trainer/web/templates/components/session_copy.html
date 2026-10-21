@@ -1,0 +1,5 @@
+{#- User-facing copy of the same-session question's options (B16, ticket #166), keyed by their `copy_key` (G5). `{time}` is the option's `time` param, the session's first log as HH:MM in the draft's own timezone. Import with `{% from "components/session_copy.html" import session_copy %}`. -#}
+{% set session_copy = {
+  "same_session_add": {"label": "Add to the session at {time}", "hint": "One session with both logs"},
+  "same_session_new": {"label": "New session", "hint": "Logged on its own"},
+} %}

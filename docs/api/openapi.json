@@ -326,7 +326,7 @@
     },
     "/clarifications/{clarification_id}/answer": {
       "post": {
-        "description": "A choice card's tap (B17, B23, F9, ADR-0015): the option IDs the athlete picked\nresume the log's extraction in that sport, and the card collapses to the chosen option\nabove the new draft. An option the question never offered is a 422, an answered or\nskipped question a 409, another user's or an unknown one a 404, and a failed extraction\nthe card again with a retry note, still open; none of them writes anything.",
+        "description": "A choice card's tap (B17, B23, F9, ADR-0015): the option IDs the athlete picked\nresume the log's extraction in that sport, and the card collapses to the chosen option\nabove the new draft. An option the question never offered is a 422, an answered or\nskipped question a 409, another user's or an unknown one a 404, and a failed extraction\nthe card again with a retry note, still open; none of them writes anything. A draft's\nsame-session question answers with the settled draft card, which replaces the one that\nasked; on a confirmed or discarded draft it is a 409 (#166).",
         "operationId": "answer_clarifications__clarification_id__answer_post",
         "parameters": [
           {
@@ -406,7 +406,7 @@
     },
     "/drafts/{draft_id}/confirm": {
       "post": {
-        "description": "The draft card's Confirm (F2, ADR-0022): saves the athlete's draft once and answers\nwith its \"Logged \u2026 to <date>\" row, which replaces the card. A second confirm answers\nwith the same row. A discarded draft is a 409 and writes nothing.",
+        "description": "The draft card's Confirm (F2, ADR-0022): saves the athlete's draft once and answers\nwith its \"Logged \u2026 to <date>\" row, which replaces the card. A second confirm answers\nwith the same row. A discarded draft, or one whose card still asks whether it is the\nsame session (#166), is a 409 and writes nothing.",
         "operationId": "confirm_drafts__draft_id__confirm_post",
         "parameters": [
           {

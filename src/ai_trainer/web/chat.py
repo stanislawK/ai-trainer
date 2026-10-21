@@ -5,7 +5,9 @@ ADR-0012, ADR-0021, tickets #78, #82, #116, #146 and #147). A pending session dr
 card under the reply part that introduced it, on the stream's end and on every page load
 (PRD-0004 F2, ticket #154). A question that blocks a log is a choice card in place of its line,
 answered or skipped with one POST (B17, F9, ADR-0015, ticket #162). A pending card's sport chip
-moves the draft to another of the athlete's sports with one POST (B23, ticket #163). A sport
+moves the draft to another of the athlete's sports with one POST (B23, ticket #163). A draft
+that came later on the day of a same-sport session asks on its card whether it is that session,
+answered with the same POST as any choice card (B16, ticket #166). A sport
 whose extraction failed in a mixed log shows a row whose Retry drafts it with one POST (#161).
 `user_id` comes only from the authenticated session (ADR-0005), and a conversation ID from the
 URL or the form is always looked up with it: another user's conversation is a 404."""
@@ -52,6 +54,7 @@ from ai_trainer.application.reply import (
     ReplyPhase,
     ReplyServices,
     RetryFailed,
+    SessionSettled,
     abandon_clarification,
     answer_clarification,
     change_draft_sport,
@@ -69,6 +72,7 @@ from ai_trainer.domain.clarification import (
 from ai_trainer.domain.llm_calls import LlmCallOutcome
 from ai_trainer.domain.sports.registry import SportRegistry
 from ai_trainer.domain.training import (
+    DraftAwaitingAnswerError,
     DraftConfirmedError,
     DraftDiscardedError,
     DraftEditError,
@@ -85,6 +89,7 @@ from ai_trainer.web.drafts import (
     draft_card,
     draft_cards,
     form_changes,
+    open_questions,
 )
 from ai_trainer.web.glyphs import build_reply_glyph
 
@@ -137,6 +142,7 @@ def build_chat_router(
             today=local_today(user),
             athlete_sports=await athlete_sports(user) if done.drafts else (),
             log_id=message_id,
+            questions=done.clarifications,
         )
 
     async def window_log(user: User, history: Sequence[ChatMessage]) -> UUID | None:
@@ -214,6 +220,7 @@ def build_chat_router(
         if conversation is not None:
             history = await list_history(user.id, conversation.id, repository=chat)
             shown = await replies.drafts.list_shown(user.id, conversation.id)
+            asked = await replies.clarifications.list_shown(user.id, conversation.id)
             log_id = await window_log(user, history)
             cards = draft_cards(
                 history,
@@ -222,12 +229,9 @@ def build_chat_router(
                 today=local_today(user),
                 athlete_sports=await athlete_sports(user),
                 log_id=log_id,
+                questions=asked,
             )
-            questions = choice_cards(
-                history,
-                await replies.clarifications.list_shown(user.id, conversation.id),
-                log_id=log_id,
-            )
+            questions = choice_cards(history, asked, log_id=log_id)
         local_hour = clock.now().astimezone(ZoneInfo(user.timezone)).hour
         first_name = user.name.split()[0] if user.name and user.name.strip() else None
         context = {
@@ -398,12 +402,20 @@ def build_chat_router(
         )
 
     async def shown_card(user: User, draft: StoredDraft) -> DraftCard:
-        """A pending draft whose payload no longer reads has no card, so it is not found."""
+        """A pending draft whose payload no longer reads has no card, so it is not found. A
+        pending one asks its open same-session question (#166)."""
+        pending = draft.status == "pending"
+        asked = (
+            await replies.clarifications.list_shown(user.id, draft.conversation_id)
+            if pending
+            else ()
+        )
         card = draft_card(
             draft,
             sports=sports,
             today=local_today(user),
-            athlete_sports=await athlete_sports(user) if draft.status == "pending" else (),
+            athlete_sports=await athlete_sports(user) if pending else (),
+            question=open_questions(asked).get(draft.id),
         )
         if card is None:
             raise HTTPException(status_code=_NOT_FOUND)
@@ -483,7 +495,8 @@ def build_chat_router(
     async def confirm(request: Request, draft_id: str) -> HTMLResponse:
         """The draft card's Confirm (F2, ADR-0022): saves the athlete's draft once and answers
         with its "Logged … to <date>" row, which replaces the card. A second confirm answers
-        with the same row. A discarded draft is a 409 and writes nothing."""
+        with the same row. A discarded draft, or one whose card still asks whether it is the
+        same session (#166), is a 409 and writes nothing."""
         user: User = request.state.user
         try:
             draft = await confirm_draft(
@@ -491,7 +504,7 @@ def build_chat_router(
             )
         except DraftNotFoundError:
             raise HTTPException(status_code=_NOT_FOUND) from None
-        except DraftDiscardedError:
+        except DraftDiscardedError, DraftAwaitingAnswerError:
             raise HTTPException(status_code=_CONFLICT) from None
         card = draft_card(draft, sports=sports, today=local_today(user))
         return templates.TemplateResponse(
@@ -592,6 +605,7 @@ def build_chat_router(
                     today=local_today(user),
                     athlete_sports=athlete,
                     log_id=answered.clarification.message_id,
+                    questions=reply.clarifications,
                 ),
             },
         )
@@ -602,7 +616,9 @@ def build_chat_router(
         resume the log's extraction in that sport, and the card collapses to the chosen option
         above the new draft. An option the question never offered is a 422, an answered or
         skipped question a 409, another user's or an unknown one a 404, and a failed extraction
-        the card again with a retry note, still open; none of them writes anything."""
+        the card again with a retry note, still open; none of them writes anything. A draft's
+        same-session question answers with the settled draft card, which replaces the one that
+        asked; on a confirmed or discarded draft it is a 409 (#166)."""
         user: User = request.state.user
         parsed_id = parse_id(clarification_id)
         form = await request.form()
@@ -611,12 +627,15 @@ def build_chat_router(
             answered = await answer_clarification(
                 user.id, parsed_id, option_ids, timezone=user.timezone, services=replies
             )
-        except ClarificationNotFoundError, MessageNotFoundError:
+        except ClarificationNotFoundError, MessageNotFoundError, DraftNotFoundError:
             raise HTTPException(status_code=_NOT_FOUND) from None
-        except ClarificationResolvedError:
+        except ClarificationResolvedError, DraftConfirmedError, DraftDiscardedError:
             raise HTTPException(status_code=_CONFLICT) from None
         except UnknownOptionError:
             raise HTTPException(status_code=_UNPROCESSABLE) from None
+        if isinstance(answered, SessionSettled):
+            settled = await shown_card(user, answered.draft)
+            return templates.TemplateResponse(request, settled.template, {"card": settled})
         if isinstance(answered, ReplyFailed):
             card = ChoiceCard(await replies.clarifications.get(user.id, parsed_id))
             return templates.TemplateResponse(

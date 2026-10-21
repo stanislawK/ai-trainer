@@ -409,3 +409,24 @@ async def test_a_draft_that_cannot_be_saved_leaves_the_question_open_to_tap_agai
 
     reopened = await setup.clarifications.get(setup.user_id, question.id)
     assert (reopened.status, reopened.answer_option_ids) == ("open", None)
+
+
+async def test_the_resumed_extraction_reads_the_log_as_of_when_it_was_sent() -> None:
+    """A log sent at 00:10 and answered the next morning still dates "last night" from 00:10
+    (ADR-0014), as a sport change and a retry do; same-session continuity hangs on that day
+    (ticket #166)."""
+    setup = _Setup()
+    sent = FROZEN_NOW - timedelta(hours=9)
+    conversation_id = await setup.chat.conversation_of(setup.user_id)
+    message = await setup.chat.add(setup.user_id, conversation_id, ChatRole.USER, _INTERVALS, sent)
+    events = await start_reply(
+        setup.user_id, message.id, timezone="Europe/Warsaw", services=setup.services
+    )
+    [question] = _done([event async for event in events]).clarifications
+
+    await answer_clarification(
+        setup.user_id, question.id, ["cycling"], timezone="Europe/Warsaw", services=setup.services
+    )
+
+    [(context, sport)] = setup.conversation.extracted
+    assert (sport, context.now) == ("cycling", sent)
