@@ -5,7 +5,8 @@ ADR-0012, ADR-0021, tickets #78, #82, #116, #146 and #147). A pending session dr
 card under the reply part that introduced it, on the stream's end and on every page load
 (PRD-0004 F2, ticket #154). A question that blocks a log is a choice card in place of its line,
 answered or skipped with one POST (B17, F9, ADR-0015, ticket #162). A pending card's sport chip
-moves the draft to another of the athlete's sports with one POST (B23, ticket #163).
+moves the draft to another of the athlete's sports with one POST (B23, ticket #163). A sport
+whose extraction failed in a mixed log shows a row whose Retry drafts it with one POST (#161).
 `user_id` comes only from the authenticated session (ADR-0005), and a conversation ID from the
 URL or the form is always looked up with it: another user's conversation is a 404."""
 
@@ -42,6 +43,7 @@ from ai_trainer.application.drafts import (
 from ai_trainer.application.ports.chat import ChatRepositoryPort
 from ai_trainer.application.reply import (
     ClarificationAnswered,
+    FailedPartNotFoundError,
     MessageNotFoundError,
     ReplyChunk,
     ReplyDone,
@@ -49,11 +51,13 @@ from ai_trainer.application.reply import (
     ReplyFailed,
     ReplyPhase,
     ReplyServices,
+    RetryFailed,
     abandon_clarification,
     answer_clarification,
     change_draft_sport,
     find_message,
     find_saved_reply,
+    retry_draft,
     start_reply,
 )
 from ai_trainer.domain.chat import ChatMessage, ChatRole, Conversation
@@ -75,7 +79,13 @@ from ai_trainer.domain.training import (
 )
 from ai_trainer.domain.users import User
 from ai_trainer.web.clarifications import ChoiceCard, choice_cards
-from ai_trainer.web.drafts import DraftCard, draft_card, draft_cards, form_changes
+from ai_trainer.web.drafts import (
+    DraftCard,
+    build_failed_draft_sport,
+    draft_card,
+    draft_cards,
+    form_changes,
+)
 from ai_trainer.web.glyphs import build_reply_glyph
 
 _UNPROCESSABLE = 422
@@ -103,6 +113,7 @@ def build_chat_router(
 ) -> APIRouter:
     router = APIRouter()
     templates.env.globals["reply_glyph"] = build_reply_glyph(sports)
+    templates.env.globals["failed_draft_sport"] = build_failed_draft_sport(sports)
     clock = replies.clock
     conversations = replies.conversations
 
@@ -349,6 +360,41 @@ def build_chat_router(
             )
         return templates.TemplateResponse(
             request, "partials/chat/reply_stopped.html", {"message_id": message_id}
+        )
+
+    @router.post("/messages/{part_id}/retry-draft", response_class=HTMLResponse)
+    async def retry_failed_draft(request: Request, part_id: str) -> HTMLResponse:
+        """A failed draft's Retry (ticket #161): re-runs its sport's extraction on its log and
+        answers with the part as the draft's intro line and its card, which replace the row; no
+        session is written. Anything but the user's failed draft, or one already retried, is a
+        404 with no model call. A failed extraction answers with the row again and a note."""
+        user: User = request.state.user
+        parsed_id = parse_id(part_id)
+        try:
+            retried = await retry_draft(
+                user.id, parsed_id, timezone=user.timezone, services=replies
+            )
+        except FailedPartNotFoundError, MessageNotFoundError:
+            raise HTTPException(status_code=_NOT_FOUND) from None
+        if isinstance(retried, RetryFailed):
+            return templates.TemplateResponse(
+                request,
+                "partials/chat/message.html",
+                {
+                    "message": retried.part,
+                    "draft_cards": {},
+                    "choice_cards": {},
+                    "retry_error": True,
+                },
+            )
+        return templates.TemplateResponse(
+            request,
+            "partials/chat/message.html",
+            {
+                "message": retried.part,
+                "draft_cards": {retried.part.id: [await shown_card(user, retried.draft)]},
+                "choice_cards": {},
+            },
         )
 
     async def shown_card(user: User, draft: StoredDraft) -> DraftCard:

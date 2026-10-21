@@ -10,7 +10,7 @@ under the reply it came with (#163). Its payload is read only through the plugin
 partials."""
 
 import logging
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
 from uuid import UUID
@@ -22,7 +22,7 @@ from ai_trainer.application.reply import sports_to_switch_to
 from ai_trainer.domain.chat import ChatMessage, ChatRole
 from ai_trainer.domain.sports.base import SportPlugin
 from ai_trainer.domain.sports.registry import SportRegistry, UnknownSportError
-from ai_trainer.domain.training import StoredDraft, joins_day
+from ai_trainer.domain.training import DRAFT_FAILED_TEMPLATE_ID, StoredDraft, joins_day
 
 logger = logging.getLogger(__name__)
 
@@ -138,6 +138,25 @@ def _is_extraction(part: ChatMessage, sport_id: str, sports: SportRegistry) -> b
         logger.warning("reply part %s has an unknown sport %r; no card", part.id, sport_id)
         return False
     return spec is not None and part.template_id == spec.template_id
+
+
+def build_failed_draft_sport(
+    sports: SportRegistry,
+) -> Callable[[ChatMessage], SportPlugin | None]:
+    """The sport of a reply part saved in place of a draft whose extraction failed, which the
+    chat shows as a row with Retry (ticket #161); `None` for any other part, or one whose sport
+    the registry no longer knows."""
+
+    def failed_draft_sport(message: ChatMessage) -> SportPlugin | None:
+        if message.template_id != DRAFT_FAILED_TEMPLATE_ID or len(message.sports) != 1:
+            return None
+        try:
+            return sports.get(message.sports[0])
+        except UnknownSportError:
+            logger.warning("failed draft %s has an unknown sport %r", message.id, message.sports[0])
+            return None
+
+    return failed_draft_sport
 
 
 def draft_card(

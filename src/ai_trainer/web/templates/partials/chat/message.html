@@ -3,6 +3,7 @@
 {%- if message.role == "assistant" -%}
 {%- set cards = draft_cards.get(message.id, []) -%}
 {%- set choice = (choice_cards or {}).get(message.id) -%}
+{%- set failed_sport = failed_draft_sport(message) -%}
 {%- if choice -%}
 {#- A question line is its choice card: the card carries the question (ticket #162). -#}
 {{ choice_card(choice) }}
@@ -14,6 +15,8 @@
   {% include card.template %}
   {%- endfor %}
 </div>
+{%- elif failed_sport -%}
+{% include "partials/chat/draft_failed.html" %}
 {%- else -%}
 <div class="chat-message flex gap-2.5">
   {{ avatar(reply_glyph(message.sports)) }}

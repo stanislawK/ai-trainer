@@ -48,6 +48,21 @@ class ChatRepositoryPort(Protocol):
         oldest first."""
         ...
 
+    async def replace_part(
+        self,
+        user_id: UUID,
+        message_id: UUID,
+        *,
+        expected_template_id: str,
+        text: str,
+        template_id: str,
+        template_version: int,
+    ) -> ChatMessage | None:
+        """Rewrites the user's reply part in place, keeping its place and sports, only while it
+        was still made by `expected_template_id`; `None`, and nothing changed, otherwise. A
+        retried draft turns its failed part into its intro this way, once (ticket #161)."""
+        ...
+
 
 class ConversationRepositoryPort(Protocol):
     """Persists an athlete's conversations (ADR-0021). Every method but `purge_before` is scoped

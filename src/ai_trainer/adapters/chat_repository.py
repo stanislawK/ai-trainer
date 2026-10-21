@@ -3,7 +3,7 @@ from datetime import datetime
 from itertools import takewhile
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai_trainer.adapters.orm import ChatMessageOrm
@@ -116,3 +116,29 @@ class SqlAlchemyChatRepository:
             )
             messages = (_to_domain(row) for row in rows.all())
             return list(takewhile(lambda message: message.role is ChatRole.ASSISTANT, messages))
+
+    async def replace_part(
+        self,
+        user_id: UUID,
+        message_id: UUID,
+        *,
+        expected_template_id: str,
+        text: str,
+        template_id: str,
+        template_version: int,
+    ) -> ChatMessage | None:
+        async with self._session_factory() as session:
+            # One conditional UPDATE: of two retries at once, only the first finds the template.
+            row = await session.scalar(
+                update(ChatMessageOrm)
+                .where(
+                    ChatMessageOrm.user_id == user_id,
+                    ChatMessageOrm.id == message_id,
+                    ChatMessageOrm.template_id == expected_template_id,
+                )
+                .values(text=text, template_id=template_id, template_version=template_version)
+                .returning(ChatMessageOrm)
+            )
+            message = None if row is None else _to_domain(row)
+            await session.commit()
+            return message

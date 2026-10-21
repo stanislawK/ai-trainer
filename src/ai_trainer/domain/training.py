@@ -11,6 +11,11 @@ from ai_trainer.domain.sports.base import DateSource
 
 type DraftStatus = Literal["pending", "confirmed", "discarded"]
 
+# The fixed reply saved in place of a sport's draft when its extraction failed but the rest of
+# the reply came through (ticket #161): the chat finds the part to retry by it, and a retry
+# that comes through rewrites the part with its extraction template.
+DRAFT_FAILED_TEMPLATE_ID = "draft_failed"
+
 
 class SessionDraft(BaseModel):
     """The `session_drafts.draft` document: the envelope fields, how the date was found
