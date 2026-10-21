@@ -695,6 +695,412 @@ cases:
         value: 20
         unit: kg
       rir: null
+- name: 'reading: press with overhead and bench in recent asks the movement (AC)'
+  inputs:
+    prompt: Press 3x5 at 50kg
+    deps:
+      message: Press 3x5 at 50kg
+      history: []
+      today: '2026-10-13'
+      weekday: Tuesday
+      now_local: '2026-10-13T19:00:00+02:00'
+      timezone: Europe/Warsaw
+      recent:
+      - overhead press (kg)
+      - bench press (kg)
+      - squat (kg)
+  metadata: null
+  expected_output:
+    about: movement
+    exercise: Press
+    load: null
+    readings:
+    - overhead press
+    - bench press
+- name: 'reading: no history, the demo press at 60 asks the movement (AC)'
+  inputs:
+    prompt: Did 5x5 press at 60
+    deps:
+      message: Did 5x5 press at 60
+      history: []
+      today: '2026-10-02'
+      weekday: Friday
+      now_local: '2026-10-02T19:00:00+02:00'
+      timezone: Europe/Warsaw
+      recent: []
+  metadata: null
+  expected_output:
+    about: movement
+    exercise: press
+    load: null
+    readings:
+    - overhead press
+    - bench press
+- name: 'reading: unitless squat over kg and lb history asks the unit (AC)'
+  inputs:
+    prompt: Squat 5x5 at 100
+    deps:
+      message: Squat 5x5 at 100
+      history: []
+      today: '2026-10-13'
+      weekday: Tuesday
+      now_local: '2026-10-13T19:00:00+02:00'
+      timezone: Europe/Warsaw
+      recent:
+      - deadlift (kg)
+      - bench press (lb)
+      - pull-ups
+  metadata: null
+  expected_output:
+    about: unit
+    exercise: Squat
+    load: '100'
+    readings:
+    - kg
+    - lb
+- name: 'reading: Polish unitless przysiady over lb then kg asks the unit'
+  inputs:
+    prompt: Przysiady 5x5 60
+    deps:
+      message: Przysiady 5x5 60
+      history: []
+      today: '2026-10-02'
+      weekday: Friday
+      now_local: '2026-10-02T19:00:00+02:00'
+      timezone: Europe/Warsaw
+      recent:
+      - wyciskanie na ławce (lb)
+      - martwy ciąg (kg)
+  metadata: null
+  expected_output:
+    about: unit
+    exercise: Przysiady
+    load: '60'
+    readings:
+    - lb
+    - kg
+- name: 'reading: press and its unit both open asks the movement first'
+  inputs:
+    prompt: Press 3x5 at 60
+    deps:
+      message: Press 3x5 at 60
+      history: []
+      today: '2026-10-13'
+      weekday: Tuesday
+      now_local: '2026-10-13T19:00:00+02:00'
+      timezone: Europe/Warsaw
+      recent:
+      - bench press (lb)
+      - overhead press (kg)
+  metadata: null
+  expected_output:
+    about: movement
+    exercise: Press
+    load: null
+    readings:
+    - bench press
+    - overhead press
+- name: 'reading: mixed history, the exercise''s own lb settles a unitless bench press (AC)'
+  inputs:
+    prompt: Bench press 3x5 at 80
+    deps:
+      message: Bench press 3x5 at 80
+      history: []
+      today: '2026-10-13'
+      weekday: Tuesday
+      now_local: '2026-10-13T19:00:00+02:00'
+      timezone: Europe/Warsaw
+      recent:
+      - squat (kg)
+      - bench press (lb)
+      - deadlift (kg)
+  metadata: null
+  expected_output:
+    occurred_on: '2026-10-13'
+    date_source: assumed_today
+    activities:
+    - name: Bench press
+      sets: 3
+      reps: 5
+      load:
+        original: '80'
+        value: 80
+        unit: lb
+      rir: null
+- name: 'reading: all recent loads in kg settle a unitless squat'
+  inputs:
+    prompt: Squat 5x5 at 100
+    deps:
+      message: Squat 5x5 at 100
+      history: []
+      today: '2026-10-02'
+      weekday: Friday
+      now_local: '2026-10-02T19:00:00+02:00'
+      timezone: Europe/Warsaw
+      recent:
+      - deadlift (kg)
+      - bench press (kg)
+      - pull-ups
+  metadata: null
+  expected_output:
+    occurred_on: '2026-10-02'
+    date_source: assumed_today
+    activities:
+    - name: Squat
+      sets: 5
+      reps: 5
+      load:
+        original: '100'
+        value: 100
+        unit: kg
+      rir: null
+- name: 'reading: the message says lb for every unitless load'
+  inputs:
+    prompt: Everything in lb today. Squat 5x5 at 185, bench 3x8 at 135
+    deps:
+      message: Everything in lb today. Squat 5x5 at 185, bench 3x8 at 135
+      history: []
+      today: '2026-10-13'
+      weekday: Tuesday
+      now_local: '2026-10-13T19:00:00+02:00'
+      timezone: Europe/Warsaw
+      recent:
+      - deadlift (kg)
+      - overhead press (lb)
+  metadata: null
+  expected_output:
+    occurred_on: '2026-10-13'
+    date_source: assumed_today
+    activities:
+    - name: Squat
+      sets: 5
+      reps: 5
+      load:
+        original: '185'
+        value: 185
+        unit: lb
+      rir: null
+    - name: bench
+      sets: 3
+      reps: 8
+      load:
+        original: '135'
+        value: 135
+        unit: lb
+      rir: null
+- name: 'reading: Polish funtów beats a kg history'
+  inputs:
+    prompt: Wczoraj martwy ciąg 3x5 225 funtów
+    deps:
+      message: Wczoraj martwy ciąg 3x5 225 funtów
+      history: []
+      today: '2026-10-13'
+      weekday: Tuesday
+      now_local: '2026-10-13T19:00:00+02:00'
+      timezone: Europe/Warsaw
+      recent:
+      - martwy ciąg (kg)
+      - przysiady (kg)
+  metadata: null
+  expected_output:
+    occurred_on: '2026-10-12'
+    date_source: relative
+    activities:
+    - name: martwy ciąg
+      sets: 3
+      reps: 5
+      load:
+        original: 225 funtów
+        value: 225
+        unit: lb
+      rir: null
+- name: 'reading: press drafts the one press in recent sessions'
+  inputs:
+    prompt: Press 3x5 at 50
+    deps:
+      message: Press 3x5 at 50
+      history: []
+      today: '2026-10-02'
+      weekday: Friday
+      now_local: '2026-10-02T19:00:00+02:00'
+      timezone: Europe/Warsaw
+      recent:
+      - overhead press (kg)
+      - squat (kg)
+  metadata: null
+  expected_output:
+    occurred_on: '2026-10-02'
+    date_source: assumed_today
+    activities:
+    - name: overhead press
+      sets: 3
+      reps: 5
+      load:
+        original: '50'
+        value: 50
+        unit: kg
+      rir: null
+- name: 'reading: bench is a clear name even with both presses in recent'
+  inputs:
+    prompt: Bench 3x8 @ 70
+    deps:
+      message: Bench 3x8 @ 70
+      history: []
+      today: '2026-10-13'
+      weekday: Tuesday
+      now_local: '2026-10-13T19:00:00+02:00'
+      timezone: Europe/Warsaw
+      recent:
+      - overhead press (kg)
+      - bench press (kg)
+  metadata: null
+  expected_output:
+    occurred_on: '2026-10-13'
+    date_source: assumed_today
+    activities:
+    - name: Bench
+      sets: 3
+      reps: 8
+      load:
+        original: '70'
+        value: 70
+        unit: kg
+      rir: null
+- name: 'reading: no recent sessions leaves a unitless RDL''s unit empty'
+  inputs:
+    prompt: RDL 3x10 @ 60, then 3x8 pull-ups
+    deps:
+      message: RDL 3x10 @ 60, then 3x8 pull-ups
+      history: []
+      today: '2026-10-02'
+      weekday: Friday
+      now_local: '2026-10-02T19:00:00+02:00'
+      timezone: Europe/Warsaw
+      recent: []
+  metadata: null
+  expected_output:
+    occurred_on: '2026-10-02'
+    date_source: assumed_today
+    activities:
+    - name: RDL
+      sets: 3
+      reps: 10
+      load:
+        original: '60'
+        value: 60
+        unit: null
+      rir: null
+    - name: pull-ups
+      sets: 3
+      reps: 8
+      load: null
+      rir: null
+- name: 'reading: answered overhead press drafts the press as overhead press (AC)'
+  inputs:
+    prompt: Press 3x5 at 50kg
+    deps:
+      message: Press 3x5 at 50kg
+      history: []
+      today: '2026-10-13'
+      weekday: Tuesday
+      now_local: '2026-10-13T19:00:00+02:00'
+      timezone: Europe/Warsaw
+      recent:
+      - overhead press (kg)
+      - bench press (kg)
+      - squat (kg)
+      answers:
+      - overhead press
+  metadata: null
+  expected_output:
+    occurred_on: '2026-10-13'
+    date_source: assumed_today
+    activities:
+    - name: overhead press
+      sets: 3
+      reps: 5
+      load:
+        original: 50kg
+        value: 50
+        unit: kg
+      rir: null
+- name: 'reading: answered lb drafts the unitless squat in lb'
+  inputs:
+    prompt: Squat 5x5 at 100
+    deps:
+      message: Squat 5x5 at 100
+      history: []
+      today: '2026-10-13'
+      weekday: Tuesday
+      now_local: '2026-10-13T19:00:00+02:00'
+      timezone: Europe/Warsaw
+      recent:
+      - deadlift (kg)
+      - bench press (lb)
+      - pull-ups
+      answers:
+      - lb
+  metadata: null
+  expected_output:
+    occurred_on: '2026-10-13'
+    date_source: assumed_today
+    activities:
+    - name: Squat
+      sets: 5
+      reps: 5
+      load:
+        original: '100'
+        value: 100
+        unit: lb
+      rir: null
+- name: 'reading: answered kg drafts the Polish unitless przysiady in kg'
+  inputs:
+    prompt: Przysiady 5x5 60
+    deps:
+      message: Przysiady 5x5 60
+      history: []
+      today: '2026-10-02'
+      weekday: Friday
+      now_local: '2026-10-02T19:00:00+02:00'
+      timezone: Europe/Warsaw
+      recent:
+      - wyciskanie na ławce (lb)
+      - martwy ciąg (kg)
+      answers:
+      - kg
+  metadata: null
+  expected_output:
+    occurred_on: '2026-10-02'
+    date_source: assumed_today
+    activities:
+    - name: Przysiady
+      sets: 5
+      reps: 5
+      load:
+        original: '60'
+        value: 60
+        unit: kg
+      rir: null
+- name: 'reading: mixed sport, climbing then a bare press asks the movement (AC)'
+  inputs:
+    prompt: Did 3 7a on lead, then 5x5 press at 60
+    deps:
+      message: Did 3 7a on lead, then 5x5 press at 60
+      history: []
+      today: '2026-10-13'
+      weekday: Tuesday
+      now_local: '2026-10-13T19:00:00+02:00'
+      timezone: Europe/Warsaw
+      recent: []
+  metadata: null
+  expected_output:
+    about: movement
+    exercise: press
+    load: null
+    readings:
+    - overhead press
+    - bench press
 evaluators:
 - DateMatch
 - ActivitiesMatch
+- QuestionMatch

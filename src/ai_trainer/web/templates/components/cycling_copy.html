@@ -1,5 +1,9 @@
 {#- User-facing cycling formats (G5), shared by the cycling draft card, its edit fields and its logged row (ticket #160). Import with
-    `{% from "components/cycling_copy.html" import km, km_value, minutes %}`. A distance shows in km to one decimal ("64.4", "62"); a time as "45 min", "2 h" or "1 h 45 min". -#}
+    `{% from "components/cycling_copy.html" import km, km_value, minutes %}`. A distance shows in km to one decimal ("64.4", "62"); a time as "45 min", "2 h" or "1 h 45 min". `cycling_readings` is the copy of a reading question's options (ticket #206), keyed by their `copy_key`; `{distance}` is the distance as typed without its unit. -#}
+{% set cycling_readings = {
+  "cycling_reading_km": {"label": "Kilometres", "hint": "{distance} km"},
+  "cycling_reading_mi": {"label": "Miles", "hint": "{distance} mi"},
+} %}
 {% macro km(value) -%}
 {{ "%g" | format(value | round(1)) }}
 {%- endmacro %}

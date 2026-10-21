@@ -1,4 +1,5 @@
-"""The committed `gym.extract` eval dataset covers the ticket's cases (ADR-0009, ticket #159)."""
+"""The committed `gym.extract` eval dataset covers the ticket's cases (ADR-0009, tickets #159 and
+#206)."""
 
 from datetime import date
 from pathlib import Path
@@ -6,23 +7,31 @@ from typing import Any
 
 from pydantic_evals import Dataset
 
-from ai_trainer.domain.sports.gym.extraction import GymExtraction
+from ai_trainer.domain.sports.gym.extraction import GymExtraction, GymQuestion
 from ai_trainer.llm.evals.runner import EvalCaseInputs
-from ai_trainer.llm.extract import ActivitiesMatch, DateMatch, ExtractDeps
+from ai_trainer.llm.extract import ActivitiesMatch, DateMatch, ExtractDeps, QuestionMatch
 
 _ROOT = Path(__file__).parents[2] / "evals"
 _DATASET = _ROOT / "datasets" / "gym.extract.yaml"
 _BASELINE = _ROOT / "baselines" / "gym.extract.json"
 
 
-def _dataset() -> Dataset[EvalCaseInputs, GymExtraction, Any]:
-    return Dataset[EvalCaseInputs, GymExtraction, Any].from_file(
-        _DATASET, custom_evaluator_types=(DateMatch, ActivitiesMatch)
+def _dataset() -> Dataset[EvalCaseInputs, GymExtraction | GymQuestion, Any]:
+    return Dataset[EvalCaseInputs, GymExtraction | GymQuestion, Any].from_file(
+        _DATASET, custom_evaluator_types=(DateMatch, ActivitiesMatch, QuestionMatch)
     )
 
 
 def _cases() -> dict[str, Any]:
     return {str(case.name): case for case in _dataset().cases}
+
+
+def _drafts() -> dict[str, Any]:
+    return {
+        name: case
+        for name, case in _cases().items()
+        if isinstance(case.expected_output, GymExtraction)
+    }
 
 
 def _expected(name: str) -> GymExtraction:
@@ -35,7 +44,11 @@ def test_the_dataset_has_at_least_twenty_cases_graded_in_code() -> None:
     dataset = _dataset()
 
     assert len(dataset.cases) >= 20
-    assert {type(evaluator) for evaluator in dataset.evaluators} == {DateMatch, ActivitiesMatch}
+    assert {type(evaluator) for evaluator in dataset.evaluators} == {
+        DateMatch,
+        ActivitiesMatch,
+        QuestionMatch,
+    }
     assert all(case.expected_output is not None for case in dataset.cases)
 
 
@@ -66,9 +79,15 @@ def test_the_dataset_covers_dates_several_exercises_mixed_sports_units_and_polis
 
 
 def test_every_exercise_name_and_typed_load_is_in_its_message() -> None:
-    for name, case in _cases().items():
+    for name, case in _drafts().items():
         for exercise in _expected(name).activities:
-            assert exercise.name in case.inputs.prompt, name
+            # A name the log left open is named as the recent sessions or the answer write it.
+            named = [
+                case.inputs.prompt,
+                *case.inputs.deps.get("recent", []),
+                *case.inputs.deps.get("answers", []),
+            ]
+            assert any(exercise.name in text for text in named), name
             assert exercise.load is None or exercise.load.original in case.inputs.prompt, name
 
 
@@ -120,3 +139,33 @@ def test_a_deadlift_in_lb_is_stored_in_kg_with_its_original() -> None:
 
 def test_the_baseline_is_committed() -> None:
     assert _BASELINE.is_file()
+
+
+def _reading_cases() -> dict[str, Any]:
+    return {name: case for name, case in _cases().items() if name.startswith("reading:")}
+
+
+def test_the_reading_cases_ask_less_often_than_they_draft() -> None:
+    """Asking has a cost: most reading cases are logs that something already settles (#206)."""
+    cases = _reading_cases()
+    asks = [name for name, case in cases.items() if isinstance(case.expected_output, GymQuestion)]
+
+    assert len(cases) >= 12
+    assert 0 < len(asks) < len(cases) / 2
+
+
+def test_an_answered_case_always_expects_a_draft() -> None:
+    answered = [name for name, case in _reading_cases().items() if case.inputs.deps.get("answers")]
+
+    assert len(answered) >= 3
+    for name in answered:
+        _expected(name)
+
+
+def test_the_cases_before_the_question_carry_no_recent_context_and_still_draft() -> None:
+    """A clear log in the dataset still drafts, with no question (#206)."""
+    for name, case in _cases().items():
+        if name.startswith("reading:"):
+            continue
+        assert "recent" not in case.inputs.deps, name
+        assert isinstance(case.expected_output, GymExtraction), name

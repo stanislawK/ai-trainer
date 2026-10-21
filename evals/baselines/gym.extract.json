@@ -1,8 +1,8 @@
 {
   "template_id": "gym.extract",
-  "version": 2,
+  "version": 3,
   "model": "z-ai/glm-5.3-flash",
-  "assertions": 1.0,
+  "assertions": 0.9901234567901235,
   "scores": {},
   "thresholds": {
     "max_assertions_drop": 0.0,

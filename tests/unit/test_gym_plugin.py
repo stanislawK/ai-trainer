@@ -176,7 +176,7 @@ def test_the_registry_wires_gym_to_its_extraction_template_and_payload() -> None
 
     assert (plugin.icon, plugin.label_key) == ("dumbbell", "sport.gym.label")
     assert plugin.extraction is not None
-    assert (plugin.extraction.template_id, plugin.extraction.version) == ("gym.extract", 2)
+    assert (plugin.extraction.template_id, plugin.extraction.version) == ("gym.extract", 3)
     assert plugin.extraction.output_type is GymExtraction
     assert plugin.extraction.payload_type is GymPayload
     assert plugin.extraction.payload_version == GYM_PAYLOAD_VERSION
