@@ -852,6 +852,701 @@ cases:
       style: null
       attempts: null
       route: null
+- name: 'reading: boulders and leads, a bare 7a asks (AC)'
+  inputs:
+    prompt: Did 3 7a
+    deps:
+      message: Did 3 7a
+      history: []
+      today: '2026-10-02'
+      weekday: Friday
+      now_local: '2026-10-02T19:00:00+02:00'
+      timezone: Europe/Warsaw
+      recent:
+      - boulder
+      - lead
+  metadata: null
+  expected_output:
+    readings:
+    - kind: boulder
+      grade: 7a
+    - kind: lead
+      grade: 7a
+- name: 'reading: lead-only athlete, a bare 7a drafts a lead (AC)'
+  inputs:
+    prompt: Did 3 7a
+    deps:
+      message: Did 3 7a
+      history: []
+      today: '2026-10-02'
+      weekday: Friday
+      now_local: '2026-10-02T19:00:00+02:00'
+      timezone: Europe/Warsaw
+      recent:
+      - lead
+  metadata: null
+  expected_output:
+    occurred_on: '2026-10-02'
+    date_source: assumed_today
+    activities:
+    - kind: lead
+      count: 3
+      grade: 7a
+      style: null
+      attempts: null
+      route: null
+- name: 'reading: boulder-only athlete, a bare 7a drafts a boulder'
+  inputs:
+    prompt: Did 3 7a
+    deps:
+      message: Did 3 7a
+      history: []
+      today: '2026-10-02'
+      weekday: Friday
+      now_local: '2026-10-02T19:00:00+02:00'
+      timezone: Europe/Warsaw
+      recent:
+      - boulder
+  metadata: null
+  expected_output:
+    occurred_on: '2026-10-02'
+    date_source: assumed_today
+    activities:
+    - kind: boulder
+      count: 3
+      grade: 7a
+      style: null
+      attempts: null
+      route: null
+- name: 'reading: top rope and boulders, a bare 6c asks'
+  inputs:
+    prompt: Did 2 6c
+    deps:
+      message: Did 2 6c
+      history: []
+      today: '2026-10-02'
+      weekday: Friday
+      now_local: '2026-10-02T19:00:00+02:00'
+      timezone: Europe/Warsaw
+      recent:
+      - top_rope
+      - boulder
+  metadata: null
+  expected_output:
+    readings:
+    - kind: top_rope
+      grade: 6c
+    - kind: boulder
+      grade: 6c
+- name: 'reading: Polish log from a boulderer who leads asks'
+  inputs:
+    prompt: Zrobiłem 3 7a
+    deps:
+      message: Zrobiłem 3 7a
+      history: []
+      today: '2026-10-02'
+      weekday: Friday
+      now_local: '2026-10-02T19:00:00+02:00'
+      timezone: Europe/Warsaw
+      recent:
+      - lead
+      - boulder
+  metadata: null
+  expected_output:
+    readings:
+    - kind: boulder
+      grade: 7a
+    - kind: lead
+      grade: 7a
+- name: 'reading: no recent sessions, case decides with no question'
+  inputs:
+    prompt: Did 3 7a
+    deps:
+      message: Did 3 7a
+      history: []
+      today: '2026-10-02'
+      weekday: Friday
+      now_local: '2026-10-02T19:00:00+02:00'
+      timezone: Europe/Warsaw
+      recent: []
+  metadata: null
+  expected_output:
+    occurred_on: '2026-10-02'
+    date_source: assumed_today
+    activities:
+    - kind: lead
+      count: 3
+      grade: 7a
+      style: null
+      attempts: null
+      route: null
+- name: 'reading: the message names boulders, no question'
+  inputs:
+    prompt: Sent 3 7a boulders
+    deps:
+      message: Sent 3 7a boulders
+      history: []
+      today: '2026-10-02'
+      weekday: Friday
+      now_local: '2026-10-02T19:00:00+02:00'
+      timezone: Europe/Warsaw
+      recent:
+      - boulder
+      - lead
+  metadata: null
+  expected_output:
+    occurred_on: '2026-10-02'
+    date_source: assumed_today
+    activities:
+    - kind: boulder
+      count: 3
+      grade: 7a
+      style: null
+      attempts: null
+      route: null
+- name: 'reading: the message says led, no question'
+  inputs:
+    prompt: Led 2 7a
+    deps:
+      message: Led 2 7a
+      history: []
+      today: '2026-10-02'
+      weekday: Friday
+      now_local: '2026-10-02T19:00:00+02:00'
+      timezone: Europe/Warsaw
+      recent:
+      - boulder
+      - lead
+  metadata: null
+  expected_output:
+    occurred_on: '2026-10-02'
+    date_source: assumed_today
+    activities:
+    - kind: lead
+      count: 2
+      grade: 7a
+      style: null
+      attempts: null
+      route: null
+- name: 'reading: a V grade says boulder, no question'
+  inputs:
+    prompt: Did 4 V5
+    deps:
+      message: Did 4 V5
+      history: []
+      today: '2026-10-02'
+      weekday: Friday
+      now_local: '2026-10-02T19:00:00+02:00'
+      timezone: Europe/Warsaw
+      recent:
+      - boulder
+      - lead
+  metadata: null
+  expected_output:
+    occurred_on: '2026-10-02'
+    date_source: assumed_today
+    activities:
+    - kind: boulder
+      count: 4
+      grade: V5
+      style: null
+      attempts: null
+      route: null
+- name: 'reading: a YDS grade says route, no question'
+  inputs:
+    prompt: Did 2 5.11a
+    deps:
+      message: Did 2 5.11a
+      history: []
+      today: '2026-10-02'
+      weekday: Friday
+      now_local: '2026-10-02T19:00:00+02:00'
+      timezone: Europe/Warsaw
+      recent:
+      - boulder
+      - lead
+  metadata: null
+  expected_output:
+    occurred_on: '2026-10-02'
+    date_source: assumed_today
+    activities:
+    - kind: lead
+      count: 2
+      grade: 5.11a
+      style: null
+      attempts: null
+      route: null
+- name: 'reading: an earlier turn says bouldering, no question'
+  inputs:
+    prompt: Did 3 7a
+    deps:
+      message: Did 3 7a
+      history:
+      - role: user
+        text: Bouldering session tonight
+      today: '2026-10-02'
+      weekday: Friday
+      now_local: '2026-10-02T19:00:00+02:00'
+      timezone: Europe/Warsaw
+      recent:
+      - boulder
+      - lead
+  metadata: null
+  expected_output:
+    occurred_on: '2026-10-02'
+    date_source: assumed_today
+    activities:
+    - kind: boulder
+      count: 3
+      grade: 7a
+      style: null
+      attempts: null
+      route: null
+- name: 'reading: answered boulders drafts boulders'
+  inputs:
+    prompt: Did 3 7a
+    deps:
+      message: Did 3 7a
+      history: []
+      today: '2026-10-02'
+      weekday: Friday
+      now_local: '2026-10-02T19:00:00+02:00'
+      timezone: Europe/Warsaw
+      recent:
+      - boulder
+      - lead
+      answers:
+      - boulder
+  metadata: null
+  expected_output:
+    occurred_on: '2026-10-02'
+    date_source: assumed_today
+    activities:
+    - kind: boulder
+      count: 3
+      grade: 7a
+      style: null
+      attempts: null
+      route: null
+- name: 'reading: answered lead drafts leads'
+  inputs:
+    prompt: Did 3 7a
+    deps:
+      message: Did 3 7a
+      history: []
+      today: '2026-10-02'
+      weekday: Friday
+      now_local: '2026-10-02T19:00:00+02:00'
+      timezone: Europe/Warsaw
+      recent:
+      - boulder
+      - lead
+      answers:
+      - lead
+  metadata: null
+  expected_output:
+    occurred_on: '2026-10-02'
+    date_source: assumed_today
+    activities:
+    - kind: lead
+      count: 3
+      grade: 7a
+      style: null
+      attempts: null
+      route: null
+- name: "reading: a capital 7A from a boulderer who leads asks"
+  inputs:
+    prompt: Did 3 7A
+    deps:
+      message: Did 3 7A
+      history: []
+      today: '2026-10-02'
+      weekday: Friday
+      now_local: '2026-10-02T19:00:00+02:00'
+      timezone: Europe/Warsaw
+      recent:
+      - boulder
+      - lead
+  metadata: null
+  expected_output:
+    readings:
+    - kind: boulder
+      grade: '7A'
+    - kind: lead
+      grade: '7A'
+- name: "reading: \"don't ask\" with no kind still asks"
+  inputs:
+    prompt: Don't ask me anything, just log 3 7a
+    deps:
+      message: Don't ask me anything, just log 3 7a
+      history: []
+      today: '2026-10-02'
+      weekday: Friday
+      now_local: '2026-10-02T19:00:00+02:00'
+      timezone: Europe/Warsaw
+      recent:
+      - boulder
+      - lead
+  metadata: null
+  expected_output:
+    readings:
+    - kind: boulder
+      grade: '7a'
+    - kind: lead
+      grade: '7a'
+- name: "reading: \"don't ask, it's routes\" settles the kind"
+  inputs:
+    prompt: "Don't ask, it's routes: 3 7a"
+    deps:
+      message: "Don't ask, it's routes: 3 7a"
+      history: []
+      today: '2026-10-02'
+      weekday: Friday
+      now_local: '2026-10-02T19:00:00+02:00'
+      timezone: Europe/Warsaw
+      recent:
+      - boulder
+      - lead
+  metadata: null
+  expected_output:
+    occurred_on: '2026-10-02'
+    date_source: assumed_today
+    activities:
+    - kind: lead
+      count: 3
+      grade: '7a'
+      style: null
+      attempts: null
+      route: null
+- name: "reading: Polish \"baldy\" means boulders"
+  inputs:
+    prompt: Zrobiłem 4 baldy 7a
+    deps:
+      message: Zrobiłem 4 baldy 7a
+      history: []
+      today: '2026-10-02'
+      weekday: Friday
+      now_local: '2026-10-02T19:00:00+02:00'
+      timezone: Europe/Warsaw
+      recent:
+      - lead
+      - boulder
+  metadata: null
+  expected_output:
+    occurred_on: '2026-10-02'
+    date_source: assumed_today
+    activities:
+    - kind: boulder
+      count: 4
+      grade: '7a'
+      style: null
+      attempts: null
+      route: null
+- name: "reading: Polish \"na wędkę\" means top rope"
+  inputs:
+    prompt: 2 drogi 6c na wędkę
+    deps:
+      message: 2 drogi 6c na wędkę
+      history: []
+      today: '2026-10-02'
+      weekday: Friday
+      now_local: '2026-10-02T19:00:00+02:00'
+      timezone: Europe/Warsaw
+      recent:
+      - boulder
+      - lead
+  metadata: null
+  expected_output:
+    occurred_on: '2026-10-02'
+    date_source: assumed_today
+    activities:
+    - kind: top_rope
+      count: 2
+      grade: '6c'
+      style: null
+      attempts: null
+      route: null
+- name: "reading: a style word does not settle the kind"
+  inputs:
+    prompt: Flash 7a
+    deps:
+      message: Flash 7a
+      history: []
+      today: '2026-10-02'
+      weekday: Friday
+      now_local: '2026-10-02T19:00:00+02:00'
+      timezone: Europe/Warsaw
+      recent:
+      - boulder
+      - lead
+  metadata: null
+  expected_output:
+    readings:
+    - kind: boulder
+      grade: '7a'
+    - kind: lead
+      grade: '7a'
+- name: "reading: answered, \"ask me again\" still drafts"
+  inputs:
+    prompt: Did 3 7a — actually, ask me again
+    deps:
+      message: Did 3 7a — actually, ask me again
+      history: []
+      today: '2026-10-02'
+      weekday: Friday
+      now_local: '2026-10-02T19:00:00+02:00'
+      timezone: Europe/Warsaw
+      recent:
+      - boulder
+      - lead
+      answers:
+      - boulder
+  metadata: null
+  expected_output:
+    occurred_on: '2026-10-02'
+    date_source: assumed_today
+    activities:
+    - kind: boulder
+      count: 3
+      grade: '7a'
+      style: null
+      attempts: null
+      route: null
+- name: "reading: no grade, bouldering yesterday, no question"
+  inputs:
+    prompt: Did some bouldering yesterday evening
+    deps:
+      message: Did some bouldering yesterday evening
+      history: []
+      today: '2026-10-02'
+      weekday: Friday
+      now_local: '2026-10-02T19:00:00+02:00'
+      timezone: Europe/Warsaw
+      recent:
+      - lead
+      - boulder
+  metadata: null
+  expected_output:
+    occurred_on: '2026-10-01'
+    date_source: relative
+    activities:
+    - kind: boulder
+      count: 1
+      grade: null
+      style: null
+      attempts: null
+      route: null
+- name: "reading: a named route at a crag, no question"
+  inputs:
+    prompt: Redpointed Silver Line 7b at Rodellar yesterday, 3rd go
+    deps:
+      message: Redpointed Silver Line 7b at Rodellar yesterday, 3rd go
+      history: []
+      today: '2026-10-02'
+      weekday: Friday
+      now_local: '2026-10-02T19:00:00+02:00'
+      timezone: Europe/Warsaw
+      recent:
+      - boulder
+      - lead
+  metadata: null
+  expected_output:
+    occurred_on: '2026-10-01'
+    date_source: relative
+    activities:
+    - kind: lead
+      count: 1
+      grade: '7b'
+      style: redpoint
+      attempts: 3
+      route:
+        name: Silver Line
+        crag: Rodellar
+- name: "reading: each climb names its kind beside its style"
+  inputs:
+    prompt: Flashed a 6c+ route, then 5 goes on a 7a boulder without sending
+    deps:
+      message: Flashed a 6c+ route, then 5 goes on a 7a boulder without sending
+      history: []
+      today: '2026-10-02'
+      weekday: Friday
+      now_local: '2026-10-02T19:00:00+02:00'
+      timezone: Europe/Warsaw
+      recent:
+      - boulder
+      - lead
+  metadata: null
+  expected_output:
+    occurred_on: '2026-10-02'
+    date_source: assumed_today
+    activities:
+    - kind: lead
+      count: 1
+      grade: '6c+'
+      style: flash
+      attempts: null
+      route: null
+    - kind: boulder
+      count: 1
+      grade: '7a'
+      style: attempt
+      attempts: 5
+      route: null
+- name: "reading: an earlier log turn settled lead"
+  inputs:
+    prompt: and a 7a
+    deps:
+      message: and a 7a
+      history:
+      - role: user
+        text: Led 2 6c at Fabryka
+      today: '2026-10-02'
+      weekday: Friday
+      now_local: '2026-10-02T19:00:00+02:00'
+      timezone: Europe/Warsaw
+      recent:
+      - boulder
+      - lead
+  metadata: null
+  expected_output:
+    occurred_on: '2026-10-02'
+    date_source: assumed_today
+    activities:
+    - kind: lead
+      count: 1
+      grade: '7a'
+      style: null
+      attempts: null
+      route: null
+- name: "reading: \"problems\" in words settles boulder"
+  inputs:
+    prompt: Worked two problems at 6c
+    deps:
+      message: Worked two problems at 6c
+      history: []
+      today: '2026-10-02'
+      weekday: Friday
+      now_local: '2026-10-02T19:00:00+02:00'
+      timezone: Europe/Warsaw
+      recent:
+      - lead
+      - boulder
+  metadata: null
+  expected_output:
+    occurred_on: '2026-10-02'
+    date_source: assumed_today
+    activities:
+    - kind: boulder
+      count: 2
+      grade: '6c'
+      style: null
+      attempts: null
+      route: null
+- name: "reading: \"projects\" leaves the kind open"
+  inputs:
+    prompt: Evening on projects, 3 tries on a 7b
+    deps:
+      message: Evening on projects, 3 tries on a 7b
+      history: []
+      today: '2026-10-02'
+      weekday: Friday
+      now_local: '2026-10-02T19:00:00+02:00'
+      timezone: Europe/Warsaw
+      recent:
+      - boulder
+      - lead
+  metadata: null
+  expected_output:
+    readings:
+    - kind: boulder
+      grade: '7b'
+    - kind: lead
+      grade: '7b'
+- name: "reading: a V grade settles only its own climb"
+  inputs:
+    prompt: Flashed 2 V4 then did a 7a
+    deps:
+      message: Flashed 2 V4 then did a 7a
+      history: []
+      today: '2026-10-02'
+      weekday: Friday
+      now_local: '2026-10-02T19:00:00+02:00'
+      timezone: Europe/Warsaw
+      recent:
+      - boulder
+      - lead
+  metadata: null
+  expected_output:
+    readings:
+    - kind: boulder
+      grade: '7a'
+    - kind: lead
+      grade: '7a'
+- name: "reading: the answer reads the open climb, the settled one stays"
+  inputs:
+    prompt: Flashed 2 V4 then did a 7a
+    deps:
+      message: Flashed 2 V4 then did a 7a
+      history: []
+      today: '2026-10-02'
+      weekday: Friday
+      now_local: '2026-10-02T19:00:00+02:00'
+      timezone: Europe/Warsaw
+      recent:
+      - boulder
+      - lead
+      answers:
+      - lead
+  metadata: null
+  expected_output:
+    occurred_on: '2026-10-02'
+    date_source: assumed_today
+    activities:
+    - kind: boulder
+      count: 2
+      grade: V4
+      style: flash
+      attempts: null
+      route: null
+    - kind: lead
+      count: 1
+      grade: '7a'
+      style: null
+      attempts: null
+      route: null
+- name: "reading: top rope in an earlier turn, counts in words"
+  inputs:
+    prompt: a couple of 6b and one 6c
+    deps:
+      message: a couple of 6b and one 6c
+      history:
+      - role: user
+        text: Gym with a friend, all top rope
+      today: '2026-10-02'
+      weekday: Friday
+      now_local: '2026-10-02T19:00:00+02:00'
+      timezone: Europe/Warsaw
+      recent:
+      - boulder
+      - top_rope
+  metadata: null
+  expected_output:
+    occurred_on: '2026-10-02'
+    date_source: assumed_today
+    activities:
+    - kind: top_rope
+      count: 2
+      grade: '6b'
+      style: null
+      attempts: null
+      route: null
+    - kind: top_rope
+      count: 1
+      grade: '6c'
+      style: null
+      attempts: null
+      route: null
 evaluators:
 - DateMatch
 - ActivitiesMatch
+- QuestionMatch

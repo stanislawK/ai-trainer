@@ -8,7 +8,7 @@ import json
 import os
 import subprocess
 import sys
-from collections.abc import AsyncGenerator, Callable, Iterator
+from collections.abc import AsyncGenerator, Callable, Iterator, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
 from decimal import Decimal
@@ -111,8 +111,18 @@ class AccountedConversation(ScriptedConversation):
         self._row("router", routing.outcome)
         return routing
 
-    async def extract(self, context: ReplyContext, sport_id: str) -> Extraction:
-        extraction = await super().extract(context, sport_id)
+    async def extract(
+        self,
+        context: ReplyContext,
+        sport_id: str,
+        *,
+        recent: Sequence[str] = (),
+        answers: Sequence[str] = (),
+        may_ask: bool = True,
+    ) -> Extraction:
+        extraction = await super().extract(
+            context, sport_id, recent=recent, answers=answers, may_ask=may_ask
+        )
         self._row(f"{sport_id}.extract", extraction.outcome)
         return extraction
 

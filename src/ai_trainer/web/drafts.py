@@ -12,7 +12,7 @@ payload is read only through the plugin's model
 partials."""
 
 import logging
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
 from uuid import UUID
@@ -20,7 +20,7 @@ from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, JsonValue, ValidationError
 
-from ai_trainer.application.reply import sports_to_switch_to
+from ai_trainer.application.reply import asking_sports, sports_to_switch_to
 from ai_trainer.domain.chat import ChatMessage, ChatRole
 from ai_trainer.domain.clarification import SAME_SESSION_PURPOSE, StoredClarification
 from ai_trainer.domain.sports.base import SportPlugin
@@ -125,7 +125,8 @@ def draft_cards(
         pending.setdefault((draft.message_id, draft.sport_id), []).append(draft)
     cards: dict[UUID, list[DraftCard]] = {}
     last_extraction: dict[UUID, UUID] = {}
-    asking = open_questions(questions)
+    shown = list(questions)
+    asking = open_questions(shown)
 
     def place(message_id: UUID, found: Iterable[StoredDraft]) -> None:
         for draft in found:
@@ -135,6 +136,7 @@ def draft_cards(
                 today=today,
                 athlete_sports=athlete_sports,
                 question=asking.get(draft.id),
+                asking=asking_sports(shown, draft.message_id),
             )
             if card is not None:
                 cards.setdefault(message_id, []).append(card)
@@ -193,10 +195,12 @@ def draft_card(
     today: date,
     athlete_sports: Sequence[str] = (),
     question: StoredClarification | None = None,
+    asking: Collection[str] = (),
 ) -> DraftCard | None:
     """`None` when its sport is unknown, or when a pending draft's stored payload no longer
     reads: the page still renders, without that card. A pending card's chip offers
-    `athlete_sports`, as `sports_to_switch_to` narrows them, and asks `question` (#166)."""
+    `athlete_sports`, as `sports_to_switch_to` narrows them, without the sports still `asking`
+    on its log (#164), and asks `question` (#166)."""
     try:
         sport = sports.get(draft.sport_id)
     except UnknownSportError:
@@ -221,7 +225,7 @@ def draft_card(
     switch_to = (
         tuple(
             sports.get(sport_id)
-            for sport_id in sports_to_switch_to(athlete_sports, sport.id, sports)
+            for sport_id in sports_to_switch_to(athlete_sports, sport.id, sports, asking=asking)
         )
         if draft.status == "pending"
         else ()

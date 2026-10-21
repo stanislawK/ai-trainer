@@ -10,6 +10,7 @@ from itertools import takewhile
 from uuid import UUID, uuid4
 
 from fastapi import FastAPI, Request, Response
+from pydantic import JsonValue
 from starlette.templating import Jinja2Templates
 
 from ai_trainer.application.ports.clock import ClockPort
@@ -39,7 +40,7 @@ from ai_trainer.domain.clarification import (
 from ai_trainer.domain.conversation import Intent, IntentKind
 from ai_trainer.domain.goals import Goal
 from ai_trainer.domain.llm_calls import LlmCallOutcome
-from ai_trainer.domain.sports.base import SessionExtraction, SportPlugin
+from ai_trainer.domain.sports.base import ExtractionQuestion, SessionExtraction, SportPlugin
 from ai_trainer.domain.sports.climbing.extraction import ClimbingExtraction, ExtractedClimb
 from ai_trainer.domain.sports.registry import SportRegistry, default_sport_registry
 from ai_trainer.domain.training import (
@@ -290,13 +291,20 @@ class InMemoryProfile:
 
 
 class InMemoryTrainingSessions:
-    """The athlete's saved sessions as continuity sees them: the latest per user and sport."""
+    """The athlete's saved sessions as continuity sees them: the latest per user and sport,
+    and the payloads of their recent sessions per user and sport, most recent first."""
 
     def __init__(self) -> None:
         self.latest: dict[tuple[UUID, str], SessionSpan] = {}
+        self.payloads: dict[tuple[UUID, str], list[dict[str, JsonValue]]] = {}
 
     async def latest_in_sport(self, user_id: UUID, sport_id: str) -> SessionSpan | None:
         return self.latest.get((user_id, sport_id))
+
+    async def recent_payloads(
+        self, user_id: UUID, sport_id: str, limit: int
+    ) -> Sequence[Mapping[str, JsonValue]]:
+        return self.payloads.get((user_id, sport_id), [])[:limit]
 
 
 class InMemoryDraftRepository:
@@ -622,12 +630,14 @@ DRAFT_READY_TEXT = "Here's the session."
 DRAFT_FAILED_TEXT = "I couldn't draft this one."
 SPORT_QUESTION_TEXT = "Which sport was that?"
 SAME_SESSION_QUESTION_TEXT = "Was this part of your earlier session?"
+READING_QUESTION_TEXT = "Which did you mean?"
 CHITCHAT_TEMPLATE = TemplateRef(id="chitchat", version=1)
 NOT_YET_TEMPLATE = TemplateRef(id="not_yet", version=1)
 DRAFT_READY_TEMPLATE = TemplateRef(id="draft_ready", version=1)
 DRAFT_FAILED_TEMPLATE = TemplateRef(id="draft_failed", version=1)
 SPORT_QUESTION_TEMPLATE = TemplateRef(id="sport_question", version=1)
 SAME_SESSION_QUESTION_TEMPLATE = TemplateRef(id="same_session_question", version=1)
+READING_QUESTION_TEMPLATE = TemplateRef(id="reading_question", version=1)
 CLIMBING_EXTRACT_TEMPLATE = TemplateRef(id="climbing.extract", version=1)
 # "I climbed 3 6A and 2 6B boulders", sent at `FROZEN_NOW` with no date (Europe/Warsaw).
 THREE_6A_TWO_6B = ClimbingExtraction(
@@ -655,11 +665,16 @@ class ScriptedConversation:
     # The router answers `route_delay` seconds after `route_after` is set (at once when unset).
     route_delay: float = 0.0
     route_after: asyncio.Event | None = None
-    # What each extraction call returns: a draft, or `None` with `extract_outcomes`' outcome.
-    extractions: list[SessionExtraction | None] = field(default_factory=lambda: [THREE_6A_TWO_6B])
+    # What each extraction call returns: a draft or its question, or `None` with
+    # `extract_outcomes`' outcome. A question is only returned to a call that may ask.
+    extractions: list[SessionExtraction | ExtractionQuestion | None] = field(
+        default_factory=lambda: [THREE_6A_TWO_6B]
+    )
     extract_outcomes: list[LlmCallOutcome] = field(default_factory=lambda: [LlmCallOutcome.SUCCESS])
     # Per sport, in place of the two lists above: each entry scripts that sport's next call.
-    sport_extractions: dict[str, SessionExtraction] = field(default_factory=dict)
+    sport_extractions: dict[str, SessionExtraction | ExtractionQuestion] = field(
+        default_factory=dict
+    )
     sport_outcomes: dict[str, list[LlmCallOutcome]] = field(default_factory=dict)
     # A sport's extraction answers only once its event is set; each call sets `extract_started`.
     extract_waits: dict[str, asyncio.Event] = field(default_factory=dict)
@@ -667,6 +682,10 @@ class ScriptedConversation:
     routed: list[ReplyContext] = field(default_factory=list)
     chitchatted: list[ReplyContext] = field(default_factory=list)
     extracted: list[tuple[ReplyContext, str]] = field(default_factory=list)
+    # Each extraction call's `recent`, `answers` and `may_ask`, in call order.
+    extract_options: list[tuple[tuple[str, ...], tuple[str, ...], bool]] = field(
+        default_factory=list
+    )
     closed_streams: int = 0
 
     @property
@@ -702,10 +721,19 @@ class ScriptedConversation:
         finally:
             self.closed_streams += 1
 
-    async def extract(self, context: ReplyContext, sport_id: str) -> Extraction:
+    async def extract(
+        self,
+        context: ReplyContext,
+        sport_id: str,
+        *,
+        recent: Sequence[str] = (),
+        answers: Sequence[str] = (),
+        may_ask: bool = True,
+    ) -> Extraction:
         call = len(self.extracted)
         sport_call = sum(1 for _, sport in self.extracted if sport == sport_id)
         self.extracted.append((context, sport_id))
+        self.extract_options.append((tuple(recent), tuple(answers), may_ask))
         self.extract_started.setdefault(sport_id, asyncio.Event()).set()
         if sport_id in self.extract_waits:
             await self.extract_waits[sport_id].wait()
@@ -716,6 +744,8 @@ class ScriptedConversation:
         output = self.sport_extractions.get(
             sport_id, self.extractions[min(call, len(self.extractions) - 1)]
         )
+        # The real template can only draft then (ticket #164).
+        assert not isinstance(output, ExtractionQuestion) or (may_ask and not answers)
         return Extraction(
             output=output if outcome is LlmCallOutcome.SUCCESS else None,
             outcome=outcome,
@@ -736,6 +766,9 @@ class ScriptedConversation:
 
     def same_session_question(self) -> FixedReply:
         return FixedReply(text=SAME_SESSION_QUESTION_TEXT, template=SAME_SESSION_QUESTION_TEMPLATE)
+
+    def reading_question(self) -> FixedReply:
+        return FixedReply(text=READING_QUESTION_TEXT, template=READING_QUESTION_TEMPLATE)
 
 
 @dataclass
@@ -792,6 +825,7 @@ def reply_services(
     safety_screen: ScriptedSafetyScreen | None = None,
     history_turns: int = 10,
     max_clarification_options: int = 5,
+    recent_sessions: int = 10,
 ) -> ReplyServices:
     drafts = drafts or InMemoryDraftRepository()
     clarifications = clarifications or InMemoryClarificationRepository()
@@ -811,6 +845,7 @@ def reply_services(
         history_turns=history_turns,
         merge_window=MERGE_WINDOW,
         max_clarification_options=max_clarification_options,
+        recent_sessions=recent_sessions,
     )
 
 

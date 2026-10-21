@@ -1,4 +1,4 @@
-{#- The answer to a choice card (F9, ticket #162): the card collapsed to the chosen option, then the reply it resumed: the draft's line and its card. Swapped over the card. -#}
+{#- The answer to a choice card (F9, ticket #162): the card collapsed to the chosen option, then the reply it resumed: the draft's line and its card, or the next question and its card (ticket #164). Swapped over the card. -#}
 {%- from "components/choice_card.html" import choice_card -%}
 {{ choice_card(card) }}
 {% for message in messages %}{% include "partials/chat/message.html" %}{% endfor %}

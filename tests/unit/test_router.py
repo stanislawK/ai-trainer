@@ -184,9 +184,9 @@ def test_a_fourth_sport_reaches_the_router_options_without_a_template_edit(versi
     output = router_output_type(_fourth_sport_registry(), version=version).model_validate(payload)
 
     assert output.intents[0].sport == "running"  # type: ignore[attr-defined]
-    schema = router_template(
-        _fourth_sport_registry(), version=version
-    ).output_type.model_json_schema()
+    output_type = router_template(_fourth_sport_registry(), version=version).output_type
+    assert not isinstance(output_type, tuple)
+    schema = output_type.model_json_schema()
     assert "running" in str(schema)
 
 

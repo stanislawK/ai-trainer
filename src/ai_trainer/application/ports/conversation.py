@@ -9,7 +9,7 @@ from ai_trainer.domain.chat import ChatMessage
 from ai_trainer.domain.conversation import Intent
 from ai_trainer.domain.goals import Goal
 from ai_trainer.domain.llm_calls import LlmCallOutcome
-from ai_trainer.domain.sports.base import SessionExtraction
+from ai_trainer.domain.sports.base import ExtractionQuestion, SessionExtraction
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,10 +60,11 @@ class FixedReply:
 
 @dataclass(frozen=True, slots=True)
 class Extraction:
-    """A sport extraction's draft, `None` when the call did not succeed, and the template that
-    made it (ADR-0008: the `log_session` specialist is the plugin's extraction template)."""
+    """A sport extraction's draft, or the question it asks instead (ticket #164), `None` when
+    the call did not succeed, and the template that made it (ADR-0008: the `log_session`
+    specialist is the plugin's extraction template)."""
 
-    output: SessionExtraction | None
+    output: SessionExtraction | ExtractionQuestion | None
     outcome: LlmCallOutcome
     template: TemplateRef
 
@@ -81,8 +82,20 @@ class ConversationModelPort(Protocol):
         """The `chitchat` specialist's reply, streamed as the gateway streams it."""
         ...
 
-    async def extract(self, context: ReplyContext, sport_id: str) -> Extraction:
-        """The sport's extraction template run on the message; the sport must name one."""
+    async def extract(
+        self,
+        context: ReplyContext,
+        sport_id: str,
+        *,
+        recent: Sequence[str] = (),
+        answers: Sequence[str] = (),
+        may_ask: bool = True,
+    ) -> Extraction:
+        """The sport's extraction template run on the message; the sport must name one.
+        `recent` is the sport's context from the athlete's recent sessions. The template may
+        return its question instead of a draft, unless the run `may_ask` not or carries the
+        option IDs the athlete picked on it (`answers`): then it can only draft (ticket
+        #164)."""
         ...
 
     def draft_ready(self) -> FixedReply:
@@ -99,6 +112,11 @@ class ConversationModelPort(Protocol):
 
     def sport_question(self) -> FixedReply:
         """The question above the choice card that asks which sport a log was (B23)."""
+        ...
+
+    def reading_question(self) -> FixedReply:
+        """The question above the choice card that asks how to read a log its extraction
+        couldn't read safely (B17, ticket #164)."""
         ...
 
     def same_session_question(self) -> FixedReply:

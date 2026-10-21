@@ -1,14 +1,15 @@
-{#- The choice card (F9, ADR-0015, ticket #162), built from the Components Chat mock: a question in the assistant's voice, then large tappable rows (label and what tells the options apart), then a quiet "Let me type instead". Import with `{% from "components/choice_card.html" import choice_card %}`. A tap posts the option's ID, never its label, in one htmx POST and the card swaps for the answered row (and, for a sport, the draft); an option the question never offered is refused by the server. Once answered it collapses to the chosen option, and "Let me type instead" collapses it to a quiet row and hands the composer back. `copy_key` names the option's copy in `components/sport_copy.html`. Single mode only; the multi-select rows wait for the first question that needs them. `choice_options` is the question and its rows alone, for a question asked inside another card: the draft card's same-session question (ticket #166), whose `copy_key` names its copy in `components/session_copy.html` and whose `params` fill it. -#}
+{#- The choice card (F9, ADR-0015, ticket #162), built from the Components Chat mock: a question in the assistant's voice, then large tappable rows (label and what tells the options apart), then a quiet "Let me type instead". Import with `{% from "components/choice_card.html" import choice_card %}`. A tap posts the option's ID, never its label, in one htmx POST and the card swaps for the answered row (and, for a sport, the draft); an option the question never offered is refused by the server. Once answered it collapses to the chosen option, and "Let me type instead" collapses it to a quiet row and hands the composer back. `copy_key` names the option's copy in `components/sport_copy.html`, or, for a reading question (ticket #164), in `components/climbing_copy.html`, whose `params` fill its hint. Single mode only; the multi-select rows wait for the first question that needs them. `choice_options` is the question and its rows alone, for a question asked inside another card: the draft card's same-session question (ticket #166), whose `copy_key` names its copy in `components/session_copy.html` and whose `params` fill it. -#}
 {%- from "components/icon.html" import icon -%}
 {%- from "components/sport_copy.html" import sport_copy -%}
 {%- from "components/session_copy.html" import session_copy -%}
+{%- from "components/climbing_copy.html" import climbing_readings -%}
 {% macro option_label(option) -%}
-{%- set copy = sport_copy.get(option.copy_key) or session_copy.get(option.copy_key) or {} -%}
+{%- set copy = sport_copy.get(option.copy_key) or session_copy.get(option.copy_key) or climbing_readings.get(option.copy_key) or {} -%}
 {{- copy.get("label", option.id).format(**option.params) -}}
 {%- endmacro %}
 {% macro option_hint(option) -%}
-{%- set copy = sport_copy.get(option.copy_key) or session_copy.get(option.copy_key) or {} -%}
-{{- copy.get("hint", "") -}}
+{%- set copy = sport_copy.get(option.copy_key) or session_copy.get(option.copy_key) or climbing_readings.get(option.copy_key) or {} -%}
+{{- copy.get("hint", "").format(**option.params) -}}
 {%- endmacro %}
 {% macro choice_option(question, option, target, disable) -%}
 <button type="button" class="flex items-center gap-3 min-h-14 w-full rounded-2xl bg-base-content/10 px-4 py-2.5 text-left" hx-post="/clarifications/{{ question.id }}/answer" hx-vals='{{ {"option_ids": option.id} | tojson }}' hx-target="{{ target }}" hx-swap="outerHTML" hx-disable="{{ disable }}" hx-status:4xx="swap:none" data-choice-option="{{ option.id }}">

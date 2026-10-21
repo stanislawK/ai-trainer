@@ -12,9 +12,20 @@ from pydantic_ai import ModelMessage, ModelResponse, TextPart, ToolCallPart, Une
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 from pydantic_evals.evaluators import EvaluatorContext
 
-from ai_trainer.domain.sports.base import ExtractionSpec, SessionExtraction, SportPlugin
+from ai_trainer.domain.clarification import ChoiceOption
+from ai_trainer.domain.sports.base import (
+    ExtractionQuestion,
+    ExtractionSpec,
+    QuestionSpec,
+    SessionExtraction,
+    SportPlugin,
+)
 from ai_trainer.domain.sports.climbing.edit import apply_climbing_edit
-from ai_trainer.domain.sports.climbing.extraction import ClimbingExtraction
+from ai_trainer.domain.sports.climbing.extraction import (
+    ClimbingExtraction,
+    ClimbingQuestion,
+    recent_kinds,
+)
 from ai_trainer.domain.sports.climbing.payload import (
     CLIMBING_PAYLOAD_VERSION,
     ClimbingPayload,
@@ -106,11 +117,13 @@ def test_the_climbing_plugin_names_its_extraction_template() -> None:
 
     assert climbing.extraction == ExtractionSpec(
         template_id=_CLIMBING_EXTRACT,
-        version=2,
+        version=3,
         output_type=ClimbingExtraction,
         payload_type=ClimbingPayload,
         payload_version=CLIMBING_PAYLOAD_VERSION,
         apply_edit=apply_climbing_edit,
+        question=QuestionSpec(type=ClimbingQuestion, since_version=3),
+        recent=recent_kinds,
     )
 
 
@@ -146,6 +159,7 @@ def test_extract_templates_skip_a_sport_without_an_extraction() -> None:
     assert [(template.id, template.version) for template in extract_templates(sports)] == [
         (_CLIMBING_EXTRACT, 1),
         (_CLIMBING_EXTRACT, 2),
+        (_CLIMBING_EXTRACT, 3),
         ("gym.extract", 1),
         ("gym.extract", 2),
         ("cycling.extract", 1),
@@ -370,6 +384,17 @@ def test_an_extraction_base_names_no_payload_until_a_sport_defines_one() -> None
         bare.to_payload()
 
 
+def test_a_sport_that_never_asks_reads_an_answer_as_no_change() -> None:
+    bare = SessionExtraction(occurred_on=date(2026, 10, 2), date_source="stated")
+
+    assert bare.answered(ChoiceOption(id="lead", copy_key="x")) is bare
+
+
+def test_a_question_base_names_no_options_until_a_sport_defines_one() -> None:
+    with pytest.raises(NotImplementedError):
+        ExtractionQuestion().options()
+
+
 _ACTIVE_EXTRACT_TEMPLATES = [
     extract_template(plugin.extraction)
     for plugin in default_sport_registry().all()
@@ -382,9 +407,10 @@ def _render_active(template_id: str, version: int, deps: ExtractDeps) -> str:
     return _registry().render_instructions(template_id, version, deps)
 
 
-def test_every_sport_runs_extraction_v2() -> None:
+def test_every_sport_runs_its_active_extraction_version() -> None:
+    """Climbing moved to v3 to ask how to read a log (ticket #164)."""
     assert {(template.id, template.version) for template in _ACTIVE_EXTRACT_TEMPLATES} == {
-        ("climbing.extract", 2),
+        ("climbing.extract", 3),
         ("gym.extract", 2),
         ("cycling.extract", 2),
     }

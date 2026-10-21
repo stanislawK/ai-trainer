@@ -92,6 +92,7 @@ class _Athlete:
             history_turns=10,
             merge_window=MERGE_WINDOW,
             max_clarification_options=5,
+            recent_sessions=10,
         )
 
     async def log(self, text_: str, at: datetime) -> ReplyDone:

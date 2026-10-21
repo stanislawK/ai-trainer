@@ -434,3 +434,117 @@ async def test_repeat_runs_each_case_n_times_and_averages_them_into_the_baseline
 
     assert len(result.report.cases) == 2
     assert result.baseline.scores["_MentionsNameScore"] == 0.5
+
+
+class _Question(BaseModel):
+    ask: str
+
+
+_TWO_OUTPUT_TEMPLATE = PromptTemplate(
+    id="sample",
+    version=1,
+    locale="en",
+    deps_type=_Deps,
+    output_type=(_Output, _Question),
+    model_settings_key="sample_template_model",
+)
+
+
+async def test_a_template_with_two_outputs_loads_and_grades_either_expected_output(
+    tmp_path: Path,
+) -> None:
+    """An extraction may return a question instead of a draft (ticket #164): its dataset holds
+    expected outputs of either type, and the model's pick is graded against them."""
+    from pydantic_evals import Case, Dataset
+
+    dataset = Dataset[EvalCaseInputs, _Output | _Question, object](
+        name="sample",
+        cases=[
+            Case(
+                name="asks",
+                inputs=EvalCaseInputs(prompt="?", deps={"name": "Alex", "sport": "climbing"}),
+                expected_output=_Question(ask="which?"),
+            ),
+        ],
+        evaluators=[EqualsExpected()],
+    )
+    (tmp_path / "datasets").mkdir()
+    dataset.to_file(tmp_path / "datasets" / "sample.yaml")
+    registry = PromptRegistry(root=_FIXTURES_ROOT)
+    registry.register(_TWO_OUTPUT_TEMPLATE)
+
+    def ask(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        [tool] = [tool.name for tool in info.output_tools if "_Question" in tool.name]
+        return ModelResponse(parts=[ToolCallPart(tool, {"ask": "which?"})])
+
+    result = await run_eval(
+        registry=registry,
+        template_id="sample",
+        version=1,
+        model=FunctionModel(ask),
+        model_id=_MODEL_UNDER_TEST_ID,
+        judge_model=FunctionModel(ask),
+        judge_model_id=_JUDGE_MODEL_ID,
+        datasets_root=tmp_path / "datasets",
+        baselines_root=tmp_path / "baselines",
+        reports_root=tmp_path / "reports",
+    )
+
+    assert result.baseline.assertions == 1.0
+
+
+async def test_a_case_runs_with_the_output_its_deps_narrow_the_template_to(
+    tmp_path: Path,
+) -> None:
+    """An answered extraction can only draft in the app, and so in its eval (ticket #164)."""
+    from pydantic_evals import Case, Dataset
+
+    def draft_only_for_alex(
+        deps: BaseModel,
+    ) -> type[_Output | _Question] | tuple[type[_Output | _Question], ...]:
+        return _Output if isinstance(deps, _Deps) and deps.name == "Alex" else (_Output, _Question)
+
+    template = PromptTemplate(
+        id="sample",
+        version=1,
+        locale="en",
+        deps_type=_Deps,
+        output_type=(_Output, _Question),
+        model_settings_key="sample_template_model",
+        output_for=draft_only_for_alex,
+    )
+    (tmp_path / "datasets").mkdir()
+    Dataset[EvalCaseInputs, _Output | _Question, object](
+        name="sample",
+        cases=[
+            Case(
+                name="narrowed",
+                inputs=EvalCaseInputs(prompt="?", deps={"name": "Alex", "sport": "climbing"}),
+                expected_output=_Output(reply="hi"),
+            )
+        ],
+        evaluators=[EqualsExpected()],
+    ).to_file(tmp_path / "datasets" / "sample.yaml")
+    registry = PromptRegistry(root=_FIXTURES_ROOT)
+    registry.register(template)
+    offered: list[list[str]] = []
+
+    def reply(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        offered.append([tool.name for tool in info.output_tools])
+        return ModelResponse(parts=[ToolCallPart(info.output_tools[0].name, {"reply": "hi"})])
+
+    result = await run_eval(
+        registry=registry,
+        template_id="sample",
+        version=1,
+        model=FunctionModel(reply),
+        model_id=_MODEL_UNDER_TEST_ID,
+        judge_model=FunctionModel(reply),
+        judge_model_id=_JUDGE_MODEL_ID,
+        datasets_root=tmp_path / "datasets",
+        baselines_root=tmp_path / "baselines",
+        reports_root=tmp_path / "reports",
+    )
+
+    assert offered == [["final_result"]]
+    assert result.baseline.assertions == 1.0

@@ -12,8 +12,10 @@ from ai_trainer.domain.sports.climbing.normalize import detect_scale, normalize_
 from ai_trainer.domain.sports.climbing.payload import (
     CLIMBING_PAYLOAD_VERSION,
     ClimbingActivity,
+    ClimbingKind,
     ClimbingPayload,
     Grade,
+    GradeScale,
 )
 
 
@@ -77,6 +79,25 @@ def test_grade_original_is_kept_as_typed_apart_from_surrounding_space() -> None:
     assert normalize_grade(" 6A ") == Grade(original="6A", scale="font")
 
 
+@pytest.mark.parametrize(
+    ("original", "kind", "scale"),
+    [
+        ("7a", "boulder", "font"),
+        ("7A", "boulder", "font"),
+        ("7A", "lead", "french"),
+        ("6c+", "top_rope", "french"),
+        ("V5", "lead", "v"),
+        ("5.11a", "boulder", "yds"),
+        ("blue", "boulder", None),
+    ],
+)
+def test_a_font_or_french_grade_takes_the_scale_of_its_kind(
+    original: str, kind: ClimbingKind, scale: GradeScale | None
+) -> None:
+    """Athletes type the letter in either case; the kind says which scale (ticket #164)."""
+    assert normalize_grade(original, kind) == Grade(original=original, scale=scale)
+
+
 def test_m1_grades_leave_french_and_ordinal_null() -> None:
     grade = normalize_grade("6b+")
 
@@ -108,6 +129,12 @@ def test_extraction_to_payload_keeps_counts_and_font_scale() -> None:
         ("boulder", 3, Grade(original="6A", scale="font")),
         ("boulder", 2, Grade(original="6B", scale="font")),
     ]
+
+
+def test_extraction_to_payload_reads_a_lowercase_boulder_grade_as_font() -> None:
+    payload = _extraction(activities=[{"kind": "boulder", "count": 3, "grade": "7a"}]).to_payload()
+
+    assert payload.activities[0].grade == Grade(original="7a", scale="font")
 
 
 def test_extraction_to_payload_keeps_an_unrecognised_grade_without_a_scale() -> None:

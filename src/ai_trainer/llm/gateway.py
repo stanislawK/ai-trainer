@@ -28,6 +28,7 @@ from ai_trainer.application.ports.llm_gateway import (
 from ai_trainer.domain.llm_calls import LlmCallOutcome, ProviderPreferences, ReasoningEffort
 from ai_trainer.llm.call_accounting import CallAccountant, CallKey, CallUsage, sum_cost
 from ai_trainer.llm.debug_log import CallRecorder, LlmDebugLog
+from ai_trainer.llm.prompts.registry import output_types
 from ai_trainer.settings import Settings
 
 TIMEOUT_MESSAGE = "The AI assistant is taking too long to respond. Please try again in a moment."
@@ -88,7 +89,7 @@ class OpenRouterGateway:
         template_id: str,
         template_version: int,
         model_id: str,
-        output_type: type[OutputT],
+        output_type: type[OutputT] | tuple[type[OutputT], ...],
         instructions: str,
         prompt: str,
         temperature: float | None = None,
@@ -115,7 +116,7 @@ class OpenRouterGateway:
             self.agent.run(
                 prompt,
                 model=model,
-                output_type=output_type,
+                output_type=output_types(output_type),
                 instructions=instructions,
                 model_settings=model_settings,
                 retries=AgentRetries(output=output_retries) if output_retries is not None else None,

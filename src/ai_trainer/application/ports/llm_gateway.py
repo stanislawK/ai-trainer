@@ -42,7 +42,7 @@ class LlmGatewayPort(Protocol):
         template_id: str,
         template_version: int,
         model_id: str,
-        output_type: type[OutputT],
+        output_type: type[OutputT] | tuple[type[OutputT], ...],
         instructions: str,
         prompt: str,
         temperature: float | None = None,
@@ -53,7 +53,8 @@ class LlmGatewayPort(Protocol):
         timeout_seconds: float | None = None,
     ) -> LlmGatewayResult[OutputT]:
         """`session_id` is an opaque per-conversation key, never user identity (ADR-0026
-        invariant 4); `timeout_seconds` overrides the gateway's default for this call."""
+        invariant 4); `timeout_seconds` overrides the gateway's default for this call. Several
+        `output_type`s leave the model to pick which one it returns (ticket #164)."""
         ...
 
     def stream(

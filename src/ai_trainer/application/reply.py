@@ -12,10 +12,11 @@ runs their extractions at once, one draft each in message order; one that fails 
 that came through is kept as a line its Retry can turn into the draft (B1, B14, ticket #161).
 A log beyond the merge window, on the day of the athlete's latest session in its sport, is a
 pending draft whose card asks whether it is that session, and the tap settles it (B16, ticket
-#166)."""
+#166). A log its sport's extraction can't read safely is a choice card of its readings, and the
+tap resumes that extraction with the pick, which can then only draft (B17, ticket #164)."""
 
 import asyncio
-from collections.abc import AsyncGenerator, Sequence
+from collections.abc import AsyncGenerator, Collection, Iterable, Sequence
 from contextlib import aclosing
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
@@ -42,6 +43,7 @@ from ai_trainer.application.ports.training import TrainingSessionRepositoryPort
 from ai_trainer.domain.chat import ChatMessage, ChatRole
 from ai_trainer.domain.clarification import (
     NEW_SESSION_OPTION,
+    READING_PURPOSE,
     SAME_SESSION_ADD_COPY_KEY,
     SAME_SESSION_NEW_COPY_KEY,
     SAME_SESSION_PURPOSE,
@@ -55,6 +57,7 @@ from ai_trainer.domain.clarification import (
 )
 from ai_trainer.domain.conversation import Intent, IntentKind
 from ai_trainer.domain.llm_calls import LlmCallOutcome
+from ai_trainer.domain.sports.base import ExtractionQuestion
 from ai_trainer.domain.sports.registry import SportRegistry
 from ai_trainer.domain.training import (
     DRAFT_FAILED_TEMPLATE_ID,
@@ -141,6 +144,9 @@ class ReplyServices:
     merge_window: timedelta
     # A question offers at most this many options (`max_clarification_options`, ADR-0015).
     max_clarification_options: int
+    # A sport's extraction reads its context from this many of the athlete's latest sessions in
+    # it (`extract_recent_sessions`, ticket #164).
+    recent_sessions: int
 
 
 type _Specialist = Literal["chitchat", "extract", "not_yet"]
@@ -159,6 +165,8 @@ class _Answer:
     sports: tuple[str, ...]
     # The draft an extraction part made, with its sport and payload version.
     draft: tuple[str, SessionDraft, int] | None = None
+    # The question an extraction part asked instead of a draft (ticket #164).
+    question: Clarification | None = None
 
 
 def with_screened_safety(intents: Sequence[Intent], *, pain: bool) -> list[Intent]:
@@ -433,21 +441,53 @@ async def _conversation_sport(
     return latest.sport_id
 
 
+async def _recent(user_id: UUID, sport_id: str, services: ReplyServices) -> tuple[str, ...]:
+    """The sport's context from the athlete's latest sessions in it, as its plugin reads it
+    (ticket #164); none for a plugin that reads none."""
+    spec = services.sports.get(sport_id).extraction
+    if spec is None or spec.recent is None:
+        return ()
+    return spec.recent(
+        await services.sessions.recent_payloads(user_id, sport_id, services.recent_sessions)
+    )
+
+
 async def _extract(
-    context: ReplyContext, sport_id: str, services: ReplyServices
+    context: ReplyContext,
+    sport_id: str,
+    services: ReplyServices,
+    *,
+    answer: ChoiceOption | None = None,
+    may_ask: bool = True,
 ) -> _Answer | ReplyFailed:
     """The sport's extraction, as a draft in the athlete's timezone (ADR-0014, ADR-0022) under
-    a fixed intro line. A failed call ends the reply; nothing of it is kept."""
-    extraction = await services.conversation.extract(context, sport_id)
+    a fixed intro line, or as the question it asks instead, unless it `may_ask` not or carries
+    the option the athlete picked on it (`answer`, ticket #164). A failed call ends the reply;
+    nothing of it is kept."""
+    answers = () if answer is None else (answer.id,)
+    extraction = await services.conversation.extract(
+        context,
+        sport_id,
+        recent=await _recent(context.user_id, sport_id, services),
+        answers=answers,
+        may_ask=may_ask,
+    )
     if extraction.output is None:
         return ReplyFailed(outcome=extraction.outcome)
+    if isinstance(extraction.output, ExtractionQuestion):
+        # The template can only draft when it may not ask or carries the athlete's answer.
+        assert may_ask
+        assert not answers
+        return _reading_question(sport_id, extraction.output, services)
     spec = services.sports.get(sport_id).extraction
     assert spec is not None  # `_plan` only sends sports that name an extraction
+    # The athlete's pick holds whatever the model made of it (ADR-0015 invariant 4).
+    output = extraction.output if answer is None else extraction.output.answered(answer)
     draft = SessionDraft(
-        occurred_on=extraction.output.occurred_on,
-        date_source=extraction.output.date_source,
+        occurred_on=output.occurred_on,
+        date_source=output.date_source,
         timezone=context.timezone,
-        payload=extraction.output.to_payload().model_dump(mode="json"),
+        payload=output.to_payload().model_dump(mode="json"),
     )
     intro = services.conversation.draft_ready()
     return _Answer(
@@ -455,6 +495,26 @@ async def _extract(
         extraction.template,
         (sport_id,),
         draft=(sport_id, draft, spec.payload_version),
+    )
+
+
+def _reading_question(
+    sport_id: str, question: ExtractionQuestion, services: ReplyServices
+) -> _Answer:
+    """The question's fixed line, and the question with one option per reading, likeliest
+    first, cut to `max_clarification_options` (ADR-0015). Nothing but the question is written
+    before the tap (invariant 3)."""
+    fixed = services.conversation.reading_question()
+    return _Answer(
+        fixed.text,
+        fixed.template,
+        (sport_id,),
+        question=Clarification(
+            question=fixed.text,
+            options=question.options()[: services.max_clarification_options],
+            pending=_LOG_KIND,
+            sport=sport_id,
+        ),
     )
 
 
@@ -523,6 +583,17 @@ async def _save(
             drafts.append(stored)
             if question is not None:
                 questions.append(question)
+        if answer.question is not None:
+            questions.append(
+                await services.clarifications.add(
+                    user_id,
+                    message.conversation_id,
+                    message.id,
+                    READING_PURPOSE,
+                    answer.question,
+                    created_at=services.clock.now(),
+                )
+            )
         await services.conversations.touch(user_id, message.conversation_id, services.clock.now())
     return ReplyDone(messages=saved, drafts=tuple(drafts), clarifications=tuple(questions))
 
@@ -679,28 +750,36 @@ async def answer_clarification(
     timezone: str,
     services: ReplyServices,
 ) -> ClarificationAnswered | SessionSettled | ReplyFailed:
-    """Resumes the extraction the question blocked with the tapped sport (B23, ADR-0015). The
-    question is answered, and its draft stored, only once the extraction came through, so a
-    failed one leaves the card to tap again; two taps at once leave one draft, because the
-    second finds the question already answered before anything is written. A same-session
-    question settles its draft instead (ticket #166). Raises `ClarificationNotFoundError`,
+    """Resumes the extraction the question blocked with the tapped sport (B23, ADR-0015), or,
+    for a reading question, in the sport that asked with the tapped reading, which can then only
+    draft (ticket #164). The question is answered, and its reply stored, only once the
+    extraction came through, so a failed one leaves the card to tap again; two taps at once
+    leave one draft, because the second finds the question already answered before anything is
+    written. A sport answered may ask how to read the log next. A same-session question settles
+    its draft instead (ticket #166). Raises `ClarificationNotFoundError`,
     `ClarificationResolvedError` or `UnknownOptionError` (nothing is called or written then),
     and `MessageNotFoundError` for a log past its conversation's retention."""
     question = await services.clarifications.get(user_id, clarification_id)
-    if question.purpose not in (SPORT_PURPOSE, SAME_SESSION_PURPOSE):
+    if question.purpose not in (SPORT_PURPOSE, READING_PURPOSE, SAME_SESSION_PURPOSE):
+        raise ClarificationNotFoundError(clarification_id)
+    if question.purpose == READING_PURPOSE and question.clarification.sport is None:
         raise ClarificationNotFoundError(clarification_id)
     if question.status != "open":
         raise ClarificationResolvedError(clarification_id)
     if question.purpose == SAME_SESSION_PURPOSE:
         return await _settle_session(user_id, question, option_ids, services)
-    sport = _chosen(question, option_ids)
+    picked = _chosen(question, option_ids)
+    reading = question.purpose == READING_PURPOSE
+    sport = question.clarification.sport if reading else picked
+    assert sport is not None  # a reading question names its sport, checked above
     message = await find_message(
         user_id, question.message_id, chat=services.chat, conversations=services.conversations
     )
     # Read as of when the log was sent, as a sport change and a retry are, so an answer the
     # next morning still dates "last night" from the log (ADR-0014, ticket #166).
     context = replace(await _context(user_id, message, timezone, services), now=message.created_at)
-    answer = await _extract(context, sport, services)
+    option = next(option for option in question.clarification.options if option.id == picked)
+    answer = await _extract(context, sport, services, answer=option if reading else None)
     if isinstance(answer, ReplyFailed):
         return answer
 
@@ -709,7 +788,7 @@ async def answer_clarification(
             user_id,
             clarification_id,
             "answered",
-            option_ids=[sport],
+            option_ids=[picked],
             resolved_at=services.clock.now(),
         )
         asked = await services.chat.list_replies(user_id, message)
@@ -774,12 +853,34 @@ async def abandon_clarification(
 
 
 def sports_to_switch_to(
-    athlete_sports: Sequence[str], current: str, sports: SportRegistry
+    athlete_sports: Sequence[str],
+    current: str,
+    sports: SportRegistry,
+    *,
+    asking: Collection[str] = (),
 ) -> tuple[str, ...]:
     """The sports a draft's card offers to move it to (B23, ticket #163): the athlete's own, in
-    their order, that name an extraction template, without the draft's own sport."""
+    their order, that name an extraction template, without the draft's own sport, nor one whose
+    reading question is still open on the same log (`asking`), which a switch would answer
+    with a guess (ticket #164)."""
     loggable = _extractable(sports)
-    return tuple(sport for sport in athlete_sports if sport in loggable and sport != current)
+    return tuple(
+        sport
+        for sport in athlete_sports
+        if sport in loggable and sport != current and sport not in asking
+    )
+
+
+def asking_sports(questions: Iterable[StoredClarification], message_id: UUID) -> frozenset[str]:
+    """The sports whose reading question is still open on the athlete's log (ticket #164)."""
+    return frozenset(
+        question.clarification.sport
+        for question in questions
+        if question.message_id == message_id
+        and question.purpose == READING_PURPOSE
+        and question.status == "open"
+        and question.clarification.sport is not None
+    )
 
 
 async def change_draft_sport(
@@ -799,8 +900,12 @@ async def change_draft_sport(
     and `DraftSportNotOfferedError` for a sport the card never offered (nothing is called then),
     and `MessageNotFoundError` for a log past its conversation's retention."""
     stored = await draft_to_edit(user_id, draft_id, drafts=services.drafts)
+    asked = await services.clarifications.list_shown(user_id, stored.conversation_id)
     offered = sports_to_switch_to(
-        await services.profile.list_sports(user_id), stored.sport_id, services.sports
+        await services.profile.list_sports(user_id),
+        stored.sport_id,
+        services.sports,
+        asking=asking_sports(asked, stored.message_id),
     )
     if sport_id not in offered:
         raise DraftSportNotOfferedError(sport_id)
@@ -810,10 +915,11 @@ async def change_draft_sport(
     # Read as of when the log was sent, as its first extraction was, so a switch after
     # midnight still dates "yesterday" or an unstated day from the log (ADR-0014).
     context = replace(await _context(user_id, message, timezone, services), now=message.created_at)
-    answer = await _extract(context, sport_id, services)
+    # The card's own fields fix how the log reads, so the switch never asks (ticket #164).
+    answer = await _extract(context, sport_id, services, may_ask=False)
     if isinstance(answer, ReplyFailed):
         return answer
-    assert answer.draft is not None  # an extraction's answer always carries its draft
+    assert answer.draft is not None  # an extraction that may not ask always drafts
     _, draft, payload_version = answer.draft
 
     async def replace_draft() -> StoredDraft:
@@ -892,10 +998,11 @@ async def retry_draft(
     sport_id = failed.sports[0]
     # Read as of when the log was sent, as its first extraction was (ADR-0014).
     context = replace(await _context(user_id, message, timezone, services), now=message.created_at)
-    answer = await _extract(context, sport_id, services)
+    # A retry turns its line into a draft, never a question (ticket #164).
+    answer = await _extract(context, sport_id, services, may_ask=False)
     if isinstance(answer, ReplyFailed):
         return RetryFailed(part=failed, outcome=answer.outcome)
-    assert answer.draft is not None  # an extraction's answer always carries its draft
+    assert answer.draft is not None  # an extraction that may not ask always drafts
     _, draft, payload_version = answer.draft
 
     async def save() -> RetriedDraft:
