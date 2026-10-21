@@ -128,6 +128,9 @@ class Settings(BaseSettings):
     # ADR-0015: a question offers at most this many options, so a longer list of plausible
     # sports is cut to the likeliest.
     max_clarification_options: int = Field(default=5, ge=2)
+    # A sport's extraction reads its context from this many of the athlete's latest sessions
+    # in that sport, e.g. the climbing kinds they do (ticket #164).
+    extract_recent_sessions: int = Field(default=10, ge=1)
 
     # Google sign-in (ADR-0005). No Google access or refresh token is ever stored.
     # Required and non-blank: a blank value otherwise fails only on Google's own page.

@@ -106,11 +106,19 @@ class PromptRegistry:
         return Agent(
             TestModel(),
             deps_type=template.deps_type,
-            output_type=template.output_type,
+            output_type=output_types(template.output_type),
             instructions=[persona, body_template] if persona else [body_template],
             model_settings=model_settings,
             retries=_retries(template.output_retries),
         )
+
+
+def output_types[OutputT](
+    output_type: type[OutputT] | tuple[type[OutputT], ...],
+) -> type[OutputT] | list[type[OutputT]]:
+    """A template's output as Pydantic AI takes it: one type, or a list of the types the model
+    picks between."""
+    return list(output_type) if isinstance(output_type, tuple) else output_type
 
 
 def _retries(output_retries: int | None) -> AgentRetries | None:

@@ -182,6 +182,7 @@ def create_app(settings: Settings) -> FastAPI:
         history_turns=settings.chat_history_turns,
         merge_window=timedelta(minutes=settings.session_merge_window_min),
         max_clarification_options=settings.max_clarification_options,
+        recent_sessions=settings.extract_recent_sessions,
     )
     app.include_router(
         build_chat_router(templates, chat=chat, replies=replies, sports=app.state.sport_registry)

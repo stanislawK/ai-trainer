@@ -10,7 +10,7 @@ import anyio
 import httpx2
 import pytest
 from pydantic import BaseModel, PostgresDsn, SecretStr
-from pydantic_ai import ModelMessage, ModelResponse, TextPart, models
+from pydantic_ai import ModelMessage, ModelResponse, TextPart, ToolCallPart, models
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 
 from ai_trainer.application.ports.llm_gateway import LlmStreamEvent, StreamEnd, TextChunk
@@ -122,6 +122,38 @@ async def test_successful_call_returns_output_and_records_tokens_and_cost() -> N
     assert recorded.output_tokens > 0
     assert recorded.cost == Decimal("0.0042")
     assert recorded.latency_ms >= 0
+
+
+class Farewell(BaseModel):
+    words: str
+
+
+async def test_a_call_with_two_output_types_returns_the_one_the_model_picked() -> None:
+    """A template may offer the model several outputs, each its own tool (ticket #164)."""
+    offered: list[list[str]] = []
+
+    def pick_farewell(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        offered.append([tool.name for tool in info.output_tools])
+        [tool] = [tool.name for tool in info.output_tools if "Farewell" in tool.name]
+        return ModelResponse(parts=[ToolCallPart(tool, {"words": "bye"})])
+
+    repository = FakeLlmCallsRepository()
+    gateway = OpenRouterGateway(_settings(), repository)
+
+    with gateway.agent.override(model=FunctionModel(pick_farewell)):
+        result = await gateway.run(
+            user_id=uuid4(),
+            template_id="greeter",
+            template_version=1,
+            model_id="openai/gpt-5-mini",
+            output_type=(Greeting, Farewell),
+            instructions="Greet or say goodbye.",
+            prompt="Bye",
+        )
+
+    assert result.output == Farewell(words="bye")
+    assert len(offered[0]) == 2
+    assert len(repository.recorded) == 1
 
 
 async def test_timeout_writes_a_timeout_row_and_returns_a_friendly_error() -> None:

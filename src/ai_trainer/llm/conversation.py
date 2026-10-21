@@ -15,7 +15,10 @@ from ai_trainer.application.ports.conversation import (
 )
 from ai_trainer.application.ports.llm_gateway import LlmGatewayPort, LlmStreamEvent
 from ai_trainer.domain.chat import ChatMessage
-from ai_trainer.domain.clarification import SPORT_QUESTION_TEMPLATE_ID
+from ai_trainer.domain.clarification import (
+    READING_QUESTION_TEMPLATE_ID,
+    SPORT_QUESTION_TEMPLATE_ID,
+)
 from ai_trainer.domain.conversation import Intent
 from ai_trainer.domain.llm_calls import ProviderPreferences, ReasoningEffort
 from ai_trainer.domain.sports.registry import SportRegistry
@@ -40,6 +43,9 @@ _SPORT_QUESTION_VERSION = 1
 # day, sent as written (B16, ticket #166).
 SAME_SESSION_QUESTION_REPLY_ID = "same_session_question"
 _SAME_SESSION_QUESTION_VERSION = 1
+# The question above the choice card that asks how to read a log, sent as written (ticket #164).
+READING_QUESTION_REPLY_ID = READING_QUESTION_TEMPLATE_ID
+_READING_QUESTION_VERSION = 1
 
 
 def build_prompt_registry(root: Path, sports: SportRegistry) -> PromptRegistry:
@@ -164,24 +170,34 @@ class LlmConversation:
             prompt=context.message,
         )
 
-    async def extract(self, context: ReplyContext, sport_id: str) -> Extraction:
+    async def extract(
+        self,
+        context: ReplyContext,
+        sport_id: str,
+        *,
+        recent: Sequence[str] = (),
+        answers: Sequence[str] = (),
+        may_ask: bool = True,
+    ) -> Extraction:
         spec = self._sports.get(sport_id).extraction
         if spec is None:
             raise ValueError(f"sport {sport_id!r} names no extraction template")
-        template = extract_template(spec)
+        template = extract_template(spec, may_ask=may_ask and not answers)
         deps = build_extract_deps(
             message=context.message,
             history=_turns(context.history),
             now=context.now,
             timezone=context.timezone,
             history_turns=self._history_turns,
+            recent=recent,
+            answers=answers,
         )
         result = await self._gateway.run(
             user_id=context.user_id,
             template_id=template.id,
             template_version=template.version,
             model_id=self._extract_model,
-            output_type=spec.output_type,
+            output_type=template.output_type,
             instructions=self._registry.render_instructions(template.id, template.version, deps),
             prompt=context.message,
             temperature=template.temperature,
@@ -219,6 +235,14 @@ class LlmConversation:
         return FixedReply(
             text=self._registry.load_fixed_reply(SPORT_QUESTION_REPLY_ID, _SPORT_QUESTION_VERSION),
             template=TemplateRef(id=SPORT_QUESTION_REPLY_ID, version=_SPORT_QUESTION_VERSION),
+        )
+
+    def reading_question(self) -> FixedReply:
+        return FixedReply(
+            text=self._registry.load_fixed_reply(
+                READING_QUESTION_REPLY_ID, _READING_QUESTION_VERSION
+            ),
+            template=TemplateRef(id=READING_QUESTION_REPLY_ID, version=_READING_QUESTION_VERSION),
         )
 
     def same_session_question(self) -> FixedReply:

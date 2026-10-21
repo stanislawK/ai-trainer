@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from pydantic import BaseModel
@@ -15,7 +16,8 @@ class PromptTemplate[DepsT: BaseModel, OutputT: TemplateOutput]:
     version: int
     locale: str
     deps_type: type[DepsT]
-    output_type: type[OutputT]
+    # One type, or several the model picks between, each its own output tool (ticket #164).
+    output_type: type[OutputT] | tuple[type[OutputT], ...]
     # The attribute on `Settings` holding this template's OpenRouter model id — a caller
     # resolves it with `getattr(settings, template.model_settings_key)` before building the
     # `Model` it passes to the agent's `run`/`run_sync` (ADR-0007).
@@ -35,6 +37,11 @@ class PromptTemplate[DepsT: BaseModel, OutputT: TemplateOutput]:
     # Whether the persona comes before the template. A template that never writes to the
     # athlete (the extraction templates) does without it (ADR-0026 step 6).
     persona: bool = True
+    # The output a run with these deps may return, when it is narrower than `output_type`: an
+    # extraction resumed with the athlete's answer can only draft (ticket #164). Evals run each
+    # case with it, as the app does.
+    # Typed on `BaseModel`, not `DepsT`, so a template stays covariant in its deps.
+    output_for: Callable[[BaseModel], type[OutputT] | tuple[type[OutputT], ...]] | None = None
 
 
 class UnknownPromptTemplateError(LookupError):

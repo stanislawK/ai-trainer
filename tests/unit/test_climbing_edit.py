@@ -28,11 +28,23 @@ def test_editing_a_grade_from_6b_to_6c_keeps_scale_font() -> None:
     assert edited.activities[1].grade == Grade(original="6C", scale="font")
 
 
-def test_an_edited_grade_gets_its_scale_from_what_was_typed() -> None:
+def test_an_edited_grade_gets_its_scale_from_what_was_typed_and_the_kind() -> None:
+    """A boulder's grade typed in lowercase is still Font (ticket #164)."""
     edited = apply_climbing_edit(_PAYLOAD, _activities(("3", " 6a+ ", ""), ("2", "7-", "")))
 
-    assert edited.activities[0].grade == Grade(original="6a+", scale="french")
+    assert edited.activities[0].grade == Grade(original="6a+", scale="font")
     assert edited.activities[1].grade == Grade(original="7-", scale=None)
+
+
+def test_an_edited_route_grade_typed_in_capitals_is_french() -> None:
+    payload: dict[str, JsonValue] = {
+        "sport": "climbing",
+        "activities": [{"kind": "lead", "count": 1, "grade": None}],
+    }
+
+    edited = apply_climbing_edit(payload, _activities(("1", "7A", "")))
+
+    assert edited.activities[0].grade == Grade(original="7A", scale="french")
 
 
 def test_an_unchanged_grade_is_kept_as_it_was_stored() -> None:

@@ -9,7 +9,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 import pytest
-from pydantic import BaseModel, PostgresDsn, SecretStr
+from pydantic import BaseModel, PostgresDsn, SecretStr, ValidationError
 
 from ai_trainer.application.ports.conversation import ReplyContext, TemplateRef
 from ai_trainer.application.ports.llm_gateway import (
@@ -22,13 +22,14 @@ from ai_trainer.domain.chat import ChatMessage, ChatRole
 from ai_trainer.domain.conversation import Intent
 from ai_trainer.domain.goals import Goal
 from ai_trainer.domain.llm_calls import LlmCallOutcome, ProviderPreferences
-from ai_trainer.domain.sports.climbing.extraction import ClimbingExtraction
+from ai_trainer.domain.sports.climbing.extraction import ClimbingExtraction, ClimbingQuestion
 from ai_trainer.domain.sports.registry import SportRegistry, default_sport_registry
 from ai_trainer.llm.chitchat import build_chitchat_deps
 from ai_trainer.llm.conversation import (
     DRAFT_FAILED_REPLY_ID,
     DRAFT_READY_REPLY_ID,
     NOT_YET_REPLY_ID,
+    READING_QUESTION_REPLY_ID,
     SAME_SESSION_QUESTION_REPLY_ID,
     SPORT_QUESTION_REPLY_ID,
     LlmConversation,
@@ -47,6 +48,18 @@ _THREAD = uuid4()
 _GOAL = Goal(text="Send my first 7a", target_date=date(2027, 6, 1), sport_id="climbing")
 
 
+def _first_valid[OutputT: BaseModel](
+    output_types: tuple[type[OutputT], ...], output: dict[str, Any]
+) -> OutputT:
+    """The first offered type the scripted output reads as, as the model's pick would be."""
+    for output_type in output_types:
+        try:
+            return output_type.model_validate(output)
+        except ValidationError:
+            continue
+    raise AssertionError(f"no offered output type reads {output!r}")
+
+
 @dataclass
 class RecordingGateway:
     """Implements `LlmGatewayPort`; answers `run` with `run_output` and streams `chunks`."""
@@ -59,9 +72,12 @@ class RecordingGateway:
 
     async def run[OutputT: BaseModel](self, **call: Any) -> LlmGatewayResult[OutputT]:
         self.runs.append(call)
-        output_type: type[OutputT] = call["output_type"]
+        offered = call["output_type"]
+        output_types: tuple[type[OutputT], ...] = (
+            offered if isinstance(offered, tuple) else (offered,)
+        )
         output = (
-            output_type.model_validate(self.run_output)
+            _first_valid(output_types, self.run_output)
             if self.run_outcome is LlmCallOutcome.SUCCESS and self.run_output is not None
             else None
         )
@@ -253,14 +269,14 @@ async def test_extract_runs_the_sports_extraction_template_through_the_gateway()
 
     assert extraction.outcome is LlmCallOutcome.SUCCESS
     assert extraction.output == ClimbingExtraction.model_validate(_CLIMB_OUTPUT)
-    assert extraction.template == TemplateRef(id="climbing.extract", version=2)
+    assert extraction.template == TemplateRef(id="climbing.extract", version=3)
     [call] = gateway.runs
     assert (call["template_id"], call["template_version"], call["model_id"]) == (
         "climbing.extract",
-        2,
+        3,
         "test/extract-model",
     )
-    assert call["output_type"] is ClimbingExtraction
+    assert call["output_type"] == (ClimbingExtraction, ClimbingQuestion)
     assert (call["user_id"], call["prompt"]) == (context.user_id, context.message)
     assert (call["temperature"], call["output_retries"]) == (0, 2)
     assert call["provider"] == _EXTRACT_PREFERENCES
@@ -274,13 +290,59 @@ async def test_extract_runs_the_sports_extraction_template_through_the_gateway()
         history_turns=10,
     )
     expected = build_prompt_registry(_PROMPTS_ROOT, default_sport_registry()).render_instructions(
-        "climbing.extract", 2, deps
+        "climbing.extract", 3, deps
     )
     assert call["instructions"] == expected
     # The athlete's own turn only, and no persona (ADR-0026 step 6).
     assert "- earlier\n" in call["instructions"]
     assert "noted" not in call["instructions"]
     assert "training companion" not in call["instructions"]
+
+
+_READINGS = {"readings": [{"kind": "boulder", "grade": "7a"}, {"kind": "lead", "grade": "7a"}]}
+
+
+async def test_extract_returns_the_question_the_template_asked_instead_of_a_draft() -> None:
+    gateway = RecordingGateway(run_output=_READINGS)
+
+    extraction = await _conversation(gateway).extract(_context(), "climbing")
+
+    assert extraction.output == ClimbingQuestion.model_validate(_READINGS)
+    assert extraction.outcome is LlmCallOutcome.SUCCESS
+
+
+async def test_extract_renders_the_recent_kinds_it_is_given() -> None:
+    gateway = RecordingGateway(run_output=_CLIMB_OUTPUT)
+
+    await _conversation(gateway).extract(_context(), "climbing", recent=("boulder", "lead"))
+
+    [call] = gateway.runs
+    assert "recent sessions, most recent first: boulder, lead." in call["instructions"]
+
+
+async def test_a_run_resumed_with_the_athletes_answer_can_only_draft() -> None:
+    gateway = RecordingGateway(run_output=_CLIMB_OUTPUT)
+
+    await _conversation(gateway).extract(
+        _context(), "climbing", recent=("boulder", "lead"), answers=("boulder",)
+    )
+
+    [call] = gateway.runs
+    assert call["output_type"] is ClimbingExtraction
+    assert call["template_version"] == 3
+    assert (
+        "climbs this log left open were: boulder. Draft the log with that kind"
+        in call["instructions"]
+    )
+
+
+async def test_a_run_that_may_not_ask_can_only_draft() -> None:
+    gateway = RecordingGateway(run_output=_CLIMB_OUTPUT)
+
+    await _conversation(gateway).extract(_context(), "climbing", may_ask=False)
+
+    [call] = gateway.runs
+    assert call["output_type"] is ClimbingExtraction
 
 
 async def test_a_failed_extraction_returns_no_draft_and_its_outcome() -> None:
@@ -331,6 +393,17 @@ def test_same_session_question_is_read_from_its_file_with_no_model_call() -> Non
 
     assert reply.template == TemplateRef(id=SAME_SESSION_QUESTION_REPLY_ID, version=1)
     assert reply.text == (_PROMPTS_ROOT / "same_session_question" / "v1.en.md").read_text().strip()
+    assert reply.text
+    assert (gateway.runs, gateway.streams) == ([], [])
+
+
+def test_reading_question_is_read_from_its_file_with_no_model_call() -> None:
+    gateway = RecordingGateway()
+
+    reply = _conversation(gateway).reading_question()
+
+    assert reply.template == TemplateRef(id=READING_QUESTION_REPLY_ID, version=1)
+    assert reply.text == (_PROMPTS_ROOT / "reading_question" / "v1.en.md").read_text().strip()
     assert reply.text
     assert (gateway.runs, gateway.streams) == ([], [])
 

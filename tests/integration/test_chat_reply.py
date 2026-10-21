@@ -15,7 +15,14 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import PostgresDsn, SecretStr
-from pydantic_ai import ModelMessage, ModelRequest, ModelResponse, TextPart, UserPromptPart
+from pydantic_ai import (
+    ModelMessage,
+    ModelRequest,
+    ModelResponse,
+    TextPart,
+    ToolCallPart,
+    UserPromptPart,
+)
 from pydantic_ai.models import Model
 from pydantic_ai.models import decision as decision_models
 from pydantic_ai.models.decision import (
@@ -226,9 +233,16 @@ def _router(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
     """The router's answer, or `climbing.extract`'s when its instructions are the ones sent."""
     request = messages[-1]
     assert isinstance(request, ModelRequest)
-    answers = _EXTRACTED if _EXTRACT_TASK in str(request.instructions) else _ROUTED
+    if _EXTRACT_TASK in str(request.instructions):
+        # The draft through its own output tool, as a model offered the draft or the
+        # question picks one (ticket #164).
+        [tool] = [tool.name for tool in info.output_tools if "Extraction" in tool.name]
+        return ModelResponse(
+            parts=[ToolCallPart(tool, _EXTRACTED[_prompt(messages)])],
+            provider_details={"cost": 0.0001},
+        )
     return ModelResponse(
-        parts=[TextPart(answers[_prompt(messages)])], provider_details={"cost": 0.0001}
+        parts=[TextPart(_ROUTED[_prompt(messages)])], provider_details={"cost": 0.0001}
     )
 
 
@@ -348,6 +362,7 @@ def _app(
         history_turns=settings.chat_history_turns,
         merge_window=timedelta(minutes=settings.session_merge_window_min),
         max_clarification_options=settings.max_clarification_options,
+        recent_sessions=settings.extract_recent_sessions,
     )
     app = FastAPI()
     app.include_router(
@@ -902,7 +917,7 @@ async def test_a_climbing_log_shows_a_draft_card_that_survives_a_reload_and_save
     [_, reply] = await _history(db_session_factory, user.id)
     assert (reply.template_id, reply.template_version, reply.sports) == (
         "climbing.extract",
-        2,
+        3,
         ("climbing",),
     )
     async with db_session_factory() as db:

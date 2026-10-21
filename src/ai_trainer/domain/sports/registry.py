@@ -2,9 +2,13 @@
 
 from collections.abc import Iterable, Sequence
 
-from ai_trainer.domain.sports.base import ExtractionSpec, SportPlugin
+from ai_trainer.domain.sports.base import ExtractionSpec, QuestionSpec, SportPlugin
 from ai_trainer.domain.sports.climbing.edit import apply_climbing_edit
-from ai_trainer.domain.sports.climbing.extraction import ClimbingExtraction
+from ai_trainer.domain.sports.climbing.extraction import (
+    ClimbingExtraction,
+    ClimbingQuestion,
+    recent_kinds,
+)
 from ai_trainer.domain.sports.climbing.payload import CLIMBING_PAYLOAD_VERSION, ClimbingPayload
 from ai_trainer.domain.sports.cycling.edit import apply_cycling_edit
 from ai_trainer.domain.sports.cycling.extraction import CyclingExtraction
@@ -59,11 +63,13 @@ def default_sport_registry() -> SportRegistry:
                 icon="mountain",
                 extraction=ExtractionSpec(
                     template_id="climbing.extract",
-                    version=2,
+                    version=3,
                     output_type=ClimbingExtraction,
                     payload_type=ClimbingPayload,
                     payload_version=CLIMBING_PAYLOAD_VERSION,
                     apply_edit=apply_climbing_edit,
+                    question=QuestionSpec(type=ClimbingQuestion, since_version=3),
+                    recent=recent_kinds,
                 ),
             ),
             SportPlugin(

@@ -1,8 +1,8 @@
 {
   "template_id": "climbing.extract",
-  "version": 2,
+  "version": 3,
   "model": "z-ai/glm-5.3-flash",
-  "assertions": 0.9814814814814815,
+  "assertions": 0.9282051282051282,
   "scores": {},
   "thresholds": {
     "max_assertions_drop": 0.0,

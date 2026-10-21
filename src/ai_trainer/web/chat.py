@@ -57,6 +57,7 @@ from ai_trainer.application.reply import (
     SessionSettled,
     abandon_clarification,
     answer_clarification,
+    asking_sports,
     change_draft_sport,
     find_message,
     find_saved_reply,
@@ -403,7 +404,8 @@ def build_chat_router(
 
     async def shown_card(user: User, draft: StoredDraft) -> DraftCard:
         """A pending draft whose payload no longer reads has no card, so it is not found. A
-        pending one asks its open same-session question (#166)."""
+        pending one asks its open same-session question (#166), and its chip offers no sport
+        still asking how to read its log (#164)."""
         pending = draft.status == "pending"
         asked = (
             await replies.clarifications.list_shown(user.id, draft.conversation_id)
@@ -416,6 +418,7 @@ def build_chat_router(
             today=local_today(user),
             athlete_sports=await athlete_sports(user) if pending else (),
             question=open_questions(asked).get(draft.id),
+            asking=asking_sports(asked, draft.message_id),
         )
         if card is None:
             raise HTTPException(status_code=_NOT_FOUND)
@@ -597,7 +600,12 @@ def build_chat_router(
             {
                 "card": ChoiceCard(answered.clarification),
                 "messages": reply.messages,
-                "choice_cards": {},
+                # A sport answered may ask how to read the log next (ticket #164).
+                "choice_cards": choice_cards(
+                    reply.messages,
+                    reply.clarifications,
+                    log_id=answered.clarification.message_id,
+                ),
                 "draft_cards": draft_cards(
                     reply.messages,
                     reply.drafts,
@@ -605,7 +613,11 @@ def build_chat_router(
                     today=local_today(user),
                     athlete_sports=athlete,
                     log_id=answered.clarification.message_id,
-                    questions=reply.clarifications,
+                    # Every question of the conversation: a sport still asking how to read
+                    # this log is no chip on its cards (ticket #164).
+                    questions=await replies.clarifications.list_shown(
+                        user.id, answered.clarification.conversation_id
+                    ),
                 ),
             },
         )

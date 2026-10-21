@@ -1,5 +1,7 @@
+import operator
 from collections.abc import Sequence
 from dataclasses import dataclass
+from functools import reduce
 from pathlib import Path
 
 from pydantic import BaseModel
@@ -25,7 +27,7 @@ from ai_trainer.llm.evals.jev_check import (
     jev_check_rows,
     print_jev_checks,
 )
-from ai_trainer.llm.prompts.registry import PromptRegistry
+from ai_trainer.llm.prompts.registry import PromptRegistry, output_types
 from ai_trainer.llm.prompts.template import TemplateOutput
 
 _JEV_FIELDS = {"jev_checks", "jev_agreement", "jev_agreement_by_rubric", "jev_errored"}
@@ -219,7 +221,15 @@ async def run_eval(
 
     async def task(inputs: EvalCaseInputs) -> TemplateOutput:
         deps = template.deps_type.model_validate(inputs.deps)
-        result = await agent.run(inputs.prompt, deps=deps, model=model)
+        if template.output_for is None:
+            result = await agent.run(inputs.prompt, deps=deps, model=model)
+        else:
+            result = await agent.run(
+                inputs.prompt,
+                deps=deps,
+                model=model,
+                output_type=output_types(template.output_for(deps)),
+            )
         return result.output
 
     # Subscripted with `template.output_type` (the template's real, runtime output type), not
@@ -232,7 +242,13 @@ async def run_eval(
     # mypy can't express a generic parameter only known at runtime (there's no static type
     # for "whatever this template's output_type happens to be") — `output_type` is a real
     # class object at runtime, which is all `Dataset.__class_getitem__` needs.
-    output_type = template.output_type
+    # A template whose model picks between several outputs (ticket #164) reads its expected
+    # outputs as their union.
+    output_type = (
+        reduce(operator.or_, template.output_type)
+        if isinstance(template.output_type, tuple)
+        else template.output_type
+    )
     dataset: Dataset[EvalCaseInputs, TemplateOutput, object] = Dataset[
         EvalCaseInputs, output_type, object  # type: ignore[valid-type]
     ].from_file(

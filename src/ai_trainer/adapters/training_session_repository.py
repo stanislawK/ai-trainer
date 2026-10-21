@@ -1,7 +1,8 @@
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 from uuid import UUID
 
+from pydantic import JsonValue
 from sqlalchemy import Row, Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -72,3 +73,18 @@ class SqlAlchemyTrainingSessionRepository:
                 )
             ).one_or_none()
         return None if row is None else to_span(row)
+
+    async def recent_payloads(
+        self, user_id: UUID, sport_id: str, limit: int
+    ) -> Sequence[Mapping[str, JsonValue]]:
+        async with self._session_factory() as session:
+            payloads = await session.scalars(
+                select(TrainingSessionOrm.payload)
+                .where(
+                    TrainingSessionOrm.user_id == user_id,
+                    TrainingSessionOrm.sport_id == sport_id,
+                )
+                .order_by(TrainingSessionOrm.occurred_on.desc(), TrainingSessionOrm.id)
+                .limit(limit)
+            )
+            return list(payloads.all())

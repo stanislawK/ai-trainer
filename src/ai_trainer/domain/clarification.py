@@ -16,6 +16,11 @@ SPORT_QUESTION_TEMPLATE_ID = "sport_question"
 # Whether a log beyond the merge window, on its session's own day, is the same session (B16,
 # ADR-0014, ticket #166). It blocks a stored draft and is asked on the draft's own card.
 SAME_SESSION_PURPOSE = "same_session"
+# How to read a log its extraction couldn't read safely (ticket #164): asked by the sport's
+# extraction template, whose sport the question's document names.
+READING_PURPOSE = "reading"
+# The fixed reply above a reading question's choice card, as `SPORT_QUESTION_TEMPLATE_ID` is.
+READING_QUESTION_TEMPLATE_ID = "reading_question"
 # The same-session question's "New session" option; its other option's ID is the session's.
 NEW_SESSION_OPTION = "new"
 # The copy keys of its two options, in `components/session_copy.html`.
@@ -41,7 +46,8 @@ class ChoiceOption(BaseModel):
 
 class Clarification(BaseModel):
     """The `clarifications.clarification` document: the question as written in the persona's
-    voice, 2 or more options, and the intent it blocks (`pending`)."""
+    voice, 2 or more options, and the intent it blocks (`pending`). `sport` is the sport whose
+    extraction asked, for a question its tap resumes in that sport (ticket #164)."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -50,6 +56,7 @@ class Clarification(BaseModel):
     mode: ClarificationMode = "single"
     allow_free_text: bool = True
     pending: str
+    sport: str | None = None
 
 
 class StoredClarification(BaseModel):

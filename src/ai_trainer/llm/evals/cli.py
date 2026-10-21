@@ -42,7 +42,7 @@ from ai_trainer.llm.evals.runner import (
     JudgeModelMatchesModelUnderTestError,
     run_eval,
 )
-from ai_trainer.llm.extract import ActivitiesMatch, DateMatch, extract_templates
+from ai_trainer.llm.extract import ActivitiesMatch, DateMatch, QuestionMatch
 from ai_trainer.llm.gateway import provider_config, reasoning_at
 from ai_trainer.llm.prompts.registry import PromptRegistry
 from ai_trainer.llm.prompts.template import (
@@ -74,10 +74,14 @@ def _default_registry() -> PromptRegistry:
 _EVALUATORS: dict[str, tuple[type[Evaluator[EvalCaseInputs, BaseModel, object]], ...]] = {
     "router": (IntentKindsMatch, LogSessionSportMatch),
     "chitchat": (JevCheck,),
-    # Every sport's extraction template is graded the same way, in code (ADR-0006, ADR-0014).
+    # Every sport's extraction template is graded the same way, in code (ADR-0006, ADR-0014),
+    # and one that may ask on whether it asked (ticket #164).
     **{
-        template.id: (DateMatch, ActivitiesMatch)
-        for template in extract_templates(default_sport_registry())
+        plugin.extraction.template_id: (DateMatch, ActivitiesMatch, QuestionMatch)
+        if plugin.extraction.question is not None
+        else (DateMatch, ActivitiesMatch)
+        for plugin in default_sport_registry().all()
+        if plugin.extraction is not None
     },
 }
 

@@ -1,5 +1,5 @@
-"""The committed `climbing.extract` eval dataset covers the ticket's cases (ADR-0009, ticket
-#153)."""
+"""The committed `climbing.extract` eval dataset covers the ticket's cases (ADR-0009, tickets
+#153 and #164)."""
 
 from datetime import date
 from pathlib import Path
@@ -7,18 +7,18 @@ from typing import Any
 
 from pydantic_evals import Dataset
 
-from ai_trainer.domain.sports.climbing.extraction import ClimbingExtraction
+from ai_trainer.domain.sports.climbing.extraction import ClimbingExtraction, ClimbingQuestion
 from ai_trainer.llm.evals.runner import EvalCaseInputs
-from ai_trainer.llm.extract import ActivitiesMatch, DateMatch, ExtractDeps
+from ai_trainer.llm.extract import ActivitiesMatch, DateMatch, ExtractDeps, QuestionMatch
 
 _ROOT = Path(__file__).parents[2] / "evals"
 _DATASET = _ROOT / "datasets" / "climbing.extract.yaml"
 _BASELINE = _ROOT / "baselines" / "climbing.extract.json"
 
 
-def _dataset() -> Dataset[EvalCaseInputs, ClimbingExtraction, Any]:
-    return Dataset[EvalCaseInputs, ClimbingExtraction, Any].from_file(
-        _DATASET, custom_evaluator_types=(DateMatch, ActivitiesMatch)
+def _dataset() -> Dataset[EvalCaseInputs, ClimbingExtraction | ClimbingQuestion, Any]:
+    return Dataset[EvalCaseInputs, ClimbingExtraction | ClimbingQuestion, Any].from_file(
+        _DATASET, custom_evaluator_types=(DateMatch, ActivitiesMatch, QuestionMatch)
     )
 
 
@@ -36,7 +36,11 @@ def test_the_dataset_has_at_least_twenty_cases_graded_in_code() -> None:
     dataset = _dataset()
 
     assert len(dataset.cases) >= 20
-    assert {type(evaluator) for evaluator in dataset.evaluators} == {DateMatch, ActivitiesMatch}
+    assert {type(evaluator) for evaluator in dataset.evaluators} == {
+        DateMatch,
+        ActivitiesMatch,
+        QuestionMatch,
+    }
     assert all(case.expected_output is not None for case in dataset.cases)
 
 
@@ -106,3 +110,54 @@ def test_a_log_without_a_grade_expects_no_invented_grade() -> None:
 
 def test_the_baseline_is_committed() -> None:
     assert _BASELINE.is_file()
+
+
+def _reading_cases() -> dict[str, Any]:
+    return {name: case for name, case in _cases().items() if name.startswith("reading:")}
+
+
+def test_a_bare_7a_from_a_boulderer_who_leads_expects_the_two_readings() -> None:
+    case = _cases()["reading: boulders and leads, a bare 7a asks (AC)"]
+
+    assert case.inputs.deps["recent"] == ["boulder", "lead"]
+    assert case.expected_output == ClimbingQuestion.model_validate(
+        {"readings": [{"kind": "boulder", "grade": "7a"}, {"kind": "lead", "grade": "7a"}]}
+    )
+
+
+def test_the_same_log_from_a_lead_only_athlete_expects_a_lead() -> None:
+    case = _cases()["reading: lead-only athlete, a bare 7a drafts a lead (AC)"]
+
+    assert case.inputs.prompt == "Did 3 7a"
+    assert case.inputs.deps["recent"] == ["lead"]
+    assert [a.kind for a in _expected(case.name).activities] == ["lead"]
+
+
+def test_the_reading_cases_ask_less_often_than_they_draft() -> None:
+    """Asking has a cost: most reading cases are logs that something already settles."""
+    cases = _reading_cases()
+    asks = [
+        name for name, case in cases.items() if isinstance(case.expected_output, ClimbingQuestion)
+    ]
+
+    assert len(cases) >= 10
+    assert 0 < len(asks) < len(cases) / 2
+
+
+def test_an_answered_case_always_expects_a_draft_with_the_answered_kind() -> None:
+    """The answer reads the climbs the log left open; a climb it settled keeps its kind."""
+    answered = [case for case in _reading_cases().values() if case.inputs.deps.get("answers")]
+
+    assert len(answered) >= 3
+    for case in answered:
+        [kind] = case.inputs.deps["answers"]
+        assert kind in {a.kind for a in _expected(case.name).activities}, case.name
+
+
+def test_the_cases_before_the_question_carry_no_recent_kinds_and_still_draft() -> None:
+    """A clear log in the dataset still drafts, with no question (ticket #164)."""
+    for name, case in _cases().items():
+        if name.startswith("reading:"):
+            continue
+        assert "recent" not in case.inputs.deps, name
+        assert isinstance(case.expected_output, ClimbingExtraction), name
