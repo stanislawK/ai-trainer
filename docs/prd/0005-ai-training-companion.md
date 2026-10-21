@@ -213,6 +213,7 @@ IDs are stable across revisions. Never reuse a retired ID.
 - Exposing prompt templates as MCP prompts to external clients.
 - Project tracking: matching a logged `attempt` on a named route to a later `redpoint`, and counting that as goal progress (B9).
 - Route lookup for sports other than climbing (cycling segments, gym exercise databases). The `ExternalRouteSource` port (ADR-0016) is shaped so this is an adapter, not a redesign.
+- An athlete profile, after the POC: one per-user place for what the app knows about the athlete, such as the climbing disciplines they practise (boulder, lead), kept up to date and easy for the AI to read. How to build it needs a brainstorm first. Until then, extraction reads that kind of context from the athlete's recent sessions (#164, B23). Owner-directed 2026-10-21.
 
 ## Delivery mapping
 
