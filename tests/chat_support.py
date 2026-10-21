@@ -211,6 +211,33 @@ class InMemoryChatRepository:
         later = thread[thread.index(to) + 1 :]
         return list(takewhile(lambda message: message.role is ChatRole.ASSISTANT, later))
 
+    async def replace_part(
+        self,
+        user_id: UUID,
+        message_id: UUID,
+        *,
+        expected_template_id: str,
+        text: str,
+        template_id: str,
+        template_version: int,
+    ) -> ChatMessage | None:
+        for index, (owner, message) in enumerate(self.rows):
+            if (owner, message.id, message.template_id) == (
+                user_id,
+                message_id,
+                expected_template_id,
+            ):
+                replaced = message.model_copy(
+                    update={
+                        "text": text,
+                        "template_id": template_id,
+                        "template_version": template_version,
+                    }
+                )
+                self.rows[index] = (owner, replaced)
+                return replaced
+        return None
+
     def all_of(self, user_id: UUID) -> list[ChatMessage]:
         """Every message of `user_id`, in every conversation, oldest first."""
         return self._own(user_id)
@@ -508,10 +535,12 @@ class InMemoryClarificationRepository:
 
 NOT_YET_TEXT = "I can't do that one yet."
 DRAFT_READY_TEXT = "Here's the session."
+DRAFT_FAILED_TEXT = "I couldn't draft this one."
 SPORT_QUESTION_TEXT = "Which sport was that?"
 CHITCHAT_TEMPLATE = TemplateRef(id="chitchat", version=1)
 NOT_YET_TEMPLATE = TemplateRef(id="not_yet", version=1)
 DRAFT_READY_TEMPLATE = TemplateRef(id="draft_ready", version=1)
+DRAFT_FAILED_TEMPLATE = TemplateRef(id="draft_failed", version=1)
 SPORT_QUESTION_TEMPLATE = TemplateRef(id="sport_question", version=1)
 CLIMBING_EXTRACT_TEMPLATE = TemplateRef(id="climbing.extract", version=1)
 # "I climbed 3 6A and 2 6B boulders", sent at `FROZEN_NOW` with no date (Europe/Warsaw).
@@ -543,6 +572,12 @@ class ScriptedConversation:
     # What each extraction call returns: a draft, or `None` with `extract_outcomes`' outcome.
     extractions: list[SessionExtraction | None] = field(default_factory=lambda: [THREE_6A_TWO_6B])
     extract_outcomes: list[LlmCallOutcome] = field(default_factory=lambda: [LlmCallOutcome.SUCCESS])
+    # Per sport, in place of the two lists above: each entry scripts that sport's next call.
+    sport_extractions: dict[str, SessionExtraction] = field(default_factory=dict)
+    sport_outcomes: dict[str, list[LlmCallOutcome]] = field(default_factory=dict)
+    # A sport's extraction answers only once its event is set; each call sets `extract_started`.
+    extract_waits: dict[str, asyncio.Event] = field(default_factory=dict)
+    extract_started: dict[str, asyncio.Event] = field(default_factory=dict)
     routed: list[ReplyContext] = field(default_factory=list)
     chitchatted: list[ReplyContext] = field(default_factory=list)
     extracted: list[tuple[ReplyContext, str]] = field(default_factory=list)
@@ -583,9 +618,18 @@ class ScriptedConversation:
 
     async def extract(self, context: ReplyContext, sport_id: str) -> Extraction:
         call = len(self.extracted)
+        sport_call = sum(1 for _, sport in self.extracted if sport == sport_id)
         self.extracted.append((context, sport_id))
+        self.extract_started.setdefault(sport_id, asyncio.Event()).set()
+        if sport_id in self.extract_waits:
+            await self.extract_waits[sport_id].wait()
         outcome = self.extract_outcomes[min(call, len(self.extract_outcomes) - 1)]
-        output = self.extractions[min(call, len(self.extractions) - 1)]
+        if sport_id in self.sport_outcomes:
+            scripted = self.sport_outcomes[sport_id]
+            outcome = scripted[min(sport_call, len(scripted) - 1)]
+        output = self.sport_extractions.get(
+            sport_id, self.extractions[min(call, len(self.extractions) - 1)]
+        )
         return Extraction(
             output=output if outcome is LlmCallOutcome.SUCCESS else None,
             outcome=outcome,
@@ -594,6 +638,9 @@ class ScriptedConversation:
 
     def draft_ready(self) -> FixedReply:
         return FixedReply(text=DRAFT_READY_TEXT, template=DRAFT_READY_TEMPLATE)
+
+    def draft_failed(self) -> FixedReply:
+        return FixedReply(text=DRAFT_FAILED_TEXT, template=DRAFT_FAILED_TEMPLATE)
 
     def not_yet(self) -> FixedReply:
         return FixedReply(text=NOT_YET_TEXT, template=NOT_YET_TEMPLATE)

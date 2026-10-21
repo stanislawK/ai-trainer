@@ -26,6 +26,7 @@ from ai_trainer.domain.sports.climbing.extraction import ClimbingExtraction
 from ai_trainer.domain.sports.registry import SportRegistry, default_sport_registry
 from ai_trainer.llm.chitchat import build_chitchat_deps
 from ai_trainer.llm.conversation import (
+    DRAFT_FAILED_REPLY_ID,
     DRAFT_READY_REPLY_ID,
     NOT_YET_REPLY_ID,
     SPORT_QUESTION_REPLY_ID,
@@ -296,6 +297,17 @@ def test_draft_ready_is_read_from_its_file_with_no_model_call() -> None:
 
     assert reply.template == TemplateRef(id=DRAFT_READY_REPLY_ID, version=1)
     assert reply.text == (_PROMPTS_ROOT / "draft_ready" / "v1.en.md").read_text().strip()
+    assert reply.text
+    assert (gateway.runs, gateway.streams) == ([], [])
+
+
+def test_draft_failed_is_read_from_its_file_with_no_model_call() -> None:
+    gateway = RecordingGateway()
+
+    reply = _conversation(gateway).draft_failed()
+
+    assert reply.template == TemplateRef(id=DRAFT_FAILED_REPLY_ID, version=1)
+    assert reply.text == (_PROMPTS_ROOT / "draft_failed" / "v1.en.md").read_text().strip()
     assert reply.text
     assert (gateway.runs, gateway.streams) == ([], [])
 

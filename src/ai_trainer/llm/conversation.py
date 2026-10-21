@@ -19,6 +19,7 @@ from ai_trainer.domain.clarification import SPORT_QUESTION_TEMPLATE_ID
 from ai_trainer.domain.conversation import Intent
 from ai_trainer.domain.llm_calls import ProviderPreferences, ReasoningEffort
 from ai_trainer.domain.sports.registry import SportRegistry
+from ai_trainer.domain.training import DRAFT_FAILED_TEMPLATE_ID
 from ai_trainer.llm.chitchat import build_chitchat_deps, chitchat_template
 from ai_trainer.llm.extract import build_extract_deps, extract_template, extract_templates
 from ai_trainer.llm.prompts.registry import PromptRegistry
@@ -29,6 +30,9 @@ _NOT_YET_VERSION = 1
 # The line above a draft card, sent as written (ADR-0008 fixed replies).
 DRAFT_READY_REPLY_ID = "draft_ready"
 _DRAFT_READY_VERSION = 1
+# The line in place of a draft whose extraction failed, beside Retry (ticket #161).
+DRAFT_FAILED_REPLY_ID = DRAFT_FAILED_TEMPLATE_ID
+_DRAFT_FAILED_VERSION = 1
 # The question above the choice card that asks which sport a log was, sent as written (ADR-0015).
 SPORT_QUESTION_REPLY_ID = SPORT_QUESTION_TEMPLATE_ID
 _SPORT_QUESTION_VERSION = 1
@@ -193,6 +197,12 @@ class LlmConversation:
         return FixedReply(
             text=self._registry.load_fixed_reply(DRAFT_READY_REPLY_ID, _DRAFT_READY_VERSION),
             template=TemplateRef(id=DRAFT_READY_REPLY_ID, version=_DRAFT_READY_VERSION),
+        )
+
+    def draft_failed(self) -> FixedReply:
+        return FixedReply(
+            text=self._registry.load_fixed_reply(DRAFT_FAILED_REPLY_ID, _DRAFT_FAILED_VERSION),
+            template=TemplateRef(id=DRAFT_FAILED_REPLY_ID, version=_DRAFT_FAILED_VERSION),
         )
 
     def not_yet(self) -> FixedReply:

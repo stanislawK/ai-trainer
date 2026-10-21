@@ -856,7 +856,9 @@ async def test_an_extraction_failure_saves_no_draft_and_no_reply(outcome: LlmCal
     assert chat.all_of(user_id) == [asked]
 
 
-async def test_an_extraction_failure_after_a_chitchat_part_still_saves_nothing() -> None:
+async def test_an_extraction_failure_after_a_chitchat_part_keeps_the_chitchat() -> None:
+    """Since #161 a part that came through is kept, and the failed log's part offers Retry
+    (ADR-0008 amendment); only a reply with nothing made by a model fails whole."""
     chat, drafts, user_id = InMemoryChatRepository(), InMemoryDraftRepository(), uuid4()
     asked = await _asked(chat, user_id, f"hi! {_CLIMB}")
     conversation = ScriptedConversation(
@@ -866,9 +868,8 @@ async def test_an_extraction_failure_after_a_chitchat_part_still_saves_nothing()
 
     events = await _events(chat, user_id, asked, conversation, drafts=drafts)
 
-    assert isinstance(events[-1], ReplyFailed)
+    assert [m.template_id for m in _done(events).messages] == ["chitchat", "draft_failed"]
     assert drafts.all_of(user_id) == []
-    assert chat.all_of(user_id) == [asked]
 
 
 async def test_a_retry_after_an_extraction_failure_saves_one_draft() -> None:

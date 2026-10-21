@@ -7,7 +7,9 @@ pending draft the athlete confirms later (PRD-0004 B1, F2, ADR-0022), offered as
 their latest session in that sport when it came close after it (B16, ADR-0014). A log whose
 sport stays split between two or more of the athlete's sports is a choice card first, and the
 draft follows the tap (B17, B23, ADR-0015). A pending draft's sport can be changed on its card,
-which extracts the same log again in the new sport (B23, ticket #163)."""
+which extracts the same log again in the new sport (B23, ticket #163). A log of several sports
+runs their extractions at once, one draft each in message order; one that fails beside a part
+that came through is kept as a line its Retry can turn into the draft (B1, B14, ticket #161)."""
 
 import asyncio
 from collections.abc import AsyncGenerator, Sequence
@@ -47,6 +49,7 @@ from ai_trainer.domain.conversation import Intent, IntentKind
 from ai_trainer.domain.llm_calls import LlmCallOutcome
 from ai_trainer.domain.sports.registry import SportRegistry
 from ai_trainer.domain.training import (
+    DRAFT_FAILED_TEMPLATE_ID,
     DraftSportNotOfferedError,
     SessionDraft,
     StoredDraft,
@@ -68,6 +71,11 @@ _MIN_OPTIONS = 2
 
 class MessageNotFoundError(Exception):
     """Raised for a message that doesn't exist, isn't the user's, or isn't theirs to answer."""
+
+
+class FailedPartNotFoundError(Exception):
+    """Raised for a retry of a reply part that isn't the user's failed draft, or was already
+    retried (ticket #161)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -259,33 +267,54 @@ async def _reply(
     yield ReplyPhase("replying")
 
     answers: list[_Answer] = []
+    failures: list[ReplyFailed] = []
+    came_through = False
     plan = _plan(with_screened_safety(routing.intents, pain=pain), _extractable(services.sports))
-    for part in plan:
-        if answers:
-            yield ReplyChunk(PART_BREAK)
-        if part.specialist == "not_yet":
-            fixed = services.conversation.not_yet()
-            yield ReplyChunk(fixed.text)
-            answers.append(_Answer(fixed.text, fixed.template, part.sports))
-            continue
-        if part.specialist == "extract":
-            answer = await _extract(context, part.sports[0], services)
-            if isinstance(answer, ReplyFailed):
-                yield answer
-                return
-            yield ReplyChunk(answer.text)
-            answers.append(answer)
-            continue
-        async with aclosing(services.conversation.stream_chitchat(context)) as stream:
-            async for event in stream:
-                if not isinstance(event, StreamEnd):
-                    yield ReplyChunk(event.text)
-                elif event.result.output is None:
-                    yield ReplyFailed(outcome=event.result.outcome)
-                    return
+    # Every extraction starts now, so a log of two sports waits only as long as the slower one
+    # (G14); each part is still streamed in its place.
+    extractions = {
+        part.sports[0]: asyncio.ensure_future(_extract(context, part.sports[0], services))
+        for part in plan
+        if part.specialist == "extract"
+    }
+    try:
+        for part in plan:
+            if answers:
+                yield ReplyChunk(PART_BREAK)
+            if part.specialist == "not_yet":
+                fixed = services.conversation.not_yet()
+                yield ReplyChunk(fixed.text)
+                answers.append(_Answer(fixed.text, fixed.template, part.sports))
+                continue
+            if part.specialist == "extract":
+                answer = await extractions[part.sports[0]]
+                if isinstance(answer, ReplyFailed):
+                    failures.append(answer)
+                    answer = _draft_failed(part.sports[0], services)
                 else:
-                    template = services.conversation.chitchat_template
-                    answers.append(_Answer(event.result.output, template, part.sports))
+                    came_through = True
+                yield ReplyChunk(answer.text)
+                answers.append(answer)
+                continue
+            async with aclosing(services.conversation.stream_chitchat(context)) as stream:
+                async for event in stream:
+                    if not isinstance(event, StreamEnd):
+                        yield ReplyChunk(event.text)
+                    elif event.result.output is None:
+                        yield ReplyFailed(outcome=event.result.outcome)
+                        return
+                    else:
+                        template = services.conversation.chitchat_template
+                        answers.append(_Answer(event.result.output, template, part.sports))
+                        came_through = True
+    finally:
+        for extraction in extractions.values():
+            extraction.cancel()
+    if failures and not came_through:
+        # Nothing the models made came through: the reply fails whole, and a retry streams a
+        # fresh one (ADR-0008).
+        yield failures[0]
+        return
 
     # Saved in its own task: a reader who leaves now can't cut a reply off halfway through.
     saving = asyncio.ensure_future(_save(user_id, message, answers, services))
@@ -417,6 +446,13 @@ async def _extract(
         (sport_id,),
         draft=(sport_id, draft, spec.payload_version),
     )
+
+
+def _draft_failed(sport_id: str, services: ReplyServices) -> _Answer:
+    """The line saved in place of the sport's draft when its extraction failed beside a part
+    that came through, so the athlete can retry that sport alone (ticket #161)."""
+    fixed = services.conversation.draft_failed()
+    return _Answer(fixed.text, fixed.template, (sport_id,))
 
 
 async def _drafts_of(
@@ -678,3 +714,110 @@ async def change_draft_sport(
 
     # Saved in its own task: a reader who leaves now can't cut the replacement off.
     return await asyncio.shield(asyncio.ensure_future(replace_draft()))
+
+
+@dataclass(frozen=True, slots=True)
+class RetriedDraft:
+    """A failed draft's part as the retry rewrote it, the draft's intro line, and the pending
+    draft it now introduces."""
+
+    part: ChatMessage
+    draft: StoredDraft
+
+
+async def _failed_part(
+    user_id: UUID, part_id: UUID, services: ReplyServices
+) -> tuple[ChatMessage, ChatMessage]:
+    """The user's failed draft's part and the log it replies to: the user message the reply's
+    parts follow. Raises `FailedPartNotFoundError` for any other part, and
+    `MessageNotFoundError` for a log past its conversation's retention."""
+    part = await services.chat.get(user_id, part_id)
+    if (
+        part is None
+        or part.role is not ChatRole.ASSISTANT
+        or part.template_id != DRAFT_FAILED_TEMPLATE_ID
+        or len(part.sports) != 1
+    ):
+        raise FailedPartNotFoundError(part_id)
+    before = part
+    while earlier := await services.chat.list_before(user_id, before, 1):
+        before = earlier[0]
+        if before.role is ChatRole.USER:
+            log = await find_message(
+                user_id, before.id, chat=services.chat, conversations=services.conversations
+            )
+            return part, log
+    raise FailedPartNotFoundError(part_id)
+
+
+@dataclass(frozen=True, slots=True)
+class RetryFailed:
+    """The retried extraction failed again: the part as it stays, to show its row again."""
+
+    part: ChatMessage
+    outcome: LlmCallOutcome
+
+
+async def retry_draft(
+    user_id: UUID, part_id: UUID, *, timezone: str, services: ReplyServices
+) -> RetriedDraft | RetryFailed:
+    """A failed draft's Retry (ticket #161): runs its sport's extraction again on its log, as of
+    when the log was sent, and turns the part into the draft's intro line in place, with the
+    pending draft under it, offered as an addition to a session close before it (B16). No
+    session is written (ADR-0022 invariant 3), and a failed extraction changes nothing. Two
+    retries at once leave one draft: the second finds the part already rewritten. Raises
+    `FailedPartNotFoundError` for a part that isn't the user's failed draft (nothing is called
+    then), and `MessageNotFoundError` for a log past its conversation's retention."""
+    failed, message = await _failed_part(user_id, part_id, services)
+    sport_id = failed.sports[0]
+    # Read as of when the log was sent, as its first extraction was (ADR-0014).
+    context = replace(await _context(user_id, message, timezone, services), now=message.created_at)
+    answer = await _extract(context, sport_id, services)
+    if isinstance(answer, ReplyFailed):
+        return RetryFailed(part=failed, outcome=answer.outcome)
+    assert answer.draft is not None  # an extraction's answer always carries its draft
+    _, draft, payload_version = answer.draft
+
+    async def save() -> RetriedDraft:
+        part = await services.chat.replace_part(
+            user_id,
+            part_id,
+            expected_template_id=DRAFT_FAILED_TEMPLATE_ID,
+            text=answer.text,
+            template_id=answer.template.id,
+            template_version=answer.template.version,
+        )
+        if part is None:
+            raise FailedPartNotFoundError(part_id)
+        try:
+            stored = await services.drafts.add(
+                user_id,
+                message.conversation_id,
+                message.id,
+                sport_id,
+                draft,
+                payload_version=payload_version,
+                created_at=services.clock.now(),
+                extends_session_id=await _extended_session(
+                    user_id, message, sport_id, draft, services
+                ),
+            )
+        except BaseException:
+            # The draft did not come through, so the part goes back to offer Retry again.
+            fixed = services.conversation.draft_failed()
+            await asyncio.shield(
+                services.chat.replace_part(
+                    user_id,
+                    part_id,
+                    expected_template_id=answer.template.id,
+                    text=fixed.text,
+                    template_id=fixed.template.id,
+                    template_version=fixed.template.version,
+                )
+            )
+            raise
+        await services.conversations.touch(user_id, message.conversation_id, services.clock.now())
+        return RetriedDraft(part=part, draft=stored)
+
+    # Saved in its own task: a reader who leaves now can't cut the draft off after its line.
+    return await asyncio.shield(asyncio.ensure_future(save()))

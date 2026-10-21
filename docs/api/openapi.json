@@ -816,6 +816,46 @@
         "summary": "Stop Reply"
       }
     },
+    "/messages/{part_id}/retry-draft": {
+      "post": {
+        "description": "A failed draft's Retry (ticket #161): re-runs its sport's extraction on its log and\nanswers with the part as the draft's intro line and its card, which replace the row; no\nsession is written. Anything but the user's failed draft, or one already retried, is a\n404 with no model call. A failed extraction answers with the row again and a note.",
+        "operationId": "retry_failed_draft_messages__part_id__retry_draft_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "part_id",
+            "required": true,
+            "schema": {
+              "title": "Part Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Retry Failed Draft"
+      }
+    },
     "/onboarding": {
       "get": {
         "operationId": "start_onboarding_get",

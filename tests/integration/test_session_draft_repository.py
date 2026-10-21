@@ -996,3 +996,83 @@ async def test_changing_a_confirmed_or_discarded_drafts_sport_is_refused(
 
     assert await drafts.get(user_id, confirmed_draft.id) == confirmed
     assert await other.get(other_id, discarded_draft.id) == discarded
+
+
+_MIXED = "Bouldered 4 6B then rode home 15 km"
+
+
+async def _mixed_drafts(
+    factory: Callable[[], AsyncSession], sub: str
+) -> tuple[SqlAlchemySessionDraftRepository, UUID, StoredDraft, StoredDraft]:
+    """A climbing and a cycling draft of one mixed log, as its reply stores them (#161)."""
+    drafts = SqlAlchemySessionDraftRepository(factory)
+    user_id, conversation_id, message_id = await _log(factory, sub, _MIXED)
+    ride = CyclingExtraction.model_validate(
+        {
+            "occurred_on": "2026-10-02",
+            "date_source": "assumed_today",
+            "activities": [{"distance": {"original": "15 km", "value": 15, "unit": "km"}}],
+        }
+    ).to_payload()
+    climb = await drafts.add(
+        user_id,
+        conversation_id,
+        message_id,
+        "climbing",
+        _DRAFT,
+        payload_version=1,
+        created_at=_START,
+    )
+    cycle = await drafts.add(
+        user_id,
+        conversation_id,
+        message_id,
+        "cycling",
+        _DRAFT.model_copy(update={"payload": ride.model_dump(mode="json")}),
+        payload_version=CYCLING_PAYLOAD_VERSION,
+        created_at=_START,
+    )
+    return drafts, user_id, climb, cycle
+
+
+async def test_confirming_one_draft_of_a_mixed_log_leaves_the_other_pending(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    drafts, user_id, climb, cycle = await _mixed_drafts(db_session_factory, "mixed-one")
+
+    await drafts.confirm(user_id, climb.id, confirmed_at=_START)
+
+    other = await drafts.get(user_id, cycle.id)
+    assert (other.status, other.session_id) == ("pending", None)
+    async with db_session_factory() as db:
+        sports = (
+            await db.scalars(
+                text("SELECT sport_id FROM training_sessions WHERE user_id = :user"),
+                {"user": user_id},
+            )
+        ).all()
+    assert sports == ["climbing"]
+
+
+async def test_each_session_of_a_mixed_log_keeps_the_whole_message_as_its_source(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    """B2 and ADR-0022: a message that logged two sports gives one source row to each
+    session, each with the athlete's whole text."""
+    drafts, user_id, climb, cycle = await _mixed_drafts(db_session_factory, "mixed-both")
+
+    for draft in (climb, cycle):
+        await drafts.confirm(user_id, draft.id, confirmed_at=_START)
+
+    async with db_session_factory() as db:
+        rows = (
+            await db.execute(
+                text(
+                    "SELECT s.sport_id, src.raw_text FROM training_sessions s"
+                    " JOIN training_session_sources src ON src.session_id = s.id"
+                    " WHERE s.user_id = :user ORDER BY s.sport_id"
+                ),
+                {"user": user_id},
+            )
+        ).all()
+    assert [tuple(row) for row in rows] == [("climbing", _MIXED), ("cycling", _MIXED)]

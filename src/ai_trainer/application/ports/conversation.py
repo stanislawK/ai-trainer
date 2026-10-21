@@ -89,6 +89,10 @@ class ConversationModelPort(Protocol):
         """The line that introduces a draft card, sent as written with no model call."""
         ...
 
+    def draft_failed(self) -> FixedReply:
+        """The line in place of a sport's draft whose extraction failed (ticket #161)."""
+        ...
+
     def not_yet(self) -> FixedReply:
         """The skeleton's reply for an intent whose specialist hasn't shipped (ADR-0008)."""
         ...

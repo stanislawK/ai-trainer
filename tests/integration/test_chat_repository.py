@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ai_trainer.adapters.chat_repository import SqlAlchemyChatRepository
 from ai_trainer.adapters.conversation_repository import SqlAlchemyConversationRepository
 from ai_trainer.adapters.users_repository import SqlAlchemyUsersRepository
-from ai_trainer.domain.chat import ChatRole
+from ai_trainer.domain.chat import ChatMessage, ChatRole
 from ai_trainer.domain.users import NewUser, UserStatus
 from tests.chat_support import FixedClock
 
@@ -295,3 +295,91 @@ async def test_a_message_cannot_join_another_users_conversation(
 
     with pytest.raises(IntegrityError):
         await repository.add(intruder, owner_chat, ChatRole.USER, "not yours", _START)
+
+
+async def _failed_part(
+    repository: SqlAlchemyChatRepository, user_id: UUID, conversation_id: UUID
+) -> ChatMessage:
+    return await repository.add(
+        user_id,
+        conversation_id,
+        ChatRole.ASSISTANT,
+        "Couldn't draft this one.",
+        _START,
+        sports=("cycling",),
+        template_id="draft_failed",
+        template_version=1,
+    )
+
+
+async def test_replace_part_rewrites_a_failed_part_in_place(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    """A retried extraction turns its failed part into the draft's intro line (#161): same
+    row, place and sports, with the text and template that now produced it."""
+    repository = SqlAlchemyChatRepository(db_session_factory)
+    user_id, conversation_id = await _user(db_session_factory, "chat-replace")
+    failed = await _failed_part(repository, user_id, conversation_id)
+
+    replaced = await repository.replace_part(
+        user_id,
+        failed.id,
+        expected_template_id="draft_failed",
+        text="Here's the session.",
+        template_id="cycling.extract",
+        template_version=2,
+    )
+
+    assert replaced is not None
+    assert (replaced.id, replaced.created_at, replaced.sports) == (failed.id, _START, ("cycling",))
+    assert (replaced.text, replaced.template_id, replaced.template_version) == (
+        "Here's the session.",
+        "cycling.extract",
+        2,
+    )
+    assert await repository.get(user_id, failed.id) == replaced
+
+
+async def test_replace_part_leaves_a_part_already_replaced(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    """Two Retries at once rewrite the part once; the second finds it replaced."""
+    repository = SqlAlchemyChatRepository(db_session_factory)
+    user_id, conversation_id = await _user(db_session_factory, "chat-replace-twice")
+    failed = await _failed_part(repository, user_id, conversation_id)
+
+    async def replace() -> ChatMessage | None:
+        return await repository.replace_part(
+            user_id,
+            failed.id,
+            expected_template_id="draft_failed",
+            text="Here's the session.",
+            template_id="cycling.extract",
+            template_version=2,
+        )
+
+    first = await replace()
+
+    assert await replace() is None
+    assert await repository.get(user_id, failed.id) == first
+
+
+async def test_replace_part_never_touches_another_users_part(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    repository = SqlAlchemyChatRepository(db_session_factory)
+    owner, conversation_id = await _user(db_session_factory, "chat-replace-owner")
+    stranger, _ = await _user(db_session_factory, "chat-replace-stranger")
+    failed = await _failed_part(repository, owner, conversation_id)
+
+    replaced = await repository.replace_part(
+        stranger,
+        failed.id,
+        expected_template_id="draft_failed",
+        text="Here's the session.",
+        template_id="cycling.extract",
+        template_version=2,
+    )
+
+    assert replaced is None
+    assert await repository.get(owner, failed.id) == failed
