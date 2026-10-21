@@ -43,6 +43,7 @@ from ai_trainer.domain.sports.base import SessionExtraction, SportPlugin
 from ai_trainer.domain.sports.climbing.extraction import ClimbingExtraction, ExtractedClimb
 from ai_trainer.domain.sports.registry import SportRegistry, default_sport_registry
 from ai_trainer.domain.training import (
+    DraftAwaitingAnswerError,
     DraftConfirmedError,
     DraftDiscardedError,
     DraftNotFoundError,
@@ -311,6 +312,14 @@ class InMemoryDraftRepository:
         # Each draft's `extends_session_id` as added, and the spans `extends` is read from.
         self.extends_ids: dict[UUID, UUID | None] = {}
         self.spans: dict[UUID, SessionSpan] = {}
+        # The questions a draft's card asks (ticket #166): an open one blocks its confirm.
+        self.questions: InMemoryClarificationRepository | None = None
+
+    def _awaiting(self, user_id: UUID, draft_id: UUID) -> bool:
+        return self.questions is not None and any(
+            row.draft_id == draft_id and row.status == "open"
+            for row in self.questions.all_of(user_id)
+        )
 
     async def add(
         self,
@@ -323,6 +332,7 @@ class InMemoryDraftRepository:
         payload_version: int,
         created_at: datetime,
         extends_session_id: UUID | None = None,
+        asks: Clarification | None = None,
     ) -> StoredDraft:
         stored = StoredDraft(
             id=uuid4(),
@@ -337,7 +347,31 @@ class InMemoryDraftRepository:
         )
         self.rows.append((user_id, stored))
         self.extends_ids[stored.id] = extends_session_id
+        self._ask(user_id, stored, asks, created_at)
         return stored
+
+    def _ask(
+        self, user_id: UUID, draft: StoredDraft, asks: Clarification | None, at: datetime
+    ) -> None:
+        """The question stored with its draft, as one transaction stores both (#166)."""
+        if asks is None:
+            return
+        assert self.questions is not None
+        self.questions.rows.append(
+            (
+                user_id,
+                StoredClarification(
+                    id=uuid4(),
+                    conversation_id=draft.conversation_id,
+                    message_id=draft.message_id,
+                    purpose="same_session",
+                    clarification=asks,
+                    status="open",
+                    draft_id=draft.id,
+                    created_at=at,
+                ),
+            )
+        )
 
     async def list_shown(self, user_id: UUID, conversation_id: UUID) -> Sequence[StoredDraft]:
         return [
@@ -376,6 +410,8 @@ class InMemoryDraftRepository:
         *,
         payload_version: int,
         extends_session_id: UUID | None,
+        asks: Clarification | None = None,
+        asked_at: datetime | None = None,
     ) -> StoredDraft:
         for index, (owner, stored) in enumerate(self.rows):
             if owner != user_id or stored.id != draft_id:
@@ -396,6 +432,44 @@ class InMemoryDraftRepository:
             )
             self.rows[index] = (owner, stored)
             self.extends_ids[draft_id] = extends_session_id
+            if self.questions is not None:
+                self.questions.abandon_on(user_id, draft_id)
+            self._ask(user_id, stored, asks, asked_at or stored.created_at)
+            return stored
+        raise DraftNotFoundError(draft_id)
+
+    async def settle_session(
+        self,
+        user_id: UUID,
+        draft_id: UUID,
+        clarification_id: UUID,
+        option_id: str,
+        *,
+        extends_session_id: UUID | None,
+        answered_at: datetime,
+    ) -> StoredDraft:
+        for index, (owner, stored) in enumerate(self.rows):
+            if owner != user_id or stored.id != draft_id:
+                continue
+            if stored.status == "confirmed":
+                raise DraftConfirmedError(draft_id)
+            if stored.status == "discarded":
+                raise DraftDiscardedError(draft_id)
+            assert self.questions is not None
+            question = await self.questions.get(user_id, clarification_id)
+            if question.draft_id != draft_id or question.status != "open":
+                raise ClarificationResolvedError(clarification_id)
+            await self.questions.resolve(
+                user_id,
+                clarification_id,
+                "answered",
+                option_ids=[option_id],
+                resolved_at=answered_at,
+            )
+            span = None if extends_session_id is None else self.spans.get(extends_session_id)
+            stored = stored.model_copy(update={"extends": span})
+            self.rows[index] = (owner, stored)
+            self.extends_ids[draft_id] = None if span is None else extends_session_id
             return stored
         raise DraftNotFoundError(draft_id)
 
@@ -407,6 +481,8 @@ class InMemoryDraftRepository:
                 continue
             if draft.status == "discarded":
                 raise DraftDiscardedError(draft_id)
+            if draft.status == "pending" and self._awaiting(user_id, draft_id):
+                raise DraftAwaitingAnswerError(draft_id)
             if draft.status == "pending":
                 draft = draft.model_copy(update={"status": "confirmed", "session_id": uuid4()})
                 self.rows[index] = (owner, draft)
@@ -471,6 +547,7 @@ class InMemoryClarificationRepository:
         clarification: Clarification,
         *,
         created_at: datetime,
+        draft_id: UUID | None = None,
     ) -> StoredClarification:
         stored = StoredClarification(
             id=uuid4(),
@@ -479,6 +556,7 @@ class InMemoryClarificationRepository:
             purpose=purpose,
             clarification=clarification,
             status="open",
+            draft_id=draft_id,
             created_at=created_at,
         )
         self.rows.append((user_id, stored))
@@ -529,6 +607,12 @@ class InMemoryClarificationRepository:
                 reopened = row.model_copy(update={"status": "open", "answer_option_ids": None})
                 self.rows[index] = (owner, reopened)
 
+    def abandon_on(self, user_id: UUID, draft_id: UUID) -> None:
+        """What a draft's sport change does to the question still open on its card (#166)."""
+        for index, (owner, row) in enumerate(self.rows):
+            if owner == user_id and row.draft_id == draft_id and row.status == "open":
+                self.rows[index] = (owner, row.model_copy(update={"status": "abandoned"}))
+
     def all_of(self, user_id: UUID) -> list[StoredClarification]:
         return [row for owner, row in self.rows if owner == user_id]
 
@@ -537,11 +621,13 @@ NOT_YET_TEXT = "I can't do that one yet."
 DRAFT_READY_TEXT = "Here's the session."
 DRAFT_FAILED_TEXT = "I couldn't draft this one."
 SPORT_QUESTION_TEXT = "Which sport was that?"
+SAME_SESSION_QUESTION_TEXT = "Was this part of your earlier session?"
 CHITCHAT_TEMPLATE = TemplateRef(id="chitchat", version=1)
 NOT_YET_TEMPLATE = TemplateRef(id="not_yet", version=1)
 DRAFT_READY_TEMPLATE = TemplateRef(id="draft_ready", version=1)
 DRAFT_FAILED_TEMPLATE = TemplateRef(id="draft_failed", version=1)
 SPORT_QUESTION_TEMPLATE = TemplateRef(id="sport_question", version=1)
+SAME_SESSION_QUESTION_TEMPLATE = TemplateRef(id="same_session_question", version=1)
 CLIMBING_EXTRACT_TEMPLATE = TemplateRef(id="climbing.extract", version=1)
 # "I climbed 3 6A and 2 6B boulders", sent at `FROZEN_NOW` with no date (Europe/Warsaw).
 THREE_6A_TWO_6B = ClimbingExtraction(
@@ -648,6 +734,9 @@ class ScriptedConversation:
     def sport_question(self) -> FixedReply:
         return FixedReply(text=SPORT_QUESTION_TEXT, template=SPORT_QUESTION_TEMPLATE)
 
+    def same_session_question(self) -> FixedReply:
+        return FixedReply(text=SAME_SESSION_QUESTION_TEXT, template=SAME_SESSION_QUESTION_TEMPLATE)
+
 
 @dataclass
 class ScriptedSafetyScreen:
@@ -704,11 +793,14 @@ def reply_services(
     history_turns: int = 10,
     max_clarification_options: int = 5,
 ) -> ReplyServices:
+    drafts = drafts or InMemoryDraftRepository()
+    clarifications = clarifications or InMemoryClarificationRepository()
+    drafts.questions = clarifications
     return ReplyServices(
         chat=chat,
         conversations=chat.conversations,
-        drafts=drafts or InMemoryDraftRepository(),
-        clarifications=clarifications or InMemoryClarificationRepository(),
+        drafts=drafts,
+        clarifications=clarifications,
         sessions=sessions or InMemoryTrainingSessions(),
         sports=sports_with_rowing(),
         profile=profile or InMemoryProfile(),
@@ -732,6 +824,7 @@ def include_chat(
     drafts: InMemoryDraftRepository | None = None,
     clarifications: InMemoryClarificationRepository | None = None,
     fast_router: ScriptedFastRouter | None = None,
+    sessions: InMemoryTrainingSessions | None = None,
 ) -> InMemoryChatRepository:
     """Mounts the chat router on an in-memory repository and a scripted conversation, and
     returns the repository."""
@@ -740,6 +833,7 @@ def include_chat(
         repository,
         drafts=drafts,
         clarifications=clarifications,
+        sessions=sessions,
         profile=profile,
         conversation=conversation,
         fast_router=fast_router,

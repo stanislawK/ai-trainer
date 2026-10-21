@@ -9,7 +9,10 @@ sport stays split between two or more of the athlete's sports is a choice card f
 draft follows the tap (B17, B23, ADR-0015). A pending draft's sport can be changed on its card,
 which extracts the same log again in the new sport (B23, ticket #163). A log of several sports
 runs their extractions at once, one draft each in message order; one that fails beside a part
-that came through is kept as a line its Retry can turn into the draft (B1, B14, ticket #161)."""
+that came through is kept as a line its Retry can turn into the draft (B1, B14, ticket #161).
+A log beyond the merge window, on the day of the athlete's latest session in its sport, is a
+pending draft whose card asks whether it is that session, and the tap settles it (B16, ticket
+#166)."""
 
 import asyncio
 from collections.abc import AsyncGenerator, Sequence
@@ -18,6 +21,7 @@ from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from typing import Literal
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from ai_trainer.application.drafts import draft_to_edit
 from ai_trainer.application.ports.chat import ChatRepositoryPort, ConversationRepositoryPort
@@ -37,6 +41,10 @@ from ai_trainer.application.ports.safety_screen import SafetyScreenPort
 from ai_trainer.application.ports.training import TrainingSessionRepositoryPort
 from ai_trainer.domain.chat import ChatMessage, ChatRole
 from ai_trainer.domain.clarification import (
+    NEW_SESSION_OPTION,
+    SAME_SESSION_ADD_COPY_KEY,
+    SAME_SESSION_NEW_COPY_KEY,
+    SAME_SESSION_PURPOSE,
     SPORT_PURPOSE,
     ChoiceOption,
     Clarification,
@@ -50,10 +58,12 @@ from ai_trainer.domain.llm_calls import LlmCallOutcome
 from ai_trainer.domain.sports.registry import SportRegistry
 from ai_trainer.domain.training import (
     DRAFT_FAILED_TEMPLATE_ID,
+    Continuity,
     DraftSportNotOfferedError,
     SessionDraft,
+    SessionSpan,
     StoredDraft,
-    joins_session,
+    continuity,
 )
 
 # Until each specialist ships, these go to `chitchat`; the persona carries G3 (ADR-0008).
@@ -484,10 +494,12 @@ async def _save(
     splits them off. Each saved part moves the conversation's last activity to now (ADR-0021).
     A part's draft is stored pending, made from the athlete's message; no session is written
     (ADR-0022 invariant 3). It extends the athlete's latest session in its sport when the
-    message was sent within the merge window of that session's latest log (B16). `after` stamps
-    the parts after a reply already saved to the message, as a draft after its question."""
+    message was sent within the merge window of that session's latest log (B16), and asks
+    whether it is that session when it came later that day (ticket #166). `after` stamps the
+    parts after a reply already saved to the message, as a draft after its question."""
     saved: list[ChatMessage] = []
     drafts: list[StoredDraft] = []
+    questions: list[StoredClarification] = []
     stamp: datetime = after or message.created_at
     for answer in answers:
         stamp += _TICK
@@ -505,38 +517,98 @@ async def _save(
         )
         if answer.draft is not None:
             sport_id, draft, payload_version = answer.draft
-            extends = await _extended_session(user_id, message, sport_id, draft, services)
-            drafts.append(
-                await services.drafts.add(
-                    user_id,
-                    message.conversation_id,
-                    message.id,
-                    sport_id,
-                    draft,
-                    payload_version=payload_version,
-                    created_at=services.clock.now(),
-                    extends_session_id=extends,
-                )
+            stored, question = await _store_draft(
+                user_id, message, sport_id, draft, payload_version, services
             )
+            drafts.append(stored)
+            if question is not None:
+                questions.append(question)
         await services.conversations.touch(user_id, message.conversation_id, services.clock.now())
-    return ReplyDone(messages=saved, drafts=tuple(drafts))
+    return ReplyDone(messages=saved, drafts=tuple(drafts), clarifications=tuple(questions))
 
 
-async def _extended_session(
+async def _continuity(
     user_id: UUID,
     message: ChatMessage,
     sport_id: str,
     draft: SessionDraft,
     services: ReplyServices,
-) -> UUID | None:
-    """The athlete's latest session in the sport, when the log was sent within the merge
-    window of its latest log, on a day the draft can belong to (B16)."""
+) -> tuple[Continuity, SessionSpan | None]:
+    """What the log is to the athlete's latest session in the sport (ADR-0014): an addition to
+    it when sent within the merge window of its latest log, on a day the draft can belong to
+    (B16); a question when sent later on its day (ticket #166); else a session of its own."""
     latest = await services.sessions.latest_in_sport(user_id, sport_id)
-    if latest is not None and joins_session(
-        draft, message.created_at, latest, services.merge_window
-    ):
-        return latest.id
-    return None
+    if latest is None:
+        return "new", None
+    return continuity(draft, message.created_at, latest, services.merge_window), latest
+
+
+async def _store_draft(
+    user_id: UUID,
+    message: ChatMessage,
+    sport_id: str,
+    draft: SessionDraft,
+    payload_version: int,
+    services: ReplyServices,
+) -> tuple[StoredDraft, StoredClarification | None]:
+    """The pending draft, extending the session it joins, and the same-session question on
+    its card when it came later that day, stored with it in one transaction; the question
+    extends nothing (ADR-0014 invariant 5)."""
+    kind, latest = await _continuity(user_id, message, sport_id, draft, services)
+    stored = await services.drafts.add(
+        user_id,
+        message.conversation_id,
+        message.id,
+        sport_id,
+        draft,
+        payload_version=payload_version,
+        created_at=services.clock.now(),
+        extends_session_id=latest.id if kind == "join" and latest is not None else None,
+        asks=_same_session_question(draft, latest, services)
+        if kind == "ask" and latest is not None
+        else None,
+    )
+    return stored, await _question_on(user_id, stored, services)
+
+
+def _same_session_question(
+    draft: SessionDraft, session: SessionSpan, services: ReplyServices
+) -> Clarification:
+    """The question on the draft's card (ticket #166): "Add to the session at HH:MM", the
+    session's first log in the draft's own timezone, or "New session". The card's Discard is
+    the way out, so there is no "let me type instead"."""
+    question = services.conversation.same_session_question()
+    started = session.first_logged_at.astimezone(ZoneInfo(draft.timezone))
+    return Clarification(
+        question=question.text,
+        options=(
+            ChoiceOption(
+                id=str(session.id),
+                copy_key=SAME_SESSION_ADD_COPY_KEY,
+                params={"time": f"{started:%H:%M}"},
+            ),
+            ChoiceOption(id=NEW_SESSION_OPTION, copy_key=SAME_SESSION_NEW_COPY_KEY),
+        ),
+        allow_free_text=False,
+        pending=_LOG_KIND,
+    )
+
+
+async def _question_on(
+    user_id: UUID, draft: StoredDraft, services: ReplyServices
+) -> StoredClarification | None:
+    """The same-session question still open on the draft's card, if it asks one."""
+    asked = await services.clarifications.list_shown(user_id, draft.conversation_id)
+    return next(
+        (
+            question
+            for question in asked
+            if question.draft_id == draft.id
+            and question.purpose == SAME_SESSION_PURPOSE
+            and question.status == "open"
+        ),
+        None,
+    )
 
 
 async def _ask_sport(
@@ -574,6 +646,14 @@ async def _ask_sport(
 
 
 @dataclass(frozen=True, slots=True)
+class SessionSettled:
+    """A same-session question as answered: the pending draft, now extending the session the
+    athlete picked, or none (ticket #166)."""
+
+    draft: StoredDraft
+
+
+@dataclass(frozen=True, slots=True)
 class ClarificationAnswered:
     """The question as answered, and the reply its answer resumed: the draft's intro line and
     the pending draft in the chosen sport."""
@@ -582,8 +662,8 @@ class ClarificationAnswered:
     reply: ReplyDone
 
 
-def _chosen_sport(question: StoredClarification, option_ids: Sequence[str]) -> str:
-    """The one sport the athlete tapped. The option ID is trusted, label text never is: an ID
+def _chosen(question: StoredClarification, option_ids: Sequence[str]) -> str:
+    """The one option the athlete tapped. The option ID is trusted, label text never is: an ID
     the question did not offer is an error, not a guess (ADR-0015 invariant 4)."""
     offered = {option.id for option in question.clarification.options}
     if len(option_ids) != 1 or option_ids[0] not in offered:
@@ -598,24 +678,29 @@ async def answer_clarification(
     *,
     timezone: str,
     services: ReplyServices,
-) -> ClarificationAnswered | ReplyFailed:
+) -> ClarificationAnswered | SessionSettled | ReplyFailed:
     """Resumes the extraction the question blocked with the tapped sport (B23, ADR-0015). The
     question is answered, and its draft stored, only once the extraction came through, so a
     failed one leaves the card to tap again; two taps at once leave one draft, because the
-    second finds the question already answered before anything is written. Raises
-    `ClarificationNotFoundError`, `ClarificationResolvedError` or `UnknownOptionError`
-    (nothing is called or written then), and `MessageNotFoundError` for a log past its
-    conversation's retention."""
+    second finds the question already answered before anything is written. A same-session
+    question settles its draft instead (ticket #166). Raises `ClarificationNotFoundError`,
+    `ClarificationResolvedError` or `UnknownOptionError` (nothing is called or written then),
+    and `MessageNotFoundError` for a log past its conversation's retention."""
     question = await services.clarifications.get(user_id, clarification_id)
-    if question.purpose != SPORT_PURPOSE:
+    if question.purpose not in (SPORT_PURPOSE, SAME_SESSION_PURPOSE):
         raise ClarificationNotFoundError(clarification_id)
     if question.status != "open":
         raise ClarificationResolvedError(clarification_id)
-    sport = _chosen_sport(question, option_ids)
+    if question.purpose == SAME_SESSION_PURPOSE:
+        return await _settle_session(user_id, question, option_ids, services)
+    sport = _chosen(question, option_ids)
     message = await find_message(
         user_id, question.message_id, chat=services.chat, conversations=services.conversations
     )
-    answer = await _extract(await _context(user_id, message, timezone, services), sport, services)
+    # Read as of when the log was sent, as a sport change and a retry are, so an answer the
+    # next morning still dates "last night" from the log (ADR-0014, ticket #166).
+    context = replace(await _context(user_id, message, timezone, services), now=message.created_at)
+    answer = await _extract(context, sport, services)
     if isinstance(answer, ReplyFailed):
         return answer
 
@@ -646,11 +731,39 @@ async def answer_clarification(
     return await asyncio.shield(asyncio.ensure_future(resume()))
 
 
+async def _settle_session(
+    user_id: UUID,
+    question: StoredClarification,
+    option_ids: Sequence[str],
+    services: ReplyServices,
+) -> SessionSettled:
+    """The tap on a draft's same-session question (B16, ticket #166): "Add" makes the draft
+    extend the session the option names, "New session" makes it extend none. Nothing else is
+    written; the athlete still confirms (ADR-0014 invariant 5)."""
+    picked = _chosen(question, option_ids)
+    if question.draft_id is None:
+        raise ClarificationNotFoundError(question.id)
+    draft = await services.drafts.settle_session(
+        user_id,
+        question.draft_id,
+        question.id,
+        picked,
+        extends_session_id=None if picked == NEW_SESSION_OPTION else UUID(picked),
+        answered_at=services.clock.now(),
+    )
+    return SessionSettled(draft=draft)
+
+
 async def abandon_clarification(
     user_id: UUID, clarification_id: UUID, *, services: ReplyServices
 ) -> StoredClarification:
     """ "Let me type instead" (F9): closes the question with no answer, and nothing else is
-    written. Raises `ClarificationNotFoundError` or `ClarificationResolvedError`."""
+    written. A question that offers no such escape, as a same-session one (ticket #166), can't
+    be skipped this way, so it is not found. Raises `ClarificationNotFoundError` or
+    `ClarificationResolvedError`."""
+    question = await services.clarifications.get(user_id, clarification_id)
+    if not question.clarification.allow_free_text:
+        raise ClarificationNotFoundError(clarification_id)
     return await services.clarifications.resolve(
         user_id,
         clarification_id,
@@ -680,10 +793,11 @@ async def change_draft_sport(
     """The card's sport chip (B23, F2, ticket #163): re-runs `sport_id`'s extraction on the
     draft's own log and replaces the pending draft in place, offered again as an addition to
     the new sport's latest session when it came close after it (B16). No session is written
-    (ADR-0022 invariant 3), and a failed extraction changes nothing. Raises
-    `DraftNotFoundError`, `DraftConfirmedError` or `DraftDiscardedError`, and
-    `DraftSportNotOfferedError` for a sport the card never offered (nothing is called then), and
-    `MessageNotFoundError` for a log past its conversation's retention."""
+    (ADR-0022 invariant 3), and a failed extraction changes nothing. A same-session question
+    on the card is dropped, and the new sport's own is asked when it came later that day
+    (ticket #166). Raises `DraftNotFoundError`, `DraftConfirmedError` or `DraftDiscardedError`,
+    and `DraftSportNotOfferedError` for a sport the card never offered (nothing is called then),
+    and `MessageNotFoundError` for a log past its conversation's retention."""
     stored = await draft_to_edit(user_id, draft_id, drafts=services.drafts)
     offered = sports_to_switch_to(
         await services.profile.list_sports(user_id), stored.sport_id, services.sports
@@ -703,13 +817,18 @@ async def change_draft_sport(
     _, draft, payload_version = answer.draft
 
     async def replace_draft() -> StoredDraft:
+        kind, latest = await _continuity(user_id, message, sport_id, draft, services)
         return await services.drafts.change_sport(
             user_id,
             draft_id,
             sport_id,
             draft,
             payload_version=payload_version,
-            extends_session_id=await _extended_session(user_id, message, sport_id, draft, services),
+            extends_session_id=latest.id if kind == "join" and latest is not None else None,
+            asks=_same_session_question(draft, latest, services)
+            if kind == "ask" and latest is not None
+            else None,
+            asked_at=services.clock.now(),
         )
 
     # Saved in its own task: a reader who leaves now can't cut the replacement off.
@@ -763,7 +882,8 @@ async def retry_draft(
 ) -> RetriedDraft | RetryFailed:
     """A failed draft's Retry (ticket #161): runs its sport's extraction again on its log, as of
     when the log was sent, and turns the part into the draft's intro line in place, with the
-    pending draft under it, offered as an addition to a session close before it (B16). No
+    pending draft under it, offered as an addition to a session close before it (B16), or
+    asking whether it is one from earlier that day (ticket #166). No
     session is written (ADR-0022 invariant 3), and a failed extraction changes nothing. Two
     retries at once leave one draft: the second finds the part already rewritten. Raises
     `FailedPartNotFoundError` for a part that isn't the user's failed draft (nothing is called
@@ -790,17 +910,8 @@ async def retry_draft(
         if part is None:
             raise FailedPartNotFoundError(part_id)
         try:
-            stored = await services.drafts.add(
-                user_id,
-                message.conversation_id,
-                message.id,
-                sport_id,
-                draft,
-                payload_version=payload_version,
-                created_at=services.clock.now(),
-                extends_session_id=await _extended_session(
-                    user_id, message, sport_id, draft, services
-                ),
+            stored, _ = await _store_draft(
+                user_id, message, sport_id, draft, payload_version, services
             )
         except BaseException:
             # The draft did not come through, so the part goes back to offer Retry again.

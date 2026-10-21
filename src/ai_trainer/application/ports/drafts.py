@@ -3,6 +3,7 @@ from datetime import datetime
 from typing import Protocol
 from uuid import UUID
 
+from ai_trainer.domain.clarification import Clarification
 from ai_trainer.domain.training import SessionDraft, StoredDraft
 
 
@@ -23,10 +24,13 @@ class SessionDraftRepositoryPort(Protocol):
         payload_version: int,
         created_at: datetime,
         extends_session_id: UUID | None = None,
+        asks: Clarification | None = None,
     ) -> StoredDraft:
         """Stores a pending draft made from the user's message `message_id`, in its
         conversation `conversation_id`, offered as an addition to the user's session
-        `extends_session_id` when given (B16)."""
+        `extends_session_id` when given (B16). `asks` is the same-session question on its card,
+        stored `open` in the same transaction, so the draft never exists without it (ticket
+        #166)."""
         ...
 
     async def list_shown(self, user_id: UUID, conversation_id: UUID) -> Sequence[StoredDraft]:
@@ -57,10 +61,15 @@ class SessionDraftRepositoryPort(Protocol):
         *,
         payload_version: int,
         extends_session_id: UUID | None,
+        asks: Clarification | None = None,
+        asked_at: datetime | None = None,
     ) -> StoredDraft:
         """Replaces the user's pending draft `draft_id` with one in `sport_id`, extracted again
         from the same log (B23, ticket #163): its sport, document, payload version and the
-        session it extends (B16) all change, and it keeps its ID and stays `pending`. Raises
+        session it extends (B16) all change, and it keeps its ID and stays `pending`. A
+        same-session question still open on it no longer applies, so it is `abandoned` in the
+        same transaction, and `asks`, the new sport's own when given, is stored `open` in it too,
+        asked at `asked_at` (ticket #166). Raises
         `DraftNotFoundError` when the user has no such draft, and `DraftConfirmedError` or
         `DraftDiscardedError` when it is no longer pending; none of them changes anything."""
         ...
@@ -74,8 +83,30 @@ class SessionDraftRepositoryPort(Protocol):
         instead: its activities are appended, the envelope fields the session lacks are filled,
         and the source row joins that session (B16); otherwise it no longer extends one.
         A confirmed draft is returned as it is, so confirming twice gives the same session.
-        Raises `DraftNotFoundError` when the user has no such draft and `DraftDiscardedError`
-        when it was discarded; neither writes anything."""
+        Raises `DraftNotFoundError` when the user has no such draft, `DraftDiscardedError`
+        when it was discarded, and `DraftAwaitingAnswerError` while a question on its card is
+        still open (ticket #166); none of them writes anything."""
+        ...
+
+    async def settle_session(
+        self,
+        user_id: UUID,
+        draft_id: UUID,
+        clarification_id: UUID,
+        option_id: str,
+        *,
+        extends_session_id: UUID | None,
+        answered_at: datetime,
+    ) -> StoredDraft:
+        """In one transaction, answers the user's open same-session question
+        `clarification_id` on their pending draft `draft_id` with `option_id`, and sets the
+        session the draft extends to `extends_session_id`, or clears it with `None` (B16,
+        ticket #166). A session that is gone, or no longer in the draft's sport, is not
+        extended, and a confirm then saves a session of its own. The draft row is locked first,
+        as in a confirm, so a confirm racing the answer waits for it. Raises
+        `DraftNotFoundError` when the user has no such draft, `DraftConfirmedError` or
+        `DraftDiscardedError` when it is no longer pending, and `ClarificationResolvedError`
+        when the question is not open on it; none of them changes anything."""
         ...
 
     async def undo(self, user_id: UUID, draft_id: UUID, *, undone_at: datetime) -> StoredDraft:

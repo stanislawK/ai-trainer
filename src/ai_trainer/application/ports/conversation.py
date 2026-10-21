@@ -100,3 +100,8 @@ class ConversationModelPort(Protocol):
     def sport_question(self) -> FixedReply:
         """The question above the choice card that asks which sport a log was (B23)."""
         ...
+
+    def same_session_question(self) -> FixedReply:
+        """The question on a draft's card that asks whether it is the same session as an
+        earlier one that day (B16, ticket #166)."""
+        ...

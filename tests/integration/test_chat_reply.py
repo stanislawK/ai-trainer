@@ -983,7 +983,8 @@ async def test_three_climbing_logs_sent_close_together_end_as_one_session_with_t
 async def test_a_log_at_the_merge_window_is_offered_and_one_second_later_is_not(
     db_session_factory: Callable[[], AsyncSession], after: timedelta, offered: bool
 ) -> None:
-    """Against PostgreSQL, with the clock frozen at the window's end or one second past it."""
+    """Against PostgreSQL, with the clock frozen at the window's end or one second past it,
+    where the same day's log is asked about instead (ticket #166)."""
     user = await _user(db_session_factory, f"draft-boundary-{offered}")
     # `_app` wires the default `session_merge_window_min`.
     window = timedelta(minutes=Settings.model_fields["session_merge_window_min"].default)
@@ -1010,4 +1011,6 @@ async def test_a_log_at_the_merge_window_is_offered_and_one_second_later_is_not(
             {"id": user.id},
         )
     assert (extends is not None) is offered
-    assert ("Add to the session at" in page) is offered
+    assert ("data-adds-to-session" in page) is offered
+    # Past the window, on the same day, the card asks instead (ticket #166).
+    assert ("Was this part of your earlier session?" in page) is not offered

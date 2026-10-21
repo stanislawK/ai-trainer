@@ -66,6 +66,28 @@ def joins_session(
     )
 
 
+# What a new log is to the athlete's latest session in its sport (ADR-0014): offered as an
+# addition to it, a question whether it is the same session, or a session of its own.
+type Continuity = Literal["join", "ask", "new"]
+
+
+def continuity(
+    draft: SessionDraft, logged_at: datetime, session: SessionSpan, window: timedelta
+) -> Continuity:
+    """Within the window a log joins (B16); beyond it, a log of the session's own day is asked
+    about (ticket #166). Beyond the window the day is the draft's resolved `occurred_on`, with
+    no allowance for an assumed date, so a log sent at 00:10 about the evening before counts as
+    that evening's day, and an unstated one as the new day."""
+    if joins_session(draft, logged_at, session, window):
+        return "join"
+    if (
+        abs(logged_at - session.last_logged_at) > window
+        and draft.occurred_on == session.occurred_on
+    ):
+        return "ask"
+    return "new"
+
+
 class StoredDraft(BaseModel):
     """A `session_drafts` row. `message_id` is the athlete's log it came from."""
 
@@ -96,6 +118,11 @@ class DraftDiscardedError(Exception):
 class SessionNotFoundError(Exception):
     """No saved session of this user has the ID: another user's session is as unknown as a
     removed one."""
+
+
+class DraftAwaitingAnswerError(Exception):
+    """The draft's card still asks whether it is the same session as an earlier one, so it
+    can't be confirmed until the athlete picks (ADR-0014 invariant 5, ticket #166)."""
 
 
 class DraftConfirmedError(Exception):

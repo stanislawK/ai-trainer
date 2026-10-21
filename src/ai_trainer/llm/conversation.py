@@ -36,6 +36,10 @@ _DRAFT_FAILED_VERSION = 1
 # The question above the choice card that asks which sport a log was, sent as written (ADR-0015).
 SPORT_QUESTION_REPLY_ID = SPORT_QUESTION_TEMPLATE_ID
 _SPORT_QUESTION_VERSION = 1
+# The question on a draft's card that asks whether it is the same session as an earlier one that
+# day, sent as written (B16, ticket #166).
+SAME_SESSION_QUESTION_REPLY_ID = "same_session_question"
+_SAME_SESSION_QUESTION_VERSION = 1
 
 
 def build_prompt_registry(root: Path, sports: SportRegistry) -> PromptRegistry:
@@ -215,4 +219,14 @@ class LlmConversation:
         return FixedReply(
             text=self._registry.load_fixed_reply(SPORT_QUESTION_REPLY_ID, _SPORT_QUESTION_VERSION),
             template=TemplateRef(id=SPORT_QUESTION_REPLY_ID, version=_SPORT_QUESTION_VERSION),
+        )
+
+    def same_session_question(self) -> FixedReply:
+        return FixedReply(
+            text=self._registry.load_fixed_reply(
+                SAME_SESSION_QUESTION_REPLY_ID, _SAME_SESSION_QUESTION_VERSION
+            ),
+            template=TemplateRef(
+                id=SAME_SESSION_QUESTION_REPLY_ID, version=_SAME_SESSION_QUESTION_VERSION
+            ),
         )

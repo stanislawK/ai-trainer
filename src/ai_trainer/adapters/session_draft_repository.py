@@ -2,19 +2,26 @@ from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai_trainer.adapters.orm import (
     ChatMessageOrm,
+    ClarificationOrm,
     SessionDraftOrm,
     TrainingSessionOrm,
     TrainingSessionSourceOrm,
 )
 from ai_trainer.adapters.training_session_repository import spans_of
+from ai_trainer.domain.clarification import (
+    SAME_SESSION_PURPOSE,
+    Clarification,
+    ClarificationResolvedError,
+)
 from ai_trainer.domain.sports.base import ExtractionSpec, extend_payload, withdraw_payload
 from ai_trainer.domain.sports.registry import SportRegistry, default_sport_registry
 from ai_trainer.domain.training import (
+    DraftAwaitingAnswerError,
     DraftConfirmedError,
     DraftDiscardedError,
     DraftNotFoundError,
@@ -30,6 +37,8 @@ _PENDING: DraftStatus = "pending"
 _CONFIRMED: DraftStatus = "confirmed"
 _DISCARDED: DraftStatus = "discarded"
 _CHAT_SOURCE = "chat"
+# A question on a draft's card is open until the athlete picks (ticket #166).
+_OPEN = "open"
 # The envelope fields an addition to a session fills when the session has none (ticket #165).
 _FILLED_FIELDS = ("started_at", "duration_min", "rpe", "feeling", "notes")
 
@@ -55,6 +64,41 @@ def _to_domain(row: SessionDraftOrm, spans: Mapping[UUID, SessionSpan]) -> Store
 async def _with_span(session: AsyncSession, user_id: UUID, row: SessionDraftOrm) -> StoredDraft:
     ids = [] if row.extends_session_id is None else [row.extends_session_id]
     return _to_domain(row, await spans_of(session, user_id, ids))
+
+
+async def _awaits_answer(session: AsyncSession, user_id: UUID, draft_id: UUID) -> bool:
+    """Whether a question on the user's draft's card is still open (ticket #166)."""
+    open_id = await session.scalar(
+        select(ClarificationOrm.id)
+        .where(
+            ClarificationOrm.user_id == user_id,
+            ClarificationOrm.draft_id == draft_id,
+            ClarificationOrm.status == _OPEN,
+        )
+        .limit(1)
+    )
+    return open_id is not None
+
+
+def _ask(
+    session: AsyncSession, row: SessionDraftOrm, asks: Clarification | None, at: datetime
+) -> None:
+    """The same-session question on the draft's card, added in the draft's own transaction
+    (ticket #166)."""
+    if asks is None:
+        return
+    session.add(
+        ClarificationOrm(
+            user_id=row.user_id,
+            conversation_id=row.conversation_id,
+            message_id=row.message_id,
+            draft_id=row.id,
+            purpose=SAME_SESSION_PURPOSE,
+            clarification=asks.model_dump(mode="json"),
+            status=_OPEN,
+            created_at=at,
+        )
+    )
 
 
 class SqlAlchemySessionDraftRepository:
@@ -85,6 +129,7 @@ class SqlAlchemySessionDraftRepository:
         payload_version: int,
         created_at: datetime,
         extends_session_id: UUID | None = None,
+        asks: Clarification | None = None,
     ) -> StoredDraft:
         async with self._session_factory() as session:
             row = SessionDraftOrm(
@@ -101,6 +146,7 @@ class SqlAlchemySessionDraftRepository:
             session.add(row)
             # Flushed, not read after the commit: a committed row's attributes expire.
             await session.flush()
+            _ask(session, row, asks, created_at)
             stored = await _with_span(session, user_id, row)
             await session.commit()
             return stored
@@ -165,10 +211,12 @@ class SqlAlchemySessionDraftRepository:
         *,
         payload_version: int,
         extends_session_id: UUID | None,
+        asks: Clarification | None = None,
+        asked_at: datetime | None = None,
     ) -> StoredDraft:
         """Locked first, as an edit is, so a switch racing a confirm or a discard either goes
         first, and the confirm saves the new sport, or finds the draft resolved and is
-        refused."""
+        refused. The draft's open same-session question is abandoned with it (ticket #166)."""
         async with self._session_factory() as session:
             row = await session.scalar(
                 select(SessionDraftOrm)
@@ -185,7 +233,18 @@ class SqlAlchemySessionDraftRepository:
             row.draft = draft.model_dump(mode="json")
             row.payload_version = payload_version
             row.extends_session_id = extends_session_id
+            # A same-session question asked about the old sport's session no longer applies.
+            await session.execute(
+                update(ClarificationOrm)
+                .where(
+                    ClarificationOrm.user_id == user_id,
+                    ClarificationOrm.draft_id == draft_id,
+                    ClarificationOrm.status == _OPEN,
+                )
+                .values(status="abandoned", answered_at=None)
+            )
             await session.flush()
+            _ask(session, row, asks, asked_at or row.created_at)
             changed = await _with_span(session, user_id, row)
             await session.commit()
             return changed
@@ -197,7 +256,9 @@ class SqlAlchemySessionDraftRepository:
         extends (B16), its source row with the log's original text (B2), and the draft's move to
         `confirmed`. The draft row is locked first, so a second confirm waits for the first and
         then finds it done: one session either way. The extended session is locked next, as in
-        an undo, so two additions to it land one after the other."""
+        an undo, so two additions to it land one after the other. A draft whose card still asks
+        whether it is the same session is refused (ticket #166); the answer locks the draft row
+        too, so a confirm racing it sees the session it settled."""
         async with self._session_factory() as session:
             row = await session.scalar(
                 select(SessionDraftOrm)
@@ -210,6 +271,8 @@ class SqlAlchemySessionDraftRepository:
                 raise DraftDiscardedError(draft_id)
             if row.status == _CONFIRMED:
                 return await _with_span(session, user_id, row)
+            if await _awaits_answer(session, user_id, draft_id):
+                raise DraftAwaitingAnswerError(draft_id)
             log = (
                 await session.execute(
                     select(ChatMessageOrm.text, ChatMessageOrm.created_at).where(
@@ -265,6 +328,60 @@ class SqlAlchemySessionDraftRepository:
             confirmed = await _with_span(session, user_id, row)
             await session.commit()
             return confirmed
+
+    async def settle_session(
+        self,
+        user_id: UUID,
+        draft_id: UUID,
+        clarification_id: UUID,
+        option_id: str,
+        *,
+        extends_session_id: UUID | None,
+        answered_at: datetime,
+    ) -> StoredDraft:
+        """One transaction (ticket #166): the draft row is locked first, as in a confirm, then
+        the question moves from `open` to `answered` with one conditional UPDATE, so two taps
+        at once settle it once, and the draft extends the picked session while it is the
+        user's, in the draft's sport."""
+        async with self._session_factory() as session:
+            row = await session.scalar(
+                select(SessionDraftOrm)
+                .where(SessionDraftOrm.id == draft_id, SessionDraftOrm.user_id == user_id)
+                .with_for_update()
+            )
+            if row is None:
+                raise DraftNotFoundError(draft_id)
+            if row.status == _CONFIRMED:
+                raise DraftConfirmedError(draft_id)
+            if row.status == _DISCARDED:
+                raise DraftDiscardedError(draft_id)
+            answered = await session.scalar(
+                update(ClarificationOrm)
+                .where(
+                    ClarificationOrm.user_id == user_id,
+                    ClarificationOrm.id == clarification_id,
+                    ClarificationOrm.draft_id == draft_id,
+                    ClarificationOrm.status == _OPEN,
+                )
+                .values(status="answered", answer_option_ids=[option_id], answered_at=answered_at)
+                .returning(ClarificationOrm.id)
+            )
+            if answered is None:
+                raise ClarificationResolvedError(clarification_id)
+            extended = None
+            if extends_session_id is not None:
+                extended = await session.scalar(
+                    select(TrainingSessionOrm.id).where(
+                        TrainingSessionOrm.id == extends_session_id,
+                        TrainingSessionOrm.user_id == user_id,
+                        TrainingSessionOrm.sport_id == row.sport_id,
+                    )
+                )
+            row.extends_session_id = extended
+            await session.flush()
+            settled = await _with_span(session, user_id, row)
+            await session.commit()
+            return settled
 
     @staticmethod
     async def _extended(

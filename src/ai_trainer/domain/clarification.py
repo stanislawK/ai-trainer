@@ -13,6 +13,14 @@ SPORT_PURPOSE = "sport"
 # The fixed reply whose line sits above a sport question's choice card (ADR-0008): the chat
 # finds the card's message by it, as it finds a draft's by its extraction template.
 SPORT_QUESTION_TEMPLATE_ID = "sport_question"
+# Whether a log beyond the merge window, on its session's own day, is the same session (B16,
+# ADR-0014, ticket #166). It blocks a stored draft and is asked on the draft's own card.
+SAME_SESSION_PURPOSE = "same_session"
+# The same-session question's "New session" option; its other option's ID is the session's.
+NEW_SESSION_OPTION = "new"
+# The copy keys of its two options, in `components/session_copy.html`.
+SAME_SESSION_ADD_COPY_KEY = "same_session_add"
+SAME_SESSION_NEW_COPY_KEY = "same_session_new"
 
 type ClarificationMode = Literal["single", "multi"]
 type ClarificationStatus = Literal["open", "answered", "abandoned"]
@@ -27,6 +35,8 @@ class ChoiceOption(BaseModel):
 
     id: str
     copy_key: str
+    # Values, not copy, that the option's copy shows, e.g. a session's start time `time`.
+    params: dict[str, str] = Field(default_factory=dict)
 
 
 class Clarification(BaseModel):
@@ -43,7 +53,8 @@ class Clarification(BaseModel):
 
 
 class StoredClarification(BaseModel):
-    """A `clarifications` row. `message_id` is the athlete's message the question blocks."""
+    """A `clarifications` row. `message_id` is the athlete's message the question blocks, and
+    `draft_id` its draft when one is stored."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -53,6 +64,8 @@ class StoredClarification(BaseModel):
     purpose: str
     clarification: Clarification
     status: ClarificationStatus
+    # The stored draft the question blocks, when it blocks one (ADR-0022).
+    draft_id: UUID | None = None
     answer_option_ids: tuple[str, ...] | None = None
     created_at: datetime
 
