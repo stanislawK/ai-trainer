@@ -165,7 +165,12 @@ def _write(root: Path, cases: list[dict[str, object]], *, router_accuracy: float
 
 
 async def _run(
-    root: Path, jev: ScriptedJev, *, repeat: int = 1, thresholds: RouterFastThresholds = THRESHOLDS
+    root: Path,
+    jev: ScriptedJev,
+    *,
+    repeat: int = 1,
+    thresholds: RouterFastThresholds = THRESHOLDS,
+    promote: bool = True,
 ) -> RouterFastEvalRunResult:
     return await run_router_fast_eval(
         loader=DecisionSetLoader(),
@@ -177,6 +182,7 @@ async def _run(
         baselines_root=root / "baselines",
         reports_root=root / "reports",
         repeat=repeat,
+        promote=promote,
     )
 
 
@@ -416,3 +422,18 @@ async def test_the_floor_decides_which_sports_are_plausible(tmp_path: Path) -> N
     # 0.45 for cycling is under a 0.5 floor, so "did intervals" is no longer split.
     [intervals] = [case for case in result.report.cases if case.name == "intervals"]
     assert intervals.assertions["plausible_sports_right"].value is False
+
+
+_LOWER_INTENT = RouterFastThresholds(multi_request=0.2, intent=0.8, sport=0.9, plausible_floor=0.25)
+
+
+async def test_a_run_without_promote_leaves_the_baseline_byte_identical(tmp_path: Path) -> None:
+    """`router_fast` writes its baseline only when promoted, like any other run (#208)."""
+    _write(tmp_path, [_HI, _RIDE, _GYM_ONLY, _MIXED])
+    await _run(tmp_path, ScriptedJev(_CONFIDENT))
+    path = tmp_path / "baselines" / "router_fast.json"
+    before = path.read_bytes()
+
+    await _run(tmp_path, ScriptedJev(_CONFIDENT), thresholds=_LOWER_INTENT, promote=False)
+
+    assert path.read_bytes() == before

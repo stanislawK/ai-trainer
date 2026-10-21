@@ -105,6 +105,14 @@ class DecisionSetLoader:
         output_type = create_model(name, __doc__=spec.goal, **fields)
         return DecisionSet(id=decision_id, version=version, output_type=output_type)
 
+    def versions(self, decision_id: str, *, locale: str = "en") -> list[int]:
+        """The set's versions with a file in `locale`, in order; none for an unknown ID."""
+        return sorted(
+            int(version)
+            for path in (self._root / decision_id).glob(f"v*.{locale}.yaml")
+            if (version := path.name.removeprefix("v").removesuffix(f".{locale}.yaml")).isdigit()
+        )
+
 
 def _asked(
     questions: dict[str, _QuestionSpec], only: Collection[str] | None

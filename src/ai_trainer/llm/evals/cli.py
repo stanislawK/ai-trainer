@@ -2,6 +2,10 @@
 model (ADR-0009, ADR-0020).
 
     uv run ai-trainer-evals run <template-or-decision-id> [--version N] [--model ID] [--repeat N]
+        [--promote]
+
+Without `--version`, the run is of the version the app runs. A run writes its report and diffs
+against the committed baseline; only `--promote` writes the baseline (#208).
 
 An ID with a folder under `llm/decisions/` is a decision set: it runs on Jev, graded at its
 thresholds from `Settings`, with no judge model. `router_fast` runs on the router's cases and
@@ -28,7 +32,8 @@ from pydantic_ai.providers.typesafe import TypeSafeProvider
 from pydantic_evals.evaluators import Evaluator
 
 from ai_trainer.domain.llm_calls import ProviderPreferences, ReasoningEffort
-from ai_trainer.domain.sports.registry import default_sport_registry
+from ai_trainer.domain.sports.registry import SportRegistry, default_sport_registry
+from ai_trainer.llm.chitchat import CHITCHAT_TEMPLATE_ID, chitchat_template
 from ai_trainer.llm.conversation import build_prompt_registry
 from ai_trainer.llm.decision_gateway import OPENROUTER_SYSTEM_ONE_BASE_URL
 from ai_trainer.llm.decisions.loader import DECISIONS_ROOT, DecisionSetLoader
@@ -45,13 +50,15 @@ from ai_trainer.llm.evals.runner import (
 from ai_trainer.llm.extract import ActivitiesMatch, DateMatch, QuestionMatch
 from ai_trainer.llm.gateway import provider_config, reasoning_at
 from ai_trainer.llm.prompts.registry import PromptRegistry
-from ai_trainer.llm.prompts.template import (
-    PromptTemplate,
-    TemplateOutput,
-    UnknownPromptTemplateError,
+from ai_trainer.llm.prompts.template import PromptTemplate, TemplateOutput
+from ai_trainer.llm.router import (
+    ACTIVE_ROUTER_VERSION,
+    ROUTER_TEMPLATE_ID,
+    IntentKindsMatch,
+    LogSessionSportMatch,
 )
-from ai_trainer.llm.router import IntentKindsMatch, LogSessionSportMatch
-from ai_trainer.llm.router_fast import ROUTER_FAST_ID, RouterFastThresholds
+from ai_trainer.llm.router_fast import ROUTER_FAST_ID, ROUTER_FAST_VERSION, RouterFastThresholds
+from ai_trainer.llm.safety_screen import SAFETY_SCREEN_ID, SAFETY_SCREEN_VERSION
 from ai_trainer.settings import Settings
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
@@ -93,6 +100,61 @@ def _evaluators_for(
     return _EVALUATORS.get(template_id, ())
 
 
+# Every output an extraction that may ask can return, at any version: a version from before
+# its question still reads the dataset's question cases, and fails them (#208).
+_EXPECTED_OUTPUTS: dict[str, tuple[type[BaseModel], ...]] = {
+    plugin.extraction.template_id: (plugin.extraction.output_type, plugin.extraction.question.type)
+    for plugin in default_sport_registry().all()
+    if plugin.extraction is not None and plugin.extraction.question is not None
+}
+
+
+def _expected_output_types(template_id: str) -> tuple[type[BaseModel], ...] | None:
+    """The types a template's dataset is read with, when they're more than its own outputs."""
+    return _EXPECTED_OUTPUTS.get(template_id)
+
+
+def _active_versions(sports: SportRegistry) -> dict[str, int]:
+    """The version of each template and decision set the app runs, read from where the app
+    reads it, so a run without `--version` measures what ships (#208)."""
+    return {
+        ROUTER_TEMPLATE_ID: ACTIVE_ROUTER_VERSION,
+        CHITCHAT_TEMPLATE_ID: chitchat_template().version,
+        **{
+            plugin.extraction.template_id: plugin.extraction.version
+            for plugin in sports.all()
+            if plugin.extraction is not None
+        },
+        ROUTER_FAST_ID: ROUTER_FAST_VERSION,
+        SAFETY_SCREEN_ID: SAFETY_SCREEN_VERSION,
+    }
+
+
+def _version_to_run(item_id: str, requested: int | None, known: list[int]) -> int | None:
+    """`requested`, or the app's version; `None`, with one line printed, when it isn't one of
+    `known`, before any key is read or model built."""
+    version = (
+        requested
+        if requested is not None
+        else _active_versions(default_sport_registry()).get(item_id)
+    )
+    if version is None:
+        print(
+            f"The app runs no version of {item_id}; pass --version "
+            + " or ".join(str(number) for number in known),
+            file=sys.stderr,
+        )
+        return None
+    if version not in known:
+        print(
+            f"No version {version}: {item_id} has versions "
+            + ", ".join(str(number) for number in known),
+            file=sys.stderr,
+        )
+        return None
+    return version
+
+
 def _is_decision_set(item_id: str) -> bool:
     return (_DECISIONS_ROOT / item_id).is_dir()
 
@@ -126,13 +188,20 @@ def _build_parser() -> argparse.ArgumentParser:
 
     run_parser = subparsers.add_parser("run", help="Run a template's eval dataset")
     run_parser.add_argument("template_id")
-    run_parser.add_argument("--version", type=int, default=1)
+    run_parser.add_argument(
+        "--version", type=int, default=None, help="Defaults to the version the app runs"
+    )
     run_parser.add_argument("--model", default=None, help="Overrides the model under test")
     run_parser.add_argument(
         "--repeat",
         type=_positive_int,
         default=1,
         help="Runs every case N times; the baseline averages over all runs",
+    )
+    run_parser.add_argument(
+        "--promote",
+        action="store_true",
+        help="Writes the run's figures to the committed baseline, even on a regression",
     )
 
     return parser
@@ -141,6 +210,7 @@ def _build_parser() -> argparse.ArgumentParser:
 async def execute(
     args: argparse.Namespace,
     *,
+    version: int,
     settings: Settings,
     registry: PromptRegistry,
     datasets_root: Path,
@@ -151,14 +221,16 @@ async def execute(
     judge_model: Model,
     judge_model_id: str,
     custom_evaluator_types: Sequence[type[Evaluator[EvalCaseInputs, BaseModel, object]]] = (),
+    expected_output_types: tuple[type[BaseModel], ...] | None = None,
 ) -> int:
     """The testable core: `model`/`judge_model` are already-resolved `Model` instances, so a
     test injects a scripted `FunctionModel` here instead of a real `OpenRouterModel`."""
+    _print_header(args.template_id, version, model_id)
     try:
         result = await run_eval(
             registry=registry,
             template_id=args.template_id,
-            version=args.version,
+            version=version,
             model=model,
             model_id=model_id,
             judge_model=judge_model,
@@ -168,21 +240,47 @@ async def execute(
             reports_root=reports_root,
             custom_evaluator_types=custom_evaluator_types,
             repeat=args.repeat,
+            promote=args.promote,
+            expected_output_types=expected_output_types,
         )
     except (JudgeModelMatchesModelUnderTestError, CaseFailedError, EvaluatorFailedError) as exc:
         print(str(exc), file=sys.stderr)
         return 1
 
-    if result.regressions:
-        for regression in result.regressions:
-            print(f"REGRESSION: {regression}", file=sys.stderr)
-        return 1
-    return 0
+    return _report_outcome(
+        args, baselines_root=baselines_root, changes=[], regressions=result.regressions
+    )
+
+
+def _print_header(item_id: str, version: int, model_id: str) -> None:
+    """What the run measures, before its first model call (#208)."""
+    print(f"{item_id} v{version} ({model_id})", flush=True)
+
+
+def _report_outcome(
+    args: argparse.Namespace,
+    *,
+    baselines_root: Path,
+    changes: Sequence[str],
+    regressions: Sequence[str],
+) -> int:
+    """Prints what changed, each regression, and whether the baseline was written; a promoted
+    regression is written too, for the owner to approve at the `/tune-prompt` gate (#208)."""
+    for change in changes:
+        print(f"CHANGED: {change}")
+    for regression in regressions:
+        print(f"REGRESSION: {regression}", file=sys.stderr)
+    if args.promote:
+        print(f"PROMOTED: {baselines_root / f'{args.template_id}.json'}")
+    else:
+        print("baseline not written (pass --promote to write it)")
+    return 1 if regressions else 0
 
 
 async def execute_decision(
     args: argparse.Namespace,
     *,
+    version: int,
     loader: DecisionSetLoader,
     model: Model,
     model_id: str,
@@ -192,11 +290,12 @@ async def execute_decision(
     reports_root: Path,
 ) -> int:
     """The decision-set counterpart of `execute`; a test injects a fake `DecisionModel`."""
+    _print_header(args.template_id, version, model_id)
     try:
         result = await run_decision_eval(
             loader=loader,
             decision_id=args.template_id,
-            version=args.version,
+            version=version,
             model=model,
             model_id=model_id,
             thresholds=thresholds,
@@ -204,21 +303,24 @@ async def execute_decision(
             baselines_root=baselines_root,
             reports_root=reports_root,
             repeat=args.repeat,
+            promote=args.promote,
         )
     except (CaseFailedError, EvaluatorFailedError) as exc:
         print(str(exc), file=sys.stderr)
         return 1
 
-    for change in result.changes:
-        print(f"CHANGED: {change}")
-    for regression in result.regressions:
-        print(f"REGRESSION: {regression}", file=sys.stderr)
-    return 1 if result.regressions else 0
+    return _report_outcome(
+        args,
+        baselines_root=baselines_root,
+        changes=result.changes,
+        regressions=result.regressions,
+    )
 
 
 async def execute_router_fast(
     args: argparse.Namespace,
     *,
+    version: int,
     loader: DecisionSetLoader,
     model: Model,
     model_id: str,
@@ -228,10 +330,11 @@ async def execute_router_fast(
     reports_root: Path,
 ) -> int:
     """`router_fast`'s counterpart of `execute_decision`; a test injects a fake `DecisionModel`."""
+    _print_header(args.template_id, version, model_id)
     try:
         result = await run_router_fast_eval(
             loader=loader,
-            version=args.version,
+            version=version,
             model=model,
             model_id=model_id,
             thresholds=thresholds,
@@ -239,16 +342,18 @@ async def execute_router_fast(
             baselines_root=baselines_root,
             reports_root=reports_root,
             repeat=args.repeat,
+            promote=args.promote,
         )
     except (CaseFailedError, EvaluatorFailedError, FastPathAccuracyError) as exc:
         print(str(exc), file=sys.stderr)
         return 1
 
-    for change in result.changes:
-        print(f"CHANGED: {change}")
-    for regression in result.regressions:
-        print(f"REGRESSION: {regression}", file=sys.stderr)
-    return 1 if result.regressions else 0
+    return _report_outcome(
+        args,
+        baselines_root=baselines_root,
+        changes=result.changes,
+        regressions=result.regressions,
+    )
 
 
 def _decision_model(settings: Settings, *, model_override: str | None, api_key: str) -> Model:
@@ -292,19 +397,28 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
     settings = Settings()
     registry = _default_registry()
+    loader = DecisionSetLoader(root=_DECISIONS_ROOT)
+    template_versions = registry.versions(args.template_id)
 
     if _is_decision_set(args.template_id):
-        try:
-            registry.get(args.template_id, args.version)
-        except UnknownPromptTemplateError:
-            return _main_decision(args, settings)
-        print(
-            f"{args.template_id!r} is both a prompt template and a decision set; rename one.",
-            file=sys.stderr,
-        )
-        return 1
+        if template_versions:
+            print(
+                f"{args.template_id!r} is both a prompt template and a decision set; rename one.",
+                file=sys.stderr,
+            )
+            return 1
+        version = _version_to_run(args.template_id, args.version, loader.versions(args.template_id))
+        if version is None:
+            return 1
+        return _main_decision(args, settings, version=version, loader=loader)
 
-    template = registry.get(args.template_id, args.version)
+    if not template_versions:
+        print(f"No prompt template or decision set named {args.template_id!r}", file=sys.stderr)
+        return 1
+    version = _version_to_run(args.template_id, args.version, template_versions)
+    if version is None:
+        return 1
+    template = registry.get(args.template_id, version)
     judge_model_id = settings.eval_judge_model
 
     api_key = _api_key(settings)
@@ -320,6 +434,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     return asyncio.run(
         execute(
             args,
+            version=version,
             settings=settings,
             registry=registry,
             datasets_root=_EVALS_ROOT / "datasets",
@@ -330,6 +445,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             judge_model=judge_model,
             judge_model_id=judge_model_id,
             custom_evaluator_types=_evaluators_for(args.template_id),
+            expected_output_types=_expected_output_types(args.template_id),
         )
     )
 
@@ -357,7 +473,9 @@ def _api_key(settings: Settings) -> str | None:
     return api_key
 
 
-def _main_decision(args: argparse.Namespace, settings: Settings) -> int:
+def _main_decision(
+    args: argparse.Namespace, settings: Settings, *, version: int, loader: DecisionSetLoader
+) -> int:
     api_key = _api_key(settings)
     if api_key is None:
         return 1
@@ -366,7 +484,8 @@ def _main_decision(args: argparse.Namespace, settings: Settings) -> int:
         return asyncio.run(
             execute_router_fast(
                 args,
-                loader=DecisionSetLoader(root=_DECISIONS_ROOT),
+                version=version,
+                loader=loader,
                 model=model,
                 model_id=model.model_name,
                 thresholds=_router_fast_thresholds(settings),
@@ -378,7 +497,8 @@ def _main_decision(args: argparse.Namespace, settings: Settings) -> int:
     return asyncio.run(
         execute_decision(
             args,
-            loader=DecisionSetLoader(root=_DECISIONS_ROOT),
+            version=version,
+            loader=loader,
             model=model,
             model_id=model.model_name,
             thresholds=_decision_thresholds(args.template_id, settings),

@@ -165,14 +165,20 @@ def current_baseline[OutputT](
     )
 
 
-def record_baseline(baselines_root: Path, current: Baseline) -> tuple[Baseline | None, list[str]]:
-    """Diffs `current` against the committed baseline, then saves it with the committed
-    file's regression thresholds. Returns the previous baseline and the regressions."""
+def record_baseline(
+    baselines_root: Path, current: Baseline, *, promote: bool
+) -> tuple[Baseline | None, list[str]]:
+    """Diffs `current` against the committed baseline and, only when `promote`d, saves it with
+    the committed file's regression thresholds, regressions included: the owner approves a
+    promote at the `/tune-prompt` gate (#208). Returns the previous baseline and the
+    regressions."""
     baseline_path = baselines_root / f"{current.template_id}.json"
     previous = load_baseline(baseline_path)
     regressions = (
         find_regressions(previous=previous, current=current) if previous is not None else []
     )
+    if not promote:
+        return previous, regressions
     save_baseline(
         baseline_path,
         current.model_copy(
@@ -198,9 +204,11 @@ async def run_eval(
     reports_root: Path,
     custom_evaluator_types: Sequence[type[Evaluator[EvalCaseInputs, BaseModel, object]]] = (),
     repeat: int = 1,
+    promote: bool = False,
+    expected_output_types: tuple[type[BaseModel], ...] | None = None,
 ) -> EvalRunResult:
-    """Runs `template_id`'s dataset against `model`, writes a report and a baseline, and
-    reports any regression against the previously committed baseline (ADR-0009).
+    """Runs `template_id`'s dataset against `model`, writes a report, reports any regression
+    against the committed baseline (ADR-0009), and writes the baseline only when `promote`d.
 
     `model` and `judge_model` are already-resolved `Model` instances so the caller (the CLI)
     decides whether they're real `OpenRouterModel`s or, in a test, a scripted `FunctionModel`
@@ -209,7 +217,9 @@ async def run_eval(
     (e.g. `LLMJudge`), since the dataset YAML only stores evaluator names. They grade
     structured output only; a text-output template is graded by built-ins such as `LLMJudge`.
     `repeat` runs every case that many times: one model reply per case is noisy, so the
-    baseline averages over all of them.
+    baseline averages over all of them. `expected_output_types` reads the dataset with every
+    output the template's plugin can return, so a version older than a case's expected output
+    still loads it and fails that case (#208); by default, the template's own output types.
     """
     if judge_model_id == model_id:
         raise JudgeModelMatchesModelUnderTestError(model_id)
@@ -244,11 +254,8 @@ async def run_eval(
     # class object at runtime, which is all `Dataset.__class_getitem__` needs.
     # A template whose model picks between several outputs (ticket #164) reads its expected
     # outputs as their union.
-    output_type = (
-        reduce(operator.or_, template.output_type)
-        if isinstance(template.output_type, tuple)
-        else template.output_type
-    )
+    readable = expected_output_types or template.output_type
+    output_type = reduce(operator.or_, readable) if isinstance(readable, tuple) else readable
     dataset: Dataset[EvalCaseInputs, TemplateOutput, object] = Dataset[
         EvalCaseInputs, output_type, object  # type: ignore[valid-type]
     ].from_file(
@@ -280,7 +287,7 @@ async def run_eval(
 
     raise_on_failures(report)
     current = current_baseline(report, template_id=template_id, version=version, model_id=model_id)
-    previous, regressions = record_baseline(baselines_root, current)
+    previous, regressions = record_baseline(baselines_root, current, promote=promote)
 
     return EvalRunResult(
         report=report, baseline=current, previous_baseline=previous, regressions=regressions

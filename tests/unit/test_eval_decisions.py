@@ -110,6 +110,7 @@ async def _run(
     *,
     thresholds: dict[str, float] | None = None,
     repeat: int = 1,
+    promote: bool = True,
 ) -> DecisionEvalRunResult:
     return await run_decision_eval(
         loader=DecisionSetLoader(root=FIXTURES),
@@ -122,6 +123,7 @@ async def _run(
         baselines_root=tmp_path / "baselines",
         reports_root=tmp_path / "reports",
         repeat=repeat,
+        promote=promote,
     )
 
 
@@ -328,3 +330,29 @@ async def test_an_unlabelled_score_whose_level_changes_between_repeats_flips(
     assert result.baseline.cases is not None
     assert result.baseline.cases["shoulder twinge"]["effort"].flips
     assert not result.baseline.cases["shoulder twinge"]["mentions_pain"].flips
+
+
+async def test_a_regressing_run_without_promote_leaves_the_baseline_byte_identical(
+    tmp_path: Path,
+) -> None:
+    """A decision set's run writes its baseline only when promoted, like a template's (#208)."""
+    _write_dataset(tmp_path / "datasets", [_PAIN_CASE])
+    await _run(tmp_path, ScriptedJev(iter([0.82])))
+    path = tmp_path / "baselines" / "sample.json"
+    before = path.read_bytes()
+
+    result = await _run(tmp_path, ScriptedJev(iter([0.1])), promote=False)
+
+    assert result.regressions
+    assert path.read_bytes() == before
+
+
+async def test_a_promoted_regression_still_writes_the_baseline(tmp_path: Path) -> None:
+    _write_dataset(tmp_path / "datasets", [_PAIN_CASE])
+    await _run(tmp_path, ScriptedJev(iter([0.82])))
+
+    result = await _run(tmp_path, ScriptedJev(iter([0.1])), promote=True)
+
+    assert result.regressions
+    saved = Baseline.model_validate_json((tmp_path / "baselines" / "sample.json").read_text())
+    assert saved.assertions == result.baseline.assertions < 1.0

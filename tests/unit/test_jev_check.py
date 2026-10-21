@@ -133,6 +133,8 @@ async def _run(
         baselines_root=tmp_path / "baselines",
         reports_root=tmp_path / "reports",
         custom_evaluator_types=[JevCheck],
+        # A check never blocks a promoted baseline (ADR-0009).
+        promote=True,
     )
 
 

@@ -7,7 +7,7 @@ from ai_trainer.domain.llm_calls import LlmCallOutcome
 from ai_trainer.llm.decisions.loader import DecisionSetLoader
 
 SAFETY_SCREEN_ID = "safety_screen"
-_SAFETY_SCREEN_VERSION = 1
+SAFETY_SCREEN_VERSION = 1
 _PAIN = "pain"
 
 
@@ -26,7 +26,7 @@ class JevSafetyScreen:
         self._decisions = decisions
         self._threshold = threshold
         self._set = (loader or DecisionSetLoader()).load(
-            SAFETY_SCREEN_ID, _SAFETY_SCREEN_VERSION, questions={_PAIN}
+            SAFETY_SCREEN_ID, SAFETY_SCREEN_VERSION, questions={_PAIN}
         )
 
     async def finds_pain(self, user_id: UUID, message: str) -> bool:

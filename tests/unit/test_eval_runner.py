@@ -15,7 +15,7 @@ from pydantic_ai.exceptions import ModelHTTPError
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 from pydantic_evals.evaluators import EqualsExpected, Evaluator, EvaluatorContext
 
-from ai_trainer.llm.evals.baseline import Baseline, save_baseline
+from ai_trainer.llm.evals.baseline import Baseline, BaselineThresholds, save_baseline
 from ai_trainer.llm.evals.runner import (
     CaseFailedError,
     EvalCaseInputs,
@@ -126,6 +126,7 @@ async def _run(
     *,
     model_id: str = _MODEL_UNDER_TEST_ID,
     judge_model_id: str = _JUDGE_MODEL_ID,
+    promote: bool = False,
 ) -> EvalRunResult:
     _write_sample_dataset(tmp_path / "datasets" / "sample.yaml")
     return await run_eval(
@@ -140,6 +141,7 @@ async def _run(
         baselines_root=tmp_path / "baselines",
         reports_root=tmp_path / "reports",
         custom_evaluator_types=[_MentionsNameScore],
+        promote=promote,
     )
 
 
@@ -165,8 +167,8 @@ async def test_run_against_sample_dataset_writes_report_and_prints_per_case_scor
     assert "Scores" in console_output
 
 
-async def test_first_run_with_no_baseline_writes_one(tmp_path: Path) -> None:
-    result = await _run(tmp_path)
+async def test_a_promoted_first_run_with_no_baseline_writes_one(tmp_path: Path) -> None:
+    result = await _run(tmp_path, promote=True)
 
     assert result.previous_baseline is None
     assert result.regressions == []
@@ -180,7 +182,7 @@ async def test_first_run_with_no_baseline_writes_one(tmp_path: Path) -> None:
 
 
 async def test_second_run_diffs_against_the_existing_baseline(tmp_path: Path) -> None:
-    await _run(tmp_path)
+    await _run(tmp_path, promote=True)
 
     result = await _run(tmp_path)
 
@@ -398,6 +400,7 @@ async def test_a_text_output_template_is_graded_by_a_named_llm_judge(tmp_path: P
         datasets_root=tmp_path / "datasets",
         baselines_root=tmp_path / "baselines",
         reports_root=tmp_path / "reports",
+        promote=True,
     )
 
     case = result.report.cases[0]
@@ -548,3 +551,122 @@ async def test_a_case_runs_with_the_output_its_deps_narrow_the_template_to(
 
     assert offered == [["final_result"]]
     assert result.baseline.assertions == 1.0
+
+
+# A run diffs against the committed baseline and writes it only when promoted (#208).
+
+
+def _regressed_baseline(tmp_path: Path) -> Path:
+    path = tmp_path / "baselines" / "sample.json"
+    save_baseline(
+        path,
+        Baseline(
+            template_id="sample",
+            version=1,
+            model=_MODEL_UNDER_TEST_ID,
+            assertions=1.0,
+            scores={"_MentionsNameScore": 1.0},
+            thresholds=BaselineThresholds(max_assertions_drop=0.1, max_score_drop=0.2),
+        ),
+    )
+    return path
+
+
+def _no_name_response(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+    return ModelResponse(parts=[TextPart('{"reply": "hello there"}')])
+
+
+async def _run_regressing(tmp_path: Path, *, promote: bool) -> EvalRunResult:
+    _write_sample_dataset(tmp_path / "datasets" / "sample.yaml")
+    return await run_eval(
+        registry=_registry(),
+        template_id="sample",
+        version=1,
+        model=FunctionModel(_no_name_response),
+        model_id=_MODEL_UNDER_TEST_ID,
+        judge_model=FunctionModel(_reply_response),
+        judge_model_id=_JUDGE_MODEL_ID,
+        datasets_root=tmp_path / "datasets",
+        baselines_root=tmp_path / "baselines",
+        reports_root=tmp_path / "reports",
+        custom_evaluator_types=[_MentionsNameScore],
+        promote=promote,
+    )
+
+
+async def test_a_run_without_promote_writes_no_baseline(tmp_path: Path) -> None:
+    result = await _run(tmp_path)
+
+    assert result.baseline.assertions == 1.0
+    assert (tmp_path / "reports" / "sample.json").exists()
+    assert not (tmp_path / "baselines" / "sample.json").exists()
+
+
+async def test_a_regressing_run_without_promote_leaves_the_baseline_byte_identical(
+    tmp_path: Path,
+) -> None:
+    path = _regressed_baseline(tmp_path)
+    before = path.read_bytes()
+
+    result = await _run_regressing(tmp_path, promote=False)
+
+    assert result.regressions
+    assert path.read_bytes() == before
+
+
+async def test_a_promoted_regression_writes_the_new_figures_with_the_committed_thresholds(
+    tmp_path: Path,
+) -> None:
+    path = _regressed_baseline(tmp_path)
+
+    result = await _run_regressing(tmp_path, promote=True)
+
+    assert result.regressions
+    saved = Baseline.model_validate_json(path.read_text())
+    assert saved.assertions == 0.0
+    assert saved.scores == {"_MentionsNameScore": 0.0}
+    assert saved.thresholds == BaselineThresholds(max_assertions_drop=0.1, max_score_drop=0.2)
+
+
+async def test_an_older_version_reads_the_cases_it_cannot_return_as_failed_cases(
+    tmp_path: Path,
+) -> None:
+    """A version from before a template could ask still loads a dataset holding question cases
+    when the run names every output the template's plugin can return; the case's draft then
+    fails the comparison instead of the load (#208)."""
+    from pydantic_evals import Case, Dataset
+
+    (tmp_path / "datasets").mkdir()
+    Dataset[EvalCaseInputs, _Output | _Question, object](
+        name="sample",
+        cases=[
+            Case(
+                name="asks",
+                inputs=EvalCaseInputs(prompt="?", deps={"name": "Alex", "sport": "climbing"}),
+                expected_output=_Question(ask="which?"),
+            ),
+            Case(
+                name="drafts",
+                inputs=EvalCaseInputs(prompt="hi", deps={"name": "Alex", "sport": "climbing"}),
+                expected_output=_Output(reply="hi Alex"),
+            ),
+        ],
+        evaluators=[EqualsExpected()],
+    ).to_file(tmp_path / "datasets" / "sample.yaml")
+
+    result = await run_eval(
+        registry=_registry(),
+        template_id="sample",
+        version=1,
+        model=FunctionModel(_reply_response),
+        model_id=_MODEL_UNDER_TEST_ID,
+        judge_model=FunctionModel(_reply_response),
+        judge_model_id=_JUDGE_MODEL_ID,
+        datasets_root=tmp_path / "datasets",
+        baselines_root=tmp_path / "baselines",
+        reports_root=tmp_path / "reports",
+        expected_output_types=(_Output, _Question),
+    )
+
+    grades = {case.name: case.assertions["EqualsExpected"].value for case in result.report.cases}
+    assert grades == {"asks": False, "drafts": True}

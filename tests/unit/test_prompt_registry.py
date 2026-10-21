@@ -1,3 +1,4 @@
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -183,3 +184,12 @@ async def test_a_template_that_opts_out_of_the_persona_gets_none_in_app_and_eval
     assert rendered == seen[0]
     assert "supportive training companion" not in rendered
     assert rendered.startswith("Greet Alex, who trains climbing.")
+
+
+def test_versions_lists_a_templates_registered_versions_in_order() -> None:
+    """The eval CLI names them when asked for one that isn't registered (#208)."""
+    registry = _registry()
+    registry.register(replace(_SAMPLE_TEMPLATE, version=3))
+
+    assert registry.versions("sample") == [1, 3]
+    assert registry.versions("missing") == []

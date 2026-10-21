@@ -34,6 +34,10 @@ class PromptRegistry:
         except KeyError:
             raise UnknownPromptTemplateError(template_id, version) from None
 
+    def versions(self, template_id: str) -> list[int]:
+        """The template's registered versions, in order; none for an unknown ID."""
+        return sorted(version for id_, version in self._templates if id_ == template_id)
+
     def load_body(self, template: PromptTemplate[BaseModel, TemplateOutput]) -> str:
         return self._body_path(template.id, template.version, template.locale).read_text()
 
