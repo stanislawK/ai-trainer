@@ -170,21 +170,23 @@ class ActivitiesMatch(Evaluator[EvalCaseInputs, BaseModel]):
         )
 
 
-def _readings(output: BaseModel) -> list[str]:
-    return sorted(
-        json.dumps(reading.model_dump(mode="json"), sort_keys=True)
-        for reading in getattr(output, "readings")  # noqa: B009
+def _question(output: BaseModel) -> dict[str, Any]:
+    """The question as graded: every field, its `readings` in any order (ticket #206)."""
+    fields = output.model_dump(mode="json")
+    fields["readings"] = sorted(
+        json.dumps(reading, sort_keys=True) for reading in fields["readings"]
     )
+    return fields
 
 
 @dataclass
 class QuestionMatch(Evaluator[EvalCaseInputs, BaseModel]):
     """Code-graded (B17, ticket #164): a question exactly where one is due, never a guess and
-    never a needless tap, and then the same readings in any order."""
+    never a needless tap, and then the same question with its readings in any order."""
 
     def evaluate(self, ctx: EvaluatorContext[EvalCaseInputs, BaseModel]) -> bool:
         assert ctx.expected_output is not None
         due = isinstance(ctx.expected_output, ExtractionQuestion)
         if isinstance(ctx.output, ExtractionQuestion) != due:
             return False
-        return not due or _readings(ctx.output) == _readings(ctx.expected_output)
+        return not due or _question(ctx.output) == _question(ctx.expected_output)

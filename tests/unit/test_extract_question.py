@@ -1,6 +1,6 @@
-"""`climbing.extract` v3 may return a question instead of a draft (B17, ADR-0015, ticket #164):
-its output, the recent climbing kinds and the athlete's answer in its deps, and the resumed run
-that can only draft."""
+"""`climbing.extract` v3 may return a question instead of a draft (B17, ADR-0015, ticket #164),
+and so may `gym.extract` and `cycling.extract` v3 (ticket #206): their output, the recent context
+and the athlete's answer in their deps, and the resumed run that can only draft."""
 
 from datetime import UTC, datetime
 from pathlib import Path
@@ -12,6 +12,8 @@ from pydantic_ai.models.function import AgentInfo, FunctionModel
 from pydantic_evals.evaluators import EvaluatorContext
 
 from ai_trainer.domain.sports.climbing.extraction import ClimbingExtraction, ClimbingQuestion
+from ai_trainer.domain.sports.cycling.extraction import CyclingQuestion
+from ai_trainer.domain.sports.gym.extraction import GymExtraction, GymQuestion
 from ai_trainer.domain.sports.registry import default_sport_registry
 from ai_trainer.llm.conversation import build_prompt_registry
 from ai_trainer.llm.evals.runner import EvalCaseInputs
@@ -82,10 +84,21 @@ def test_a_run_that_may_not_ask_can_only_draft() -> None:
 
 
 def test_a_sport_with_no_question_can_only_draft() -> None:
-    spec = default_sport_registry().get("gym").extraction
-    assert spec is not None
+    spec = _climbing_spec().model_copy(update={"question": None})
 
     assert extract_template(spec).output_type is spec.output_type
+
+
+def test_gym_and_cycling_v3_offer_the_draft_or_their_question() -> None:
+    """Ticket #206."""
+    for sport_id, question in (("gym", GymQuestion), ("cycling", CyclingQuestion)):
+        spec = default_sport_registry().get(sport_id).extraction
+        assert spec is not None
+        template = extract_template(spec)
+
+        assert template.version == 3
+        assert template.output_type == (spec.output_type, question)
+        assert extract_template(spec, version=2).output_type is spec.output_type
 
 
 def _answering(tool: str, args: dict[str, Any], seen: list[str] | None = None) -> FunctionModel:
@@ -243,3 +256,70 @@ def test_an_answered_run_is_narrowed_only_for_extraction_deps() -> None:
 def test_a_template_that_never_asks_needs_no_narrowing() -> None:
     assert extract_template(_climbing_spec(), version=2).output_for is None
     assert extract_template(_climbing_spec(), may_ask=False).output_for is None
+
+
+_PRESS = {"about": "movement", "exercise": "press", "readings": ["overhead press", "bench press"]}
+
+
+async def test_the_gym_v3_agent_asks_which_movement() -> None:
+    agent = _registry().build_agent("gym.extract", 3)
+
+    result = await agent.run(
+        "Did 5x5 press at 60",
+        deps=_deps(message="Did 5x5 press at 60"),
+        model=_answering("GymQuestion", _PRESS),
+    )
+
+    assert result.output == GymQuestion.model_validate(_PRESS)
+
+
+async def test_the_cycling_v3_agent_asks_km_or_miles() -> None:
+    question = {"distance": "40", "readings": ["mi", "km"]}
+    agent = _registry().build_agent("cycling.extract", 3)
+
+    result = await agent.run(
+        "Rode 40",
+        deps=_deps(message="Rode 40", recent=("mi", "km")),
+        model=_answering("CyclingQuestion", question),
+    )
+
+    assert result.output == CyclingQuestion.model_validate(question)
+
+
+def test_the_gym_v3_prompt_carries_the_recent_exercises_and_the_answer() -> None:
+    rendered = _registry().render_instructions(
+        "gym.extract",
+        3,
+        _deps(recent=("bench press (kg)", "pull-ups"), answers=("overhead press",)),
+    )
+
+    assert "recent sessions, most recent first: bench press (kg), pull-ups." in rendered
+    assert "The athlete has answered what the log left open: overhead press." in rendered
+
+
+def test_the_cycling_v3_prompt_carries_the_recent_units_and_none_yet() -> None:
+    registry = _registry()
+
+    assert "recent rides, most recent first: mi, km." in registry.render_instructions(
+        "cycling.extract", 3, _deps(recent=("mi", "km"))
+    )
+    rendered = registry.render_instructions("cycling.extract", 3, _deps(answers=("km",)))
+    assert "recent rides, most recent first: none yet." in rendered
+    assert "The athlete has answered the unit of the distance this log left open: km." in rendered
+
+
+def test_question_match_compares_a_gym_question_whole_with_its_readings_in_any_order() -> None:
+    expected = GymQuestion.model_validate(_PRESS)
+    reordered = GymQuestion.model_validate(_PRESS | {"readings": ["bench press", "overhead press"]})
+    other_exercise = GymQuestion.model_validate(_PRESS | {"exercise": "row"})
+    a_draft = GymExtraction.model_validate(
+        {
+            "occurred_on": "2026-10-02",
+            "date_source": "assumed_today",
+            "activities": [{"name": "overhead press"}],
+        }
+    )
+
+    assert QuestionMatch().evaluate(_ctx(reordered, expected)) is True
+    assert QuestionMatch().evaluate(_ctx(other_exercise, expected)) is False
+    assert QuestionMatch().evaluate(_ctx(a_draft, expected)) is False

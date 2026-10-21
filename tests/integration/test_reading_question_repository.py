@@ -1,7 +1,8 @@
 """The reading question on PostgreSQL (PRD-0005 B17, ADR-0015, ADR-0022, ticket #164): the
 extraction sees the climbing kinds of the athlete's own recent sessions, an ambiguous log is an
 open `reading` clarification with its sport in the document and nothing else written, and the
-tap stores the draft in the chosen reading (ADR-0015 invariant 5)."""
+tap stores the draft in the chosen reading (ADR-0015 invariant 5). A gym or cycling question
+reads the athlete's recent exercises or ride units and writes nothing else too (ticket #206)."""
 
 from collections.abc import Callable
 from datetime import UTC, date, datetime, timedelta
@@ -34,6 +35,9 @@ from ai_trainer.domain.sports.climbing.extraction import (
     ClimbingQuestion,
     ExtractedClimb,
 )
+from ai_trainer.domain.sports.cycling.extraction import CyclingExtraction, CyclingQuestion
+from ai_trainer.domain.sports.gym.extraction import GymExtraction, GymQuestion
+from ai_trainer.domain.sports.gym.payload import GymPayload
 from ai_trainer.domain.sports.registry import default_sport_registry
 from ai_trainer.domain.users import NewUser, UserStatus
 from tests.chat_support import (
@@ -74,7 +78,13 @@ class _Climber:
     """A climber logging through the reply on the real repositories; each log's extraction
     answers with the next of `extractions`."""
 
-    def __init__(self, factory: Callable[[], AsyncSession], user_id: UUID, conversation_id: UUID):
+    def __init__(
+        self,
+        factory: Callable[[], AsyncSession],
+        user_id: UUID,
+        conversation_id: UUID,
+        sport: str = "climbing",
+    ):
         self.factory = factory
         self.user_id = user_id
         self.conversation_id = conversation_id
@@ -83,7 +93,7 @@ class _Climber:
         self.drafts = SqlAlchemySessionDraftRepository(factory)
         self.clarifications = SqlAlchemyClarificationRepository(factory)
         self.conversation = ScriptedConversation(
-            intents=[[Intent(kind="log_session", sport="climbing")]]
+            intents=[[Intent(kind="log_session", sport=sport)]]
         )
         self.services = ReplyServices(
             chat=self.chat,
@@ -94,9 +104,9 @@ class _Climber:
             clarifications=self.clarifications,
             sessions=SqlAlchemyTrainingSessionRepository(factory),
             sports=default_sport_registry(),
-            profile=InMemoryProfile({user_id: ["climbing"]}),
+            profile=InMemoryProfile({user_id: [sport]}),
             conversation=self.conversation,
-            fast_router=ScriptedFastRouter(intents=[Intent(kind="log_session", sport="climbing")]),
+            fast_router=ScriptedFastRouter(intents=[Intent(kind="log_session", sport=sport)]),
             safety_screen=ScriptedSafetyScreen(),
             clock=self.clock,
             history_turns=10,
@@ -123,7 +133,9 @@ class _Climber:
         await self.drafts.confirm(self.user_id, draft.id, confirmed_at=at)
 
 
-async def _climber(factory: Callable[[], AsyncSession], sub: str) -> _Climber:
+async def _climber(
+    factory: Callable[[], AsyncSession], sub: str, sport: str = "climbing"
+) -> _Climber:
     user = await SqlAlchemyUsersRepository(factory).create(
         NewUser(
             sub=sub, email=f"{sub}@example.com", name=None, locale="en", status=UserStatus.ACTIVE
@@ -132,7 +144,7 @@ async def _climber(factory: Callable[[], AsyncSession], sub: str) -> _Climber:
     conversation = await SqlAlchemyConversationRepository(
         factory, clock=_Clock(), retention_days=14
     ).create(user.id, "Climbed", _FIRST)
-    return _Climber(factory, user.id, conversation.id)
+    return _Climber(factory, user.id, conversation.id, sport)
 
 
 async def _boulders_and_leads(climber: _Climber) -> datetime:
@@ -246,3 +258,86 @@ async def test_an_option_the_question_never_offered_leaves_it_open_and_writes_no
 
     assert (await climber.clarifications.get(climber.user_id, question.id)).status == "open"
     assert await _count(db_session_factory, "session_drafts", climber.user_id) == 2
+
+
+def _ride(unit: str | None, on: datetime) -> CyclingExtraction:
+    return CyclingExtraction.model_validate(
+        {
+            "occurred_on": on.date().isoformat(),
+            "date_source": "assumed_today",
+            "activities": [{"distance": {"original": "40", "value": 40, "unit": unit}}],
+        }
+    )
+
+
+def _lift(name: str, unit: str | None, on: datetime) -> GymExtraction:
+    return GymExtraction.model_validate(
+        {
+            "occurred_on": on.date().isoformat(),
+            "date_source": "assumed_today",
+            "activities": [
+                {
+                    "name": name,
+                    "sets": 5,
+                    "reps": 5,
+                    "load": {"original": "60", "value": 60, "unit": unit},
+                }
+            ],
+        }
+    )
+
+
+async def test_a_ride_whose_unit_is_unclear_stores_only_its_question(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    """AC4 for cycling: the rides were in miles, then km."""
+    rider = await _climber(db_session_factory, "reading-ride", "cycling")
+    await rider.confirmed("40 mi", _FIRST, _ride("mi", _FIRST))
+    await rider.confirmed("40 km", _FIRST + _DAY, _ride("km", _FIRST + _DAY))
+    question = CyclingQuestion.model_validate({"distance": "40", "readings": ["km", "mi"]})
+
+    done = await rider.log("Rode 40", _FIRST + 2 * _DAY, question)
+
+    assert rider.conversation.extract_options[-1] == (("km", "mi"), (), True)
+    assert done.drafts == ()
+    [stored] = done.clarifications
+    assert (stored.purpose, stored.status, stored.clarification.sport) == (
+        "reading",
+        "open",
+        "cycling",
+    )
+    assert [option.id for option in stored.clarification.options] == ["km", "mi"]
+    assert await _count(db_session_factory, "session_drafts", rider.user_id) == 2
+    assert await _count(db_session_factory, "training_sessions", rider.user_id) == 2
+
+
+async def test_tapping_a_movement_stores_a_pending_draft_of_that_movement(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    """AC1 and AC4 for gym: nothing but the question until the tap, then the named draft."""
+    lifter = await _climber(db_session_factory, "reading-lift", "gym")
+    await lifter.confirmed("bench 5x5 60kg", _FIRST, _lift("bench press", "kg", _FIRST))
+    at = _FIRST + _DAY
+    question = GymQuestion.model_validate(
+        {"about": "movement", "exercise": "press", "readings": ["overhead press", "bench press"]}
+    )
+    [asked] = (await lifter.log("Did 5x5 press at 60", at, question)).clarifications
+    assert lifter.conversation.extract_options[-1][0] == ("bench press (kg)",)
+    assert await _count(db_session_factory, "session_drafts", lifter.user_id) == 1
+    assert await _count(db_session_factory, "training_sessions", lifter.user_id) == 1
+    lifter.conversation.extractions = [_lift("press", None, at)]
+
+    answered = await answer_clarification(
+        lifter.user_id,
+        asked.id,
+        ["overhead press"],
+        timezone="Europe/Warsaw",
+        services=lifter.services,
+    )
+
+    assert isinstance(answered, ClarificationAnswered)
+    [draft] = answered.reply.drafts
+    assert draft.status == "pending"
+    [exercise] = GymPayload.model_validate(draft.draft.payload).activities
+    assert exercise.name == "overhead press"
+    assert await _count(db_session_factory, "training_sessions", lifter.user_id) == 1

@@ -11,10 +11,14 @@ from ai_trainer.domain.sports.climbing.extraction import (
 )
 from ai_trainer.domain.sports.climbing.payload import CLIMBING_PAYLOAD_VERSION, ClimbingPayload
 from ai_trainer.domain.sports.cycling.edit import apply_cycling_edit
-from ai_trainer.domain.sports.cycling.extraction import CyclingExtraction
+from ai_trainer.domain.sports.cycling.extraction import (
+    CyclingExtraction,
+    CyclingQuestion,
+    recent_units,
+)
 from ai_trainer.domain.sports.cycling.payload import CYCLING_PAYLOAD_VERSION, CyclingPayload
 from ai_trainer.domain.sports.gym.edit import apply_gym_edit
-from ai_trainer.domain.sports.gym.extraction import GymExtraction
+from ai_trainer.domain.sports.gym.extraction import GymExtraction, GymQuestion, recent_exercises
 from ai_trainer.domain.sports.gym.payload import GYM_PAYLOAD_VERSION, GymPayload
 
 # Stands in for the glyph when a reply is about no sport or several (PRD-0003 F15). It is not
@@ -78,11 +82,13 @@ def default_sport_registry() -> SportRegistry:
                 icon="dumbbell",
                 extraction=ExtractionSpec(
                     template_id="gym.extract",
-                    version=2,
+                    version=3,
                     output_type=GymExtraction,
                     payload_type=GymPayload,
                     payload_version=GYM_PAYLOAD_VERSION,
                     apply_edit=apply_gym_edit,
+                    question=QuestionSpec(type=GymQuestion, since_version=3),
+                    recent=recent_exercises,
                 ),
             ),
             SportPlugin(
@@ -91,11 +97,13 @@ def default_sport_registry() -> SportRegistry:
                 icon="bike",
                 extraction=ExtractionSpec(
                     template_id="cycling.extract",
-                    version=2,
+                    version=3,
                     output_type=CyclingExtraction,
                     payload_type=CyclingPayload,
                     payload_version=CYCLING_PAYLOAD_VERSION,
                     apply_edit=apply_cycling_edit,
+                    question=QuestionSpec(type=CyclingQuestion, since_version=3),
+                    recent=recent_units,
                 ),
             ),
         ]

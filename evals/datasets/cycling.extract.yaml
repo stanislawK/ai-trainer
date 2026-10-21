@@ -138,7 +138,7 @@ cases:
       moving_time_min: null
       elevation: null
       zones: []
-- name: 'units: a number without a unit is no distance'
+- name: 'units: a ridden number without a unit is a distance with no unit (#206)'
   inputs:
     prompt: Rode 60 today
     deps:
@@ -153,7 +153,10 @@ cases:
     occurred_on: '2026-10-13'
     date_source: relative
     activities:
-    - distance: null
+    - distance:
+        original: '60'
+        value: 60
+        unit: null
       moving_time_min: null
       elevation: null
       zones: []
@@ -708,6 +711,362 @@ cases:
       zones:
       - zone: 2
         minutes: 75
+- name: 'reading: km and mi rides, a bare 40 asks (AC)'
+  inputs:
+    prompt: Rode 40
+    deps:
+      message: Rode 40
+      history: []
+      today: '2026-10-13'
+      weekday: Tuesday
+      now_local: '2026-10-13T19:00:00+02:00'
+      timezone: Europe/Warsaw
+      recent:
+      - km
+      - mi
+  metadata: null
+  expected_output:
+    distance: '40'
+    readings:
+    - km
+    - mi
+- name: 'reading: polish, mi and km rides, a bare 55 asks'
+  inputs:
+    prompt: Wczoraj 55 na rowerze
+    deps:
+      message: Wczoraj 55 na rowerze
+      history: []
+      today: '2026-10-13'
+      weekday: Tuesday
+      now_local: '2026-10-13T19:00:00+02:00'
+      timezone: Europe/Warsaw
+      recent:
+      - mi
+      - km
+  metadata: null
+  expected_output:
+    distance: '55'
+    readings:
+    - mi
+    - km
+- name: 'reading: 40 there and 40 back, km and mi rides, asks once'
+  inputs:
+    prompt: Commuted 40 there and 40 back
+    deps:
+      message: Commuted 40 there and 40 back
+      history: []
+      today: '2026-10-13'
+      weekday: Tuesday
+      now_local: '2026-10-13T19:00:00+02:00'
+      timezone: Europe/Warsaw
+      recent:
+      - km
+      - mi
+  metadata: null
+  expected_output:
+    distance: '40'
+    readings:
+    - km
+    - mi
+- name: 'reading: a bare 75 next to hours still asks'
+  inputs:
+    prompt: Rode 75 in 3 hours yesterday
+    deps:
+      message: Rode 75 in 3 hours yesterday
+      history: []
+      today: '2026-10-13'
+      weekday: Tuesday
+      now_local: '2026-10-13T19:00:00+02:00'
+      timezone: Europe/Warsaw
+      recent:
+      - km
+      - mi
+  metadata: null
+  expected_output:
+    distance: '75'
+    readings:
+    - km
+    - mi
+- name: 'reading: a bare 80 next to a bare speed asks about the 80'
+  inputs:
+    prompt: Did 80 on the road bike, avg 27
+    deps:
+      message: Did 80 on the road bike, avg 27
+      history: []
+      today: '2026-10-13'
+      weekday: Tuesday
+      now_local: '2026-10-13T19:00:00+02:00'
+      timezone: Europe/Warsaw
+      recent:
+      - mi
+      - km
+  metadata: null
+  expected_output:
+    distance: '80'
+    readings:
+    - mi
+    - km
+- name: 'reading: km-only rides, a bare 60 drafts km (AC)'
+  inputs:
+    prompt: Rode 60 this morning
+    deps:
+      message: Rode 60 this morning
+      history: []
+      today: '2026-10-13'
+      weekday: Tuesday
+      now_local: '2026-10-13T19:00:00+02:00'
+      timezone: Europe/Warsaw
+      recent:
+      - km
+  metadata: null
+  expected_output:
+    occurred_on: '2026-10-13'
+    date_source: relative
+    activities:
+    - distance:
+        original: '60'
+        value: 60
+        unit: km
+      moving_time_min: null
+      elevation: null
+      zones: []
+- name: 'reading: mi-only rides, a bare 45 drafts mi'
+  inputs:
+    prompt: Did 45 on the bike yesterday
+    deps:
+      message: Did 45 on the bike yesterday
+      history: []
+      today: '2026-10-13'
+      weekday: Tuesday
+      now_local: '2026-10-13T19:00:00+02:00'
+      timezone: Europe/Warsaw
+      recent:
+      - mi
+  metadata: null
+  expected_output:
+    occurred_on: '2026-10-12'
+    date_source: relative
+    activities:
+    - distance:
+        original: '45'
+        value: 45
+        unit: mi
+      moving_time_min: null
+      elevation: null
+      zones: []
+- name: 'reading: the message gives km, a bare second ride takes it'
+  inputs:
+    prompt: Rode 40 km out, then 15 on the way home
+    deps:
+      message: Rode 40 km out, then 15 on the way home
+      history: []
+      today: '2026-10-13'
+      weekday: Tuesday
+      now_local: '2026-10-13T19:00:00+02:00'
+      timezone: Europe/Warsaw
+      recent:
+      - mi
+      - km
+  metadata: null
+  expected_output:
+    occurred_on: '2026-10-13'
+    date_source: assumed_today
+    activities:
+    - distance:
+        original: 40 km
+        value: 40
+        unit: km
+      moving_time_min: null
+      elevation: null
+      zones: []
+    - distance:
+        original: '15'
+        value: 15
+        unit: km
+      moving_time_min: null
+      elevation: null
+      zones: []
+- name: 'reading: polish mil typed, km and mi rides, no question'
+  inputs:
+    prompt: Wczoraj 30 mil
+    deps:
+      message: Wczoraj 30 mil
+      history: []
+      today: '2026-10-13'
+      weekday: Tuesday
+      now_local: '2026-10-13T19:00:00+02:00'
+      timezone: Europe/Warsaw
+      recent:
+      - km
+      - mi
+  metadata: null
+  expected_output:
+    occurred_on: '2026-10-12'
+    date_source: relative
+    activities:
+    - distance:
+        original: 30 mil
+        value: 30
+        unit: mi
+      moving_time_min: null
+      elevation: null
+      zones: []
+- name: 'reading: no recent rides, a bare 35 has no unit'
+  inputs:
+    prompt: Rode 35 on Saturday
+    deps:
+      message: Rode 35 on Saturday
+      history: []
+      today: '2026-10-13'
+      weekday: Tuesday
+      now_local: '2026-10-13T19:00:00+02:00'
+      timezone: Europe/Warsaw
+      recent: []
+  metadata: null
+  expected_output:
+    occurred_on: '2026-10-10'
+    date_source: relative
+    activities:
+    - distance:
+        original: '35'
+        value: 35
+        unit: null
+      moving_time_min: null
+      elevation: null
+      zones: []
+- name: 'reading: 90 minutes is a time, km and mi rides, no question'
+  inputs:
+    prompt: Rode 90 minutes easy
+    deps:
+      message: Rode 90 minutes easy
+      history: []
+      today: '2026-10-13'
+      weekday: Tuesday
+      now_local: '2026-10-13T19:00:00+02:00'
+      timezone: Europe/Warsaw
+      recent:
+      - km
+      - mi
+  metadata: null
+  expected_output:
+    occurred_on: '2026-10-13'
+    date_source: assumed_today
+    activities:
+    - distance: null
+      moving_time_min: 90
+      elevation: null
+      zones: []
+- name: 'reading: avg 28 is a speed, km and mi rides, no question'
+  inputs:
+    prompt: 1:30 ride, avg 28
+    deps:
+      message: 1:30 ride, avg 28
+      history: []
+      today: '2026-10-13'
+      weekday: Tuesday
+      now_local: '2026-10-13T19:00:00+02:00'
+      timezone: Europe/Warsaw
+      recent:
+      - mi
+      - km
+  metadata: null
+  expected_output:
+    occurred_on: '2026-10-13'
+    date_source: assumed_today
+    activities:
+    - distance: null
+      moving_time_min: 90
+      elevation: null
+      zones: []
+- name: 'reading: answered mi drafts mi (AC)'
+  inputs:
+    prompt: Rode 40
+    deps:
+      message: Rode 40
+      history: []
+      today: '2026-10-13'
+      weekday: Tuesday
+      now_local: '2026-10-13T19:00:00+02:00'
+      timezone: Europe/Warsaw
+      recent:
+      - km
+      - mi
+      answers:
+      - mi
+  metadata: null
+  expected_output:
+    occurred_on: '2026-10-13'
+    date_source: assumed_today
+    activities:
+    - distance:
+        original: '40'
+        value: 40
+        unit: mi
+      moving_time_min: null
+      elevation: null
+      zones: []
+- name: 'reading: answered km drafts both rides of 40 there and 40 back'
+  inputs:
+    prompt: Commuted 40 there and 40 back
+    deps:
+      message: Commuted 40 there and 40 back
+      history: []
+      today: '2026-10-13'
+      weekday: Tuesday
+      now_local: '2026-10-13T19:00:00+02:00'
+      timezone: Europe/Warsaw
+      recent:
+      - km
+      - mi
+      answers:
+      - km
+  metadata: null
+  expected_output:
+    occurred_on: '2026-10-13'
+    date_source: assumed_today
+    activities:
+    - distance:
+        original: '40'
+        value: 40
+        unit: km
+      moving_time_min: null
+      elevation: null
+      zones: []
+    - distance:
+        original: '40'
+        value: 40
+        unit: km
+      moving_time_min: null
+      elevation: null
+      zones: []
+- name: 'reading: polish, answered km drafts km yesterday'
+  inputs:
+    prompt: Wczoraj 55 na rowerze
+    deps:
+      message: Wczoraj 55 na rowerze
+      history: []
+      today: '2026-10-13'
+      weekday: Tuesday
+      now_local: '2026-10-13T19:00:00+02:00'
+      timezone: Europe/Warsaw
+      recent:
+      - mi
+      - km
+      answers:
+      - km
+  metadata: null
+  expected_output:
+    occurred_on: '2026-10-12'
+    date_source: relative
+    activities:
+    - distance:
+        original: '55'
+        value: 55
+        unit: km
+      moving_time_min: null
+      elevation: null
+      zones: []
 evaluators:
 - DateMatch
 - ActivitiesMatch
+- QuestionMatch

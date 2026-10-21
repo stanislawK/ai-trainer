@@ -425,13 +425,13 @@ def test_chitchat_evals_add_jev_checks_to_their_built_in_judges() -> None:
 def test_extraction_evals_grade_the_date_and_the_activities_in_code() -> None:
     from ai_trainer.llm.extract import ActivitiesMatch, DateMatch, QuestionMatch
 
-    assert cli_module._evaluators_for("gym.extract") == (DateMatch, ActivitiesMatch)
-    # A template that may ask is graded on whether it asked, too (ticket #164).
-    assert cli_module._evaluators_for("climbing.extract") == (
-        DateMatch,
-        ActivitiesMatch,
-        QuestionMatch,
-    )
+    # A template that may ask is graded on whether it asked, too (tickets #164 and #206).
+    for template_id in ("climbing.extract", "gym.extract", "cycling.extract"):
+        assert cli_module._evaluators_for(template_id) == (
+            DateMatch,
+            ActivitiesMatch,
+            QuestionMatch,
+        )
 
 
 def test_default_registry_registers_climbing_extract_on_the_extract_model() -> None:

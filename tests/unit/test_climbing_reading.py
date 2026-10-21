@@ -103,14 +103,6 @@ def test_the_climbing_plugin_asks_and_reads_recent_kinds() -> None:
     assert spec.recent is recent_kinds
 
 
-@pytest.mark.parametrize("sport_id", ["gym", "cycling"])
-def test_other_sports_never_ask_and_read_no_recent_context(sport_id: str) -> None:
-    spec = default_sport_registry().get(sport_id).extraction
-
-    assert spec is not None
-    assert (spec.question, spec.recent) == (None, None)
-
-
 def _log(*climbs: tuple[str, str | None]) -> ClimbingExtraction:
     return ClimbingExtraction.model_validate(
         {

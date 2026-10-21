@@ -1,5 +1,10 @@
 {#- User-facing gym formats (G5), shared by the gym draft card, its edit fields and its logged row (ticket #159). Import with
-    `{% from "components/gym_copy.html" import exercise_name, kg, kg_value, scheme %}`. A name keeps how it was typed but starts upper case ("Squat", "RDL"); a load shows in kg to one decimal ("142.9", "100"); a scheme is "5 × 5", "3 sets" or "12 reps". -#}
+    `{% from "components/gym_copy.html" import exercise_name, kg, kg_value, scheme %}`. A name keeps how it was typed but starts upper case ("Squat", "RDL"); a load shows in kg to one decimal ("142.9", "100"); a scheme is "5 × 5", "3 sets" or "12 reps". `gym_readings` is the copy of a reading question's options (ticket #206), keyed by their `copy_key`: `{movement}` is a movement the exercise name may mean, and `{load}` the load as typed without its unit. -#}
+{% set gym_readings = {
+  "gym_reading_movement": {"label": "{movement}", "hint": ""},
+  "gym_reading_kg": {"label": "Kilograms", "hint": "{load} kg"},
+  "gym_reading_lb": {"label": "Pounds", "hint": "{load} lb"},
+} %}
 {% macro exercise_name(name) -%}
 {{ name[:1] | upper }}{{ name[1:] }}
 {%- endmacro %}
