@@ -4,7 +4,8 @@ conversation), `GET /c/new` (an empty one), `POST /messages` and the streamed re
 ADR-0012, ADR-0021, tickets #78, #82, #116, #146 and #147). A pending session draft shows as a
 card under the reply part that introduced it, on the stream's end and on every page load
 (PRD-0004 F2, ticket #154). A question that blocks a log is a choice card in place of its line,
-answered or skipped with one POST (B17, F9, ADR-0015, ticket #162).
+answered or skipped with one POST (B17, F9, ADR-0015, ticket #162). A pending card's sport chip
+moves the draft to another of the athlete's sports with one POST (B23, ticket #163).
 `user_id` comes only from the authenticated session (ADR-0005), and a conversation ID from the
 URL or the form is always looked up with it: another user's conversation is a 404."""
 
@@ -50,6 +51,7 @@ from ai_trainer.application.reply import (
     ReplyServices,
     abandon_clarification,
     answer_clarification,
+    change_draft_sport,
     find_message,
     find_saved_reply,
     start_reply,
@@ -67,6 +69,7 @@ from ai_trainer.domain.training import (
     DraftDiscardedError,
     DraftEditError,
     DraftNotFoundError,
+    DraftSportNotOfferedError,
     SessionNotFoundError,
     StoredDraft,
 )
@@ -109,11 +112,20 @@ def build_chat_router(
     def local_today(user: User) -> date:
         return clock.now().astimezone(ZoneInfo(user.timezone)).date()
 
-    def reply_cards(
+    async def athlete_sports(user: User) -> Sequence[str]:
+        """The athlete's own sports, the ones a pending card's chip can offer (#163)."""
+        return await replies.profile.list_sports(user.id)
+
+    async def reply_cards(
         user: User, message_id: UUID, done: ReplyDone
     ) -> Mapping[UUID, Sequence[DraftCard]]:
         return draft_cards(
-            done.messages, done.drafts, sports=sports, today=local_today(user), log_id=message_id
+            done.messages,
+            done.drafts,
+            sports=sports,
+            today=local_today(user),
+            athlete_sports=await athlete_sports(user) if done.drafts else (),
+            log_id=message_id,
         )
 
     async def window_log(user: User, history: Sequence[ChatMessage]) -> UUID | None:
@@ -124,7 +136,7 @@ def build_chat_router(
         before = await chat.list_before(user.id, history[0], 1)
         return before[0].id if before and before[0].role is ChatRole.USER else None
 
-    def reply_event(user: User, message_id: UUID, event: ReplyEvent) -> ServerSentEvent:
+    async def reply_event(user: User, message_id: UUID, event: ReplyEvent) -> ServerSentEvent:
         """Each event is an htmx partial: a phase relabels the thinking indicator, chunks append
         to the streaming text, and the last event swaps the whole placeholder for the saved
         reply or the error row (ADR-0012)."""
@@ -139,7 +151,7 @@ def build_chat_router(
                 "partials/chat/reply_done.html",
                 message_id=message_id,
                 messages=event.messages,
-                draft_cards=reply_cards(user, message_id, event),
+                draft_cards=await reply_cards(user, message_id, event),
                 choice_cards=choice_cards(event.messages, event.clarifications, log_id=message_id),
             )
         else:
@@ -193,7 +205,12 @@ def build_chat_router(
             shown = await replies.drafts.list_shown(user.id, conversation.id)
             log_id = await window_log(user, history)
             cards = draft_cards(
-                history, shown, sports=sports, today=local_today(user), log_id=log_id
+                history,
+                shown,
+                sports=sports,
+                today=local_today(user),
+                athlete_sports=await athlete_sports(user),
+                log_id=log_id,
             )
             questions = choice_cards(
                 history,
@@ -293,7 +310,7 @@ def build_chat_router(
         # still leaves its `llm_calls` row, as `cancelled` (ADR-0018).
         async with aclosing(events):
             async for event in events:
-                yield reply_event(user, message_id, event)
+                yield await reply_event(user, message_id, event)
 
     @router.get("/messages/{message_id}/retry", response_class=HTMLResponse)
     async def retry_reply(request: Request, message_id: UUID) -> HTMLResponse:
@@ -324,7 +341,7 @@ def build_chat_router(
                 {
                     "message_id": message_id,
                     "messages": saved.messages,
-                    "draft_cards": reply_cards(user, message_id, saved),
+                    "draft_cards": await reply_cards(user, message_id, saved),
                     "choice_cards": choice_cards(
                         saved.messages, saved.clarifications, log_id=message_id
                     ),
@@ -334,9 +351,14 @@ def build_chat_router(
             request, "partials/chat/reply_stopped.html", {"message_id": message_id}
         )
 
-    def shown_card(user: User, draft: StoredDraft) -> DraftCard:
+    async def shown_card(user: User, draft: StoredDraft) -> DraftCard:
         """A pending draft whose payload no longer reads has no card, so it is not found."""
-        card = draft_card(draft, sports=sports, today=local_today(user))
+        card = draft_card(
+            draft,
+            sports=sports,
+            today=local_today(user),
+            athlete_sports=await athlete_sports(user) if draft.status == "pending" else (),
+        )
         if card is None:
             raise HTTPException(status_code=_NOT_FOUND)
         return card
@@ -364,7 +386,7 @@ def build_chat_router(
             draft = await find_draft(user.id, parse_id(draft_id), drafts=replies.drafts)
         except DraftNotFoundError:
             raise HTTPException(status_code=_NOT_FOUND) from None
-        card = shown_card(user, draft)
+        card = await shown_card(user, draft)
         return templates.TemplateResponse(request, card.template, {"card": card, "draft": draft})
 
     @router.get("/drafts/{draft_id}/edit", response_class=HTMLResponse)
@@ -379,7 +401,7 @@ def build_chat_router(
             raise HTTPException(status_code=_NOT_FOUND) from None
         except DraftConfirmedError, DraftDiscardedError:
             raise HTTPException(status_code=_CONFLICT) from None
-        return edit_form(request, shown_card(user, draft))
+        return edit_form(request, await shown_card(user, draft))
 
     @router.post("/drafts/{draft_id}/edit", response_class=HTMLResponse)
     async def save_edit(request: Request, draft_id: str) -> HTMLResponse:
@@ -405,8 +427,10 @@ def build_chat_router(
             raise HTTPException(status_code=_CONFLICT) from None
         except DraftEditError as error:
             stored = await find_draft(user.id, parsed_id, drafts=replies.drafts)
-            return edit_form(request, shown_card(user, stored), values=values, errors=error.fields)
-        card = shown_card(user, draft)
+            return edit_form(
+                request, await shown_card(user, stored), values=values, errors=error.fields
+            )
+        card = await shown_card(user, draft)
         return templates.TemplateResponse(request, card.template, {"card": card, "draft": draft})
 
     @router.post("/drafts/{draft_id}/confirm", response_class=HTMLResponse)
@@ -467,10 +491,47 @@ def build_chat_router(
             request, "partials/chat/draft_removed.html", {"card": card, "draft": draft}
         )
 
-    def choice_answer(
+    @router.post("/drafts/{draft_id}/sport", response_class=HTMLResponse)
+    async def change_sport(request: Request, draft_id: str) -> HTMLResponse:
+        """The draft card's sport chip (B23, F2, ticket #163): re-runs the picked sport's
+        extraction on the draft's own log and answers with the new card, which replaces the
+        old one; no session is written. A sport the chip never offered is a 422, a confirmed or
+        discarded draft a 409, and another user's or an unknown one a 404, none of them calling
+        the model. A failed extraction answers with the card as it was and a note to pick
+        again."""
+        user: User = request.state.user
+        parsed_id = parse_id(draft_id)
+        form = await request.form()
+        sport_id = form.get("sport_id")
+        try:
+            changed = await change_draft_sport(
+                user.id,
+                parsed_id,
+                sport_id if isinstance(sport_id, str) else "",
+                timezone=user.timezone,
+                services=replies,
+            )
+        except DraftNotFoundError, MessageNotFoundError:
+            raise HTTPException(status_code=_NOT_FOUND) from None
+        except DraftConfirmedError, DraftDiscardedError:
+            raise HTTPException(status_code=_CONFLICT) from None
+        except DraftSportNotOfferedError:
+            raise HTTPException(status_code=_UNPROCESSABLE) from None
+        if isinstance(changed, ReplyFailed):
+            card = await shown_card(
+                user, await find_draft(user.id, parsed_id, drafts=replies.drafts)
+            )
+            return templates.TemplateResponse(
+                request, card.template, {"card": card, "sport_error": True}
+            )
+        card = await shown_card(user, changed)
+        return templates.TemplateResponse(request, card.template, {"card": card})
+
+    async def choice_answer(
         request: Request, answered: ClarificationAnswered, *, user: User
     ) -> HTMLResponse:
         reply = answered.reply
+        athlete = await athlete_sports(user)
         return templates.TemplateResponse(
             request,
             "partials/chat/choice_answer.html",
@@ -483,6 +544,7 @@ def build_chat_router(
                     reply.drafts,
                     sports=sports,
                     today=local_today(user),
+                    athlete_sports=athlete,
                     log_id=answered.clarification.message_id,
                 ),
             },
@@ -516,7 +578,7 @@ def build_chat_router(
                 "partials/chat/choice_card.html",
                 {"card": card, "error": True},
             )
-        return choice_answer(request, answered, user=user)
+        return await choice_answer(request, answered, user=user)
 
     @router.post("/clarifications/{clarification_id}/abandon", response_class=HTMLResponse)
     async def abandon(request: Request, clarification_id: str) -> HTMLResponse:

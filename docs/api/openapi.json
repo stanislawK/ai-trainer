@@ -562,6 +562,46 @@
         "summary": "Save Edit"
       }
     },
+    "/drafts/{draft_id}/sport": {
+      "post": {
+        "description": "The draft card's sport chip (B23, F2, ticket #163): re-runs the picked sport's\nextraction on the draft's own log and answers with the new card, which replaces the\nold one; no session is written. A sport the chip never offered is a 422, a confirmed or\ndiscarded draft a 409, and another user's or an unknown one a 404, none of them calling\nthe model. A failed extraction answers with the card as it was and a note to pick\nagain.",
+        "operationId": "change_sport_drafts__draft_id__sport_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "draft_id",
+            "required": true,
+            "schema": {
+              "title": "Draft Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Change Sport"
+      }
+    },
     "/drafts/{draft_id}/undo": {
       "post": {
         "description": "The confirmed row's Undo (B4, ADR-0022): takes the athlete's just-saved log back from\nits session, once the browser's prompt is accepted, and answers with the \"Removed\" row,\nwhich replaces the confirmed one. The session's other logs stay (#165). Another user's\nor an unknown draft, and one with no session left to undo, is a 404 and nothing is\ndeleted.",

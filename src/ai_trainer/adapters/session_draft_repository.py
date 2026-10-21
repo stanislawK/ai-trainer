@@ -156,6 +156,40 @@ class SqlAlchemySessionDraftRepository:
             await session.commit()
             return edited
 
+    async def change_sport(
+        self,
+        user_id: UUID,
+        draft_id: UUID,
+        sport_id: str,
+        draft: SessionDraft,
+        *,
+        payload_version: int,
+        extends_session_id: UUID | None,
+    ) -> StoredDraft:
+        """Locked first, as an edit is, so a switch racing a confirm or a discard either goes
+        first, and the confirm saves the new sport, or finds the draft resolved and is
+        refused."""
+        async with self._session_factory() as session:
+            row = await session.scalar(
+                select(SessionDraftOrm)
+                .where(SessionDraftOrm.id == draft_id, SessionDraftOrm.user_id == user_id)
+                .with_for_update()
+            )
+            if row is None:
+                raise DraftNotFoundError(draft_id)
+            if row.status == _CONFIRMED:
+                raise DraftConfirmedError(draft_id)
+            if row.status == _DISCARDED:
+                raise DraftDiscardedError(draft_id)
+            row.sport_id = sport_id
+            row.draft = draft.model_dump(mode="json")
+            row.payload_version = payload_version
+            row.extends_session_id = extends_session_id
+            await session.flush()
+            changed = await _with_span(session, user_id, row)
+            await session.commit()
+            return changed
+
     async def confirm(
         self, user_id: UUID, draft_id: UUID, *, confirmed_at: datetime
     ) -> StoredDraft:

@@ -3,9 +3,11 @@ draft sits under the reply part that introduced it, the part after the athlete's
 template is that sport's extraction template. A pending one is the card, a confirmed one its
 "Logged … to <date>" row, a discarded one its "Draft discarded" row and an undone one its
 "Removed" row. A pending one opens as its edit form (#158). One that came close after a
-session offers to add to it, and once confirmed says it was added (#165). Its payload is read
-only through the plugin's model (ADR-0022), and the sport-specific card body, edit fields and
-summary are the plugin's own partials."""
+session offers to add to it, and once confirmed says it was added (#165). A pending one
+offers the athlete's other sports on its sport chip, and one moved to another sport stays
+under the reply it came with (#163). Its payload is read only through the plugin's model
+(ADR-0022), and the sport-specific card body, edit fields and summary are the plugin's own
+partials."""
 
 import logging
 from collections.abc import Iterable, Mapping, Sequence
@@ -16,6 +18,7 @@ from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, JsonValue, ValidationError
 
+from ai_trainer.application.reply import sports_to_switch_to
 from ai_trainer.domain.chat import ChatMessage, ChatRole
 from ai_trainer.domain.sports.base import SportPlugin
 from ai_trainer.domain.sports.registry import SportRegistry, UnknownSportError
@@ -36,6 +39,9 @@ class DraftCard:
     payload: BaseModel | None
     # Whether the draft's day is the athlete's today, so an assumed date can say "today".
     is_today: bool
+    # The sports a pending draft's chip offers to move it to (B23, ticket #163); none for a
+    # one-sport athlete or a resolved draft.
+    switch_to: tuple[SportPlugin, ...] = ()
 
     @property
     def adds_at(self) -> str | None:
@@ -87,14 +93,25 @@ def draft_cards(
     *,
     sports: SportRegistry,
     today: date,
+    athlete_sports: Sequence[str] = (),
     log_id: UUID | None = None,
 ) -> Mapping[UUID, Sequence[DraftCard]]:
     """The cards to show under each assistant message, keyed by its ID. `log_id` is the
-    athlete's message that `messages` answer, when the list starts with its reply."""
+    athlete's message that `messages` answer, when the list starts with its reply. A draft
+    moved to a sport its log's reply never extracted goes under that reply's last extraction
+    part (#163)."""
     pending: dict[tuple[UUID, str], list[StoredDraft]] = {}
     for draft in drafts:
         pending.setdefault((draft.message_id, draft.sport_id), []).append(draft)
     cards: dict[UUID, list[DraftCard]] = {}
+    last_extraction: dict[UUID, UUID] = {}
+
+    def place(message_id: UUID, found: Iterable[StoredDraft]) -> None:
+        for draft in found:
+            card = draft_card(draft, sports=sports, today=today, athlete_sports=athlete_sports)
+            if card is not None:
+                cards.setdefault(message_id, []).append(card)
+
     log = log_id
     for message in messages:
         if message.role is ChatRole.USER:
@@ -105,10 +122,11 @@ def draft_cards(
         for sport_id in message.sports:
             if not _is_extraction(message, sport_id, sports):
                 continue
-            for draft in pending.pop((log, sport_id), []):
-                card = draft_card(draft, sports=sports, today=today)
-                if card is not None:
-                    cards.setdefault(message.id, []).append(card)
+            last_extraction[log] = message.id
+            place(message.id, pending.pop((log, sport_id), []))
+    for (log_of, _), moved in pending.items():
+        if log_of in last_extraction:
+            place(last_extraction[log_of], moved)
     return cards
 
 
@@ -122,9 +140,16 @@ def _is_extraction(part: ChatMessage, sport_id: str, sports: SportRegistry) -> b
     return spec is not None and part.template_id == spec.template_id
 
 
-def draft_card(draft: StoredDraft, *, sports: SportRegistry, today: date) -> DraftCard | None:
+def draft_card(
+    draft: StoredDraft,
+    *,
+    sports: SportRegistry,
+    today: date,
+    athlete_sports: Sequence[str] = (),
+) -> DraftCard | None:
     """`None` when its sport is unknown, or when a pending draft's stored payload no longer
-    reads: the page still renders, without that card."""
+    reads: the page still renders, without that card. A pending card's chip offers
+    `athlete_sports`, as `sports_to_switch_to` narrows them."""
     try:
         sport = sports.get(draft.sport_id)
     except UnknownSportError:
@@ -146,8 +171,20 @@ def draft_card(draft: StoredDraft, *, sports: SportRegistry, today: date) -> Dra
             "%s draft %s has a %s payload that doesn't read", draft.status, draft.id, sport.id
         )
         payload = None
+    switch_to = (
+        tuple(
+            sports.get(sport_id)
+            for sport_id in sports_to_switch_to(athlete_sports, sport.id, sports)
+        )
+        if draft.status == "pending"
+        else ()
+    )
     return DraftCard(
-        draft=draft, sport=sport, payload=payload, is_today=draft.draft.occurred_on == today
+        draft=draft,
+        sport=sport,
+        payload=payload,
+        is_today=draft.draft.occurred_on == today,
+        switch_to=switch_to,
     )
 
 

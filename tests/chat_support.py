@@ -340,6 +340,38 @@ class InMemoryDraftRepository:
             return stored
         raise DraftNotFoundError(draft_id)
 
+    async def change_sport(
+        self,
+        user_id: UUID,
+        draft_id: UUID,
+        sport_id: str,
+        draft: SessionDraft,
+        *,
+        payload_version: int,
+        extends_session_id: UUID | None,
+    ) -> StoredDraft:
+        for index, (owner, stored) in enumerate(self.rows):
+            if owner != user_id or stored.id != draft_id:
+                continue
+            if stored.status == "confirmed":
+                raise DraftConfirmedError(draft_id)
+            if stored.status == "discarded":
+                raise DraftDiscardedError(draft_id)
+            stored = stored.model_copy(
+                update={
+                    "sport_id": sport_id,
+                    "draft": draft,
+                    "payload_version": payload_version,
+                    "extends": None
+                    if extends_session_id is None
+                    else self.spans.get(extends_session_id),
+                }
+            )
+            self.rows[index] = (owner, stored)
+            self.extends_ids[draft_id] = extends_session_id
+            return stored
+        raise DraftNotFoundError(draft_id)
+
     async def confirm(
         self, user_id: UUID, draft_id: UUID, *, confirmed_at: datetime
     ) -> StoredDraft:

@@ -888,3 +888,111 @@ async def test_editing_an_undone_draft_is_refused_and_changes_nothing(
 
     assert await drafts.get(user_id, draft.id) == undone
     assert await _counts(db_session_factory, user_id) == (0, 0)
+
+
+_RIDE = CyclingExtraction.model_validate(
+    {
+        "occurred_on": date(2026, 10, 2),
+        "date_source": "assumed_today",
+        "activities": [{"moving_time_min": 45}],
+    }
+)
+_RIDE_DRAFT = SessionDraft(
+    occurred_on=date(2026, 10, 2),
+    date_source="assumed_today",
+    timezone="Europe/Warsaw",
+    payload=_RIDE.to_payload().model_dump(mode="json"),
+)
+
+
+async def _change_to_ride(
+    drafts: SqlAlchemySessionDraftRepository,
+    user_id: UUID,
+    draft_id: UUID,
+    extends_session_id: UUID | None = None,
+) -> StoredDraft:
+    return await drafts.change_sport(
+        user_id,
+        draft_id,
+        "cycling",
+        _RIDE_DRAFT,
+        payload_version=CYCLING_PAYLOAD_VERSION,
+        extends_session_id=extends_session_id,
+    )
+
+
+async def test_a_draft_changed_to_another_sport_stays_pending_and_confirms_in_it(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    """Ticket #163: the switch writes no session, and the confirm saves the new sport."""
+    drafts, user_id, draft = await _pending(db_session_factory, "sport-ok")
+
+    changed = await _change_to_ride(drafts, user_id, draft.id)
+
+    assert (changed.id, changed.status, changed.sport_id) == (draft.id, "pending", "cycling")
+    assert (changed.draft, changed.payload_version) == (_RIDE_DRAFT, CYCLING_PAYLOAD_VERSION)
+    assert await drafts.get(user_id, draft.id) == changed
+    assert await _counts(db_session_factory, user_id) == (0, 0)
+    confirmed = await drafts.confirm(user_id, draft.id, confirmed_at=_START)
+    async with db_session_factory() as db:
+        saved = (
+            await db.execute(
+                text("SELECT sport_id, payload FROM training_sessions WHERE id = :id"),
+                {"id": confirmed.session_id},
+            )
+        ).one()
+    assert tuple(saved) == ("cycling", _RIDE_DRAFT.payload)
+
+
+async def test_a_changed_draft_extends_the_session_given_and_no_longer_the_old_one(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    drafts, user_id, draft = await _pending(db_session_factory, "sport-extends")
+    climbed = await drafts.confirm(user_id, draft.id, confirmed_at=_START)
+    near = await drafts.add(
+        user_id,
+        draft.conversation_id,
+        draft.message_id,
+        "climbing",
+        _DRAFT,
+        payload_version=1,
+        created_at=_START,
+        extends_session_id=climbed.session_id,
+    )
+
+    unhooked = await _change_to_ride(drafts, user_id, near.id)
+    assert unhooked.extends is None
+    rehooked = await _change_to_ride(drafts, user_id, near.id, climbed.session_id)
+    assert rehooked.extends is not None
+    assert rehooked.extends.id == climbed.session_id
+
+
+async def test_changing_another_users_or_an_unknown_drafts_sport_is_not_found(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    drafts, owner, draft = await _pending(db_session_factory, "sport-owner")
+    stranger, _, _ = await _log(db_session_factory, "sport-stranger")
+
+    with pytest.raises(DraftNotFoundError):
+        await _change_to_ride(drafts, stranger, draft.id)
+    with pytest.raises(DraftNotFoundError):
+        await _change_to_ride(drafts, owner, uuid4())
+
+    assert await drafts.get(owner, draft.id) == draft
+
+
+async def test_changing_a_confirmed_or_discarded_drafts_sport_is_refused(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    drafts, user_id, confirmed_draft = await _pending(db_session_factory, "sport-confirmed")
+    confirmed = await drafts.confirm(user_id, confirmed_draft.id, confirmed_at=_START)
+    other, other_id, discarded_draft = await _pending(db_session_factory, "sport-discarded")
+    discarded = await other.discard(other_id, discarded_draft.id, discarded_at=_START)
+
+    with pytest.raises(DraftConfirmedError):
+        await _change_to_ride(drafts, user_id, confirmed_draft.id)
+    with pytest.raises(DraftDiscardedError):
+        await _change_to_ride(other, other_id, discarded_draft.id)
+
+    assert await drafts.get(user_id, confirmed_draft.id) == confirmed
+    assert await other.get(other_id, discarded_draft.id) == discarded
