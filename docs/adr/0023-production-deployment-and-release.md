@@ -154,7 +154,10 @@ The owner set four constraints on 2026-10-11:
   - The commands section gains the release steps: tag, approve and watch.
   - The non-negotiables gain invariant 1.
   - Status records when the data gate goes live.
-- **Hook:** the denying hook ships with the GitHub-hardening ticket, before `release.yml` exists.
+- **Hook:** the denying hook ships before `release.yml` exists (#214): `.claude/hooks/guard_release.py`, registered in `.claude/settings.json` and tested in `tests/unit/test_guard_release_hook.py`.
+  - It also denies `ssh`, `scp`, `sftp`, remote `rsync`, a shell fed from stdin, and release-shaped `gh api` paths (`releases`, `git/refs`, `dispatches`).
+  - It is a guard against an agent's honest mistakes, not a sandbox. Variable expansion, git aliases, scripts written then run, and other interpreters (`python -c`) get past it. A command that only names a guarded word as a wrapper argument (`sudo cat ssh`) is denied too. Branch protection and the `production` environment's required reviewer remain the hard stop.
+  - A `v<digit>.<digit>…` or `tags/…` push argument counts as a tag; a branch named like that needs the owner.
 - ⚠ **Verify at the deploy-poller ticket:**
   - That a fine-grained token's "Deployments: read and write" permission covers listing deployments and creating deployment statuses. The REST docs name only the classic `repo_deployment` scope ([GitHub REST](https://docs.github.com/en/rest/deployments/statuses)).
   - If it doesn't, use a GitHub App installation token scoped to the repo.
