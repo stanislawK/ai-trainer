@@ -1,0 +1,16 @@
+# Weekly update PRs for every ecosystem the repo ships (ADR-0023). Alerts and security
+# updates are separate repository settings — see deploy/github-hardening.md.
+version: 2
+updates:
+  - package-ecosystem: uv
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

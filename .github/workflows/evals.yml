@@ -63,22 +63,29 @@ jobs:
           GOOGLE_CLIENT_SECRET: ci-placeholder-not-a-real-secret
           SESSION_SECRET_KEY: ci-placeholder-session-secret-key
           CSRF_SECRET_KEY: ci-placeholder-csrf-secret-key
+          # Inputs reach the shell as environment variables, never interpolated into the
+          # script text, so an input cannot inject commands (ADR-0023).
+          INPUT_TEMPLATE_ID: ${{ inputs.template_id }}
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_MODEL: ${{ inputs.model }}
+          INPUT_REPEAT: ${{ inputs.repeat }}
+          INPUT_PROMOTE: ${{ inputs.promote }}
         run: |
-          args=(run "${{ inputs.template_id }}" --repeat "${{ inputs.repeat }}")
-          if [ -n "${{ inputs.version }}" ]; then
-            args+=(--version "${{ inputs.version }}")
+          args=(run "$INPUT_TEMPLATE_ID" --repeat "$INPUT_REPEAT")
+          if [ -n "$INPUT_VERSION" ]; then
+            args+=(--version "$INPUT_VERSION")
           fi
-          if [ -n "${{ inputs.model }}" ]; then
-            args+=(--model "${{ inputs.model }}")
+          if [ -n "$INPUT_MODEL" ]; then
+            args+=(--model "$INPUT_MODEL")
           fi
-          if [ "${{ inputs.promote }}" = "true" ]; then
+          if [ "$INPUT_PROMOTE" = "true" ]; then
             args+=(--promote)
           fi
           uv run ai-trainer-evals "${args[@]}"
 
       - name: Upload the report and baseline
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa9 # v4.6.2
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: evals-${{ inputs.template_id }}
           path: |
