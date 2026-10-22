@@ -93,9 +93,11 @@ async def run_decision_eval(
     baselines_root: Path,
     reports_root: Path,
     repeat: int = 1,
+    promote: bool = False,
 ) -> DecisionEvalRunResult:
-    """Runs `decision_id`'s dataset against `model`, writes a report and a baseline holding
-    `thresholds` and each case's probabilities, and diffs it against the committed one.
+    """Runs `decision_id`'s dataset against `model`, writes a report, and diffs a baseline
+    holding `thresholds` and each case's probabilities against the committed one, which it
+    replaces only when `promote`d (#208).
 
     No `llm_calls` row: no user is acting, and the dataset holds no athlete text."""
     decision_set = loader.load(decision_id, version)
@@ -140,7 +142,7 @@ async def run_decision_eval(
     current = current_baseline(
         report, template_id=decision_id, version=version, model_id=model_id
     ).model_copy(update={"decision_thresholds": thresholds, "cases": probabilities})
-    previous, regressions = record_baseline(baselines_root, current)
+    previous, regressions = record_baseline(baselines_root, current, promote=promote)
     return DecisionEvalRunResult(
         report=report,
         baseline=current,

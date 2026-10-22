@@ -35,12 +35,18 @@ class RouterFastThresholds:
     plausible_floor: float
 
 
-def router_fast_set(athlete_sports: Collection[str], *, loader: DecisionSetLoader) -> DecisionSet:
+def router_fast_set(
+    athlete_sports: Collection[str],
+    *,
+    loader: DecisionSetLoader,
+    version: int = ROUTER_FAST_VERSION,
+) -> DecisionSet:
     """The sport is asked among the athlete's own sports, and not at all when they have one
-    or none: one sport is theirs without a question (B23)."""
+    or none: one sport is theirs without a question (B23). The app asks the active version; an
+    eval may ask another (#208)."""
     if len(athlete_sports) >= 2:
-        return loader.load(ROUTER_FAST_ID, ROUTER_FAST_VERSION, options={_SPORT: athlete_sports})
-    return loader.load(ROUTER_FAST_ID, ROUTER_FAST_VERSION, questions={_MULTI_REQUEST, _INTENT})
+        return loader.load(ROUTER_FAST_ID, version, options={_SPORT: athlete_sports})
+    return loader.load(ROUTER_FAST_ID, version, questions={_MULTI_REQUEST, _INTENT})
 
 
 def fast_intents(

@@ -4,6 +4,7 @@ LLM router's turn, for everything else."""
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from pathlib import Path
 from uuid import UUID, uuid4
 
 import pytest
@@ -75,6 +76,16 @@ def test_a_multi_sport_athlete_is_asked_the_sport_among_their_own_sports_only() 
         decision_set.output_type.model_validate(
             {"multi_request": 0.1, "intent": "chitchat", "sport": "cycling"}
         )
+
+
+def test_the_set_loads_at_the_version_asked_for_and_the_apps_by_default(tmp_path: Path) -> None:
+    """An eval of another version runs that version's file (#208)."""
+    (tmp_path / ROUTER_FAST_ID).mkdir()
+    source = DECISIONS_ROOT / ROUTER_FAST_ID / f"v{ROUTER_FAST_VERSION}.en.yaml"
+    (tmp_path / ROUTER_FAST_ID / "v7.en.yaml").write_text(source.read_text())
+
+    assert router_fast_set(["gym"], loader=DecisionSetLoader(root=tmp_path), version=7).version == 7
+    assert router_fast_set(["gym"], loader=DecisionSetLoader()).version == ROUTER_FAST_VERSION
 
 
 @pytest.mark.parametrize("sports", [["gym"], []])

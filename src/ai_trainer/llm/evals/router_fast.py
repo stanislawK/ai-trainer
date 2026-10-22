@@ -133,10 +133,11 @@ async def run_router_fast_eval(
     baselines_root: Path,
     reports_root: Path,
     repeat: int = 1,
+    promote: bool = False,
 ) -> RouterFastEvalRunResult:
-    """Writes `evals/reports/router_fast.json` and, when the fast path is at least as accurate
-    as the router's baseline, `evals/baselines/router_fast.json`. No `llm_calls` row: no user
-    is acting, and the dataset holds no athlete text."""
+    """Writes `evals/reports/router_fast.json` and, when `promote`d and the fast path is at least
+    as accurate as the router's baseline, `evals/baselines/router_fast.json`. No `llm_calls`
+    row: no user is acting, and the dataset holds no athlete text."""
     router_baseline = load_baseline(baselines_root / f"{ROUTER_TEMPLATE_ID}.json")
     if router_baseline is None:
         raise FastPathAccuracyError("There is no router baseline to compare the fast path with")
@@ -144,7 +145,7 @@ async def run_router_fast_eval(
 
     async def task(inputs: EvalCaseInputs) -> FastRouteEvalOutput:
         sports = [str(sport) for sport in inputs.deps.get("athlete_sports", [])]  # type: ignore[attr-defined]
-        decision_set = router_fast_set(sports, loader=loader)
+        decision_set = router_fast_set(sports, loader=loader, version=version)
         result = await agent.run(inputs.prompt, output_type=decision_set.output_type)
         distributions: dict[str, dict[str, float]] = (result.response.provider_details or {}).get(
             "probabilities", {}
@@ -213,7 +214,7 @@ async def run_router_fast_eval(
             "cases": probabilities,
         }
     )
-    previous, regressions = record_baseline(baselines_root, current)
+    previous, regressions = record_baseline(baselines_root, current, promote=promote)
     return RouterFastEvalRunResult(
         report=report,
         baseline=current,

@@ -168,3 +168,13 @@ def test_runtime_options_for_a_question_left_out_are_refused() -> None:
         DecisionSetLoader(root=FIXTURES).load(
             "sample", 1, questions={"effort"}, options={"sport": {"gym", "climbing"}}
         )
+
+
+def test_versions_lists_a_sets_files_in_order(tmp_path: Path) -> None:
+    """The eval CLI names them when asked for one that has no file (#208)."""
+    (tmp_path / "sample").mkdir()
+    for name in ("v10.en.yaml", "v2.en.yaml", "v2.de.yaml", "notes.md"):
+        (tmp_path / "sample" / name).write_text(SAMPLE_FILE.read_text())
+
+    assert DecisionSetLoader(root=tmp_path).versions("sample") == [2, 10]
+    assert DecisionSetLoader(root=tmp_path).versions("missing") == []
