@@ -6,7 +6,7 @@ paths:
   - "evals/**"
 ---
 
-# LLM, tools and knowledge rules (ADR-0007 – ADR-0011, ADR-0014 – ADR-0018, ADR-0020)
+# LLM, tools and knowledge rules (ADR-0007 – ADR-0011, ADR-0014 – ADR-0018, ADR-0020, ADR-0027)
 
 - **Prompts:** only through the registry. Bodies are files at `src/ai_trainer/llm/prompts/<id>/v<N>.<locale>.md`, loaded as `TemplateStr`. Never prompt text in Python strings outside tests (ADR-0008, invariant 1) — test fixtures may hold literal text to script `FunctionModel` responses.
 - **Versions:** never edit a template version that has a committed baseline; add `v<N+1>` and switch the registry.
@@ -18,6 +18,7 @@ paths:
 - **Telemetry:** traces are OpenTelemetry over OTLP, off by default, wired only in the composition root, with `include_content=False` so no prompt, completion or athlete message reaches a trace store. No vendor SDK in application code (ADR-0018).
 - **Debug log:** `LLM_DEBUG_LOG` (default off) writes every model request, prompt and reply included, as JSON lines under `LLM_DEBUG_LOG_DIR` on the developer's own disk — never to traces, never with a user ID or email, and a write failure never fails a call (ADR-0018 Consequences, #178). Pass new gateway calls the call's `CallRecorder` so they are logged too.
 - **Safety:** the `wellbeing_or_injury` intent is handled first (G3).
+- **Venues and gym grades (ADR-0027):** the athlete's venues (name, disciplines, grading) may enter extraction context and decision state; a device position never does. Grades stay exactly as typed; a gym's "6" is never drafted as "6A".
 - **Dates:** every user-facing template's deps carry `today`, `now_local` and `timezone`. No date tool inside the app's own pipeline, and no wall-clock read outside the `Clock` adapter (ADR-0014).
 - **Clarification:** a specialist that cannot proceed returns `Clarification` with concrete options, never a free-text question. The resumed run trusts option IDs, not label text (ADR-0015). An extraction template returns its plugin's question (`ExtractionSpec.question`, a second output type) and code turns it into options; a run resumed with the answer can only draft, and the pick is enforced in code too (ADR-0015, #164 amendment).
 - **External sources:** route, crag and place data goes through its port, is cached with `source`, `source_url` and `fetched_at`, and is always shown with that attribution. Only a route, crag or place name leaves the app — never user identity, message text or profile data. Respect the per-user lookup budget; a miss or a low-confidence match becomes a clarification, never a guess (ADR-0016, ADR-0017).
