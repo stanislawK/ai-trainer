@@ -14,6 +14,8 @@ paths:
 - **Sports (ADR-0006):** no branching on sport names outside `domain/sports/<sport>/`.
 - **Time (ADR-0014):** no `datetime.now()`, `date.today()` or `utcnow()` outside the `Clock` adapter. Stored timestamps are timezone-aware UTC; the athlete's local day is derived from `User.timezone` at the edge.
 - **External sources (ADR-0016, ADR-0017):** a public data source is reached only through its port, from an adapter. Only a route, crag or place name leaves the app.
+- **Device location (ADR-0027):** a position arrives only in a POST body, lives as a `GeoPoint` for one request, and is never stored, logged, traced, put in a prompt or decision state, or sent out. No geolocation code path runs unless `users.location_consent_at` is set.
+- **Gym grades (ADR-0027):** a `gym`-scale grade gets `french` and `ordinal` only from the athlete's mapping for that venue; a bare number is never read as Font, French or V.
 - **Telemetry (ADR-0018):** the tracer provider and OTLP exporter are built only in the composition root, from `Settings`, off by default. No telemetry vendor SDK in application code, and nothing that can raise into a route.
 - **SOLID:** small classes with one job; extend through new implementations or plugins, not growing conditionals.
 - **Library APIs:** check context7 before using one.

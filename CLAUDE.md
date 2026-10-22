@@ -56,6 +56,7 @@ Locked by the ADRs cited below; `docs/adr/README.md` carries each ADR's current 
 - Hetzner + Caddy behind Cloudflare (Full strict, AOP); `v*` tag → attested GHCR image → owner-approved `production` environment → pull-based deploy; age-encrypted backups to R2 — ADR-0023
 - Expand/contract, forward-only migrations gated by squawk and an upgrade-with-data test — ADR-0024
 - LLM latency plan: model, upstream routing, reasoning effort and timeouts per template from `Settings`, picked on measured latency, cost and evals; follow-up logs routed by the conversation's sport — ADR-0026
+- Per-athlete venues with their own gym grading, never converted without the athlete's mapping; opt-in device location matched against a bulk-imported OpenStreetMap gym directory — ADR-0027 (Proposed)
 
 ## Commands (available once M0 lands)
 
@@ -88,6 +89,7 @@ uv run ai-trainer-evals run <template-id> [--version N] [--promote]   # evals at
 - The clock is a port: no `datetime.now()` outside its adapter, and stored time is UTC (ADR-0014).
 - Ambiguity is a choice card with concrete options, never a free-text question (ADR-0015).
 - External lookups are cached and attributed, and carry no user data — only a route, crag or place name (ADR-0016).
+- A gym grade is never converted on its own: a bouldering gym's "6" is not 6A. A device position is read only with the athlete's consent, used for one gym match, and never stored, logged, sent to a model or sent out (ADR-0027).
 - Look up library APIs with context7 (`.claude/rules/context7.md`) before using them. Several libraries here are newer than most training data: htmx 4, Pydantic AI v2, FastMCP 3.
 - Facts about OpenRouter models, upstreams, prices and live latency come from the OpenRouter MCP server (`.claude/rules/openrouter-mcp.md`), never from memory. Its paid tools run only when the owner asks, and never with athlete data.
 - Only stable/GA OpenRouter model IDs are used outside `/tune-prompt` experiments — no preview or beta models in default `Settings`.
