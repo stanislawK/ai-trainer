@@ -7,7 +7,7 @@ Title (issue title, not in the body): "<area>: <imperative outcome>"
 Labels: area:<area>, status:todo, size:S|M   (L is never created — split it)
 
 Body rules:
-  - ≤200 words
+  - ≤200 words, not counting "Blocked by" and References (they are links, not prose)
   - "Why" is the only prose paragraph
   - 2–6 testable requirements
   - 3–7 acceptance criteria, one behaviour each, including one error/edge case
