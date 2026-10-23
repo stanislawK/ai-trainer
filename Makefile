@@ -1,6 +1,6 @@
 .PHONY: install css test test-unit test-integration coverage lint format format-check \
 	typecheck import-lint squawk openapi openapi-check check up up-build start stop down logs ps \
-	health smoke-setup smoke-up smoke-down migrate purge-conversations llm-report latency-scenario evals e2e-install e2e
+	health smoke-setup smoke-up smoke-down cloud-init-check migrate purge-conversations llm-report latency-scenario evals e2e-install e2e
 
 install: ## Install dependencies (uv sync)
 	uv sync
@@ -44,7 +44,7 @@ openapi: ## Regenerate the OpenAPI snapshot (docs/api/openapi.json)
 openapi-check: openapi ## Fail if docs/api/openapi.json is out of date (CI drift check)
 	git diff --exit-code -- docs/api/openapi.json
 
-check: lint format-check typecheck import-lint squawk openapi-check test ## Everything CI runs
+check: lint format-check typecheck import-lint squawk openapi-check cloud-init-check test ## Everything CI runs
 
 up: ## Start app + postgres in the background
 	docker compose up -d
@@ -87,6 +87,10 @@ smoke-up: ## Build the image and run compose.prod.yaml locally behind Caddy on h
 
 smoke-down: ## Stop the smoke stack (keeps its volumes; add `-v` by hand to drop them)
 	$(SMOKE_COMPOSE) down
+
+cloud-init-check: ## Validate deploy/cloud-init.yaml with Debian 13's own cloud-init (ADR-0023, #222)
+	docker run --rm -e DEBIAN_FRONTEND=noninteractive -v "$(CURDIR)/deploy:/src/deploy:ro" -w /src debian:trixie sh -c \
+		'apt-get update -qq >/dev/null && apt-get install -y -qq --no-install-recommends cloud-init >/dev/null && cloud-init schema --config-file deploy/cloud-init.yaml'
 
 migrate: ## Apply database migrations (Alembic)
 	uv run alembic upgrade head

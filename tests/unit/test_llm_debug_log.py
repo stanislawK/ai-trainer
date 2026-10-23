@@ -292,11 +292,13 @@ async def test_a_request_cut_off_by_the_call_timeout_still_writes_its_line(
             return ModelResponse(
                 parts=[TextPart('{"not_text": "oops"}')], provider_details={"cost": 0.1}
             )
-        await asyncio.sleep(10)
+        await asyncio.Event().wait()  # hangs until the call timeout cancels it
         return ModelResponse(parts=[TextPart('{"text": "too late"}')])
 
     directory = tmp_path / "llm-debug"
-    settings = _settings(directory).model_copy(update={"llm_call_timeout_seconds": 0.2})
+    # The timeout covers both attempts, so the first must finish well inside it: 0.2 s let a
+    # slow CI runner cut off attempt 1 instead (#243). Attempt 2 waits out the whole second.
+    settings = _settings(directory).model_copy(update={"llm_call_timeout_seconds": 1.0})
     repository = FakeLlmCallsRepository()
     gateway = OpenRouterGateway(
         settings, repository, debug_log=build_debug_log(settings, FixedClock())

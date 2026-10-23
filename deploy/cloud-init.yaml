@@ -1,0 +1,68 @@
+#cloud-config
+# Production host, Hetzner Cloud on Debian 13 (ADR-0023 "Host", ticket #222). Pasted as user data
+# when the owner creates the server (deploy/RUNBOOK.md). Check it with `make cloud-init-check`.
+#
+# The owner's SSH key is the one picked in Hetzner's console. Hetzner hands it over as instance
+# metadata, and cloud-init installs it for the default user, which `user` below makes `deploy`.
+
+# `deploy` replaces the distro's default user. No password at all: login is by key only, and sudo
+# needs none. Docker-group membership is root-equivalent anyway (ADR-0023).
+user:
+  name: deploy
+  gecos: ai-trainer deploy
+  shell: /bin/bash
+  lock_passwd: true
+  groups: [sudo]
+  sudo: "ALL=(ALL) NOPASSWD:ALL"
+users:
+  - default
+
+# Root gets no shell over SSH, and sshd is told the same below.
+disable_root: true
+ssh_pwauth: false
+
+package_update: true
+package_upgrade: true
+# Docker comes from Debian's own archive, so Debian-Security patches it and unattended-upgrades
+# applies the patches. Trixie ships compose v2 as the `docker compose` plugin.
+packages:
+  - sudo
+  - unattended-upgrades
+  - docker.io
+  - docker-cli
+  - docker-compose
+
+write_files:
+  # sshd keeps the first value it reads, and Debian includes sshd_config.d/ at the top of
+  # sshd_config, so this file wins over cloud-init's own 50-cloud-init.conf and anything below.
+  - path: /etc/ssh/sshd_config.d/10-ai-trainer.conf
+    owner: root:root
+    permissions: "0644"
+    content: |
+      PermitRootLogin no
+      PasswordAuthentication no
+      KbdInteractiveAuthentication no
+      AuthenticationMethods publickey
+      AllowUsers deploy
+  # Written after the packages are installed, so the package's own setup can't replace it.
+  - path: /etc/apt/apt.conf.d/20auto-upgrades
+    owner: root:root
+    permissions: "0644"
+    defer: true
+    content: |
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+
+# runcmd runs after the packages are installed, so the docker group exists by then.
+runcmd:
+  - [usermod, -aG, docker, deploy]
+  - [install, -d, -o, deploy, -g, deploy, -m, "0750", /opt/ai-trainer]
+  # Caddy runs with every capability dropped and reads its keys as root (ADR-0023, #221 gotchas).
+  - [install, -d, -o, root, -g, root, -m, "0700", /opt/ai-trainer/certs]
+  - [systemctl, enable, --now, docker, unattended-upgrades]
+
+# One reboot once everything has run, so sshd, the kernel and the group membership take effect.
+power_state:
+  mode: reboot
+  message: cloud-init finished; rebooting once
+  timeout: 30
