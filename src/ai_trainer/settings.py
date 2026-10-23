@@ -2,6 +2,7 @@ import json
 import re
 from pathlib import Path
 from typing import Annotated, Any, Literal
+from urllib.parse import urlsplit
 
 from pydantic import BeforeValidator, Field, PostgresDsn, SecretStr, ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
@@ -145,6 +146,10 @@ class Settings(BaseSettings):
     # Case-insensitively matched against a verified Google email to bootstrap the first
     # admin (ADR-0005); comma-separated, e.g. "a@example.com,b@example.com".
     admin_emails: CommaSeparated = []
+    # The one origin the app is served from (ADR-0023): `http://localhost:8000` locally,
+    # `https://<domain>` in production. The OAuth redirect URI is built from it and the
+    # trusted-host check admits only its host, so a request's Host header never shapes either.
+    public_base_url: str
     session_cookie_secure: bool = True
     session_ttl_days: int = 14
 
@@ -165,6 +170,34 @@ class Settings(BaseSettings):
         if not raw.strip():
             raise ValueError(f"{(info.field_name or '').upper()} must not be blank")
         return value
+
+    @field_validator("public_base_url")
+    @classmethod
+    def _origin_only(cls, value: str) -> str:
+        message = (
+            "PUBLIC_BASE_URL must be an http(s) origin without a path, such as "
+            f"http://localhost:8000, not {value!r}"
+        )
+        try:
+            parts = urlsplit(value.strip())
+            host = parts.hostname or ""
+            port = parts.port
+        except ValueError:
+            raise ValueError(message) from None
+        # An IPv6 literal or a trailing-dot host would never match the Host header Starlette's
+        # trusted-host check compares, locking the app out of every request.
+        has_host = bool(host) and ":" not in host and not host.endswith(".") and port != 0
+        if (
+            parts.scheme not in ("http", "https")
+            or not has_host
+            or parts.path not in ("", "/")
+            or parts.query
+            or parts.fragment
+            or parts.username is not None
+            or parts.password is not None
+        ):
+            raise ValueError(message)
+        return f"{parts.scheme}://{parts.netloc.lower()}"
 
     @field_validator(
         "router_call_timeout_seconds",

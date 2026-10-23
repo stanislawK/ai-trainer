@@ -68,6 +68,7 @@ def _client(
     oauth_client: FakeGoogleOAuthClient,
     admin_emails: list[str] | None = None,
     cookie_secure: bool = True,
+    public_base_url: str = "http://testserver",
 ) -> TestClient:
     app = FastAPI()
     app.include_router(
@@ -80,6 +81,7 @@ def _client(
             admin_emails=admin_emails or [],
             session_ttl=SESSION_TTL,
             cookie_secure=cookie_secure,
+            public_base_url=public_base_url,
         )
     )
     return TestClient(app)
@@ -194,6 +196,24 @@ async def test_login_redirects_through_the_oauth_client(
 
     assert response.status_code in (302, 303, 307)
     assert "accounts.google.com" in response.headers["location"]
+
+
+@pytest.mark.parametrize("host", ["trainer.example", "evil.example", "localhost:8000"])
+async def test_login_sends_google_the_public_base_url_callback_whatever_the_host(
+    db_session_factory: Callable[[], AsyncSession], host: str
+) -> None:
+    client = _client(
+        db_session_factory,
+        oauth_client=FakeGoogleOAuthClient(claims=_claims()),
+        public_base_url="https://trainer.example",
+    )
+
+    response = client.get("/auth/login", headers={"Host": host}, follow_redirects=False)
+
+    assert response.headers["location"] == (
+        "https://accounts.google.com/o/oauth2/auth"
+        "?redirect_uri=https://trainer.example/auth/callback"
+    )
 
 
 async def test_callback_creates_pending_user_session_and_cookie(

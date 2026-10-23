@@ -29,6 +29,25 @@ def _settings(**overrides: object) -> Settings:
     return Settings(**values)  # type: ignore[arg-type]
 
 
+def test_create_app_refuses_a_host_other_than_the_public_base_url_hosts() -> None:
+    app = create_app(_settings(public_base_url="https://trainer.example"))
+    client = TestClient(app, base_url="https://trainer.example")
+
+    evil = client.get("/health", headers={"Host": "evil.example"})
+    public = client.get("/health")
+
+    assert evil.status_code == 400
+    assert public.status_code != 400
+
+
+def test_create_app_admits_the_public_base_url_host_with_its_port() -> None:
+    app = create_app(_settings(public_base_url="http://localhost:8000"))
+    client = TestClient(app, base_url="http://localhost:8000")
+
+    assert client.get("/health").status_code != 400
+    assert client.get("/health", headers={"Host": "127.0.0.1:8000"}).status_code == 400
+
+
 def test_create_app_sends_an_anonymous_request_to_the_home_route_to_sign_in() -> None:
     """No cookie means the gate (tickets #14, #71) short-circuits before any database access,
     so this proves the wiring without needing a reachable Postgres."""

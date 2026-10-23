@@ -9,4 +9,4 @@ set -euo pipefail
 ./scripts/watch_css.sh &
 
 exec uvicorn ai_trainer.main:app_factory --factory --host 0.0.0.0 --port 8000 \
-  --reload --reload-dir src
+  --proxy-headers --reload --reload-dir src

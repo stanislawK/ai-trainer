@@ -63,6 +63,7 @@ jobs:
           GOOGLE_CLIENT_SECRET: ci-placeholder-not-a-real-secret
           SESSION_SECRET_KEY: ci-placeholder-session-secret-key
           CSRF_SECRET_KEY: ci-placeholder-csrf-secret-key
+          PUBLIC_BASE_URL: http://localhost:8000
           # Inputs reach the shell as environment variables, never interpolated into the
           # script text, so an input cannot inject commands (ADR-0023).
           INPUT_TEMPLATE_ID: ${{ inputs.template_id }}

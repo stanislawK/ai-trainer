@@ -39,9 +39,12 @@ The app signs in with Google only (ADR-0005). Every key below is required: `make
 3. Fill `.env`:
    - `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` from the client you just created;
    - `SESSION_SECRET_KEY` and `CSRF_SECRET_KEY` — two different values, each from `openssl rand -hex 32`;
-   - `ADMIN_EMAILS` — your own Google email (comma-separated for more than one). A verified email in this list is `active` and an admin.
+   - `ADMIN_EMAILS` — your own Google email (comma-separated for more than one). A verified email in this list is `active` and an admin;
+   - `PUBLIC_BASE_URL` — `http://localhost:8000` (already in `.env.example`; an origin with no path). A `.env` copied before #216 lacks it, and the app refuses to start naming the key.
 4. Start the stack with `make start`, or restart it if it is already running: **`.env` is read only at startup**, so an edit does nothing until you restart.
-5. Open **`http://localhost:8000`** — `localhost`, not `127.0.0.1`. Google matches the redirect URI exactly and the session cookie belongs to one host, so `127.0.0.1` fails with `redirect_uri_mismatch` or a state error. Click *Continue with Google*.
+5. Open **`http://localhost:8000`** — `localhost`, not `127.0.0.1`. Google matches the redirect URI exactly and the session cookie belongs to one host, so `127.0.0.1` fails with `redirect_uri_mismatch` or a state error — and the app answers any Host other than `PUBLIC_BASE_URL`'s with `400`. Click *Continue with Google*.
+
+**Behind a proxy (ADR-0023).** The redirect URI sent to Google is always `PUBLIC_BASE_URL` plus `/auth/callback`, never built from the request, and only `PUBLIC_BASE_URL`'s host is accepted in the `Host` header. In production set it to `https://<your domain>` and register that `/auth/callback` on its own Google OAuth client. The image runs Uvicorn with `--proxy-headers`, which trusts `X-Forwarded-*` only from the addresses in the `FORWARDED_ALLOW_IPS` environment variable (default `127.0.0.1`): set it to the proxy's address or network, never `*`. The container health check (`scripts/healthcheck.py`) sends the `PUBLIC_BASE_URL` host itself, so it keeps passing.
 
 Every sign-in re-checks `ADMIN_EMAILS` (ADR-0005): a listed, verified email always ends `active`, even if the account was `pending` or `disabled`. A second Google account (not listed) lands `pending`; an admin activates it at `http://localhost:8000/admin`. To lock an admin out for good, remove their email from `ADMIN_EMAILS` and restart — disabling a listed admin lasts only until their next sign-in.
 

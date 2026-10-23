@@ -68,6 +68,7 @@ def _client(
             admin_emails=[],
             session_ttl=timedelta(days=14),
             cookie_secure=False,
+            public_base_url="http://testserver",
         )
     )
 

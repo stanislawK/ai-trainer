@@ -95,6 +95,7 @@ def _client(
                 admin_emails=admin_emails or [],
                 session_ttl=timedelta(days=14),
                 cookie_secure=False,
+                public_base_url="http://testserver",
             )
         )
     return TestClient(app)

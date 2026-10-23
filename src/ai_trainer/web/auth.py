@@ -51,16 +51,19 @@ def build_auth_router(
     admin_emails: Sequence[str],
     session_ttl: timedelta,
     cookie_secure: bool,
+    public_base_url: str,
 ) -> APIRouter:
     """Wires `/auth/login`, `/auth/callback` and `/auth/logout` (ADR-0005).
 
-    All three are exempt from the active-session gate (ADR-0005 invariant 2, ticket #14).
+    All three are exempt from the active-session gate (ADR-0005 invariant 2, ticket #14). The
+    redirect URI sent to Google is `public_base_url` plus the callback path, never built from
+    the request: behind a TLS-terminating proxy `request.url_for` yields `http://` (ADR-0023).
     """
     router = APIRouter(prefix="/auth")
 
     @router.get("/login")
     async def login(request: Request) -> RedirectResponse:
-        redirect_uri = str(request.url_for("auth_callback"))
+        redirect_uri = public_base_url + request.app.url_path_for("auth_callback")
         return await oauth_client.authorize_redirect(request, redirect_uri)
 
     @router.get("/callback", name="auth_callback")

@@ -57,8 +57,9 @@ EXPOSE 8000
 
 # The probe's own timeout must exceed the DB ping's connect_timeout inside
 # /health (2s default), or a slow-to-fail DB can time out the probe itself
-# before the route gets to report "unavailable" gracefully.
+# before the route gets to report "unavailable" gracefully. The script sends the Host of
+# PUBLIC_BASE_URL, the only one TrustedHostMiddleware admits (#216).
 HEALTHCHECK --interval=5s --timeout=6s --start-period=5s --retries=5 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=5)"
+    CMD python scripts/healthcheck.py
 
-CMD ["uvicorn", "ai_trainer.main:app_factory", "--factory", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "ai_trainer.main:app_factory", "--factory", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers"]
