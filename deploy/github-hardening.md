@@ -45,6 +45,11 @@ Settings → Environments.
 
 - [ ] The `evals` environment exists, with `OPENROUTER_API_KEY`, `EVAL_JUDGE_MODEL`, `ROUTER_MODEL`, `CHITCHAT_MODEL`, `EXTRACT_MODEL` and `EXTRACT_PROVIDER` as its secrets.
 
+After the first `release.yml` run (#219), on the profile's **Packages** tab → `ai-trainer` → Package settings.
+
+- [ ] Danger Zone → **Change visibility** → **Public**, then type the package name to confirm. GHCR creates a new package as private, and the server pulls without a registry credential (ADR-0023). This cannot be undone: a public package never goes private again.
+- [ ] Logged out (`docker logout ghcr.io`), `docker pull --platform linux/amd64 ghcr.io/stanislawk/ai-trainer@sha256:<digest>` succeeds. The image is amd64 only, so on an Apple silicon Mac the pull needs `--platform`.
+
 ## 5. Owner account
 
 - [ ] 2FA with a passkey or security key on GitHub.
