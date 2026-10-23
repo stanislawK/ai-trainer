@@ -44,6 +44,11 @@ Settings → Actions → General.
 Settings → Environments.
 
 - [ ] The `evals` environment exists, with `OPENROUTER_API_KEY`, `EVAL_JUDGE_MODEL`, `ROUTER_MODEL`, `CHITCHAT_MODEL`, `EXTRACT_MODEL` and `EXTRACT_PROVIDER` as its secrets.
+- [ ] A `production` environment exists (#220), before the first `v*` tag. Settings → Environments → New environment → `production`:
+  - [ ] **Required reviewers**: on, with the owner as the only reviewer.
+  - [ ] **Prevent self-review**: off. The owner pushes the tag and is the only reviewer, so with it on nobody could approve.
+  - [ ] **Deployment branches and tags** → **Selected branches and tags** → add a **tag** rule `v*`, and no branch rule.
+  - [ ] No secrets or variables. The `release` job needs none.
 
 After the first `release.yml` run (#219), on the profile's **Packages** tab → `ai-trainer` → Package settings.
 

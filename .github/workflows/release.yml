@@ -80,3 +80,38 @@ jobs:
           # Storage records exist only for organization-owned repositories; this one is
           # user-owned, and creating one would also need `artifact-metadata: write`.
           create-storage-record: false
+
+  # Waits for the owner's approval of the `production` environment, whose only required reviewer
+  # is the owner and whose deployment tags are limited to `v*` (ADR-0023 invariant 1). Then it
+  # creates the deployment that deploy/deploy.sh on the server polls for. `deployment: false`
+  # stops GitHub creating a deployment of its own while the job waits, which a rejection would
+  # leave behind; the reviewer rule still applies.
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      deployment: false
+    permissions:
+      deployments: write
+    steps:
+      # The payload is the digest only. `required_contexts: []` skips the API's commit-status
+      # check, which this run's own checks (still in progress) would fail; `main`'s ruleset
+      # required `ci` before the tagged commit merged. `auto_merge: false`: a tag can't take a
+      # merge from `main`. Each call keeps only an id, so the log holds no response body.
+      - name: Create the production deployment
+        env:
+          DIGEST: ${{ needs.build.outputs.digest }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "The build's digest output is not a sha256 digest: '$DIGEST'" >&2
+            exit 1
+          fi
+          id=$(jq -n --arg ref "$GITHUB_REF_NAME" --arg digest "$DIGEST" '{
+            ref: $ref, environment: "production", production_environment: true,
+            payload: {digest: $digest}, auto_merge: false, required_contexts: []
+          }' | gh api --method POST "repos/$GITHUB_REPOSITORY/deployments" --input - --jq .id)
+          gh api --method POST "repos/$GITHUB_REPOSITORY/deployments/$id/statuses" \
+            -f state=queued --jq .id > /dev/null
+          echo "Deployment $id for $DIGEST is queued for the server."
