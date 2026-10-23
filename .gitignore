@@ -241,3 +241,7 @@ src/ai_trainer/web/static/css/daisyui-theme.js
 
 # Local LLM traffic log behind LLM_DEBUG_LOG (ADR-0018): prompts and replies, never committed.
 .llm-debug/
+
+# Local smoke run of compose.prod.yaml (#221): test certificates, a database password and an
+# app .env, made by deploy/smoke-setup.sh. Never committed.
+.smoke/
