@@ -88,6 +88,10 @@ jobs:
       - name: Import boundaries (import-linter)
         run: uv run lint-imports
 
+      # The production host's user data (#222), checked by the cloud-init Debian 13 ships.
+      - name: Validate cloud-init (cloud-init schema)
+        run: make cloud-init-check
+
       - name: OpenAPI snapshot drift check
         run: |
           uv run python scripts/generate_openapi.py

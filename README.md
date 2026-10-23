@@ -73,6 +73,7 @@ Run `make` targets from the repo root; see the [Makefile](Makefile) for the comp
 | `make ps` | Show container + healthcheck status |
 | `make health` | Curl the running app's `/health` |
 | `make smoke-setup` / `make smoke-up` / `make smoke-down` | Run the production stack (`compose.prod.yaml`) locally behind Caddy — see [Production smoke run](#production-smoke-run) |
+| `make cloud-init-check` | Validate the production host's `deploy/cloud-init.yaml` with Debian 13's cloud-init, in a container — see [deploy/RUNBOOK.md](deploy/RUNBOOK.md) |
 | `make install` | `uv sync` — install dependencies locally |
 | `make css` | Compile the Tailwind CSS v4 + daisyUI 5 stylesheet (no Node) |
 | `make test` | Run the full test suite |
@@ -86,7 +87,7 @@ Run `make` targets from the repo root; see the [Makefile](Makefile) for the comp
 | `make squawk` | Lint the SQL of migration revisions new since `origin/main` with squawk (ADR-0024); `base=<ref>` overrides the base |
 | `make openapi` | Regenerate the OpenAPI snapshot (`docs/api/openapi.json`) |
 | `make openapi-check` | Regenerate, then fail if the committed snapshot drifted (what CI runs) |
-| `make check` | Everything CI runs: lint, format check, typecheck, import-lint, squawk, openapi-check, tests |
+| `make check` | Everything CI runs: lint, format check, typecheck, import-lint, squawk, openapi-check, cloud-init-check, tests |
 | `make purge-conversations` | Hard-delete conversations (and their messages) last active more than `CONVERSATION_RETENTION_DAYS` ago and print how many (ADR-0021); safe to repeat |
 | `make llm-report [since=<ISO time>]` | Summarize the LLM debug log per template and model — see [Debugging LLM calls](#debugging-llm-calls) |
 | `make latency-scenario [url=<base URL>]` | Replay the latency scenario on the running app and print p50/p95 per log turn — calls real models, costs money; see [Debugging LLM calls](#debugging-llm-calls) |
@@ -193,6 +194,10 @@ cd .. && make smoke-down
 - It needs port 443 free and a filled-in `.env` (the Google keys may be dummies; only the sign-in redirect is checked). `make start` can keep running alongside: the smoke stack is its own Compose project, `ai-trainer-prod`, and publishes nothing else.
 - In production `APP_IMAGE` is `ghcr.io/stanislawk/ai-trainer@sha256:<digest>`, `SITE_HOST` the host of `PUBLIC_BASE_URL`, and the config directory (`.env`, `db.env`, `certs/`) is `/opt/ai-trainer`. The smoke run uses a local tag instead, because a local build has no registry digest.
 - `make smoke-down` keeps the smoke stack's volumes; `docker compose -p ai-trainer-prod down -v` drops them.
+
+## Production host
+
+The owner provisions the Hetzner host by following [deploy/RUNBOOK.md](deploy/RUNBOOK.md): stock and price check, Cloud Firewall, the server from [deploy/cloud-init.yaml](deploy/cloud-init.yaml), Cloudflare (Full strict, Origin CA, zone-level AOP) and the server's env files (ADR-0023). Agents never reach the host. `make cloud-init-check` validates the user data before it's used.
 
 ## Releasing
 

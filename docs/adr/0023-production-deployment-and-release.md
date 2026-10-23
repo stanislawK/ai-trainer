@@ -164,7 +164,7 @@ The owner set four constraints on 2026-10-11:
 - ⚠ **Verify at the hardening ticket:**
   - The ruleset API's field for "bypass for pull requests only". Third-party docs suggest a `bypass_mode` value, which isn't confirmed.
   - That an "always" bypass isn't needed for a solo owner to merge their own PR with 1 required approval. If it is, drop the required approval count to 0, keep required checks, and keep bypass "for pull requests only".
-- ⚠ **Verify at provisioning:** CX23 stock and the price at order time.
+- ⚠ **Verify at provisioning:** CX23 stock and the price at order time. The owner keeps that record privately, outside this public repo (`deploy/RUNBOOK.md`, #222).
 - **`compose.prod.yaml` gotchas (#221):**
   - It sets its own Compose project name, `ai-trainer-prod`. `compose.yaml` is project `ai-trainer`, and two files in one directory with the same service names would otherwise replace each other's containers.
   - `no-new-privileges` blocks file capabilities. The Caddy image grants `cap_net_bind_service` to its binary that way, so with every capability dropped Caddy can't bind 443 unless `cap_add: NET_BIND_SERVICE` puts it in the root process's bounding set.
@@ -176,4 +176,12 @@ The owner set four constraints on 2026-10-11:
   - `actions/attest-build-provenance` v4 creates an artifact-metadata storage record by default. That works only for organization-owned repositories and needs `artifact-metadata: write`. This repository is user-owned, so the step sets `create-storage-record: false` and the job keeps exactly the four permissions above.
   - GHCR creates a new package as private. The owner makes `ai-trainer` public once, after the first release (`deploy/github-hardening.md`).
   - `.dockerignore` excludes `.env`, `*.env`, `*.pem` and `*.key` at any depth: `make smoke-setup` writes `.smoke/.env`, `.smoke/db.env` and test private keys into the working tree, and a root-only `.env` pattern let them into a local build. Before attesting, the build job also fails if the pushed image holds an env file or a private key, so such an image is never attested.
+- **`deploy/cloud-init.yaml` gotchas (#222):**
+  - The owner's SSH key is the one picked in Hetzner's console, not a key in the repo. Hetzner hands it over as instance metadata, and cloud-init installs metadata keys only for the default user, so the file's `user:` entry makes `deploy` that default user. A `deploy` listed only under `users:` would get no key.
+  - `deploy` has no password at all, so sudo is `NOPASSWD`. That adds nothing beyond its Docker-group membership, which is already root-equivalent.
+  - sshd keeps the first value it reads, and Debian includes `sshd_config.d/` at the top of `sshd_config`. The hardening drop-in is `10-ai-trainer.conf`, so it wins over cloud-init's own `50-cloud-init.conf`.
+  - Docker comes from Debian's archive (`docker.io`, `docker-cli`, `docker-compose`: Docker 26.1 and compose 2.26 on trixie), so Debian-Security patches it and unattended-upgrades applies the patches. Docker's own apt repository would need its origin added to unattended-upgrades by hand. Compose 2.26 accepts `compose.prod.yaml`.
+  - The `docker` group exists only once the packages are installed, after the users stage, so `deploy` joins it in `runcmd`. `20auto-upgrades` is a deferred `write_files` entry, written after the packages so their own setup can't replace it.
+  - `make cloud-init-check` runs `cloud-init schema` in a `debian:trixie` container (cloud-init 25.1 there), and CI runs it too. The macOS laptop has no cloud-init.
+  - The runbook keeps the server's addresses and the provisioning record (type, location, price) out of the repo, which is public. The owner keeps them privately.
 - **Observability:** an external uptime check and ADR-0018's OTLP export (Grafana Cloud) are recommended at go-live, but not required.
