@@ -504,3 +504,66 @@ def test_a_template_call_timeout_must_be_positive(monkeypatch: pytest.MonkeyPatc
 
     with pytest.raises(ValidationError):
         Settings(_env_file=None)
+
+
+def test_public_base_url_is_read_from_the_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    _set_required_keys(monkeypatch)
+    monkeypatch.setenv("PUBLIC_BASE_URL", "https://trainer.example")
+
+    assert Settings(_env_file=None).public_base_url == "https://trainer.example"
+
+
+def test_public_base_url_drops_a_trailing_slash(monkeypatch: pytest.MonkeyPatch) -> None:
+    _set_required_keys(monkeypatch)
+    monkeypatch.setenv("PUBLIC_BASE_URL", "http://localhost:8000/")
+
+    assert Settings(_env_file=None).public_base_url == "http://localhost:8000"
+
+
+def test_public_base_url_is_lowercased(monkeypatch: pytest.MonkeyPatch) -> None:
+    _set_required_keys(monkeypatch)
+    monkeypatch.setenv("PUBLIC_BASE_URL", "HTTPS://Trainer.Example")
+
+    assert Settings(_env_file=None).public_base_url == "https://trainer.example"
+
+
+def test_missing_public_base_url_raises_naming_it(monkeypatch: pytest.MonkeyPatch) -> None:
+    _set_required_keys(monkeypatch)
+    monkeypatch.delenv("PUBLIC_BASE_URL")
+
+    with pytest.raises(ValidationError) as excinfo:
+        Settings(_env_file=None)
+
+    assert [error["loc"] for error in excinfo.value.errors()] == [("public_base_url",)]
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "",
+        "   ",
+        "https://trainer.example/app",
+        "ftp://trainer.example",
+        "trainer.example",
+        "https://",
+        "http://localhost:abc",
+        "http://[::1]:8000",
+        "http://[::1",
+        "https://trainer.example.",
+        "http://localhost:0",
+        "https://trainer.example?x=1",
+        "https://trainer.example#top",
+        "https://user:secret@trainer.example",
+    ],
+)
+def test_an_invalid_public_base_url_fails_at_startup_naming_the_key(
+    monkeypatch: pytest.MonkeyPatch, value: str
+) -> None:
+    _set_required_keys(monkeypatch)
+    monkeypatch.setenv("PUBLIC_BASE_URL", value)
+
+    with pytest.raises(ValidationError) as excinfo:
+        Settings(_env_file=None)
+
+    assert [error["loc"] for error in excinfo.value.errors()] == [("public_base_url",)]
+    assert "PUBLIC_BASE_URL" in str(excinfo.value)

@@ -14,6 +14,9 @@ os.environ["GOOGLE_CLIENT_ID"] = "test-client-id.apps.googleusercontent.com"
 os.environ["GOOGLE_CLIENT_SECRET"] = "test-client-secret"
 os.environ["SESSION_SECRET_KEY"] = "test-session-secret-key"
 os.environ["CSRF_SECRET_KEY"] = "test-csrf-secret-key"
+# Starlette's test client sends `Host: testserver`, which the trusted-host check admits only for
+# this origin (ticket #216).
+os.environ["PUBLIC_BASE_URL"] = "http://testserver"
 os.environ["ROUTER_MODEL"] = "test/router-model"
 os.environ["CHITCHAT_MODEL"] = "test/chitchat-model"
 os.environ["EXTRACT_MODEL"] = "test/extract-model"

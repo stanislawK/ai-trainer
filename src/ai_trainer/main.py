@@ -5,6 +5,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import timedelta
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from authlib.integrations.starlette_client import OAuth
 from fastapi import FastAPI
@@ -16,6 +17,7 @@ from opentelemetry.sdk.trace.export import BatchSpanProcessor, SpanExporter
 from opentelemetry.util.re import parse_env_headers
 from pydantic_ai import Agent, InstrumentationSettings
 from starlette.middleware.sessions import SessionMiddleware
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from ai_trainer.adapters.chat_repository import SqlAlchemyChatRepository
 from ai_trainer.adapters.clarification_repository import SqlAlchemyClarificationRepository
@@ -221,8 +223,16 @@ def create_app(settings: Settings) -> FastAPI:
             admin_emails=settings.admin_emails,
             session_ttl=timedelta(days=settings.session_ttl_days),
             cookie_secure=settings.session_cookie_secure,
+            public_base_url=settings.public_base_url,
         )
     )
+
+    # Added last so it is the outermost middleware: a request whose Host is not the public
+    # origin's is refused with 400 before the session, CSRF or sign-in gate sees it (ADR-0023).
+    # The port is not compared, so the host alone is allowed.
+    public_host = urlsplit(settings.public_base_url).hostname
+    assert public_host is not None  # `Settings` only accepts an origin with a host
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=[public_host])
 
     tracer_provider = _build_tracer_provider(settings)
     if tracer_provider is not None:

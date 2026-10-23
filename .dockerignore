@@ -17,6 +17,7 @@ scripts
 !scripts/css_tools.sh
 !scripts/watch_css.sh
 !scripts/dev_start.sh
+!scripts/healthcheck.py
 .claude
 *.md
 

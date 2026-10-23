@@ -29,6 +29,9 @@ env:
   GOOGLE_CLIENT_SECRET: ci-placeholder-not-a-real-secret
   SESSION_SECRET_KEY: ci-placeholder-session-secret-key
   CSRF_SECRET_KEY: ci-placeholder-csrf-secret-key
+  # Required origin (ADR-0023); the e2e job reaches the app at localhost:8000, which the
+  # trusted-host check admits only for this value.
+  PUBLIC_BASE_URL: http://localhost:8000
 
 jobs:
   ci:
