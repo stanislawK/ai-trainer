@@ -172,4 +172,8 @@ The owner set four constraints on 2026-10-11:
   - The Postgres entrypoint starts as root and switches to `postgres` with gosu, so `db` adds back `CHOWN`, `DAC_OVERRIDE`, `FOWNER`, `SETGID` and `SETUID`.
   - Postgres sits on an `internal: true` network with no route out. The app's proxy-header trust (`FORWARDED_ALLOW_IPS`) is the fixed `edge` subnet shared only with Caddy.
   - TLS 1.3 clients finish their side of the handshake before the server checks the client certificate. Without one, curl reports the server's `certificate required` alert on its first read (exit 56) rather than at connect (exit 35, as under TLS 1.2). Either way no request reaches the app.
+- **`release.yml` gotchas (#219):**
+  - `actions/attest-build-provenance` v4 creates an artifact-metadata storage record by default. That works only for organization-owned repositories and needs `artifact-metadata: write`. This repository is user-owned, so the step sets `create-storage-record: false` and the job keeps exactly the four permissions above.
+  - GHCR creates a new package as private. The owner makes `ai-trainer` public once, after the first release (`deploy/github-hardening.md`).
+  - `.dockerignore` excludes `.env`, `*.env`, `*.pem` and `*.key` at any depth: `make smoke-setup` writes `.smoke/.env`, `.smoke/db.env` and test private keys into the working tree, and a root-only `.env` pattern let them into a local build. Before attesting, the build job also fails if the pushed image holds an env file or a private key, so such an image is never attested.
 - **Observability:** an external uptime check and ADR-0018's OTLP export (Grafana Cloud) are recommended at go-live, but not required.

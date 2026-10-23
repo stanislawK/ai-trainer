@@ -1,0 +1,82 @@
+name: Release
+
+# Only the owner's `v*` tag runs this (ADR-0023): a tag ruleset lets only admins create one, and
+# agents are blocked from tagging by .claude/hooks/guard_release.py. Branch pushes and other tags
+# trigger nothing. The server runs only images whose provenance verifies against this file.
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+env:
+  IMAGE: ghcr.io/stanislawk/ai-trainer
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    outputs:
+      digest: ${{ steps.push.outputs.digest }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Log in to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # CX23 is x86 (ADR-0023). No secrets or build-args reach the build, and .dockerignore keeps
+      # every `.env` out of the context.
+      - name: Build and push
+        id: push
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: ghcr.io/stanislawk/ai-trainer:${{ github.ref_name }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/stanislawK/ai-trainer
+            org.opencontainers.image.revision=${{ github.sha }}
+
+      # Runs before attesting: an image that fails here is never attested, so the deploy poller
+      # refuses it (ADR-0023 invariants 2 and 6).
+      - name: Check the image holds no env file or private key
+        id: secret-guard
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          found=$(docker run --rm --user 0 --entrypoint find "$IMAGE@$DIGEST" / -xdev \
+            \( -path /proc -o -path /sys \) -prune -o -type f \( \
+              -name '.env*' ! -name .env.example -o -name '*.env' \
+              -o -name '*key.pem' -o -name '*.key' \) -print)
+          if [ -n "$found" ]; then
+            echo "The image holds env files or private keys:" >&2
+            echo "$found" >&2
+            exit 1
+          fi
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ghcr.io/stanislawk/ai-trainer
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+          # Storage records exist only for organization-owned repositories; this one is
+          # user-owned, and creating one would also need `artifact-metadata: write`.
+          create-storage-record: false

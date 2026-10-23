@@ -194,6 +194,20 @@ cd .. && make smoke-down
 - In production `APP_IMAGE` is `ghcr.io/stanislawk/ai-trainer@sha256:<digest>`, `SITE_HOST` the host of `PUBLIC_BASE_URL`, and the config directory (`.env`, `db.env`, `certs/`) is `/opt/ai-trainer`. The smoke run uses a local tag instead, because a local build has no registry digest.
 - `make smoke-down` keeps the smoke stack's volumes; `docker compose -p ai-trainer-prod down -v` drops them.
 
+## Releasing
+
+Only the owner releases (ADR-0023). Agents cannot tag: `.claude/hooks/guard_release.py` blocks it. A `v*` tag runs [`.github/workflows/release.yml`](.github/workflows/release.yml). Its `build` job pushes `ghcr.io/stanislawk/ai-trainer:<tag>`, fails the run if the image holds an env file or a private key, then attests the image's provenance. The image digest is the job's `digest` output and appears in the run log.
+
+```bash
+git tag v0.1.0 && git push origin v0.1.0      # owner only; any other tag runs nothing
+gh run watch                                  # pick the "Release" run
+gh attestation verify oci://ghcr.io/stanislawk/ai-trainer@sha256:<digest> -R stanislawK/ai-trainer \
+  --signer-workflow stanislawK/ai-trainer/.github/workflows/release.yml
+docker logout ghcr.io; docker pull --platform linux/amd64 ghcr.io/stanislawk/ai-trainer@sha256:<digest>   # public: no login; amd64 only
+```
+
+The first release creates the GHCR package as private, so its visibility is set to public once by hand ([deploy/github-hardening.md](deploy/github-hardening.md), section 4).
+
 ## Running locally without Docker
 
 ```bash

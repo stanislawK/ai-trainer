@@ -1,7 +1,11 @@
 name: CI
 
 on:
+  # Branches only: a tag starts nothing but release.yml, and a release tag points at a
+  # commit CI already tested on main (#219).
   push:
+    branches:
+      - "**"
   pull_request:
 
 concurrency:

@@ -6,8 +6,12 @@ __pycache__
 .pytest_cache
 .ruff_cache
 .coverage
-.env
-.env.*
+# Secrets never reach the build context, at any depth (ADR-0023 invariant 6).
+**/.env
+**/.env.*
+**/*.env
+**/*.pem
+**/*.key
 !.env.example
 docs
 tests
@@ -23,3 +27,10 @@ scripts
 
 # Local LLM traffic log (ADR-0018): prompts and replies never go into an image.
 .llm-debug
+
+# Local state: `make smoke-setup` writes test keys and env files here (#221), acceptance
+# screenshots and Playwright MCP output stay on the developer's machine.
+.smoke
+.acceptance
+.playwright-mcp
+.import_linter_cache
