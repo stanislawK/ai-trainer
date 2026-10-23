@@ -74,6 +74,7 @@ Run `make` targets from the repo root; see the [Makefile](Makefile) for the comp
 | `make health` | Curl the running app's `/health` |
 | `make smoke-setup` / `make smoke-up` / `make smoke-down` | Run the production stack (`compose.prod.yaml`) locally behind Caddy — see [Production smoke run](#production-smoke-run) |
 | `make cloud-init-check` | Validate the production host's `deploy/cloud-init.yaml` with Debian 13's cloud-init, in a container — see [deploy/RUNBOOK.md](deploy/RUNBOOK.md) |
+| `make backup-check` | Round-trip `deploy/backup.sh` against the `make start` database: a throwaway age key, a local directory as the bucket, then decrypt and `pg_restore --list`, in Debian 13 with the host's age and rclone — see [Production host](#production-host) |
 | `make install` | `uv sync` — install dependencies locally |
 | `make css` | Compile the Tailwind CSS v4 + daisyUI 5 stylesheet (no Node) |
 | `make test` | Run the full test suite |
@@ -198,6 +199,8 @@ cd .. && make smoke-down
 ## Production host
 
 The owner provisions the Hetzner host by following [deploy/RUNBOOK.md](deploy/RUNBOOK.md): stock and price check, Cloud Firewall, the server from [deploy/cloud-init.yaml](deploy/cloud-init.yaml), Cloudflare (Full strict, Origin CA, zone-level AOP) and the server's env files (ADR-0023). Agents never reach the host. `make cloud-init-check` validates the user data before it's used.
+
+The host backs up the database every night: [deploy/backup.sh](deploy/backup.sh) streams `pg_dump` through age, encrypted to the owner's offline key, into a Cloudflare R2 bucket whose lock keeps each copy for its retention window (RUNBOOK section 8). `make backup-check` runs the same script against your local database.
 
 ## Releasing
 

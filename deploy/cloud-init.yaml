@@ -31,6 +31,9 @@ packages:
   - docker.io
   - docker-cli
   - docker-compose
+  # deploy/backup.sh: age encrypts the dump to the owner's key, rclone uploads it to R2 (#223).
+  - age
+  - rclone
 
 write_files:
   # sshd keeps the first value it reads, and Debian includes sshd_config.d/ at the top of
