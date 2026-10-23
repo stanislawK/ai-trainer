@@ -72,6 +72,7 @@ Run `make` targets from the repo root; see the [Makefile](Makefile) for the comp
 | `make logs` | Follow container logs |
 | `make ps` | Show container + healthcheck status |
 | `make health` | Curl the running app's `/health` |
+| `make smoke-setup` / `make smoke-up` / `make smoke-down` | Run the production stack (`compose.prod.yaml`) locally behind Caddy — see [Production smoke run](#production-smoke-run) |
 | `make install` | `uv sync` — install dependencies locally |
 | `make css` | Compile the Tailwind CSS v4 + daisyUI 5 stylesheet (no Node) |
 | `make test` | Run the full test suite |
@@ -169,6 +170,29 @@ The first finds requests that failed or were cut off by the timeout; the second,
 ## End-to-end tests
 
 `tests/e2e/` (pytest-playwright, ADR-0013) runs against the full running app, not a test client, so it needs `make up` (or `make up-build`) first, and `make e2e-install` once to download the Chromium browser. Signed-in pages are reached through `scripts/dev_session.py`, a dev-only script that seeds an active user and a session directly in the database and prints the cookie — never a real Google sign-in, and never a route. It seeds an onboarded user; `uv run python scripts/dev_session.py --not-onboarded` seeds a separate fresh user (reset on every run) who lands on the onboarding sports step. Specs are excluded from a bare `uv run pytest` / `make test`; run them explicitly with `make e2e`.
+
+## Production smoke run
+
+`compose.prod.yaml` is the production stack (ADR-0023): Postgres, a one-shot `migrate`, the app and Caddy. Only Caddy publishes a port, 443, and it accepts only clients that present a certificate from the Authenticated Origin Pulls CA — in production, Cloudflare. To try it on your machine with test certificates:
+
+```bash
+make smoke-setup   # writes .smoke/: test CAs and certificates, a random DB password, an app .env from yours
+make smoke-up      # builds ai-trainer:smoke, then starts the stack and waits until it's healthy
+cd .smoke
+curl -i --cacert origin-ca.pem --cert client.pem --key client-key.pem https://localhost/health
+#   HTTP/2 200, strict-transport-security: max-age=31536000, {"database":"ok"}
+curl --cacert origin-ca.pem https://localhost/health
+#   fails the TLS handshake: curl exits 56 ("certificate required") on TLS 1.3, 35 on TLS 1.2
+curl --cacert origin-ca.pem --cert rogue-client.pem --key rogue-client-key.pem https://localhost/health
+#   fails too ("unknown ca"): only the AOP CA's certificates count
+curl -s -D - -o /dev/null --cacert origin-ca.pem --cert client.pem --key client-key.pem https://localhost/auth/login
+#   302 to Google with redirect_uri=https%3A%2F%2Flocalhost%2Fauth%2Fcallback
+cd .. && make smoke-down
+```
+
+- It needs port 443 free and a filled-in `.env` (the Google keys may be dummies; only the sign-in redirect is checked). `make start` can keep running alongside: the smoke stack is its own Compose project, `ai-trainer-prod`, and publishes nothing else.
+- In production `APP_IMAGE` is `ghcr.io/stanislawk/ai-trainer@sha256:<digest>`, `SITE_HOST` the host of `PUBLIC_BASE_URL`, and the config directory (`.env`, `db.env`, `certs/`) is `/opt/ai-trainer`. The smoke run uses a local tag instead, because a local build has no registry digest.
+- `make smoke-down` keeps the smoke stack's volumes; `docker compose -p ai-trainer-prod down -v` drops them.
 
 ## Running locally without Docker
 

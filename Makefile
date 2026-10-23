@@ -1,6 +1,6 @@
 .PHONY: install css test test-unit test-integration coverage lint format format-check \
 	typecheck import-lint squawk openapi openapi-check check up up-build start stop down logs ps \
-	health migrate purge-conversations llm-report latency-scenario evals e2e-install e2e
+	health smoke-setup smoke-up smoke-down migrate purge-conversations llm-report latency-scenario evals e2e-install e2e
 
 install: ## Install dependencies (uv sync)
 	uv sync
@@ -73,6 +73,20 @@ ps: ## Show container + healthcheck status (includes the one-shot migrate servic
 
 health: ## Curl the running app's health endpoint
 	curl -sS http://localhost:8000/health
+
+# The production stack run locally (#221): a locally built image instead of a registry digest,
+# localhost as the site, and .smoke/ (from `make smoke-setup`) as the config directory.
+SMOKE_COMPOSE = APP_IMAGE=ai-trainer:smoke SITE_HOST=localhost CONFIG_DIR=.smoke docker compose -f compose.prod.yaml
+
+smoke-setup: ## Write .smoke/: test certificates, a database password and an app .env from yours (#221)
+	./deploy/smoke-setup.sh
+
+smoke-up: ## Build the image and run compose.prod.yaml locally behind Caddy on https://localhost (#221; needs `make smoke-setup`)
+	docker build -t ai-trainer:smoke .
+	$(SMOKE_COMPOSE) up -d --wait
+
+smoke-down: ## Stop the smoke stack (keeps its volumes; add `-v` by hand to drop them)
+	$(SMOKE_COMPOSE) down
 
 migrate: ## Apply database migrations (Alembic)
 	uv run alembic upgrade head

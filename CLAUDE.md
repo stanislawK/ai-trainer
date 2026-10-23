@@ -70,6 +70,7 @@ make squawk                      # squawk on the SQL of migration revisions new 
 uv run python scripts/generate_openapi.py   # regenerate docs/api/openapi.json (never hand-edit it)
 docker compose up -d             # app + postgres
 make start                       # dev loop: app + postgres with uvicorn --reload and a live Tailwind CSS rebuild over src/ (foreground)
+make smoke-setup && make smoke-up   # compose.prod.yaml locally behind Caddy with test certificates (README "Production smoke run"); `make smoke-down` stops it
 uv run alembic upgrade head      # migrations
 uv run ai-trainer purge-conversations   # delete conversations past CONVERSATION_RETENTION_DAYS (ADR-0021)
 uv run ai-trainer llm-debug-report [--since <ISO time>]   # summarize LLM_DEBUG_LOG lines per template (ADR-0018)

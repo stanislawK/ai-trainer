@@ -1,0 +1,149 @@
+# The production stack (ADR-0023, ticket #221): Postgres, a one-shot `migrate`, the app and
+# Caddy. Only Caddy publishes a port (443); it accepts only Cloudflare's Authenticated Origin
+# Pulls client certificate and proxies to `app:8000` over the `edge` network.
+#
+# Run from the directory that holds this file and `deploy/Caddyfile`. Everything secret comes
+# from CONFIG_DIR (default `.`, i.e. /opt/ai-trainer on the server), never from the repo or image:
+#   .env    the app's Settings (DATABASE_URL carries the database password)
+#   db.env  POSTGRES_PASSWORD only — a separate file, so .env keeps a strict 1:1 match with
+#           Settings (tests/unit/test_settings.py)
+#   certs/  origin.pem + origin-key.pem (Cloudflare Origin CA) and aop-ca.pem (the zone's AOP CA)
+# APP_IMAGE is `ghcr.io/stanislawk/ai-trainer@sha256:<digest>` in production; the README's local
+# smoke run passes a locally built tag instead, since a local build has no registry digest.
+#
+# Its own project name: compose.yaml's project is `ai-trainer`, so without one an `up` here would
+# replace the `make start` containers.
+name: ai-trainer-prod
+
+x-hardening: &hardening
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  logging:
+    driver: json-file
+    options:
+      max-size: 10m
+      max-file: "3"
+
+services:
+  db:
+    <<: *hardening
+    image: pgvector/pgvector:pg18-trixie@sha256:9d9c930220cb9bf2f956d10a8f909cf9973d9672ca0278aef2c1e6facccad2e0
+    restart: unless-stopped
+    env_file:
+      - ${CONFIG_DIR:-.}/db.env
+    environment:
+      POSTGRES_USER: ai_trainer
+      POSTGRES_DB: ai_trainer
+    # The entrypoint starts as root to own the data directory, then drops to `postgres` with gosu.
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
+    volumes:
+      # pg 18+ mounts the parent dir; PGDATA lives at a pg_ctlcluster-style subpath.
+      - postgres_data:/var/lib/postgresql
+    # ADR-0004: at least maintenance_work_mem, so parallel HNSW index builds don't fail.
+    shm_size: "256mb"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ai_trainer -d ai_trainer"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - backend
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+
+  # One-shot, as in compose.dev.yaml (#64): brings the schema to head, exits, and only then does
+  # `app` start. Never restarted: deploy.sh runs it once per release, after the backup.
+  migrate:
+    <<: *hardening
+    image: ${APP_IMAGE:?set APP_IMAGE to ghcr.io/stanislawk/ai-trainer@sha256:<digest>}
+    restart: "no"
+    env_file:
+      - ${CONFIG_DIR:-.}/.env
+    command:
+      - alembic
+      - upgrade
+      - head
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - backend
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+
+  app:
+    <<: *hardening
+    image: ${APP_IMAGE:?set APP_IMAGE to ghcr.io/stanislawk/ai-trainer@sha256:<digest>}
+    restart: unless-stopped
+    env_file:
+      - ${CONFIG_DIR:-.}/.env
+    environment:
+      # The Dockerfile's CMD runs Uvicorn with --proxy-headers; Uvicorn reads this variable and
+      # trusts X-Forwarded-* only from the edge subnet, where Caddy is the only other member.
+      FORWARDED_ALLOW_IPS: 10.221.0.0/24
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    # `edge` for Caddy and outbound calls (OpenRouter, Google), `backend` for Postgres.
+    networks:
+      - edge
+      - backend
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+
+  caddy:
+    <<: *hardening
+    image: caddy:2.11.7-alpine@sha256:eb4d35b7452d1ab6171fbdbe8d9275b2301dad6dad92115d91e19fb9b24d510f
+    restart: unless-stopped
+    ports:
+      - "443:443"
+    # The image grants the binary this capability as a file capability, which no-new-privileges
+    # blocks; Caddy runs as root, so the bounding set has to carry it instead.
+    cap_add:
+      - NET_BIND_SERVICE
+    environment:
+      # The host of PUBLIC_BASE_URL; the Origin CA certificate's SAN must match it.
+      SITE_HOST: ${SITE_HOST:?set SITE_HOST to the host of PUBLIC_BASE_URL}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ${CONFIG_DIR:-.}/certs:/etc/caddy/certs:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      app:
+        condition: service_healthy
+    networks:
+      - edge
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+
+networks:
+  edge:
+    ipam:
+      config:
+        - subnet: 10.221.0.0/24
+  # No route out: Postgres talks only to `migrate` and `app`.
+  backend:
+    internal: true
+
+volumes:
+  postgres_data:
+  caddy_data:
+  caddy_config:

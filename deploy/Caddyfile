@@ -1,0 +1,25 @@
+# Production ingress (ADR-0023, ticket #221). Cloudflare proxies to this origin in Full (strict)
+# mode: Caddy serves the Cloudflare Origin CA certificate and accepts only connections that
+# present the zone's Authenticated Origin Pulls client certificate. With a trust pool set,
+# client_auth defaults to require_and_verify, so anything else fails the TLS handshake.
+{
+	# Certificates are files, never ACME; there is no port 80 to redirect from.
+	auto_https off
+	# compose.prod.yaml publishes 443/tcp only, so don't advertise HTTP/3 (alt-svc: h3) over UDP.
+	servers {
+		protocols h1 h2
+	}
+}
+
+https://{$SITE_HOST} {
+	tls /etc/caddy/certs/origin.pem /etc/caddy/certs/origin-key.pem {
+		client_auth {
+			trust_pool file /etc/caddy/certs/aop-ca.pem
+		}
+	}
+
+	header Strict-Transport-Security "max-age=31536000"
+
+	# Passes the original Host on, which TrustedHostMiddleware checks against PUBLIC_BASE_URL.
+	reverse_proxy app:8000
+}

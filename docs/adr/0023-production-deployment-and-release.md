@@ -165,4 +165,11 @@ The owner set four constraints on 2026-10-11:
   - The ruleset API's field for "bypass for pull requests only". Third-party docs suggest a `bypass_mode` value, which isn't confirmed.
   - That an "always" bypass isn't needed for a solo owner to merge their own PR with 1 required approval. If it is, drop the required approval count to 0, keep required checks, and keep bypass "for pull requests only".
 - ⚠ **Verify at provisioning:** CX23 stock and the price at order time.
+- **`compose.prod.yaml` gotchas (#221):**
+  - It sets its own Compose project name, `ai-trainer-prod`. `compose.yaml` is project `ai-trainer`, and two files in one directory with the same service names would otherwise replace each other's containers.
+  - `no-new-privileges` blocks file capabilities. The Caddy image grants `cap_net_bind_service` to its binary that way, so with every capability dropped Caddy can't bind 443 unless `cap_add: NET_BIND_SERVICE` puts it in the root process's bounding set.
+  - With every capability dropped, root in a container has no `DAC_OVERRIDE`. Caddy can't read a certificate or key owned by another user with mode 0600. On the server, `certs/` and its files are owned by root: the directory 0700, the keys 0600.
+  - The Postgres entrypoint starts as root and switches to `postgres` with gosu, so `db` adds back `CHOWN`, `DAC_OVERRIDE`, `FOWNER`, `SETGID` and `SETUID`.
+  - Postgres sits on an `internal: true` network with no route out. The app's proxy-header trust (`FORWARDED_ALLOW_IPS`) is the fixed `edge` subnet shared only with Caddy.
+  - TLS 1.3 clients finish their side of the handshake before the server checks the client certificate. Without one, curl reports the server's `certificate required` alert on its first read (exit 56) rather than at connect (exit 35, as under TLS 1.2). Either way no request reaches the app.
 - **Observability:** an external uptime check and ADR-0018's OTLP export (Grafana Cloud) are recommended at go-live, but not required.
