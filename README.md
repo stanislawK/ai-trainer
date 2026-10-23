@@ -10,7 +10,7 @@ The eval harness (`make evals` / `ai-trainer-evals`, ADR-0009) is wired up; the 
 
 ## Continuous integration
 
-Every push and pull request runs `ruff check`, `ruff format --check`, `mypy --strict`, the import-boundary check (`import-linter`, ADR-0003), the OpenAPI snapshot drift check and the full `pytest` suite (see [`.github/workflows/ci.yml`](.github/workflows/ci.yml)), with integration tests hitting a real PostgreSQL/pgvector service container. Once that passes, a second `e2e` job builds and starts the full `docker compose` stack and runs the pytest-playwright specs in `tests/e2e/` (ADR-0013). Prompt evals never run here — they cost money and are triggered on demand, manually, through the separate `workflow_dispatch`-only [`.github/workflows/evals.yml`](.github/workflows/evals.yml) (ADR-0009).
+Every push and pull request runs `ruff check`, `ruff format --check`, `mypy --strict`, the import-boundary check (`import-linter`, ADR-0003), squawk on the SQL of the branch's new migration revisions (ADR-0024), the OpenAPI snapshot drift check and the full `pytest` suite (see [`.github/workflows/ci.yml`](.github/workflows/ci.yml)), with integration tests hitting a real PostgreSQL/pgvector service container. Once that passes, a second `e2e` job builds and starts the full `docker compose` stack and runs the pytest-playwright specs in `tests/e2e/` (ADR-0013). Prompt evals never run here — they cost money and are triggered on demand, manually, through the separate `workflow_dispatch`-only [`.github/workflows/evals.yml`](.github/workflows/evals.yml) (ADR-0009).
 
 This project is document-driven: PRDs and ADRs are the source of truth, not this file. If something here ever looks out of date, trust the docs and open a doc fix — see [docs/README.md](docs/README.md).
 
@@ -79,9 +79,10 @@ Run `make` targets from the repo root; see the [Makefile](Makefile) for the comp
 | `make migrate` | Apply database migrations (Alembic) |
 | `make lint` / `make format` / `make typecheck` | ruff / ruff format / mypy --strict |
 | `make import-lint` | Check layer boundaries (import-linter, ADR-0003) |
+| `make squawk` | Lint the SQL of migration revisions new since `origin/main` with squawk (ADR-0024); `base=<ref>` overrides the base |
 | `make openapi` | Regenerate the OpenAPI snapshot (`docs/api/openapi.json`) |
 | `make openapi-check` | Regenerate, then fail if the committed snapshot drifted (what CI runs) |
-| `make check` | Everything CI runs: lint, format check, typecheck, import-lint, openapi-check, tests |
+| `make check` | Everything CI runs: lint, format check, typecheck, import-lint, squawk, openapi-check, tests |
 | `make purge-conversations` | Hard-delete conversations (and their messages) last active more than `CONVERSATION_RETENTION_DAYS` ago and print how many (ADR-0021); safe to repeat |
 | `make llm-report [since=<ISO time>]` | Summarize the LLM debug log per template and model — see [Debugging LLM calls](#debugging-llm-calls) |
 | `make latency-scenario [url=<base URL>]` | Replay the latency scenario on the running app and print p50/p95 per log turn — calls real models, costs money; see [Debugging LLM calls](#debugging-llm-calls) |

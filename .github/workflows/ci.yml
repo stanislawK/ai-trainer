@@ -53,6 +53,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The squawk step diffs against origin/main to find this branch's new revisions.
+          fetch-depth: 0
 
       - name: Install uv
         uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
@@ -82,6 +85,10 @@ jobs:
         run: |
           uv run python scripts/generate_openapi.py
           git diff --exit-code -- docs/api/openapi.json
+
+      # Offline rendering needs no database, but Settings() reads DATABASE_URL (ADR-0024).
+      - name: Lint new migrations (squawk)
+        run: uv run python scripts/squawk_migrations.py --base origin/main
 
       - name: Run database migrations (Alembic)
         run: uv run alembic upgrade head
