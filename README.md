@@ -203,9 +203,13 @@ The owner provisions the Hetzner host by following [deploy/RUNBOOK.md](deploy/RU
 
 Only the owner releases (ADR-0023). Agents cannot tag: `.claude/hooks/guard_release.py` blocks it. A `v*` tag runs [`.github/workflows/release.yml`](.github/workflows/release.yml). Its `build` job pushes `ghcr.io/stanislawk/ai-trainer:<tag>`, fails the run if the image holds an env file or a private key, then attests the image's provenance. The image digest is the job's `digest` output and appears in the run log.
 
+The `release` job then waits for the owner's approval of the `production` environment (Actions → the run → **Review deployments** → `production` → **Approve and deploy**). Once approved, it creates a GitHub Deployment for `production` whose payload is `{"digest": "sha256:…"}`, with status `queued`, which the server's deploy poller picks up. A rejected approval creates no deployment.
+
 ```bash
 git tag v0.1.0 && git push origin v0.1.0      # owner only; any other tag runs nothing
-gh run watch                                  # pick the "Release" run
+gh run watch                                  # pick the "Release" run; approve when it waits at `release`
+gh api repos/stanislawK/ai-trainer/deployments --jq '.[0] | {id, ref, environment, payload}'   # owner only
+gh api repos/stanislawK/ai-trainer/deployments/<id>/statuses --jq '.[0].state'                 # queued
 gh attestation verify oci://ghcr.io/stanislawk/ai-trainer@sha256:<digest> -R stanislawK/ai-trainer \
   --signer-workflow stanislawK/ai-trainer/.github/workflows/release.yml
 docker logout ghcr.io; docker pull --platform linux/amd64 ghcr.io/stanislawk/ai-trainer@sha256:<digest>   # public: no login; amd64 only

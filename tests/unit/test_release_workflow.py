@@ -1,6 +1,7 @@
 """`release.yml` publishes an attested image on a `v*` tag (ticket #219, ADR-0023 "Release
 pipeline"): it runs only on such a tag, pushes by digest, guards against secrets before it attests,
-and widens permissions only on its `build` job."""
+and widens permissions per job only. Its `release` job waits for the owner's approval of the
+`production` environment, then creates the deployment the server polls for (#220)."""
 
 from pathlib import Path
 from typing import Any
@@ -24,6 +25,17 @@ def workflow() -> dict[str | bool, Any]:
 def build(workflow: dict[str | bool, Any]) -> dict[str, Any]:
     job: dict[str, Any] = workflow["jobs"]["build"]
     return job
+
+
+@pytest.fixture(scope="module")
+def release(workflow: dict[str | bool, Any]) -> dict[str, Any]:
+    job: dict[str, Any] = workflow["jobs"]["release"]
+    return job
+
+
+@pytest.fixture(scope="module")
+def release_script(release: dict[str, Any]) -> str:
+    return "\n".join(step["run"] for step in release["steps"])
 
 
 def _step(job: dict[str, Any], action: str) -> dict[str, Any]:
@@ -143,3 +155,73 @@ def test_dockerignore_keeps_secrets_and_local_state_out_of_the_build_context(
 def test_ci_runs_on_branch_pushes_only_so_a_tag_starts_nothing_but_a_release() -> None:
     ci: dict[str | bool, Any] = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())
     assert ci[True]["push"] == {"branches": ["**"]}
+
+
+def test_release_waits_for_the_build_and_the_production_environment(
+    release: dict[str, Any],
+) -> None:
+    """The environment's required reviewer (the owner) holds the job until they approve."""
+    assert release["needs"] == "build"
+    assert release["environment"]["name"] == "production"
+
+
+def test_release_environment_creates_no_deployment_of_its_own(release: dict[str, Any]) -> None:
+    """Without `deployment: false` GitHub creates a `production` deployment while the job waits,
+    and leaves it behind on a rejection. The only deployment is the one the approved job posts."""
+    assert release["environment"]["deployment"] is False
+
+
+def test_release_token_can_only_write_deployments(release: dict[str, Any]) -> None:
+    assert release["permissions"] == {"deployments": "write"}
+
+
+def test_release_runs_only_shell_steps_with_no_checkout(release: dict[str, Any]) -> None:
+    for step in release["steps"]:
+        assert "uses" not in step
+        assert "run" in step
+
+
+def test_release_reads_the_digest_and_token_through_env_never_inline(
+    release: dict[str, Any], release_script: str
+) -> None:
+    envs = [step.get("env", {}) for step in release["steps"]]
+    assert {"DIGEST": "${{ needs.build.outputs.digest }}"}.items() <= envs[0].items()
+    assert all(env.get("GH_TOKEN") == "${{ github.token }}" for env in envs if "GH_TOKEN" in env)
+    assert any("GH_TOKEN" in env for env in envs)
+    assert "${{" not in release_script
+
+
+def test_release_refuses_anything_but_a_sha256_digest(release_script: str) -> None:
+    assert "^sha256:[0-9a-f]{64}$" in release_script
+    assert release_script.index("sha256:[0-9a-f]{64}") < release_script.index("/deployments")
+
+
+def test_release_creates_a_production_deployment_whose_payload_is_the_digest(
+    release_script: str,
+) -> None:
+    assert '"repos/$GITHUB_REPOSITORY/deployments"' in release_script
+    for field in (
+        "ref: $ref",
+        'environment: "production"',
+        "production_environment: true",
+        "payload: {digest: $digest}",
+        "auto_merge: false",
+        # The run's own checks are still in progress on the tagged commit; `main`'s ruleset
+        # already required `ci` before the commit merged.
+        "required_contexts: []",
+    ):
+        assert field in release_script
+
+
+def test_release_marks_the_deployment_queued_for_the_poller(release_script: str) -> None:
+    assert '"repos/$GITHUB_REPOSITORY/deployments/$id/statuses"' in release_script
+    assert "state=queued" in release_script
+    assert release_script.index('/deployments"') < release_script.index("/statuses")
+
+
+def test_release_logs_ids_only_not_api_responses(release_script: str) -> None:
+    """Each `gh api` call keeps only an id, so the log holds no response bodies."""
+    joined = release_script.replace("\\\n", " ")
+    calls = [line for line in joined.splitlines() if "gh api" in line]
+    assert len(calls) == 2
+    assert all("--jq .id" in call for call in calls)

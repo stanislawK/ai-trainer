@@ -72,6 +72,9 @@ docker compose up -d             # app + postgres
 make start                       # dev loop: app + postgres with uvicorn --reload and a live Tailwind CSS rebuild over src/ (foreground)
 make cloud-init-check             # validate deploy/cloud-init.yaml with Debian 13's cloud-init (deploy/RUNBOOK.md provisions the host; owner only)
 make smoke-setup && make smoke-up   # compose.prod.yaml locally behind Caddy with test certificates (README "Production smoke run"); `make smoke-down` stops it
+git tag v0.1.0 && git push origin v0.1.0   # release, owner only (ADR-0023): starts release.yml; agents never tag (README "Releasing")
+gh run watch                     # release, owner only: the run waits at `release`; approve in Actions → Review deployments → production
+gh api repos/stanislawK/ai-trainer/deployments   # release, owner only: the approved run's deployment, payload = digest, status queued
 uv run alembic upgrade head      # migrations
 uv run ai-trainer purge-conversations   # delete conversations past CONVERSATION_RETENTION_DAYS (ADR-0021)
 uv run ai-trainer llm-debug-report [--since <ISO time>]   # summarize LLM_DEBUG_LOG lines per template (ADR-0018)
