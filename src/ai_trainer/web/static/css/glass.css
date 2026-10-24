@@ -107,3 +107,447 @@
     }
   }
 }
+
+/*
+ * Liquid Glass v4 (ADR-0019, 2026-10-24 amendment), harvested from the design system's
+ * `glass-v2.css` for the onboarding cards (#254): the content material, its label tiers, the
+ * `lg` controls, the floating `lgs` surface, the user bubble, the recessed field and the step
+ * progress. The proposal-only classes (`fill-chip`, `btn-gem*`, `btn-plain*`, `chip-recess`,
+ * `ld-*`) are not harvested. `lg` sits on `mat-content` or the wallpaper, never on glass.
+ */
+
+/* Content material: cards and sheets the athlete reads. Frosted, no lensing, no border. */
+@utility mat-content {
+  position: relative;
+  isolation: isolate;
+  background-color: light-dark(
+    color-mix(in oklch, var(--color-base-100) 72%, transparent),
+    color-mix(in oklch, color-mix(in oklch, var(--color-base-content) 6%, var(--color-base-100)) 62%, transparent)
+  );
+  background-image: linear-gradient(180deg,
+    light-dark(color-mix(in oklch, white 45%, transparent), color-mix(in oklch, white 5%, transparent)) 0%,
+    transparent 38%);
+  -webkit-backdrop-filter: blur(30px) saturate(180%);
+  backdrop-filter: blur(30px) saturate(180%);
+  border: 0;
+  box-shadow:
+    inset 0 1px 0 0 light-dark(color-mix(in oklch, white 95%, transparent), color-mix(in oklch, white 16%, transparent)),
+    inset 0 0 0 1px light-dark(color-mix(in oklch, var(--color-base-content) 6%, transparent), color-mix(in oklch, white 5%, transparent)),
+    inset 0 -1px 0 0 light-dark(color-mix(in oklch, var(--color-base-content) 5%, transparent), color-mix(in oklch, black 35%, transparent)),
+    0 1px 2px 0 light-dark(color-mix(in oklch, var(--color-neutral) 6%, transparent), color-mix(in oklch, black 30%, transparent)),
+    0 18px 40px -16px light-dark(color-mix(in oklch, var(--color-neutral) 18%, transparent), color-mix(in oklch, black 55%, transparent));
+
+  @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+    background-color: color-mix(in oklch, var(--color-base-content) 7%, var(--color-base-100));
+    background-image: none;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--color-base-content) 28%, transparent);
+  }
+}
+
+/* Vibrancy label tiers over the material. Tertiary is for non-essential text only. */
+@utility lbl-1 {
+  color: color-mix(in oklch, var(--color-base-content) 95%, transparent);
+}
+
+@utility lbl-2 {
+  color: color-mix(in oklch, var(--color-base-content) 64%, transparent);
+
+  @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+    color: color-mix(in oklch, var(--color-base-content) 80%, transparent);
+  }
+}
+
+@utility lbl-3 {
+  color: color-mix(in oklch, var(--color-base-content) 45%, transparent);
+
+  @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+    color: color-mix(in oklch, var(--color-base-content) 80%, transparent);
+  }
+}
+
+/* A liquid glass control: clear body, light only at the rim (a 1px conic gradient), edge
+ * thickening inside, and a press that grows the capsule. Material comes from a variant. */
+@utility lg {
+  --lg-tint: transparent;
+  --lg-rim-a: light-dark(oklch(100% 0 0 / .95), oklch(100% 0 0 / .55));
+  --lg-rim-b: light-dark(oklch(100% 0 0 / .55), oklch(100% 0 0 / .22));
+  --lg-rim-side: light-dark(oklch(25% 0.02 232 / .1), oklch(100% 0 0 / .05));
+  --lg-edge: light-dark(oklch(100% 0 0 / .55), oklch(100% 0 0 / .1));
+  --lg-lit: light-dark(oklch(100% 0 0 / .5), oklch(100% 0 0 / .14));
+  position: relative;
+  isolation: isolate;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 44px;
+  padding: 0 18px;
+  border-radius: 9999px;
+  border: 0;
+  cursor: pointer;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  background-color: var(--lg-tint);
+  -webkit-backdrop-filter: blur(10px) saturate(180%) brightness(1.04);
+  backdrop-filter: blur(10px) saturate(180%) brightness(1.04);
+  box-shadow:
+    inset 0 0 6px 0 var(--lg-edge),
+    inset 0 7px 9px -8px var(--lg-edge),
+    inset 0 -8px 10px -9px var(--lg-edge),
+    var(--lg-drop, 0 0 0 0 transparent);
+  transition: transform .45s cubic-bezier(.34, 1.56, .64, 1), background-color .2s, color .2s, box-shadow .25s;
+
+  &::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1px;
+    pointer-events: none;
+    background: conic-gradient(from 0deg,
+      var(--lg-rim-a) 0deg, var(--lg-rim-side) 70deg, var(--lg-rim-side) 105deg,
+      var(--lg-rim-b) 145deg, var(--lg-rim-side) 200deg, var(--lg-rim-side) 250deg,
+      var(--lg-rim-a) 315deg, var(--lg-rim-a) 360deg);
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+  }
+
+  &::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    z-index: -1;
+    background: radial-gradient(90px circle at var(--mx, 50%) var(--my, 50%), var(--lg-lit), transparent 70%);
+    opacity: 0;
+    transition: opacity .3s;
+  }
+
+  &:hover::after {
+    opacity: .6;
+  }
+
+  &:active {
+    transform: scale(1.04);
+  }
+
+  &:active::after {
+    opacity: 1;
+    transition-duration: .08s;
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 3px;
+  }
+
+  &:is(:disabled, [aria-disabled="true"]) {
+    opacity: .42;
+    pointer-events: none;
+    --lg-drop: 0 0 0 0 transparent;
+  }
+
+  &[aria-busy="true"] {
+    cursor: progress;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    transition: background-color .2s, color .2s;
+
+    &:active {
+      transform: none;
+    }
+  }
+
+  @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+
+    &::before {
+      background: color-mix(in oklch, var(--color-base-content) 35%, transparent);
+    }
+  }
+}
+
+/* Prominent: tinted glass, one per group. The label carries the contrast. */
+@utility lg-tinted {
+  --lg-tint: light-dark(color-mix(in oklch, var(--color-primary) 20%, transparent), color-mix(in oklch, var(--color-primary) 34%, transparent));
+  --lg-rim-side: light-dark(color-mix(in oklch, var(--color-primary) 22%, transparent), color-mix(in oklch, var(--color-primary) 18%, transparent));
+  --lg-edge: light-dark(oklch(100% 0 0 / .6), color-mix(in oklch, color-mix(in oklch, var(--color-primary), white 40%) 45%, transparent));
+  --lg-lit: light-dark(oklch(100% 0 0 / .55), color-mix(in oklch, var(--color-primary), white 50%));
+  --lg-drop: 0 1px 2px 0 color-mix(in oklch, var(--color-primary) 22%, transparent), 0 10px 22px -8px color-mix(in oklch, var(--color-primary) 55%, transparent);
+  color: light-dark(color-mix(in oklch, var(--color-primary), black 38%), color-mix(in oklch, var(--color-primary), white 72%));
+
+  &:hover {
+    --lg-tint: light-dark(color-mix(in oklch, var(--color-primary) 28%, transparent), color-mix(in oklch, var(--color-primary) 42%, transparent));
+  }
+
+  @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+    --lg-tint: color-mix(in oklch, var(--color-primary) 30%, var(--color-base-100));
+  }
+}
+
+/* Clear: a frosted neutral capsule; secondary actions, chips, icon buttons, rows. */
+@utility lg-clear {
+  --lg-tint: light-dark(oklch(96% 0.008 232 / .55), oklch(100% 0 0 / .06));
+  --lg-edge: light-dark(oklch(100% 0 0 / .95), oklch(100% 0 0 / .1));
+  --lg-drop: 0 1px 2px 0 light-dark(oklch(25% 0.02 232 / .05), oklch(0% 0 0 / .25)), 0 6px 14px -6px light-dark(oklch(25% 0.02 232 / .1), oklch(0% 0 0 / .4));
+  font-weight: 500;
+  padding: 0 16px;
+  color: color-mix(in oklch, var(--color-base-content) 88%, transparent);
+
+  &:hover {
+    --lg-tint: light-dark(oklch(98% 0.006 232 / .8), oklch(100% 0 0 / .1));
+    color: var(--color-base-content);
+  }
+
+  @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+    --lg-tint: color-mix(in oklch, var(--color-base-content) 10%, var(--color-base-100));
+  }
+}
+
+/* Ghost: no material at rest; clear glass forms on hover. Back, Skip, toolbar icons. */
+@utility lg-ghost {
+  --lg-rim-a: transparent;
+  --lg-rim-b: transparent;
+  --lg-rim-side: transparent;
+  --lg-edge: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  font-weight: 500;
+  color: color-mix(in oklch, var(--color-base-content) 82%, transparent);
+
+  &:hover {
+    --lg-tint: light-dark(oklch(25% 0.02 232 / .05), oklch(100% 0 0 / .07));
+    --lg-rim-a: light-dark(oklch(100% 0 0 / .9), oklch(100% 0 0 / .32));
+    --lg-rim-b: light-dark(oklch(100% 0 0 / .5), oklch(100% 0 0 / .14));
+    --lg-rim-side: light-dark(oklch(25% 0.02 232 / .08), oklch(100% 0 0 / .04));
+    --lg-edge: light-dark(oklch(100% 0 0 / .6), oklch(100% 0 0 / .06));
+    color: var(--color-base-content);
+  }
+}
+
+/*
+ * Geometry modifiers. Material comes from the variant. In `glass-v2.css` each wins by coming
+ * after the variants; Tailwind v4 orders utilities by their number of declarations instead, so
+ * each one is written as `.lg.<modifier>` to win by specificity.
+ */
+
+/* A 32 px chip; static hint chips here. */
+@utility lg-chip {
+  &.lg {
+    height: 32px;
+    padding: 0 12px 0 10px;
+    gap: 7px;
+    font-size: 13px;
+    font-weight: 500;
+    --lg-edge: light-dark(oklch(100% 0 0 / .9), oklch(100% 0 0 / .08));
+  }
+
+  &.lg:hover::after {
+    opacity: .4;
+  }
+
+  &.lg:active {
+    transform: scale(1.03);
+  }
+}
+
+@utility lg-sm {
+  &.lg {
+    height: 36px;
+    padding: 0 14px;
+    font-size: 14px;
+  }
+}
+
+@utility lg-icon {
+  &.lg {
+    width: 44px;
+    padding: 0;
+  }
+
+  &.lg.lg-sm {
+    width: 36px;
+    padding: 0;
+  }
+}
+
+@utility lg-row {
+  &.lg {
+    display: flex;
+    width: 100%;
+    height: auto;
+    min-height: 56px;
+    padding: 10px 16px;
+    gap: 12px;
+    justify-content: flex-start;
+    text-align: left;
+    border-radius: 16px;
+    font-size: inherit;
+    font-weight: 400;
+    letter-spacing: 0;
+    --lg-drop: 0 1px 2px 0 light-dark(oklch(25% 0.02 232 / .06), oklch(0% 0 0 / .2));
+  }
+
+  &.lg:active {
+    transform: scale(1.015);
+  }
+}
+
+/* A non-interactive glass tile (the assistant's mark). Size via --m. */
+@utility lg-mark {
+  &.lg {
+    width: var(--m, 28px);
+    height: var(--m, 28px);
+    padding: 0;
+    border-radius: 22%;
+    pointer-events: none;
+    cursor: default;
+  }
+}
+
+/* Surface: floating chrome such as the composer. Controls on it drop their own backdrop, so
+ * there is no glass on glass. */
+@utility lgs {
+  --lgs-tint: light-dark(oklch(98% 0.005 232 / .42), oklch(24% 0.012 232 / .38));
+  --lg-rim-a: light-dark(oklch(100% 0 0 / .95), oklch(100% 0 0 / .5));
+  --lg-rim-b: light-dark(oklch(100% 0 0 / .55), oklch(100% 0 0 / .2));
+  --lg-rim-side: light-dark(oklch(25% 0.02 232 / .1), oklch(100% 0 0 / .06));
+  --lg-edge: light-dark(oklch(100% 0 0 / .7), oklch(100% 0 0 / .08));
+  isolation: isolate;
+  border: 0;
+  color: var(--color-base-content);
+  background-color: var(--lgs-tint);
+  -webkit-backdrop-filter: blur(16px) saturate(190%) brightness(1.04);
+  backdrop-filter: blur(16px) saturate(190%) brightness(1.04);
+  box-shadow:
+    inset 0 0 12px 0 var(--lg-edge),
+    inset 0 12px 16px -14px var(--lg-edge),
+    inset 0 -14px 18px -16px var(--lg-edge),
+    0 1px 2px 0 light-dark(oklch(25% 0.02 232 / .06), oklch(0% 0 0 / .3)),
+    0 20px 44px -18px light-dark(oklch(25% 0.02 232 / .26), oklch(0% 0 0 / .6));
+
+  &::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1px;
+    pointer-events: none;
+    background: conic-gradient(from 0deg,
+      var(--lg-rim-a) 0deg, var(--lg-rim-side) 70deg, var(--lg-rim-side) 105deg,
+      var(--lg-rim-b) 145deg, var(--lg-rim-side) 200deg, var(--lg-rim-side) 250deg,
+      var(--lg-rim-a) 315deg, var(--lg-rim-a) 360deg);
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+  }
+
+  & .lg {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  & .lg-clear {
+    --lg-drop: 0 1px 2px 0 light-dark(oklch(25% 0.02 232 / .06), oklch(0% 0 0 / .2));
+  }
+
+  & .lg-tinted {
+    --lg-drop: 0 6px 14px -8px color-mix(in oklch, var(--color-primary) 50%, transparent);
+  }
+
+  @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+    --lgs-tint: color-mix(in oklch, var(--color-base-content) 6%, var(--color-base-100));
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+
+    &::before {
+      background: color-mix(in oklch, var(--color-base-content) 35%, transparent);
+    }
+  }
+}
+
+/* The athlete's own message on the content layer. */
+@utility mat-bubble {
+  color: var(--color-base-content);
+  background-color: light-dark(color-mix(in oklab, var(--color-primary) 22%, oklch(100% 0 232 / .55)), color-mix(in oklab, var(--color-primary) 30%, oklch(22% 0.012 232 / .5)));
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  backdrop-filter: blur(24px) saturate(180%);
+  box-shadow:
+    inset 0 1px 0 0 light-dark(oklch(100% 0 0 / .7), oklch(100% 0 0 / .12)),
+    0 1px 2px 0 light-dark(oklch(25% 0.02 232 / .06), oklch(0% 0 0 / .25));
+
+  @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+/* A field recessed into the content material. */
+@utility lg-field {
+  appearance: none;
+  width: 100%;
+  height: 44px;
+  padding: 0 14px;
+  border-radius: 12px;
+  border: 0;
+  outline: none;
+  font-size: 16px;
+  color: var(--color-base-content);
+  background-color: light-dark(oklch(25% 0.02 232 / .05), oklch(100% 0 0 / .06));
+  box-shadow:
+    inset 0 1px 2px 0 light-dark(oklch(25% 0.02 232 / .12), oklch(0% 0 0 / .4)),
+    inset 0 0 0 1px light-dark(oklch(25% 0.02 232 / .1), oklch(100% 0 0 / .08)),
+    0 1px 0 0 light-dark(oklch(100% 0 0 / .85), oklch(100% 0 0 / .06));
+  transition: box-shadow .2s, background-color .2s;
+
+  &::placeholder {
+    color: color-mix(in oklch, var(--color-base-content) 55%, transparent);
+  }
+
+  &:focus-visible {
+    background-color: light-dark(oklch(100% 0 0 / .7), oklch(100% 0 0 / .09));
+    box-shadow: inset 0 0 0 1.5px var(--color-primary), 0 0 0 4px color-mix(in oklch, var(--color-primary) 22%, transparent);
+  }
+
+  &[aria-invalid="true"] {
+    box-shadow: inset 0 0 0 1.5px var(--color-error), 0 0 0 4px color-mix(in oklch, var(--color-error) 16%, transparent);
+  }
+
+  &:disabled {
+    opacity: .5;
+  }
+}
+
+/* A select styled as `lg-field`, with a drawn chevron. */
+@utility lg-select {
+  padding-right: 40px;
+  cursor: pointer;
+  background-image: linear-gradient(45deg, transparent 50%, currentColor 50%), linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position: calc(100% - 20px) 50%, calc(100% - 15px) 50%;
+  background-size: 5px 5px;
+  background-repeat: no-repeat;
+}
+
+/* Onboarding step progress (non-interactive): done and current segments in the primary. */
+@utility ob-seg {
+  flex: 1 1 0;
+  height: 4px;
+  border-radius: 9999px;
+  background: color-mix(in oklch, var(--color-base-content) 14%, transparent);
+  transition: background-color .3s;
+
+  &.is-done {
+    background: color-mix(in oklch, var(--color-primary) 70%, transparent);
+  }
+
+  &.is-now {
+    background: var(--color-primary);
+  }
+}

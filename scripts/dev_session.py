@@ -15,7 +15,8 @@ import json
 import sys
 from collections.abc import Sequence
 from datetime import timedelta
-from typing import Any, TextIO
+from typing import Any, Protocol, TextIO
+from uuid import UUID
 
 from ai_trainer.adapters.clock import UtcClock
 from ai_trainer.adapters.db import build_engine, build_session_factory
@@ -56,12 +57,19 @@ async def get_or_create_active_user(users: UsersRepositoryPort, *, sub: str, ema
         return user
 
 
+class DevOnboardingPort(OnboardingRepositoryPort, Protocol):
+    """What the seeder resets: the form onboarding's rows and the AI onboarding's answers
+    (ADR-0028), both kept by `SqlAlchemyOnboardingRepository`."""
+
+    async def discard_answers(self, user_id: UUID) -> None: ...
+
+
 async def seed_dev_session(
     users: UsersRepositoryPort,
     sessions: SessionsRepositoryPort,
     clock: ClockPort,
     *,
-    onboarding: OnboardingRepositoryPort,
+    onboarding: DevOnboardingPort,
     session_ttl: timedelta,
     onboarded: bool = True,
 ) -> Session:
@@ -69,8 +77,8 @@ async def seed_dev_session(
     session for it, mirroring `application.auth.sign_in_with_google`'s get-or-create shape.
 
     By default the user is onboarded. With `onboarded=False` a separate fresh user is reset
-    to no `onboarded_at`, no sports and no goals on every run, so it always starts at the
-    sports step.
+    to no `onboarded_at`, no sports, no goals and no onboarding answers on every run, so it
+    always starts at the sport card.
     """
     sub, email = (
         (DEV_SESSION_SUB, DEV_SESSION_EMAIL) if onboarded else (DEV_FRESH_SUB, DEV_FRESH_EMAIL)
@@ -82,6 +90,7 @@ async def seed_dev_session(
     else:
         await onboarding.replace_sports(user.id, [])
         await onboarding.replace_goals(user.id, [])
+        await onboarding.discard_answers(user.id)
         await onboarding.set_onboarded_at(user.id, None)
     return await sessions.create(NewSession(user_id=user.id, expires_at=clock.now() + session_ttl))
 
@@ -106,7 +115,7 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     parser.add_argument(
         "--not-onboarded",
         action="store_true",
-        help="seed a fresh user who lands on the onboarding sports step",
+        help="seed a fresh user who lands on the onboarding sport card",
     )
     return parser.parse_args(argv)
 

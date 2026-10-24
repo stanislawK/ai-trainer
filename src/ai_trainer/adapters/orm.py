@@ -5,6 +5,7 @@ from decimal import Decimal
 from pydantic import JsonValue
 from sqlalchemy import (
     TIMESTAMP,
+    BigInteger,
     CheckConstraint,
     Date,
     ForeignKey,
@@ -13,6 +14,7 @@ from sqlalchemy import (
     Numeric,
     SmallInteger,
     String,
+    Text,
     UniqueConstraint,
     func,
     text,
@@ -147,6 +149,75 @@ class GoalOrm(Base):
     # timestamptz, UTC (ADR-0004 invariant 5).
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now()
+    )
+
+
+class AthleteProfileOrm(Base):
+    """The onboarding part of the athlete profile (ADR-0028), one row per athlete, written only
+    by the summary's confirm. Age is stored as `birth_year` so it never goes stale."""
+
+    __tablename__ = "athlete_profiles"
+    __table_args__ = (
+        CheckConstraint("height_cm BETWEEN 100 AND 250", name="athlete_profiles_height_range"),
+        CheckConstraint("weight_kg BETWEEN 25 AND 300", name="athlete_profiles_weight_range"),
+        CheckConstraint(
+            "birth_year BETWEEN 1900 AND 2100", name="athlete_profiles_birth_year_range"
+        ),
+        CheckConstraint("char_length(limits) <= 300", name="athlete_profiles_limits_length"),
+    )
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    # `bigint` and `text`, each bounded by a CHECK, so squawk's default rules pass (ADR-0024).
+    birth_year: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    height_cm: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    weight_kg: Mapped[Decimal | None] = mapped_column(Numeric(4, 1), nullable=True)
+    limits: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class OnboardingAnswerOrm(Base):
+    """One onboarding step's prose (ADR-0028), kept until the summary is confirmed. `revision`
+    goes up on every send, so a read writes `parsed` only while it still matches. `sport_id` is
+    null for About you, and the unique key treats that null as a value."""
+
+    __tablename__ = "onboarding_answers"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "step",
+            "sport_id",
+            name="onboarding_answers_user_step_sport_key",
+            postgresql_nulls_not_distinct=True,
+        ),
+        CheckConstraint(
+            "step IN ('about_you', 'goals', 'level', 'schedule')", name="onboarding_answers_step"
+        ),
+        CheckConstraint(
+            "status IN ('pending', 'parsed', 'failed', 'skipped')",
+            name="onboarding_answers_status",
+        ),
+        CheckConstraint(
+            "(step = 'about_you') = (sport_id IS NULL)", name="onboarding_answers_sport_per_step"
+        ),
+        CheckConstraint("revision >= 1", name="onboarding_answers_revision_positive"),
+        CheckConstraint("char_length(text) <= 1000", name="onboarding_answers_text_length"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    # Indexed through the unique key, whose first column it is.
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    step: Mapped[str] = mapped_column(Text, nullable=False)
+    sport_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    revision: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    parsed: Mapped[dict[str, JsonValue] | None] = mapped_column(JSONB, nullable=True)
+    # timestamptz, UTC (ADR-0004 invariant 5).
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
     )
 
 

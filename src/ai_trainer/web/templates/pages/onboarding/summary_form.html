@@ -1,0 +1,13 @@
+{% extends "layouts/bare.html" %}
+
+{% block title %}Your profile · AI Trainer{% endblock %}
+
+{% block bare_content %}
+{% from "components/onboarding_frame.html" import frame, column %}
+<main id="onboarding-card" class="{{ column }}">
+  {{ frame(2, 2, label="Summary") }}
+  <div id="onboarding-summary" class="relative flex-1 min-h-0 flex flex-col px-4 pb-[max(2rem,env(safe-area-inset-bottom))] pt-2">
+    {% include "partials/onboarding/summary_form.html" %}
+  </div>
+</main>
+{% endblock %}

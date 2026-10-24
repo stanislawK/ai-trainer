@@ -119,9 +119,9 @@ def _client(
     async def logout_probe() -> PlainTextResponse:
         return PlainTextResponse("logged out")
 
-    @app.get("/onboarding/sports")
+    @app.get("/onboarding")
     async def onboarding_probe() -> PlainTextResponse:
-        return PlainTextResponse("sports step")
+        return PlainTextResponse("onboarding")
 
     @app.get("/is-admin")
     async def is_admin_probe(request: Request) -> PlainTextResponse:
@@ -368,13 +368,13 @@ def _not_onboarded_client() -> TestClient:
     return client
 
 
-def test_active_user_without_onboarded_at_opening_home_lands_on_the_sports_step() -> None:
+def test_active_user_without_onboarded_at_opening_home_lands_on_onboarding() -> None:
     client = _not_onboarded_client()
 
     response = client.get("/", follow_redirects=False)
 
     assert response.status_code == 303
-    assert response.headers["location"] == "/onboarding/sports"
+    assert response.headers["location"] == "/onboarding"
 
 
 def test_active_user_without_onboarded_at_is_redirected_from_a_feature_route() -> None:
@@ -383,7 +383,7 @@ def test_active_user_without_onboarded_at_is_redirected_from_a_feature_route() -
     response = client.get("/protected", follow_redirects=False)
 
     assert response.status_code == 303
-    assert response.headers["location"] == "/onboarding/sports"
+    assert response.headers["location"] == "/onboarding"
 
 
 def test_not_onboarded_htmx_request_is_redirected_with_hx_redirect() -> None:
@@ -392,7 +392,7 @@ def test_not_onboarded_htmx_request_is_redirected_with_hx_redirect() -> None:
     response = client.get("/protected", headers={"HX-Request": "true"})
 
     assert response.status_code == 200
-    assert response.headers["HX-Redirect"] == "/onboarding/sports"
+    assert response.headers["HX-Redirect"] == "/onboarding"
 
 
 def test_onboarded_user_is_not_redirected_to_onboarding() -> None:
@@ -415,7 +415,7 @@ def test_onboarded_user_is_not_redirected_to_onboarding() -> None:
         ("GET", "/admin"),
         ("GET", "/admin/users"),
         ("POST", "/auth/logout"),
-        ("GET", "/onboarding/sports"),
+        ("GET", "/onboarding"),
         ("GET", "/health"),
     ],
 )

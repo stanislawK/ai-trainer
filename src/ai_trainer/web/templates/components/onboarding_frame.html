@@ -1,0 +1,30 @@
+{% from "components/icon.html" import icon %}
+{#- The top of every AI onboarding card (Onboarding v4, F20): Back, when there is an earlier card,
+    and the step progress, whose done and current segments are the primary. `steps` is the number
+    of cards in this flow and `step` the current one, counted from 0. With a `label` (the
+    summary), the label stands where the progress was. -#}
+{% macro frame(step, steps, back_href="", label="") -%}
+<div class="relative flex items-center gap-3 px-5 pt-[max(3.5rem,env(safe-area-inset-top))] h-[calc(max(3.5rem,env(safe-area-inset-top))+2.75rem)] shrink-0">
+  <div class="size-9 shrink-0">
+    {% if back_href %}
+    {#- The control is the mock's 36 px; the link around it is the 44 px tap target. -#}
+    <a href="{{ back_href }}" class="-m-1 size-11 grid place-items-center" aria-label="Back"><span class="lg lg-ghost lg-icon lg-sm">{{ icon("chevron-left", "size-5") }}</span></a>
+    {% endif %}
+  </div>
+  {% if label %}
+  <div class="flex-1 flex items-center gap-1.5">
+    <span class="flex-1 text-center text-[13px] font-medium text-base-content/70">{{ label }}</span>
+  </div>
+  {% else %}
+  <div class="flex-1 flex items-center gap-1.5" role="progressbar" aria-valuemin="1" aria-valuemax="{{ steps }}" aria-valuenow="{{ step + 1 }}" aria-label="Step {{ step + 1 }} of {{ steps }}">
+    {% for n in range(steps) %}
+    <span class="ob-seg {{ 'is-done' if n < step else ('is-now' if n == step else '') }}"></span>
+    {% endfor %}
+  </div>
+  {% endif %}
+  <div class="size-9 shrink-0"></div>
+</div>
+{%- endmacro %}
+
+{#- The column every card sits in: phone width, centred on a wider screen. -#}
+{% set column = "min-h-dvh w-full max-w-[420px] mx-auto flex flex-col text-base-content" %}
