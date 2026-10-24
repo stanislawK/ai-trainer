@@ -1,0 +1,72 @@
+{#- The editable onboarding summary (Onboarding v4, F21, B35, B36): every field read from the
+    answers, "Not mentioned" where it is empty, "Skipped" on a skipped step, and the timezone the
+    browser gave, to correct. Nothing is saved until Confirm; a bad field comes back flagged. -#}
+{% from "components/icon.html" import icon %}
+{% set problem_copy = {
+  "age": "An age from 10 to 100.",
+  "height_cm": "A height from 100 to 250 cm.",
+  "weight_kg": "A weight from 25 to 300 kg, with at most one decimal.",
+  "limits": "At most 300 characters.",
+  "timezone": "Choose a timezone from the list.",
+} %}
+{% macro field(name, label, kind="number", wide=false, min=none, max=none, step=none) -%}
+<label class="flex flex-col gap-1 min-w-0{{ ' col-span-2' if wide }}">
+  <span class="text-[12px] text-base-content/70">{{ label }}</span>
+  <input
+    class="lg-field h-11 text-[15px]"
+    name="{{ name }}"
+    value="{{ values[name] }}"
+    placeholder="Not mentioned"
+    {% if kind == "number" %}type="number" inputmode="decimal" min="{{ min }}" max="{{ max }}" step="{{ step or 1 }}"{% else %}type="text" maxlength="{{ max_limits }}"{% endif %}
+    {% if name in problems %}aria-invalid="true" aria-describedby="{{ name }}-error"{% endif %}
+  />
+  {% if name in problems %}
+  <span id="{{ name }}-error" class="text-[12px] text-error">{{ problem_copy[name] }}</span>
+  {% endif %}
+</label>
+{%- endmacro %}
+<form class="flex-1 min-h-0 flex flex-col gap-3" hx-post="/onboarding/confirm" hx-target="#onboarding-summary" hx-swap="innerHTML">
+  <div class="flex-1 min-h-0 overflow-y-auto -mx-4 px-4 pb-2">
+    <div class="mat-content rounded-[28px] p-4 flex flex-col gap-6">
+      <div class="flex flex-col gap-1.5">
+        <h1 class="text-[24px]/[30px] font-semibold tracking-[-0.02em]">Check what I understood</h1>
+        <p class="text-[15px]/[22px] text-base-content/75 text-pretty">Fix anything I got wrong. Empty fields are fine.</p>
+      </div>
+      <section class="flex flex-col gap-3" aria-label="About you">
+        <header class="flex items-center gap-2 border-t border-base-content/10 pt-4">
+          {{ icon("user", "size-4 text-primary") }}
+          <span class="flex-1 text-[15px] font-semibold">About you</span>
+          {% if skipped %}<span class="badge badge-sm badge-ghost">Skipped</span>{% endif %}
+        </header>
+        <div class="grid grid-cols-2 gap-x-3 gap-y-3">
+          {{ field("age", "Age", min=10, max=100) }}
+          {{ field("height_cm", "Height, cm", min=100, max=250) }}
+          {{ field("weight_kg", "Weight, kg", min=25, max=300, step=0.1) }}
+          {{ field("limits", "Injuries or limits", kind="text", wide=true) }}
+        </div>
+      </section>
+      <section class="flex flex-col gap-3" aria-label="Timezone">
+        <header class="flex items-center gap-2 border-t border-base-content/10 pt-4">
+          {{ icon("clock", "size-4 text-primary") }}
+          <span class="flex-1 text-[15px] font-semibold">Timezone</span>
+        </header>
+        <label class="flex flex-col gap-1 min-w-0">
+          <span class="text-[12px] text-base-content/70">From your browser, for "today" and your week</span>
+          <select
+            name="timezone"
+            class="lg-field lg-select h-11 text-[15px]"
+            {% if "timezone" in problems %}aria-invalid="true" aria-describedby="timezone-error"{% endif %}
+          >
+            {% for zone in zones %}
+            <option value="{{ zone }}"{{ " selected" if zone == values.timezone }}>{{ zone }}</option>
+            {% endfor %}
+          </select>
+          {% if "timezone" in problems %}
+          <span id="timezone-error" class="text-[12px] text-error">{{ problem_copy.timezone }}</span>
+          {% endif %}
+        </label>
+      </section>
+    </div>
+  </div>
+  <button type="submit" class="lg lg-tinted w-full shrink-0">Looks right, build my plan</button>
+</form>

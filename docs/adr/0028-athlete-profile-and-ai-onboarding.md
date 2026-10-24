@@ -96,3 +96,9 @@ The owner requires that the athlete never wait between steps. Only the summary m
   - a Settings profile page reusing the summary partial (post-POC, PRD-0007);
   - feed B33's fields into the reply context (`application/reply.py`'s `_context`), in the ticket that first uses them.
 - **Flagged:** the OpenRouter MCP was not authorized when this was written (2026-10-24), so no model is named yet. The owner authorizes it, and T1 picks the default on its first eval baseline.
+- **Picked at #254** (owner-approved at the eval gate, 2026-10-24): the `onboarding_*` defaults in `Settings` are `z-ai/glm-5.3-flash` at `low` effort with `{"sort":"latency","quantizations":["fp8","nvfp4"]}`. `onboarding.about_you` v1 scored 98% of its assertions there over 14 cases × 3. At OpenRouter's default routing it scored 89% and failed one case outright: the price sort picks Relace, whose quantization is unknown and which has no structured outputs or required tool choice (`list-model-endpoints`, 2026-10-24). The defaults sit in `Settings`, so no deploy needs a new key; a blank key keeps them.
+- **Verified at #254:**
+  - The migration stores the integers as `bigint` and the strings as `text`, each bounded by a `CHECK` with the ranges above (`height_cm` 100–250, `weight_kg` 25–300, `birth_year` 1900–2100, `limits` ≤ 300, `text` ≤ 1000). Squawk's default rules refuse `smallint`, `int` and `varchar(n)` on a new table (ADR-0024).
+  - `onboarding_answers`' unique key is `NULLS NOT DISTINCT`, so About you, whose `sport_id` is null, is one row per athlete.
+  - The sport pick writes `user_sports` and `users.timezone` at once, because the flow state comes from them; confirm writes both again. Invariant 1 covers only what a read produced (owner-confirmed 2026-10-24).
+  - htmx 4 sends neither a clicked button's `name` nor its `value`, so a sport row posts its pick through `hx-vals`.

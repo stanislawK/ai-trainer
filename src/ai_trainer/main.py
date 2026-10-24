@@ -33,6 +33,8 @@ from ai_trainer.adapters.sessions_repository import SqlAlchemySessionsRepository
 from ai_trainer.adapters.training_session_repository import SqlAlchemyTrainingSessionRepository
 from ai_trainer.adapters.user_status_changer import SqlAlchemyUserStatusChanger
 from ai_trainer.adapters.users_repository import SqlAlchemyUsersRepository
+from ai_trainer.application.background_reads import BackgroundReads
+from ai_trainer.application.ports.clock import ClockPort
 from ai_trainer.application.ports.llm_gateway import LlmGatewayPort
 from ai_trainer.application.reply import ReplyServices
 from ai_trainer.domain.sports.registry import SportRegistry, default_sport_registry
@@ -40,11 +42,13 @@ from ai_trainer.llm.conversation import LlmConversation, build_prompt_registry
 from ai_trainer.llm.debug_log import build_debug_log
 from ai_trainer.llm.decision_gateway import OpenRouterDecisionGateway
 from ai_trainer.llm.gateway import OpenRouterGateway
+from ai_trainer.llm.onboarding import LlmOnboardingReader
 from ai_trainer.llm.router_fast import JevFastRouter, RouterFastThresholds
 from ai_trainer.llm.safety_screen import JevSafetyScreen
 from ai_trainer.settings import Settings
 from ai_trainer.web.active_user_gate import ActiveUserGateMiddleware
 from ai_trainer.web.admin import build_admin_router
+from ai_trainer.web.ai_onboarding import build_ai_onboarding_router
 from ai_trainer.web.auth import build_auth_router
 from ai_trainer.web.chat import build_chat_router
 from ai_trainer.web.csrf import CsrfMiddleware
@@ -91,12 +95,32 @@ def build_llm_conversation(
     )
 
 
+def build_onboarding_reader(
+    settings: Settings, sports: SportRegistry, gateway: LlmGatewayPort, clock: ClockPort
+) -> LlmOnboardingReader:
+    """The onboarding reads' one settings group (ADR-0028)."""
+    return LlmOnboardingReader(
+        registry=build_prompt_registry(_PROMPTS_ROOT, sports),
+        gateway=gateway,
+        clock=clock,
+        model=settings.onboarding_model,
+        provider=settings.onboarding_provider_preferences,
+        reasoning_effort=settings.onboarding_reasoning_effort,
+        timeout_seconds=settings.onboarding_call_timeout_seconds,
+    )
+
+
 def create_app(settings: Settings) -> FastAPI:
     engine = build_engine(str(settings.database_url))
+
+    # The onboarding's background reads, held so none is collected mid-read (ADR-0028).
+    reads = BackgroundReads()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         yield
+        # A read cut off here stays `pending`; the summary reads it again (ADR-0028).
+        await reads.close()
         # Closes the SQLAlchemy pool's connections on shutdown; a fresh engine is otherwise
         # opened by every `create_app` call, so a repeatedly-constructed app (a reload worker,
         # or a test that never uses the app as a context manager) would leak idle connections.
@@ -148,11 +172,8 @@ def create_app(settings: Settings) -> FastAPI:
     sport_registry = app.state.sport_registry
     llm_calls = SqlAlchemyLlmCallsRepository(session_factory)
     debug_log = build_debug_log(settings, clock)
-    conversation = build_llm_conversation(
-        settings,
-        sport_registry,
-        OpenRouterGateway(settings, llm_calls, debug_log=debug_log),
-    )
+    gateway = OpenRouterGateway(settings, llm_calls, debug_log=debug_log)
+    conversation = build_llm_conversation(settings, sport_registry, gateway)
     decisions = OpenRouterDecisionGateway(settings, llm_calls, debug_log=debug_log)
     replies = ReplyServices(
         chat=chat,
@@ -198,6 +219,16 @@ def create_app(settings: Settings) -> FastAPI:
     app.include_router(
         build_onboarding_router(
             templates, registry=app.state.sport_registry, onboarding=onboarding, clock=clock
+        )
+    )
+    app.include_router(
+        build_ai_onboarding_router(
+            templates,
+            registry=sport_registry,
+            answers=onboarding,
+            reads=reads,
+            reader=build_onboarding_reader(settings, sport_registry, gateway, clock),
+            clock=clock,
         )
     )
     app.include_router(

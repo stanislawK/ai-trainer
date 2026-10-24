@@ -32,12 +32,12 @@ def _is_exempt(path: str) -> bool:
 
 
 _SIGN_IN_PATH = "/sign-in"
-_ONBOARDING_PATH = "/onboarding/sports"
+_ONBOARDING_PATH = "/onboarding"
 
-# An `active` user who hasn't finished onboarding (`onboarded_at` is null) is sent to the
-# sports step from every app page except these: onboarding itself, Settings (account
-# deletion works before onboarding), Admin, and the routes already exempt above, which never
-# reach this check (ADR-0006, ticket #74).
+# An `active` user who hasn't finished onboarding (`onboarded_at` is null) is sent to
+# onboarding, which resumes at their next card (ADR-0028), from every app page except these:
+# onboarding itself, Settings (account deletion works before onboarding), Admin, and the routes
+# already exempt above, which never reach this check (ADR-0006, ticket #74).
 _ONBOARDING_EXEMPT_ROOTS = ("/onboarding", "/settings", "/admin")
 
 
