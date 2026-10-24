@@ -1,8 +1,9 @@
 """PreToolUse hook: agents never release or reach production (ADR-0023, ADR-0024).
 
 Reads the hook JSON on stdin. For a Bash call whose command would tag, push a tag, create a
-release, run the release workflow, touch GitHub deployments, environments or rulesets, or open an
-ssh/scp connection, it prints a `deny` decision and exits 0. Everything else passes silently.
+release, run the release workflow, touch GitHub deployments, environments or rulesets, run the
+deploy poller, or open an ssh/scp connection, it prints a `deny` decision and exits 0. Everything
+else passes silently.
 
 Standard library only, and kept compatible with the system `python3`, so the hook runs without the
 project environment. The command is split on shell operators, `$( )`, backticks and `bash -c`, so
@@ -21,6 +22,10 @@ import sys
 
 ADR_0023 = "ADR-0023 (agents never release)"
 ADR_0024 = "ADR-0024 invariant 5 (no agent reaches the production host)"
+_DEPLOY_DENIED = (
+    "Running the deploy poller is blocked: only its timer on the host deploys a release the "
+    f"owner approved, {ADR_0023}."
+)
 
 # Characters that end a command or start a nested one. Newline is an operator, not whitespace.
 _OPERATORS = ";&|()`\n"
@@ -58,6 +63,9 @@ _WRAPPERS = frozenset(
 _SHELLS = frozenset({"bash", "sh", "zsh", "dash", "ksh"})
 _REMOTE_SHELL_TOOLS = frozenset({"ssh", "scp", "sftp"})
 _FETCHERS = frozenset({"curl", "wget", "http", "https"})
+_DEPLOY_POLLER = "deploy.sh"
+_DEPLOY_UNIT = "ai-trainer-deploy"
+_SYSTEMCTL_STARTS = frozenset({"start", "restart", "try-restart", "reload-or-restart"})
 
 _GIT_OPTIONS_WITH_VALUE = frozenset(
     {
@@ -156,6 +164,12 @@ def _check_segment(tokens: list[str]) -> str | None:
         return _check_shell(rest)
     if name == "eval":
         return denial_reason(" ".join(rest))
+    if name == _DEPLOY_POLLER:
+        return _DEPLOY_DENIED
+    if name == "systemctl" and _SYSTEMCTL_STARTS & set(rest):
+        if any(arg.startswith(_DEPLOY_UNIT) for arg in rest):
+            return _DEPLOY_DENIED
+        return None
     if name in _REMOTE_SHELL_TOOLS:
         return f"{name} is blocked: {ADR_0024}."
     if name == "rsync":
@@ -190,6 +204,10 @@ def _check_shell(args: list[str]) -> str | None:
             return denial_reason(args[index + 1]) if index + 1 < len(args) else None
     if any(arg in {"--version", "--help", "-h", "-v"} for arg in args):
         return None
+    scripts = [arg for arg in args if not arg.startswith(("-", "<"))]
+    # With -n the shell only parses the script.
+    if scripts and os.path.basename(scripts[0]) == _DEPLOY_POLLER and "-n" not in args:
+        return _DEPLOY_DENIED
     if all(arg.startswith(("-", "<")) for arg in args):
         return f"A shell reading commands from stdin is blocked: it can run anything, {ADR_0023}."
     return None

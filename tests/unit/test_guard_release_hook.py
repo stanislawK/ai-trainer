@@ -132,6 +132,42 @@ def test_other_workflows_may_be_viewed() -> None:
 @pytest.mark.parametrize(
     "command",
     [
+        "deploy/deploy.sh",
+        "./deploy/deploy.sh",
+        "/opt/ai-trainer/deploy/deploy.sh",
+        "sudo -u deploy /opt/ai-trainer/deploy/deploy.sh",
+        "bash deploy/deploy.sh",
+        "sh -e deploy/deploy.sh",
+        "CREDENTIALS_DIRECTORY=/tmp/c deploy/deploy.sh",
+        "systemctl start ai-trainer-deploy.service",
+        "sudo systemctl restart ai-trainer-deploy",
+        "systemctl --user start ai-trainer-deploy.timer",
+    ],
+)
+def test_running_the_deploy_poller_denied(command: str) -> None:
+    """The poller deploys whatever the owner approved (#225); only its timer on the host runs it."""
+    assert _denied(command)
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "cat deploy/deploy.sh",
+        "bash -n deploy/deploy.sh",
+        "shellcheck deploy/deploy.sh",
+        "uv run pytest tests/unit/test_deploy_script.py",
+        "systemctl status ai-trainer-deploy.timer",
+        "sudo systemctl restart docker",
+        "git add deploy/deploy.sh deploy/systemd/ai-trainer-deploy.service",
+    ],
+)
+def test_reading_or_checking_the_deploy_poller_allowed(command: str) -> None:
+    assert not _denied(command)
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
         "ssh deploy@host",
         "ssh -i key deploy@host 'ls'",
         "scp f host:",

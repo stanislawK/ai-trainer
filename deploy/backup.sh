@@ -4,13 +4,16 @@
 # offline with the owner.
 #
 #   backup.sh nightly     the systemd timer: daily/, or weekly/ on a Sunday (UTC)
-#   backup.sh predeploy   deploy.sh, before `migrate` (ADR-0023 invariant 5): predeploy/
+#   backup.sh predeploy   deploy.sh, before `migrate` (ADR-0023 invariant 5): predeploy/, and the
+#                         same encrypted file kept on the server, newest three (#225)
 #
 # Settings come from the environment (/opt/ai-trainer/backup.env on the server, see
 # deploy/backup.env.example):
 #   BACKUP_DEST            the rclone destination, e.g. `r2:ai-trainer-backups`
 #   BACKUP_AGE_RECIPIENT   the owner's age public key (age1…)
 #   BACKUP_DB_CONTAINER    optional; the Postgres container, default ai-trainer-prod-db-1
+#   BACKUP_LOCAL_DIR       optional; predeploy's local copies, default
+#                          /opt/ai-trainer/backups/predeploy
 #   RCLONE_CONFIG_R2_*     the `r2` remote, configured by environment alone
 #
 # The dump never touches disk: it goes through pipes and a FIFO only. The R2 bucket locks each
@@ -18,6 +21,7 @@
 # encryption fails, rclone is stopped before it sees the end of its input, and an upload that
 # never ends is never stored.
 set -euo pipefail
+umask 077
 
 die() {
   echo "backup: $*" >&2
@@ -37,6 +41,12 @@ case $kind in
   *) if [[ $weekday == 7 ]]; then prefix=weekly; else prefix=daily; fi ;;
 esac
 object="$BACKUP_DEST/$prefix/ai-trainer-$stamp.dump.age"
+local_copy=
+if [[ $kind == predeploy ]]; then
+  local_dir=${BACKUP_LOCAL_DIR:-/opt/ai-trainer/backups/predeploy}
+  mkdir -p "$local_dir"
+  local_copy="$local_dir/ai-trainer-$stamp.dump.age"
+fi
 
 # Replaces the value of every credential-looking variable in the environment with ***, so a
 # tool's error message that echoes one never reaches the journal.
@@ -49,6 +59,7 @@ work=$(mktemp -d)
 rclone_pid=
 cleanup() {
   [[ -n $rclone_pid ]] && kill -KILL "$rclone_pid" 2>/dev/null
+  [[ -n $local_copy ]] && rm -f "$local_copy.partial"
   rm -rf "$work"
 }
 trap cleanup EXIT
@@ -67,8 +78,14 @@ upload_failed() {
   exit 1
 }
 
+# predeploy also keeps the encrypted stream on the server; it's renamed into place only once the
+# upload has succeeded too.
+keep() {
+  if [[ -n $local_copy ]]; then tee "$local_copy.partial"; else cat; fi
+}
+
 if ! docker exec "$container" pg_dump --format=custom --username=ai_trainer ai_trainer |
-  age --encrypt --recipient "$BACKUP_AGE_RECIPIENT" >&3; then
+  age --encrypt --recipient "$BACKUP_AGE_RECIPIENT" | keep >&3; then
   # fd 3 is still open, so rclone never saw the end of its input and can't have stored the
   # object. Killed here it exits 137. Any other status means it had already failed on its own
   # and broken the pipe under age: that's the upload failing. A dead rclone may not be reaped
@@ -86,3 +103,12 @@ exec 3>&-
 wait "$rclone_pid" || upload_failed
 rclone_pid=
 echo "backup: uploaded $object"
+
+if [[ -n $local_copy ]]; then
+  mv "$local_copy.partial" "$local_copy"
+  copies=("$local_dir"/ai-trainer-*.dump.age)
+  if ((${#copies[@]} > 3)); then
+    rm -f -- "${copies[@]:0:${#copies[@]}-3}"
+  fi
+  echo "backup: kept $local_copy"
+fi

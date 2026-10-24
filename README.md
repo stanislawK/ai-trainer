@@ -210,11 +210,21 @@ Only the owner releases (ADR-0023). Agents cannot tag: `.claude/hooks/guard_rele
 
 The `release` job then waits for the owner's approval of the `production` environment (Actions → the run → **Review deployments** → `production` → **Approve and deploy**). Once approved, it creates a GitHub Deployment for `production` whose payload is `{"digest": "sha256:…"}`, with status `queued`, which the server's deploy poller picks up. A rejected approval creates no deployment.
 
+Within two minutes, the poller ([deploy/deploy.sh](deploy/deploy.sh), RUNBOOK section 10) does the following:
+
+1. Verifies the image's provenance; an image that fails is never pulled.
+2. Pulls the image by digest.
+3. Backs up the database.
+4. Runs `migrate`, then starts the new app.
+5. Checks `https://<domain>/health`.
+
+The deployment's status then reads `success`. Or it reads `failure` with the reason, and the previous app image serves again; the database is never rolled back. The poller acts only on the newest deployment that the `release` job created from a `v*` tag.
+
 ```bash
 git tag v0.1.0 && git push origin v0.1.0      # owner only; any other tag runs nothing
 gh run watch                                  # pick the "Release" run; approve when it waits at `release`
 gh api repos/stanislawK/ai-trainer/deployments --jq '.[0] | {id, ref, environment, payload}'   # owner only
-gh api repos/stanislawK/ai-trainer/deployments/<id>/statuses --jq '.[0].state'                 # queued
+gh api repos/stanislawK/ai-trainer/deployments/<id>/statuses --jq '.[0].state'                 # queued, then in_progress, then success
 gh attestation verify oci://ghcr.io/stanislawk/ai-trainer@sha256:<digest> -R stanislawK/ai-trainer \
   --signer-workflow stanislawK/ai-trainer/.github/workflows/release.yml
 docker logout ghcr.io; docker pull --platform linux/amd64 ghcr.io/stanislawk/ai-trainer@sha256:<digest>   # public: no login; amd64 only
