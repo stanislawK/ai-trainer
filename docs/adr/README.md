@@ -31,5 +31,6 @@ ADRs own the *how*: stack, architecture, testing and agent workflow. The current
 | 0025 | [LLM token and latency baseline](0025-llm-token-and-latency-baseline.md) | Accepted (options picked in ADR-0026) | 2026-10-18 |
 | 0026 | [LLM latency plan](0026-llm-latency-plan.md) | Accepted | 2026-10-19 |
 | 0027 | [Venues, gym grading and device location](0027-venues-gym-grading-and-device-location.md) | Proposed | 2026-10-22 |
+| 0028 | [Athlete profile and AI onboarding](0028-athlete-profile-and-ai-onboarding.md) | Accepted | 2026-10-24 |
 
 How to add an ADR: [docs/templates/README.md](../templates/README.md).

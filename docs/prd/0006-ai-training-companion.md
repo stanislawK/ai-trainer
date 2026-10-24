@@ -4,7 +4,7 @@
 |---|---|
 | Product | ai-trainer |
 | Version | 0.7 |
-| Status | In review |
+| Status | Superseded by [PRD 0007](0007-ai-training-companion.md), which keeps all of v0.7 |
 | Date | 2026-10-22 |
 | Related | ADR-0001 … ADR-0027 ([index](../adr/README.md)); supersedes [PRD 0005](0005-ai-training-companion.md) v0.6 — adds the athlete's climbing gyms with their own grading (B27–B29, F18) and an opt-in gym match from the phone's location (B30–B32, F19), delivered by ADR-0027 |
 
