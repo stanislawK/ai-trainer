@@ -69,9 +69,11 @@ count_sql="SELECT format('%s %s', c.relname, (xpath('/row/n/text()', query_to_xm
 work=$(mktemp -d)
 rclone_pid=
 psql_pid=
+# Under `set -e`, a failing last command of an `&&` list ends the trap early: a `kill` of a
+# process already reaped (a psql that failed fast) would skip the `rm -rf` on bash 5.
 cleanup() {
-  [[ -n $rclone_pid ]] && kill -KILL "$rclone_pid" 2>/dev/null
-  [[ -n $psql_pid ]] && kill -KILL "$psql_pid" 2>/dev/null
+  [[ -n $rclone_pid ]] && { kill -KILL "$rclone_pid" 2>/dev/null || true; }
+  [[ -n $psql_pid ]] && { kill -KILL "$psql_pid" 2>/dev/null || true; }
   [[ -n $local_copy ]] && rm -f "$local_copy.partial"
   rm -rf "$work"
 }
