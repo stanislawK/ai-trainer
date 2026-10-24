@@ -12,6 +12,13 @@ Group=deploy
 # BACKUP_DEST, BACKUP_AGE_RECIPIENT and the R2 token (deploy/backup.env.example), mode 0600.
 EnvironmentFile=/opt/ai-trainer/backup.env
 ExecStart=/opt/ai-trainer/deploy/backup.sh nightly
+# A oneshot has no start timeout by default; a hung rclone would stay activating and
+# systemd would skip later nights.
+TimeoutStartSec=30min
+# SIGTERM can kill backup.sh first. That closes the pipe, rclone sees end-of-input, and a
+# truncated object is stored under the bucket lock. SIGKILL stops rclone before it can finish.
+# The deploy unit keeps SIGTERM: deploy.sh traps it so a timed-out deploy still rolls back.
+KillSignal=SIGKILL
 NoNewPrivileges=yes
 PrivateTmp=yes
 UMask=0077

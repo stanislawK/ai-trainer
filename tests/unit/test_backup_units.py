@@ -49,6 +49,11 @@ def test_service_is_hardened(service: configparser.ConfigParser) -> None:
     assert unit["NoNewPrivileges"] == "yes"
     assert unit["PrivateTmp"] == "yes"
     assert unit["UMask"] == "0077"
+    # A oneshot has no start timeout by default, so a hung rclone stays activating and
+    # systemd skips later nights.
+    assert unit["TimeoutStartSec"] == "30min"
+    # SIGTERM would close the dump pipe while rclone is still running.
+    assert unit["KillSignal"] == "SIGKILL"
 
 
 def test_service_waits_for_docker_and_the_network(service: configparser.ConfigParser) -> None:

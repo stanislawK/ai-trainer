@@ -2,7 +2,8 @@
 
 Reads the hook JSON on stdin. For a Bash call whose command would tag, push a tag, create a
 release, run the release workflow, touch GitHub deployments, environments or rulesets, run the
-deploy poller, or open an ssh/scp connection, it prints a `deny` decision and exits 0. Everything
+deploy poller, run deploy/install.sh, or open an ssh/scp connection, it prints a `deny`
+decision and exits 0. Everything
 else passes silently.
 
 Standard library only, and kept compatible with the system `python3`, so the hook runs without the
@@ -26,6 +27,25 @@ _DEPLOY_DENIED = (
     "Running the deploy poller is blocked: only its timer on the host deploys a release the "
     f"owner approved, {ADR_0023}."
 )
+_HOST_INSTALL = "install.sh"
+_INSTALL_DENIED = (
+    f"Running deploy/install.sh is blocked: it copies files onto the production host, {ADR_0024}."
+)
+
+
+def _is_host_install(path: str) -> bool:
+    """True for deploy/install.sh, not for any other file named install.sh."""
+    parent, name = os.path.split(path.replace("\\", "/").rstrip("/"))
+    return name == _HOST_INSTALL and os.path.basename(parent) == "deploy"
+
+
+def _deny_invoked_script(path: str) -> str | None:
+    if os.path.basename(path) == _DEPLOY_POLLER:
+        return _DEPLOY_DENIED
+    if _is_host_install(path):
+        return _INSTALL_DENIED
+    return None
+
 
 # Characters that end a command or start a nested one. Newline is an operator, not whitespace.
 _OPERATORS = ";&|()`\n"
@@ -123,20 +143,7 @@ def _segments(tokens: list[str]) -> list[list[str]]:
     return [segment for segment in segments if segment]
 
 
-def denial_reason(command: str) -> str | None:
-    """Why `command` must not run, or None when it may."""
-    for match in _NESTED.finditer(command):  # `$( )` and backticks inside double quotes
-        reason = denial_reason(match.group(1) or match.group(2) or "")
-        if reason:
-            return reason
-    for segment in _segments(_tokenize(command)):
-        reason = _check_segment(segment)
-        if reason:
-            return reason
-    return None
-
-
-def _check_segment(tokens: list[str]) -> str | None:
+def _command_tokens(tokens: list[str]) -> list[str]:
     start = 0
     while start < len(tokens) and (
         tokens[start] in _RESERVED or _ASSIGNMENT.match(tokens[start]) or tokens[start] == "!"
@@ -146,6 +153,68 @@ def _check_segment(tokens: list[str]) -> str | None:
     while tokens and _REDIRECT_TOKEN.match(tokens[0]):
         bare = not tokens[0].lstrip("0123456789").strip("<>")
         tokens = tokens[2:] if bare else tokens[1:]
+    return tokens
+
+
+def _is_bare_install_path(path: str) -> bool:
+    """install.sh or ./install.sh, the forms a prior cd deploy would make runnable."""
+    return path.replace("\\", "/").rstrip("/") in {"install.sh", "./install.sh"}
+
+
+def _invokes_bare_install(tokens: list[str]) -> bool:
+    tokens = _command_tokens(tokens)
+    if not tokens:
+        return False
+    name = os.path.basename(tokens[0])
+    rest = tokens[1:]
+    if name in _SHELLS:
+        # bash -n only parses. A plain -n flag contains the letter n.
+        if any(
+            arg == "-n" or (arg.startswith("-") and not arg.startswith("--") and "n" in arg[1:])
+            for arg in rest
+        ):
+            return False
+        scripts = [arg for arg in rest if not arg.startswith(("-", "<"))]
+        return bool(scripts) and _is_bare_install_path(scripts[0])
+    if name in {".", "source"}:
+        operands = [arg for arg in rest if not arg.startswith("-")]
+        return bool(operands) and _is_bare_install_path(operands[0])
+    return _is_bare_install_path(tokens[0])
+
+
+def _directory_change(tokens: list[str]) -> str | None:
+    """The path a cd or pushd names, '' when it leaves for $HOME, None when it is not one."""
+    tokens = _command_tokens(tokens)
+    if not tokens or os.path.basename(tokens[0]) not in {"cd", "pushd"}:
+        return None
+    operands = [arg for arg in tokens[1:] if not arg.startswith("-")]
+    if not operands:
+        return ""
+    return operands[0]
+
+
+def denial_reason(command: str) -> str | None:
+    """Why `command` must not run, or None when it may."""
+    for match in _NESTED.finditer(command):  # `$( )` and backticks inside double quotes
+        reason = denial_reason(match.group(1) or match.group(2) or "")
+        if reason:
+            return reason
+    in_deploy = False
+    for segment in _segments(_tokenize(command)):
+        reason = _check_segment(segment)
+        if reason:
+            return reason
+        # `cd deploy && ./install.sh` is two segments. The path check never sees `deploy/`.
+        if in_deploy and _invokes_bare_install(segment):
+            return _INSTALL_DENIED
+        change = _directory_change(segment)
+        if change is not None:
+            in_deploy = os.path.basename(change.rstrip("/")) == "deploy"
+    return None
+
+
+def _check_segment(tokens: list[str]) -> str | None:
+    tokens = _command_tokens(tokens)
     if not tokens:
         return None
     name = os.path.basename(tokens[0])
@@ -166,6 +235,13 @@ def _check_segment(tokens: list[str]) -> str | None:
         return denial_reason(" ".join(rest))
     if name == _DEPLOY_POLLER:
         return _DEPLOY_DENIED
+    if _is_host_install(tokens[0]):
+        return _INSTALL_DENIED
+    if name in {".", "source"}:
+        operands = [arg for arg in rest if not arg.startswith("-")]
+        if operands:
+            return _deny_invoked_script(operands[0])
+        return None
     if name == "systemctl" and _SYSTEMCTL_STARTS & set(rest):
         if any(arg.startswith(_DEPLOY_UNIT) for arg in rest):
             return _DEPLOY_DENIED
@@ -206,8 +282,8 @@ def _check_shell(args: list[str]) -> str | None:
         return None
     scripts = [arg for arg in args if not arg.startswith(("-", "<"))]
     # With -n the shell only parses the script.
-    if scripts and os.path.basename(scripts[0]) == _DEPLOY_POLLER and "-n" not in args:
-        return _DEPLOY_DENIED
+    if scripts and "-n" not in args:
+        return _deny_invoked_script(scripts[0])
     if all(arg.startswith(("-", "<")) for arg in args):
         return f"A shell reading commands from stdin is blocked: it can run anything, {ADR_0023}."
     return None

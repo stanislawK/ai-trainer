@@ -138,6 +138,8 @@ def test_other_workflows_may_be_viewed() -> None:
         "sudo -u deploy /opt/ai-trainer/deploy/deploy.sh",
         "bash deploy/deploy.sh",
         "sh -e deploy/deploy.sh",
+        "source deploy/deploy.sh",
+        ". deploy/deploy.sh",
         "CREDENTIALS_DIRECTORY=/tmp/c deploy/deploy.sh",
         "systemctl start ai-trainer-deploy.service",
         "sudo systemctl restart ai-trainer-deploy",
@@ -152,9 +154,43 @@ def test_running_the_deploy_poller_denied(command: str) -> None:
 @pytest.mark.parametrize(
     "command",
     [
+        "deploy/install.sh 203.0.113.10",
+        "./deploy/install.sh 203.0.113.10",
+        "/opt/ai-trainer/deploy/install.sh 203.0.113.10",
+        "bash deploy/install.sh 203.0.113.10",
+        "sh -e deploy/install.sh 203.0.113.10",
+        "sudo deploy/install.sh 203.0.113.10",
+        "source deploy/install.sh 203.0.113.10",
+        ". ./deploy/install.sh 203.0.113.10",
+        "source /opt/ai-trainer/deploy/install.sh 203.0.113.10",
+        "cd deploy && ./install.sh 203.0.113.10",
+        "cd deploy && install.sh 203.0.113.10",
+        "cd ./deploy && bash install.sh 203.0.113.10",
+        "cd /opt/ai-trainer/deploy && ./install.sh 203.0.113.10",
+        "pushd deploy && ./install.sh 203.0.113.10",
+        "cd deploy && source ./install.sh 203.0.113.10",
+    ],
+)
+def test_running_the_host_install_denied(command: str) -> None:
+    """install.sh copies files onto the production host; agents never reach that host."""
+    assert _denied(command)
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
         "cat deploy/deploy.sh",
         "bash -n deploy/deploy.sh",
+        "bash -n deploy/install.sh",
         "shellcheck deploy/deploy.sh",
+        "shellcheck deploy/install.sh",
+        "/tmp/install.sh",
+        "source /tmp/install.sh",
+        "./scripts/install.sh",
+        "cd other && ./install.sh",
+        "cd deploy && cd .. && ./install.sh",
+        "cd deploy && bash -n ./install.sh",
+        "cd deploy && /tmp/install.sh",
         "uv run pytest tests/unit/test_deploy_script.py",
         "systemctl status ai-trainer-deploy.timer",
         "sudo systemctl restart docker",

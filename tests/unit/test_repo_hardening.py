@@ -9,7 +9,9 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 GITHUB = ROOT / ".github"
-WORKFLOWS = sorted((GITHUB / "workflows").glob("*.yml"))
+WORKFLOWS = sorted(
+    [*((GITHUB / "workflows").glob("*.yml")), *((GITHUB / "workflows").glob("*.yaml"))]
+)
 FULL_SHA = re.compile(r"@[0-9a-f]{40}(\s|$)")
 
 
@@ -55,6 +57,31 @@ def test_dependabot_covers_uv_docker_and_github_actions() -> None:
     for update in config["updates"]:
         assert update["directory"] == "/"
         assert update["schedule"]["interval"]
+
+
+def _writes_deployments(permissions: Any) -> bool:
+    # `write-all` includes deployments. A string is not a mapping of one scope.
+    if permissions == "write-all":
+        return True
+    return isinstance(permissions, dict) and permissions.get("deployments") == "write"
+
+
+def test_only_the_release_job_may_write_deployments() -> None:
+    """A branch workflow that declares this permission can queue an already attested tag.
+
+    Environment protection does not apply to POST /deployments (ADR-0023). The poller
+    trusts a queued deployment created by github-actions[bot]. `write-all` grants the
+    same permission. GitHub reads both .yml and .yaml workflow files.
+    """
+    writers: list[str] = []
+    for path in WORKFLOWS:
+        workflow = _load(path)
+        if _writes_deployments(workflow.get("permissions")):
+            writers.append(f"{path.name}:workflow")
+        for name, job in workflow["jobs"].items():
+            if _writes_deployments(job.get("permissions")):
+                writers.append(f"{path.name}:{name}")
+    assert writers == ["release.yml:release"]
 
 
 def test_codeowners_assigns_everything_to_the_owner() -> None:
