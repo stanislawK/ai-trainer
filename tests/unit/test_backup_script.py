@@ -104,7 +104,7 @@ def env(tmp_path: Path) -> dict[str, str]:
         ("date", FAKE_DATE),
     ):
         _stub(bin_dir, name, body)
-    for name in ("log", "bucket", "tmp", "work"):
+    for name in ("log", "bucket", "tmp", "work", "local"):
         (tmp_path / name).mkdir()
     return {
         "PATH": f"{bin_dir}:{os.environ['PATH']}",
@@ -115,6 +115,7 @@ def env(tmp_path: Path) -> dict[str, str]:
         "FAKE_NOW": "5 20261023T023000Z",
         "BACKUP_DEST": "r2:ai-trainer-backups",
         "BACKUP_AGE_RECIPIENT": RECIPIENT,
+        "BACKUP_LOCAL_DIR": str(tmp_path / "local"),
         "RCLONE_CONFIG_R2_ACCESS_KEY_ID": KEY_ID,
         "RCLONE_CONFIG_R2_SECRET_ACCESS_KEY": SECRET,
     }
@@ -268,3 +269,53 @@ def test_refuses_a_recipient_that_is_not_an_age_public_key(env: dict[str, str]) 
     assert "BACKUP_AGE_RECIPIENT" in result.stderr
     assert "AGE-SECRET-KEY" not in result.stderr
     assert not (Path(env["FAKE_LOG"]) / "age.args").exists()
+
+
+def _local(env: dict[str, str]) -> list[str]:
+    return sorted(p.name for p in Path(env["BACKUP_LOCAL_DIR"]).iterdir())
+
+
+def test_predeploy_keeps_the_same_encrypted_copy_on_the_server(env: dict[str, str]) -> None:
+    """ADR-0023: the pre-migration dump is kept locally and uploaded (#225), encrypted like the
+    upload, so a restore needs the owner's offline key either way."""
+    assert _run(env, "predeploy").returncode == 0
+
+    assert _local(env) == ["ai-trainer-20261023T023000Z.dump.age"]
+    local = (Path(env["BACKUP_LOCAL_DIR"]) / _local(env)[0]).read_bytes()
+    uploaded = (
+        Path(env["FAKE_BUCKET"]) / "r2/ai-trainer-backups/predeploy" / _local(env)[0]
+    ).read_bytes()
+    assert local == uploaded
+    assert MARKER.encode() not in local
+    assert stat.S_IMODE((Path(env["BACKUP_LOCAL_DIR"]) / _local(env)[0]).stat().st_mode) == 0o600
+
+
+def test_predeploy_keeps_only_the_newest_three_local_copies(env: dict[str, str]) -> None:
+    local = Path(env["BACKUP_LOCAL_DIR"])
+    for stamp in ("20261001T000000Z", "20261010T000000Z", "20261020T000000Z"):
+        (local / f"ai-trainer-{stamp}.dump.age").write_bytes(b"old")
+    (local / "notes.txt").write_text("not a backup")
+
+    assert _run(env, "predeploy").returncode == 0
+
+    assert _local(env) == [
+        "ai-trainer-20261010T000000Z.dump.age",
+        "ai-trainer-20261020T000000Z.dump.age",
+        "ai-trainer-20261023T023000Z.dump.age",
+        "notes.txt",
+    ]
+
+
+def test_nightly_keeps_no_local_copy(env: dict[str, str]) -> None:
+    assert _run(env, "nightly").returncode == 0
+
+    assert _local(env) == []
+
+
+@pytest.mark.parametrize("failure", ["FAKE_PG_DUMP_FAIL", "FAKE_RCLONE_FAIL"])
+def test_a_failed_predeploy_leaves_no_local_copy(env: dict[str, str], failure: str) -> None:
+    env[failure] = "1"
+
+    assert _run(env, "predeploy").returncode != 0
+
+    assert _local(env) == []

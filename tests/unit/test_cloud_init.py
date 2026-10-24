@@ -3,6 +3,8 @@ key-only SSH as `deploy`, no root login, unattended upgrades, Docker from Debian
 `deploy`-owned `/opt/ai-trainer`. The schema check is `make cloud-init-check`; these tests pin
 the security properties so a later edit can't quietly drop one."""
 
+import base64
+import hashlib
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +14,9 @@ import yaml
 ROOT = Path(__file__).resolve().parents[2]
 CLOUD_INIT = ROOT / "deploy/cloud-init.yaml"
 RUNBOOK = ROOT / "deploy/RUNBOOK.md"
+# GitHub CLI's current apt signing key, as published in cli/cli's docs/install_linux.md. The
+# older key, 2C6106201985B60E6C7AC87323F3D4EA75716059, expired on 2026-09-05.
+GH_CLI_KEY = "7F38BBB59D064DBCB3D84D725612B36462313325"
 
 
 @pytest.fixture(scope="module")
@@ -25,6 +30,36 @@ def _file(config: dict[str, Any], path: str) -> dict[str, Any]:
     matches: list[dict[str, Any]] = [f for f in config["write_files"] if f["path"] == path]
     assert len(matches) == 1, f"expected one write_files entry for {path}"
     return matches[0]
+
+
+def _fingerprints(armored: str) -> list[str]:
+    """The v4 fingerprint of each primary key in an armored public key block (RFC 4880 12.2):
+    SHA-1 over 0x99, the two-byte body length, and the public-key packet's body."""
+    lines = armored.strip().splitlines()
+    body = lines[lines.index("") + 1 : -1]
+    data = base64.b64decode("".join(line for line in body if not line.startswith("=")))
+    fingerprints, offset = [], 0
+    while offset < len(data):
+        header = data[offset]
+        assert header & 0x80, "not an OpenPGP packet"
+        if header & 0x40:  # new format
+            tag, first = header & 0x3F, data[offset + 1]
+            if first < 192:
+                length, start = first, offset + 2
+            elif first < 224:
+                length, start = ((first - 192) << 8) + data[offset + 2] + 192, offset + 3
+            else:
+                length, start = int.from_bytes(data[offset + 2 : offset + 6]), offset + 6
+        else:  # old format
+            tag, size = (header >> 2) & 0x0F, [1, 2, 4][header & 0x03]
+            length = int.from_bytes(data[offset + 1 : offset + 1 + size])
+            start = offset + 1 + size
+        if tag == 6:
+            packet = data[start : start + length]
+            digest = hashlib.sha1(b"\x99" + len(packet).to_bytes(2) + packet).hexdigest()
+            fingerprints.append(digest.upper())
+        offset = start + length
+    return fingerprints
 
 
 def _sshd_options(config: dict[str, Any]) -> dict[str, str]:
@@ -86,7 +121,32 @@ def test_docker_comes_from_debians_archive(config: dict[str, Any]) -> None:
     # Debian-Security patches these, and unattended-upgrades applies them; Docker's own apt
     # repository would need its origin added to unattended-upgrades by hand.
     assert {"docker.io", "docker-cli", "docker-compose"} <= set(config["packages"])
-    assert "apt" not in config or "sources" not in config["apt"]
+    # GitHub CLI's is the only other apt source (#225).
+    assert set(config["apt"]["sources"]) == {"github-cli"}
+
+
+def test_gh_comes_from_github_clis_signed_apt_repository(config: dict[str, Any]) -> None:
+    """Trixie's gh is 2.46, older than `gh attestation` (2.49), which deploy.sh needs (#225)."""
+    assert "gh" in config["packages"]
+    source = config["apt"]["sources"]["github-cli"]
+    assert source["source"] == (
+        "deb [signed-by=$KEY_FILE] https://cli.github.com/packages stable main"
+    )
+    assert _fingerprints(source["key"]) == [GH_CLI_KEY]
+
+
+def test_gh_upgrades_are_applied_unattended(config: dict[str, Any]) -> None:
+    """Unattended-upgrades only follows Debian's origins until told otherwise."""
+    origins = _file(config, "/etc/apt/apt.conf.d/52ai-trainer-unattended-upgrades")
+    assert origins["defer"] is True
+    assert (
+        'Unattended-Upgrade::Origins-Pattern {\n  "origin=gh,label=gh";\n};' in (origins["content"])
+    )
+
+
+def test_deploy_tools_are_installed(config: dict[str, Any]) -> None:
+    # deploy.sh polls /health with curl and holds its lock with flock (util-linux).
+    assert {"curl", "util-linux"} <= set(config["packages"])
 
 
 def test_backup_tools_come_from_debians_archive(config: dict[str, Any]) -> None:

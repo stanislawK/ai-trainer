@@ -1,0 +1,13 @@
+# Runs ai-trainer-deploy.service every two minutes (ticket #225). systemd skips a tick while the
+# service is still running. Not Persistent: a missed poll is caught by the next one.
+[Unit]
+Description=ai-trainer deploy poller, every two minutes
+
+[Timer]
+OnCalendar=*-*-* *:00/2:00
+# The default accuracy is a minute; an approved release must run within five.
+AccuracySec=10s
+Unit=ai-trainer-deploy.service
+
+[Install]
+WantedBy=timers.target

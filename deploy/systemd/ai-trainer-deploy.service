@@ -1,0 +1,24 @@
+# The deploy poller (ADR-0023 "Pull-based deploy on the server", ticket #225): runs the newest
+# release the owner approved. Started by ai-trainer-deploy.timer; deploy/RUNBOOK.md installs both.
+[Unit]
+Description=ai-trainer deploy poller
+Wants=docker.service network-online.target
+After=docker.service network-online.target
+
+[Service]
+Type=oneshot
+User=deploy
+Group=deploy
+# SITE_HOST (deploy/deploy.env.example), then backup.sh's R2 settings for the pre-deploy backup.
+EnvironmentFile=/opt/ai-trainer/deploy.env
+EnvironmentFile=/opt/ai-trainer/backup.env
+# The GitHub token, root-owned and 0600 on disk. systemd hands the service a private copy under
+# $CREDENTIALS_DIRECTORY, so it's never in the environment that docker and backup.sh inherit.
+LoadCredential=github-token:/opt/ai-trainer/github-token
+ExecStart=/opt/ai-trainer/deploy/deploy.sh
+# A oneshot has no start timeout by default; a stuck pull or backup would never show as failed.
+TimeoutStartSec=30min
+SyslogIdentifier=ai-trainer-deploy
+NoNewPrivileges=yes
+PrivateTmp=yes
+UMask=0077

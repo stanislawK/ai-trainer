@@ -106,7 +106,7 @@ chmod 0600 /opt/ai-trainer/.env /opt/ai-trainer/db.env
 ls -l /opt/ai-trainer                    # -rw------- deploy deploy .env and db.env
 ```
 
-Starting the stack and the first deploy wait for the deploy-poller ticket and for M1a and M1 (ADR-0023).
+The deploy poller ([section 10](#10-deploy-poller)) starts the stack with the first release, which waits for M1a and M1 (ADR-0023).
 
 ## 7. Checks (ticket #222 acceptance)
 
@@ -257,6 +257,92 @@ Run on the server (`ssh deploy@<ip>`).
 | 3 | A failure is visible | before go-live only: `docker stop ai-trainer-prod-app-1; sudo systemctl start ai-trainer-purge.service; systemctl --failed; docker start ai-trainer-prod-app-1` | `systemctl start` reports the job failed; `ai-trainer-purge.service` is listed as failed; `journalctl -u ai-trainer-purge.service` shows Docker's `is not running` error |
 
 Run `sudo systemctl reset-failed ai-trainer-purge.service` after check 3.
+
+## 10. Deploy poller
+
+Source: ADR-0023 *Pull-based deploy on the server*, invariants 2, 3 and 5; ADR-0024 invariant 4; PRD 0005 G12, G13. Ticket #225.
+
+The server pulls approved releases, so GitHub holds no credential to it. Every two minutes `ai-trainer-deploy.timer` starts [`deploy.sh`](deploy.sh). It looks at the newest `production` deployment that `github-actions[bot]` created, which is the `release` job once you approve it (README "Releasing"). Only when that deployment's latest status is `queued` does it act:
+
+1. It verifies the image's provenance against `release.yml` with `gh attestation verify`. On a failure it reports `failure` and pulls nothing.
+2. It reports `in_progress` and pulls the image by digest.
+3. It starts `db`, then runs `backup.sh predeploy`: uploaded to `predeploy/` in R2, and the same encrypted file kept in `/opt/ai-trainer/backups/predeploy/` (the newest three).
+4. It runs `migrate`, then starts `app` and `caddy` on the new image.
+5. It polls `https://<domain>/health` through Cloudflare and Caddy for up to 90 seconds.
+6. It reports `success` and records the digest in `/opt/ai-trainer/app-image`. Otherwise it starts the previous digest from that file again and reports `failure` with the reason. The database is never rolled back: migrations are expand-only (ADR-0024 invariant 4).
+
+What it ignores:
+
+- Deployments anyone else created, including your own, and any deployment whose ref isn't a `v*` tag.
+- A `queued` status anyone but the `release` job posted. To retry a failed release, tag a new one.
+- An older deployment still `queued` once a newer release exists, so an old approval can't take production back.
+- A deployment that is `success`, `failure` or `in_progress`.
+
+The first release has no previous digest. If its health check fails, the new app keeps running, the status says there was nothing to roll back to, and you fix it forward.
+
+The health check comes from the server, through Cloudflare, with curl's user agent. Keep Bot Fight Mode and any WAF challenge off for `/health`, or every deploy rolls back.
+
+A failed release is fixed forward with a new tag. A broken database is restored from a backup (the restore drill, #224).
+
+The poller changes only the app image. When `compose.prod.yaml` or `deploy/Caddyfile` change, copy them to the server by hand, as in 10.2, before the release that needs them.
+
+### 10.1 The GitHub token (laptop)
+
+*GitHub → Settings → Developer settings → Fine-grained tokens → Generate new token*:
+
+- **Resource owner:** `stanislawK`. **Repository access:** *Only select repositories* → `ai-trainer`.
+- **Repository permissions:** *Deployments* **Read and write**, *Attestations* **Read**. *Metadata* **Read** is added by itself. Nothing else.
+- **Expiration:** the longest offered, with a calendar reminder a week before. An expired token fails every run, which `systemctl --failed` shows.
+
+The REST docs list exactly these permissions for listing deployments, posting their statuses and reading attestations ([GitHub docs](https://docs.github.com/en/rest/authentication/permissions-required-for-fine-grained-personal-access-tokens), read 2026-10-24). That settles ADR-0023's ⚠: no GitHub App is needed.
+
+### 10.2 Install on the server
+
+From your laptop, in this repo:
+
+```sh
+scp compose.prod.yaml deploy/Caddyfile deploy/deploy.sh deploy/backup.sh \
+  deploy/systemd/ai-trainer-deploy.service deploy/systemd/ai-trainer-deploy.timer deploy@<ip>:/tmp/
+```
+
+Then `ssh deploy@<ip>` and on the server:
+
+```sh
+gh --version                             # 2.49 or later; cloud-init installs it from cli.github.com
+install -d -m 0750 /opt/ai-trainer/deploy
+install -m 0644 /tmp/compose.prod.yaml /opt/ai-trainer/compose.prod.yaml
+install -m 0644 /tmp/Caddyfile /opt/ai-trainer/deploy/Caddyfile
+install -m 0755 /tmp/deploy.sh /tmp/backup.sh /opt/ai-trainer/deploy/
+sudo install -o root -g root -m 0644 /tmp/ai-trainer-deploy.service /tmp/ai-trainer-deploy.timer /etc/systemd/system/
+rm /tmp/compose.prod.yaml /tmp/Caddyfile /tmp/deploy.sh /tmp/backup.sh /tmp/ai-trainer-deploy.*
+umask 077
+echo "SITE_HOST=<domain>" > /opt/ai-trainer/deploy.env
+sudo sh -c 'umask 077; cat > /opt/ai-trainer/github-token'   # paste the token, Enter, then Ctrl-D
+sudo ls -l /opt/ai-trainer/github-token  # -rw------- root root
+sudo systemctl daemon-reload
+sudo systemctl enable --now ai-trainer-deploy.timer
+```
+
+- On a host provisioned before #225, `gh` is Debian's 2.46, which has no `gh attestation`. Add GitHub CLI's repository first, exactly as `deploy/cloud-init.yaml` does: its `apt.sources.github-cli` source and key, and its `52ai-trainer-unattended-upgrades` file. Then `sudo apt-get update && sudo apt-get install -y gh`.
+- The token file belongs to root. systemd reads it and hands the service a private copy (`LoadCredential=`), so it's never in an environment variable, and `docker` and `backup.sh` never see it.
+- `deploy.sh` reads `/opt/ai-trainer/backup.env` for the pre-deploy backup, so [section 8](#8-backups-to-r2) comes first.
+
+### 10.3 Checks (ticket #225 acceptance)
+
+Run on the server (`ssh deploy@<ip>`) unless noted. Checks 3–5 make a real release, so they wait for go-live (M1a and M1, ADR-0023).
+
+| # | Check | Command | Expected |
+|---|---|---|---|
+| 1 | Timer | `systemctl list-timers ai-trainer-deploy.timer` | one row, `NEXT` at most two minutes away |
+| 2 | Idle run | `sudo systemctl start ai-trainer-deploy.service; journalctl -u ai-trainer-deploy.service -n 5 --no-pager; systemctl is-failed ai-trainer-deploy.service` | no output from the run while nothing is queued, then `inactive` |
+| 3 | A release (AC 1) | laptop: tag and approve (README "Releasing"), then within five minutes `gh api repos/stanislawK/ai-trainer/deployments/<id>/statuses --jq '.[].state'` | `success`, `in_progress`, `queued`, newest first (the poller relies on that order); on the server `journalctl -u ai-trainer-deploy.service` shows `Verification succeeded!` and `deployment <id> succeeded`, and `cat /opt/ai-trainer/app-image` is that digest |
+| 4 | Backup before migrate (AC 5) | `ls -l /opt/ai-trainer/backups/predeploy; set -a; . /opt/ai-trainer/backup.env; set +a; rclone lsl "$BACKUP_DEST/predeploy"` | a `.dump.age` file in both, stamped after the run's `is queued` line and before its `migrate` output |
+| 5 | Serves | laptop: `curl -sS https://<domain>/health` | `{"database":"ok"}` |
+| 6 | Others' deployments ignored (AC 3) | laptop: `id=$(gh api -X POST repos/stanislawK/ai-trainer/deployments -f ref=main -f environment=production -F auto_merge=false -F 'required_contexts[]' --jq .id); gh api -X POST repos/stanislawK/ai-trainer/deployments/$id/statuses -f state=queued`. Wait three minutes, then `gh api repos/stanislawK/ai-trainer/deployments/$id/statuses --jq '.[0].state'` | still `queued`; the journal shows nothing for it. Then clean up: `gh api -X POST …/deployments/$id/statuses -f state=inactive` and `gh api -X DELETE repos/stanislawK/ai-trainer/deployments/$id` |
+| 7 | One run at a time (AC 6) | `flock /opt/ai-trainer/.deploy.lock sleep 60 & sleep 1; sudo systemctl start ai-trainer-deploy.service; journalctl -u ai-trainer-deploy.service -n 1 --no-pager` | `deploy: another deploy is running; nothing to do` |
+| 8 | No token in the journal (AC 6) | `journalctl -u ai-trainer-deploy.service --no-pager \| grep -c github_pat_` | `0` |
+
+A failing attestation (AC 2) and a failing health check (AC 4) can't be staged safely on the real host: only `release.yml` creates the deployments the poller acts on, and it attests every image it pushes. `tests/unit/test_deploy_script.py` covers both, and a real one shows as a `failure` status whose description says why.
 
 ## Provisioning record
 
