@@ -131,13 +131,15 @@ Source: ADR-0023 *Backups*, PRD 0005 G13. Ticket #223.
 
 Every night [`backup.sh`](backup.sh) streams `pg_dump -Fc` through age, encrypted to your public key, into a Cloudflare R2 bucket. The dump never touches the server's disk. The private key stays offline with you, so neither the server nor R2 can read a backup. The deploy poller runs `backup.sh predeploy` before every migration (ADR-0023 invariant 5).
 
+Each backup is two objects: `ai-trainer-<UTC time>.dump.age` and, uploaded after it, `ai-trainer-<UTC time>.counts.age`. The second holds every table's row count, taken in the same database snapshot as the dump and encrypted the same way. The restore drill ([section 8.6](#86-restore-drill-laptop)) checks a restored dump against those counts. Each prefix's lock and lifecycle rule cover both objects.
+
 | Prefix | Written by | Locked and kept for |
 |---|---|---|
 | `daily/` | the nightly timer, Monday to Saturday (UTC) | 7 days |
 | `weekly/` | the nightly timer on Sunday (UTC) | 28 days |
 | `predeploy/` | `deploy.sh`, before `migrate` | 7 days |
 
-Sunday's backup goes to `weekly/` only, so `daily/` holds at most six objects: with Sunday's, that's seven nightly restore points in any week.
+Sunday's backup goes to `weekly/` only, so `daily/` holds at most six backups: with Sunday's, that's seven nightly restore points in any week.
 
 A bucket lock rule overrides a lifecycle rule ([R2 docs](https://developers.cloudflare.com/r2/buckets/bucket-locks/)), so each prefix gets a lock and an expiry of the same age. R2 has no write-only token: the server's token can delete objects, and only the lock stops it inside the window. Changing a lock rule needs an admin token, which never goes to the server.
 
@@ -148,7 +150,7 @@ brew install age
 age-keygen -o ai-trainer-backup.key      # prints "Public key: age1…"
 ```
 
-- Keep `ai-trainer-backup.key` offline, like `aop-ca-key.pem`: a password manager entry and one offline copy. Without it no backup can be restored. The restore drill (#224) is the only thing that reads it, on your laptop.
+- Keep `ai-trainer-backup.key` offline, like `aop-ca-key.pem`: a password manager entry and one offline copy. Without it no backup can be restored. The restore drill ([section 8.6](#86-restore-drill-laptop)) is the only thing that reads it, on your laptop.
 - The public key (`age1…`) goes to the server as `BACKUP_AGE_RECIPIENT`. It isn't secret.
 
 ### 8.2 Bucket, locks and lifecycle (laptop)
@@ -221,6 +223,43 @@ Run on the server (`ssh deploy@<ip>`). `r2env` loads the token into the current 
 
 A check-6 run leaves no object behind: `backup.sh` stops the upload before it completes whenever the dump or the encryption fails. Run `sudo systemctl reset-failed ai-trainer-backup.service` afterwards.
 
+### 8.6 Restore drill (laptop)
+
+Source: ADR-0023 *Backups*, PRD 0005 G13. Ticket #224.
+
+A backup counts only once it has been restored. [`restore-drill.sh`](restore-drill.sh) fetches the latest backup, the newest stamp in `daily/`, `weekly/` or `predeploy/`, and decrypts it with your offline key on this laptop. It restores it into a throwaway Postgres container: the production image by digest, with no network and its data in memory. Then it compares every table's row count with the backup's `.counts.age`. It exits 0 only when every count matches, and it removes the container on every exit. The decrypted dump never touches the disk.
+
+**When:** at go-live, the morning after the first nightly backup. Then on the first of each month (set a calendar reminder), and after any change to `backup.sh` or to the `db` image in `compose.prod.yaml`.
+
+**Once:**
+
+1. `brew install age rclone`, with Docker (OrbStack or Docker Desktop) running. The first run pulls the Postgres image.
+2. A read-only token. *R2 → Manage R2 API tokens → Create API token*: permission **Object Read only**, **Apply to specific buckets only:** `ai-trainer-backups`. Don't reuse the server's token: this laptop never needs to write or delete.
+3. The settings file, from this repo:
+
+   ```sh
+   mkdir -p ~/.config/ai-trainer
+   (umask 077; cp deploy/restore.env.example ~/.config/ai-trainer/restore.env)
+   $EDITOR ~/.config/ai-trainer/restore.env   # ACCOUNT_ID in the endpoint, the read-only token, the path to ai-trainer-backup.key
+   ```
+
+**Each drill**, from this repo. The subshell keeps the token out of your shell afterwards:
+
+```sh
+(set -a; . ~/.config/ai-trainer/restore.env; set +a; deploy/restore-drill.sh); echo "exit $?"
+```
+
+| # | Check | Expected |
+|---|---|---|
+| 1 | The run above | `restore-drill: <prefix>/ai-trainer-<UTC time>.dump.age` (the newest backup), then one row per table (`backup`, `restored`, `ok`) and `restore-drill: every count matches (<n> tables)`; `exit 0` |
+| 2 | Nothing left behind | `docker ps -a --filter name=ai-trainer-restore-drill` prints only its header line |
+| 3 | A key that isn't yours fails | `age-keygen -o /tmp/other.key; (set -a; . ~/.config/ai-trainer/restore.env; set +a; RESTORE_AGE_IDENTITY=/tmp/other.key deploy/restore-drill.sh); echo "exit $?"; rm /tmp/other.key` prints `age: error: no identity matched any of the recipients`, `restore-drill: could not fetch or decrypt …` and `exit 1`, and starts no container |
+
+- To drill a specific backup, pass its path, e.g. `deploy/restore-drill.sh weekly/ai-trainer-20261025T023000Z.dump.age`. `rclone lsf -R "$BACKUP_DEST"` lists them.
+- rclone prints `NOTICE: Config file … not found - using defaults` because the remote comes from the environment. That's expected.
+- **A failed drill** (`MISMATCH` rows, a failed restore or decrypt, exit 1): don't trust that backup. Drill the one before it by path, and open an issue with the output. The output shows table names and counts only, never data.
+- The local pre-deploy copies on the server (`/opt/ai-trainer/backups/predeploy/`) have no `.counts.age`. They are there for a quick restore on the host; the drill checks their R2 twins in `predeploy/`.
+
 ## 9. Conversation purge
 
 Source: ADR-0021 *Retention*, ADR-0023 *The server's scheduled jobs*, PRD 0005 B26. Ticket #226.
@@ -282,7 +321,7 @@ The first release has no previous digest. If its health check fails, the new app
 
 The health check comes from the server, through Cloudflare, with curl's user agent. Keep Bot Fight Mode and any WAF challenge off for `/health`, or every deploy rolls back.
 
-A failed release is fixed forward with a new tag. A broken database is restored from a backup (the restore drill, #224).
+A failed release is fixed forward with a new tag. A broken database is restored from a backup; the restore drill ([section 8.6](#86-restore-drill-laptop)) proves the latest one restores.
 
 The poller changes only the app image. When `compose.prod.yaml` or `deploy/Caddyfile` change, copy them to the server by hand, as in 10.2, before the release that needs them.
 
