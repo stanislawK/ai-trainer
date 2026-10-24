@@ -49,7 +49,7 @@ Locked by the ADRs cited below; `docs/adr/README.md` carries each ADR's current 
 - External route and crag reference data, grade conversion — ADR-0016
 - Geographic lookup, provider deferred to an M5 spike — ADR-0017
 - `llm_calls` accounting in Postgres; OpenTelemetry over OTLP, backend from settings — ADR-0018
-- Liquid Glass daisyUI themes (`trainer-dark` default), glass utilities, Claude Design handoff and Playwright parity — ADR-0019
+- Liquid Glass daisyUI themes (`trainer-dark` default), glass utilities, Claude Design handoff and Playwright parity; new elements use Liquid Glass v4 (`mat-content` content, `lg-*` controls, no glass on glass) — ADR-0019
 - Jev decision model (`typesafe/jev-1.13` on OpenRouter, via Pydantic AI `TypeSafeModel`) behind `DecisionGatewayPort`, the default for any step that only picks (classify, route, gate, score, a closed-set draft field) — ADR-0020
 - Conversations, prompt history per conversation, 14-day retention with a purge CLI — ADR-0021
 - Training-session tables: `training_sessions`, `training_session_sources`, `session_drafts`, `clarifications` — ADR-0022

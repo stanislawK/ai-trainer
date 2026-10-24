@@ -13,6 +13,8 @@ Runs inside a web ticket (`/apply-ticket`), between tests-first and the acceptan
    - `mcp__claude-design__read_file` the design system's `theme.css`. The body is entity-escaped, so decode `&amp; &lt; &gt;`.
    - Also read the screen file. Any `<style id="__om-edit-overrides">` rule there is an owner tweak. When it changes a token value, it belongs in the theme; when it changes one element, it belongs in that element's utilities. List every override in the plan and never drop one silently.
    - Map each `[data-theme="trainer-*"]` block to an `@plugin "daisyui/theme" { name; default; prefersdark; color-scheme; --color-* … }` block in `src/ai_trainer/web/static/css/theme.css`, keeping the variable names unchanged. Map the glass classes to `@utility` blocks in `static/css/glass.css`.
+   - **Liquid Glass v4** (ADR-0019, 2026-10-24). If the mock loads `glass-v2.css`, read the design system's `glass-v2.css` and `LIQUID-GLASS-V3.md` too, and harvest only the v4 set the mock uses (`mat-content`, `lbl-1/2/3`, `lg`, `lg-tinted`, `lg-clear`, `lg-quiet`, `lg-chip`) as `@utility` blocks, with their `::before` / `::after`, `:hover` / `:active` and reduced-transparency, more-contrast and reduced-motion rules. The proposal-only classes (`fill-chip`, `btn-gem*`, `btn-plain*`, `chip-recess`, `ld-*`) are never harvested.
+   - If the mock gives a **new** element a v1 control (`btn-primary` / `btn-ghost` on a card, a `glass-regular` content card) or puts glass on glass (`lg` on a `glass-*` surface or inside another `lg`), stop and ask: the mock needs a v4 pass in Claude Design first.
    - Diff the result against the repo's current files. Token changes that the ticket didn't ask for go into the plan, not in silently.
 3. **Harvest the markup.**
    - Copy the frame's daisyUI markup into its target: `layouts/`, `pages/<feature>/`, `partials/<feature>/`, or a macro in `components/`.
@@ -42,6 +44,8 @@ Runs inside a web ticket (`/apply-ticket`), between tests-first and the acceptan
 ## Anti-patterns
 
 - Hand-writing custom CSS instead of harvesting theme tokens.
+- Building a new element with v1 controls (`btn-primary`, `btn-ghost`, `glass-regular` cards), or nesting glass in glass, instead of v4 (`mat-content` for content, lists and sheets included, with `lg-*` controls on it).
+- Restyling an existing v1 element on the side of an unrelated ticket.
 - Inventing a design where no mock exists.
 - Writing to the Claude Design project from this skill.
 - Pasting a `serve_url` anywhere.
