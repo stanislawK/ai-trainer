@@ -221,6 +221,43 @@ Run on the server (`ssh deploy@<ip>`). `r2env` loads the token into the current 
 
 A check-6 run leaves no object behind: `backup.sh` stops the upload before it completes whenever the dump or the encryption fails. Run `sudo systemctl reset-failed ai-trainer-backup.service` afterwards.
 
+## 9. Conversation purge
+
+Source: ADR-0021 *Retention*, ADR-0023 *The server's scheduled jobs*, PRD 0005 B26. Ticket #226.
+
+Every day at 02:00 UTC (up to 15 minutes later, always before the 02:30 backup), `ai-trainer-purge.timer` starts `ai-trainer-purge.service`. The service runs `ai-trainer purge-conversations` inside the app container, `ai-trainer-prod-app-1`. That deletes every conversation whose last message is older than `CONVERSATION_RETENTION_DAYS` (default 14), with its messages. The journal gets one line, the number deleted, and never any content.
+
+### 9.1 Install on the server
+
+From your laptop, in this repo:
+
+```sh
+scp deploy/systemd/ai-trainer-purge.service deploy/systemd/ai-trainer-purge.timer deploy@<ip>:/tmp/
+```
+
+Then `ssh deploy@<ip>` and on the server:
+
+```sh
+sudo install -o root -g root -m 0644 /tmp/ai-trainer-purge.service /tmp/ai-trainer-purge.timer /etc/systemd/system/
+rm /tmp/ai-trainer-purge.*
+sudo systemctl daemon-reload
+sudo systemctl enable --now ai-trainer-purge.timer
+```
+
+The timer can be enabled before the first deploy. Until the app container exists, each daily run fails and shows in `systemctl --failed`, which is the expected signal. Checks 2 and 3 need the stack running, so run them after the first deploy.
+
+### 9.2 Checks (ticket #226 acceptance)
+
+Run on the server (`ssh deploy@<ip>`).
+
+| # | Check | Command | Expected |
+|---|---|---|---|
+| 1 | Timer | `systemctl list-timers ai-trainer-purge.timer` | one row, `NEXT` between 02:00 and 02:15 UTC |
+| 2 | A run by hand | `sudo systemctl start ai-trainer-purge.service; journalctl -u ai-trainer-purge.service -n 5 --no-pager` | a line `ai-trainer-purge[<pid>]: <count>` (`0` while nothing has expired) and no other output; `systemctl is-failed ai-trainer-purge.service` prints `inactive` |
+| 3 | A failure is visible | before go-live only: `docker stop ai-trainer-prod-app-1; sudo systemctl start ai-trainer-purge.service; systemctl --failed; docker start ai-trainer-prod-app-1` | `systemctl start` reports the job failed; `ai-trainer-purge.service` is listed as failed; `journalctl -u ai-trainer-purge.service` shows Docker's `is not running` error |
+
+Run `sudo systemctl reset-failed ai-trainer-purge.service` after check 3.
+
 ## Provisioning record
 
 Kept by the owner, privately, outside this repo: it's public, and these are the owner's account details (ADR-0023 ⚠ *Verify at provisioning*). A password manager entry next to the server's other details does. Never commit the values.
