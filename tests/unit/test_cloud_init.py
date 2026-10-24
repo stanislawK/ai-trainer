@@ -89,6 +89,11 @@ def test_docker_comes_from_debians_archive(config: dict[str, Any]) -> None:
     assert "apt" not in config or "sources" not in config["apt"]
 
 
+def test_backup_tools_come_from_debians_archive(config: dict[str, Any]) -> None:
+    # deploy/backup.sh encrypts with age and uploads with rclone (#223).
+    assert {"age", "rclone"} <= set(config["packages"])
+
+
 def test_deploy_joins_docker_after_the_packages_create_the_group(
     config: dict[str, Any],
 ) -> None:

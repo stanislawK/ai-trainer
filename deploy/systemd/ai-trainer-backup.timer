@@ -1,0 +1,13 @@
+# Runs ai-trainer-backup.service every night (ticket #223). Persistent: a night missed while the
+# host was down runs at the next boot.
+[Unit]
+Description=ai-trainer nightly database backup to R2
+
+[Timer]
+OnCalendar=*-*-* 02:30:00 UTC
+RandomizedDelaySec=15m
+Persistent=true
+Unit=ai-trainer-backup.service
+
+[Install]
+WantedBy=timers.target

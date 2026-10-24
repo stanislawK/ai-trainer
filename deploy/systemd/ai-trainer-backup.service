@@ -1,0 +1,17 @@
+# The nightly backup (ADR-0023 "Backups", ticket #223): pg_dump, encrypted with age to the owner's
+# key, uploaded to R2. Started by ai-trainer-backup.timer; deploy/RUNBOOK.md installs both.
+[Unit]
+Description=ai-trainer nightly database backup to R2
+Wants=docker.service network-online.target
+After=docker.service network-online.target
+
+[Service]
+Type=oneshot
+User=deploy
+Group=deploy
+# BACKUP_DEST, BACKUP_AGE_RECIPIENT and the R2 token (deploy/backup.env.example), mode 0600.
+EnvironmentFile=/opt/ai-trainer/backup.env
+ExecStart=/opt/ai-trainer/deploy/backup.sh nightly
+NoNewPrivileges=yes
+PrivateTmp=yes
+UMask=0077

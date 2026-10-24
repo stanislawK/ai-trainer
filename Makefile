@@ -1,6 +1,6 @@
 .PHONY: install css test test-unit test-integration coverage lint format format-check \
 	typecheck import-lint squawk openapi openapi-check check up up-build start stop down logs ps \
-	health smoke-setup smoke-up smoke-down cloud-init-check migrate purge-conversations llm-report latency-scenario evals e2e-install e2e
+	health smoke-setup smoke-up smoke-down cloud-init-check backup-check migrate purge-conversations llm-report latency-scenario evals e2e-install e2e
 
 install: ## Install dependencies (uv sync)
 	uv sync
@@ -91,6 +91,10 @@ smoke-down: ## Stop the smoke stack (keeps its volumes; add `-v` by hand to drop
 cloud-init-check: ## Validate deploy/cloud-init.yaml with Debian 13's own cloud-init (ADR-0023, #222)
 	docker run --rm -e DEBIAN_FRONTEND=noninteractive -v "$(CURDIR)/deploy:/src/deploy:ro" -w /src debian:trixie sh -c \
 		'apt-get update -qq >/dev/null && apt-get install -y -qq --no-install-recommends cloud-init >/dev/null && cloud-init schema --config-file deploy/cloud-init.yaml'
+
+backup-check: ## Round-trip deploy/backup.sh against the local stack with a throwaway key, in Debian 13 with the host's age and rclone (#223; needs `make start`)
+	docker run --rm -e DEBIAN_FRONTEND=noninteractive -v /var/run/docker.sock:/var/run/docker.sock -v "$(CURDIR)/deploy:/src/deploy:ro" -w /src debian:trixie sh -c \
+		'apt-get update -qq >/dev/null && apt-get install -y -qq --no-install-recommends age rclone docker-cli >/dev/null && deploy/backup-check.sh'
 
 migrate: ## Apply database migrations (Alembic)
 	uv run alembic upgrade head
