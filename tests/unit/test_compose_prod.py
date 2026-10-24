@@ -119,8 +119,11 @@ def test_caddyfile_requires_the_aop_client_certificate_and_sets_hsts() -> None:
     caddyfile = (ROOT / "deploy" / "Caddyfile").read_text()
     assert "tls /etc/caddy/certs/origin.pem /etc/caddy/certs/origin-key.pem" in caddyfile
     assert "trust_pool file /etc/caddy/certs/aop-ca.pem" in caddyfile
-    # require_and_verify is the default once a trust pool is set; nothing may weaken it.
-    assert not any(line.strip().startswith("mode") for line in caddyfile.splitlines())
+    # The only mode line. A second one, or a weaker mode, must not slip in beside it.
+    mode_lines = [
+        line.strip() for line in caddyfile.splitlines() if line.strip().startswith("mode ")
+    ]
+    assert mode_lines == ["mode require_and_verify"]
     assert 'Strict-Transport-Security "max-age=31536000"' in caddyfile
     assert "reverse_proxy app:8000" in caddyfile
     # Only 443/tcp is published, so HTTP/3 must not be advertised.

@@ -2,7 +2,7 @@
 
 Source: ADR-0023 (*Host*, *Ingress and TLS*, ⚠ *Verify at provisioning*), ADR-0024 invariant 5, PRD 0005 G12. Ticket #222.
 
-Agents never reach the host: the `guard_release.py` hook denies `ssh` and `scp`, and ADR-0024 invariant 5 forbids it. The owner runs every step here from their laptop. The only file the server needs from this repo up front is [`cloud-init.yaml`](cloud-init.yaml), which `make cloud-init-check` validates.
+Agents never reach the host: the `guard_release.py` hook denies `ssh`, `scp` and `deploy/install.sh`, and ADR-0024 invariant 5 forbids it. The owner runs every step here from their laptop. The only file the server needs from this repo up front is [`cloud-init.yaml`](cloud-init.yaml), which `make cloud-init-check` validates. Host files after that — `compose.prod.yaml`, the Caddyfile, `deploy.sh`, `backup.sh` and the six systemd units — go over with [`install.sh`](install.sh).
 
 Placeholders used below: `<domain>` is the host of `PUBLIC_BASE_URL` (e.g. `trainer.example.com`), `<ip>` the server's public IPv4, `<my-ip>` your own public address (`curl -4 https://ifconfig.me`).
 
@@ -18,6 +18,8 @@ Tools on the laptop: `hcloud` ([Hetzner CLI](https://github.com/hetznercloud/cli
 ## 2. SSH key
 
 Upload your public key once: `hcloud ssh-key create --name owner --public-key-from-file ~/.ssh/id_ed25519.pub`. Hetzner hands it to cloud-init as instance metadata, and `cloud-init.yaml` installs it for `deploy` (the default user there). Root gets no usable key.
+
+A hardware-backed key (`sk-ed25519@openssh.com`, or a Secure Enclave key) means a copied laptop disk is not a reusable login. Confirm the console accepts that public-key type when you add it. `deploy` is in the `docker` group, so this key is root on the host.
 
 ## 3. Cloud Firewall
 
@@ -46,7 +48,7 @@ hcloud server create --name ai-trainer --type cx23 --image debian-13 --location 
   --user-data-from-file deploy/cloud-init.yaml
 ```
 
-- `--enable-backup` turns Hetzner's own backups on (+20% of the server price). They are the second layer; the offsite age-encrypted dump is [section 8](#8-backups-to-r2) (ADR-0023 *Backups*).
+- `--enable-backup` turns Hetzner's own backups on (+20% of the server price). A restore is the whole disk: `.env`, `db.env`, `backup.env`, `github-token`, `origin-key.pem` and the database. It is not a second age backup. The age private key and `aop-ca-key.pem` are not on the server. The offsite age-encrypted dump is [section 8](#8-backups-to-r2) (ADR-0023 *Backups*). The Hetzner account has 2FA ([github-hardening.md](github-hardening.md)).
 - cloud-init upgrades the packages, installs Docker and unattended-upgrades, then reboots once. Allow about five minutes.
 - If `debian-13` isn't found, `hcloud image list --type system` names the current Debian 13 image.
 - Keep the IPv4 out of this repo: it's public, and the origin address is better left unpublished even behind the firewall.
@@ -81,7 +83,9 @@ All in the Cloudflare dashboard for the zone.
 
    - *SSL/TLS → Origin Server → Authenticated Origin Pulls → Zone-level → Upload certificate*: paste `aop-client.pem` and `aop-client-key.pem` (the leaf, not the CA; Cloudflare rejects a CA).
    - Switch **Zone-level** to **On**. Nothing serves on the origin yet; from its first start Caddy requires this client certificate (`deploy/Caddyfile`).
-   - Keep `aop-ca-key.pem` offline, like the age key. Only `aop-ca.pem` goes to the server.
+   - Delete `aop-client-key.pem`, `aop-client.pem` and `aop-client.csr` from the laptop once the upload has succeeded. Cloudflare keeps the leaf. A copy of that key, uploaded to any other Cloudflare zone and proxied at this origin, passes both checks: the firewall allows every Cloudflare address, and Caddy trusts the CA rather than this zone. The leaf stays valid for 825 days.
+   - Keep `aop-ca-key.pem` offline, like the age key. Only `aop-ca.pem` goes to the server. The CA key can mint a new leaf, including after this one expires, and that leaf takes the same path. `openssl -nodes` writes the key in the clear; keep it in a password manager, or wrap the file with `age -p`, and unwrap it only to mint a leaf.
+   - Renewing before the leaf expires: run the two `openssl` commands that make the leaf again (the CA files stay), upload the new pair, and delete the new leaf key. That does not revoke a leaf that has already been copied. Replacing `aop-ca.pem` on the server, and uploading a leaf from the new CA, does.
    - Optional: *Notifications* → "Zone-level Authenticated Origin Pulls Certificate Expiration Alert".
 
 ## 6. Server files
@@ -150,7 +154,7 @@ brew install age
 age-keygen -o ai-trainer-backup.key      # prints "Public key: age1…"
 ```
 
-- Keep `ai-trainer-backup.key` offline, like `aop-ca-key.pem`: a password manager entry and one offline copy. Without it no backup can be restored. The restore drill ([section 8.6](#86-restore-drill-laptop)) is the only thing that reads it, on your laptop.
+- `age-keygen` writes a plaintext file. Keep `ai-trainer-backup.key` in a password manager and one offline copy, and decrypt it only for the restore drill. `age -p` encrypts a payload to a passphrase; it does not lock this identity file. To put a passphrase on the file itself, wrap it (`age -p -o ai-trainer-backup.key.age ai-trainer-backup.key`, then delete the plaintext). `age-plugin-yubikey` is the hardware version of the same idea. Without the key, no backup can be restored. The drill ([section 8.6](#86-restore-drill-laptop)) is the only thing that reads it, on your laptop.
 - The public key (`age1…`) goes to the server as `BACKUP_AGE_RECIPIENT`. It isn't secret.
 
 ### 8.2 Bucket, locks and lifecycle (laptop)
@@ -184,29 +188,24 @@ Copy the **Access Key ID**, the **Secret Access Key** (shown once) and the S3 en
 
 ### 8.4 Install on the server
 
-From your laptop, in this repo:
+From your laptop, in this repo, copy the host files. This also installs the purge and deploy units; their timers are enabled in [section 9](#9-conversation-purge) and [section 10](#10-deploy-poller), after their own settings exist. Run it again whenever `compose.prod.yaml`, the Caddyfile, `deploy.sh`, `backup.sh` or a unit file changes, and do that before the release that needs the new files. The script waits for the deploy poller's lock, so it does not replace files during a deploy. If Caddy is already running, the script recreates it and passes `APP_IMAGE` from `/opt/ai-trainer/app-image`: Compose requires that variable for the whole file, not only for the app service. The Caddyfile is mounted as one file, so replacing it does not change what the running container has open. A failed run removes its staging directory under `/tmp`; run the script again to finish a copy that stopped halfway.
 
 ```sh
-scp deploy/backup.sh deploy/systemd/ai-trainer-backup.service deploy/systemd/ai-trainer-backup.timer deploy@<ip>:/tmp/
+deploy/install.sh <ip>
 ```
 
 Then `ssh deploy@<ip>` and on the server:
 
 ```sh
 sudo apt-get install -y age rclone       # only on a host provisioned before #223; cloud-init installs them now
-install -d -m 0750 /opt/ai-trainer/deploy
-install -m 0755 /tmp/backup.sh /opt/ai-trainer/deploy/backup.sh
-sudo install -o root -g root -m 0644 /tmp/ai-trainer-backup.service /tmp/ai-trainer-backup.timer /etc/systemd/system/
-rm /tmp/backup.sh /tmp/ai-trainer-backup.*
 umask 077
 $EDITOR /opt/ai-trainer/backup.env       # from deploy/backup.env.example: ACCOUNT_ID in the endpoint, the token, your age1… key
 chmod 0600 /opt/ai-trainer/backup.env
-sudo systemctl daemon-reload
 sudo systemctl enable --now ai-trainer-backup.timer
 ```
 
 - Write `backup.env` values unquoted, one `KEY=value` per line: systemd's `EnvironmentFile=` and the shell checks below both read it.
-- `backup.sh` dumps from the `ai-trainer-prod-db-1` container. Until the first deploy starts the stack, start Postgres alone for the checks below. Compose reads `/opt/ai-trainer/.env` and `db.env` even then, so [section 6](#6-server-files) comes first. Copy `compose.prod.yaml` to `/opt/ai-trainer/`, then `cd /opt/ai-trainer && APP_IMAGE=unused SITE_HOST=unused docker compose -f compose.prod.yaml up -d db`. That database is empty, and an empty dump is still a valid backup.
+- `backup.sh` dumps from the `ai-trainer-prod-db-1` container. Until the first deploy starts the stack, start Postgres alone for the checks below. Compose reads `/opt/ai-trainer/.env` and `db.env` even then, so [section 6](#6-server-files) comes first. `install.sh` has already copied `compose.prod.yaml`. Then `cd /opt/ai-trainer && APP_IMAGE=unused SITE_HOST=unused docker compose -f compose.prod.yaml up -d db`. That database is empty, and an empty dump is still a valid backup.
 
 ### 8.5 Checks (ticket #223 acceptance)
 
@@ -229,7 +228,7 @@ Source: ADR-0023 *Backups*, PRD 0005 G13. Ticket #224.
 
 A backup counts only once it has been restored. [`restore-drill.sh`](restore-drill.sh) fetches the latest backup, the newest stamp in `daily/`, `weekly/` or `predeploy/`, and decrypts it with your offline key on this laptop. It restores it into a throwaway Postgres container: the production image by digest, with no network and its data in memory. Then it compares every table's row count with the backup's `.counts.age`. It exits 0 only when every count matches, and it removes the container on every exit. The decrypted dump never touches the disk.
 
-**When:** at go-live, the morning after the first nightly backup. Then on the first of each month (set a calendar reminder), and after any change to `backup.sh` or to the `db` image in `compose.prod.yaml`.
+**When:** at go-live, the morning after the first nightly backup. Then on the first of each month (set a calendar reminder), and after any change to `backup.sh` or to the `db` image in `compose.prod.yaml`. In the same sitting: rebuild the Cloudflare firewall rules ([section 3](#3-cloud-firewall)), confirm the AOP leaf has not expired and renew it if it is close ([section 5](#5-cloudflare)), and re-run check 5 from [section 8.5](#85-checks-ticket-223-acceptance) so the bucket lock still refuses a delete.
 
 **Once:**
 
@@ -258,7 +257,8 @@ A backup counts only once it has been restored. [`restore-drill.sh`](restore-dri
 - To drill a specific backup, pass its path, e.g. `deploy/restore-drill.sh weekly/ai-trainer-20261025T023000Z.dump.age`. `rclone lsf -R "$BACKUP_DEST"` lists them.
 - rclone prints `NOTICE: Config file … not found - using defaults` because the remote comes from the environment. That's expected.
 - **A failed drill** (`MISMATCH` rows, a failed restore or decrypt, exit 1): don't trust that backup. Drill the one before it by path, and open an issue with the output. The output shows table names and counts only, never data.
-- The local pre-deploy copies on the server (`/opt/ai-trainer/backups/predeploy/`) have no `.counts.age`. They are there for a quick restore on the host; the drill checks their R2 twins in `predeploy/`.
+- After a host or token incident, restore a backup you name from before the incident. The drill's default is the newest stamp, and a future-dated object encrypted to your public key would win that race. The bucket lock is what keeps the older object.
+- The local pre-deploy copies (`/opt/ai-trainer/backups/predeploy/`, newest three) are the same age ciphertext, with no `.counts.age` beside them. The private key is not on the host, so they are not a restore you can run there. They are for the case where the disk is up and R2 is down: `scp` the ciphertext to this laptop and decrypt it here. The drill uses the R2 object in `predeploy/`.
 
 ## 9. Conversation purge
 
@@ -268,18 +268,9 @@ Every day at 02:00 UTC (up to 15 minutes later, always before the 02:30 backup),
 
 ### 9.1 Install on the server
 
-From your laptop, in this repo:
+[`install.sh`](install.sh) in [section 8.4](#84-install-on-the-server) has already copied both unit files. On the server:
 
 ```sh
-scp deploy/systemd/ai-trainer-purge.service deploy/systemd/ai-trainer-purge.timer deploy@<ip>:/tmp/
-```
-
-Then `ssh deploy@<ip>` and on the server:
-
-```sh
-sudo install -o root -g root -m 0644 /tmp/ai-trainer-purge.service /tmp/ai-trainer-purge.timer /etc/systemd/system/
-rm /tmp/ai-trainer-purge.*
-sudo systemctl daemon-reload
 sudo systemctl enable --now ai-trainer-purge.timer
 ```
 
@@ -321,9 +312,11 @@ The first release has no previous digest. If its health check fails, the new app
 
 The health check comes from the server, through Cloudflare, with curl's user agent. Keep Bot Fight Mode and any WAF challenge off for `/health`, or every deploy rolls back.
 
-A failed release is fixed forward with a new tag. A broken database is restored from a backup; the restore drill ([section 8.6](#86-restore-drill-laptop)) proves the latest one restores.
+`/health` answers HTTP 200 when Postgres is down, with `"database":"unavailable"`. An external check, if you add one, has to require `"database":"ok"` in the body. A check that only looks at the status stays green while the database is down. Backup and purge failures stay in the journal; this check is the outage signal they don't send.
 
-The poller changes only the app image. When `compose.prod.yaml` or `deploy/Caddyfile` change, copy them to the server by hand, as in 10.2, before the release that needs them.
+A failed release is fixed forward with a new tag. A broken database is restored from a backup; the restore drill ([section 8.6](#86-restore-drill-laptop)) proves the latest one restores. After an incident, pass that drill a path from before the incident rather than taking the newest stamp.
+
+The poller changes only the app image. When `compose.prod.yaml`, `deploy/Caddyfile`, `deploy.sh`, `backup.sh` or a unit file changes, run [`install.sh`](install.sh) ([section 8.4](#84-install-on-the-server)) before the release that needs them. Approving first can start the new image against the old files. Do not copy those files out of the pulled image.
 
 ### 10.1 The GitHub token (laptop)
 
@@ -337,28 +330,14 @@ The REST docs list exactly these permissions for listing deployments, posting th
 
 ### 10.2 Install on the server
 
-From your laptop, in this repo:
-
-```sh
-scp compose.prod.yaml deploy/Caddyfile deploy/deploy.sh deploy/backup.sh \
-  deploy/systemd/ai-trainer-deploy.service deploy/systemd/ai-trainer-deploy.timer deploy@<ip>:/tmp/
-```
-
-Then `ssh deploy@<ip>` and on the server:
+[`install.sh`](install.sh) in [section 8.4](#84-install-on-the-server) has already copied `deploy.sh`, `compose.prod.yaml`, the Caddyfile and the deploy units. On the server:
 
 ```sh
 gh --version                             # 2.49 or later; cloud-init installs it from cli.github.com
-install -d -m 0750 /opt/ai-trainer/deploy
-install -m 0644 /tmp/compose.prod.yaml /opt/ai-trainer/compose.prod.yaml
-install -m 0644 /tmp/Caddyfile /opt/ai-trainer/deploy/Caddyfile
-install -m 0755 /tmp/deploy.sh /tmp/backup.sh /opt/ai-trainer/deploy/
-sudo install -o root -g root -m 0644 /tmp/ai-trainer-deploy.service /tmp/ai-trainer-deploy.timer /etc/systemd/system/
-rm /tmp/compose.prod.yaml /tmp/Caddyfile /tmp/deploy.sh /tmp/backup.sh /tmp/ai-trainer-deploy.*
 umask 077
 echo "SITE_HOST=<domain>" > /opt/ai-trainer/deploy.env
 sudo sh -c 'umask 077; cat > /opt/ai-trainer/github-token'   # paste the token, Enter, then Ctrl-D
 sudo ls -l /opt/ai-trainer/github-token  # -rw------- root root
-sudo systemctl daemon-reload
 sudo systemctl enable --now ai-trainer-deploy.timer
 ```
 
