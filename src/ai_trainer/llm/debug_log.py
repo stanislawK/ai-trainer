@@ -56,6 +56,15 @@ class LlmDebugLog:
         task.add_done_callback(self._writes.discard)
         await asyncio.shield(task)
 
+    async def drained(self) -> None:
+        """Returns once every pending write has finished, those of cancelled requests included.
+
+        For readers of the file such as tests; a gateway call never waits on it. Cancelling the
+        wait leaves the writes running, unlike `gather`.
+        """
+        while self._writes:
+            await asyncio.wait(self._writes)
+
     async def _append(self, line: dict[str, Any]) -> None:
         try:
             await asyncio.to_thread(self._write, self.path, json.dumps(line, default=str))

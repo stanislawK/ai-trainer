@@ -1,5 +1,7 @@
 import asyncio
 import json
+import logging
+import threading
 from collections.abc import AsyncIterator
 from contextlib import aclosing
 from pathlib import Path
@@ -300,9 +302,8 @@ async def test_a_request_cut_off_by_the_call_timeout_still_writes_its_line(
     # slow CI runner cut off attempt 1 instead (#243). Attempt 2 waits out the whole second.
     settings = _settings(directory).model_copy(update={"llm_call_timeout_seconds": 1.0})
     repository = FakeLlmCallsRepository()
-    gateway = OpenRouterGateway(
-        settings, repository, debug_log=build_debug_log(settings, FixedClock())
-    )
+    debug_log = LlmDebugLog(directory, FixedClock())
+    gateway = OpenRouterGateway(settings, repository, debug_log=debug_log)
 
     with gateway.agent.override(model=FunctionModel(invalid_then_hang)):
         result = await gateway.run(
@@ -316,6 +317,8 @@ async def test_a_request_cut_off_by_the_call_timeout_still_writes_its_line(
         )
 
     assert result.outcome is LlmCallOutcome.TIMEOUT
+    # The cut-off request's line is written in a shielded task the call doesn't wait for.
+    await debug_log.drained()
     first, second = _lines(directory)
     assert (first["attempt"], first["error"]) == (1, None)
     assert (second["attempt"], second["error"]) == (2, "CancelledError")
@@ -331,11 +334,8 @@ async def test_a_stream_the_consumer_closes_early_still_writes_its_line(
         yield "never"
 
     directory = tmp_path / "llm-debug"
-    gateway = OpenRouterGateway(
-        _settings(directory),
-        FakeLlmCallsRepository(),
-        debug_log=build_debug_log(_settings(directory), FixedClock()),
-    )
+    debug_log = LlmDebugLog(directory, FixedClock())
+    gateway = OpenRouterGateway(_settings(directory), FakeLlmCallsRepository(), debug_log=debug_log)
 
     with gateway.agent.override(model=FunctionModel(stream_function=chunk_then_stall)):
         async with aclosing(
@@ -351,8 +351,115 @@ async def test_a_stream_the_consumer_closes_early_still_writes_its_line(
             async for _ in stream:
                 break
 
+    await debug_log.drained()
     [line] = _lines(directory)
     assert line["error"] == "CancelledError"
     assert line["ttft_ms"] is not None
     # What the athlete already saw before the stream was cut.
     assert line["partial_reply"] == "Nice "
+
+
+class _HeldCutOffLine(LlmDebugLog):
+    """Holds a cut-off request's line until the test releases it, as a slow disk would."""
+
+    def __init__(self, directory: Path) -> None:
+        super().__init__(directory, FixedClock())
+        self.release = threading.Event()
+
+    def _write(self, path: Path, text: str) -> None:
+        if '"CancelledError"' in text:
+            self.release.wait(timeout=5)
+        super()._write(path, text)
+
+
+async def _cut_off_append(debug_log: LlmDebugLog) -> None:
+    """Starts a cut-off request's write and cancels the request, leaving the write pending."""
+    request = asyncio.create_task(debug_log.append({"call": "c", "error": "CancelledError"}))
+    await asyncio.sleep(0)  # let the write start
+    request.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await request
+
+
+async def test_a_cut_off_line_can_land_after_the_call_returns_and_drained_waits_for_it(
+    tmp_path: Path,
+) -> None:
+    async def invalid_then_hang(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        if len(messages) == 1:
+            return ModelResponse(parts=[TextPart('{"not_text": "oops"}')])
+        await asyncio.Event().wait()
+        return ModelResponse(parts=[TextPart('{"text": "too late"}')])
+
+    directory = tmp_path / "llm-debug"
+    settings = _settings(directory).model_copy(update={"llm_call_timeout_seconds": 1.0})
+    debug_log = _HeldCutOffLine(directory)
+    gateway = OpenRouterGateway(settings, FakeLlmCallsRepository(), debug_log=debug_log)
+
+    with gateway.agent.override(model=FunctionModel(invalid_then_hang)):
+        result = await gateway.run(
+            user_id=uuid4(),
+            template_id="climbing.extract",
+            template_version=3,
+            model_id="z-ai/glm-5.3-flash",
+            output_type=Greeting,
+            instructions="Extract the session.",
+            prompt="sent 6b",
+        )
+
+    # The call returned without waiting on the held write.
+    assert result.outcome is LlmCallOutcome.TIMEOUT
+    assert [line["attempt"] for line in _lines(directory)] == [1]
+
+    debug_log.release.set()
+    await debug_log.drained()
+
+    first, second = _lines(directory)
+    assert (first["attempt"], first["error"]) == (1, None)
+    assert (second["attempt"], second["error"]) == (2, "CancelledError")
+
+
+async def test_drained_returns_at_once_with_nothing_pending(tmp_path: Path) -> None:
+    debug_log = LlmDebugLog(tmp_path, FixedClock())
+
+    async with asyncio.timeout(0):
+        await debug_log.drained()
+
+
+async def test_a_pending_write_to_an_unwritable_folder_warns_and_drains_without_raising(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # `lint_imports` in test_import_boundaries.py configures logging with existing loggers
+    # disabled, which would silence this one for the rest of the session.
+    monkeypatch.setattr(logging.getLogger("ai_trainer.llm.debug_log"), "disabled", False)
+    blocker = tmp_path / "a-file"
+    blocker.write_text("")
+    debug_log = _HeldCutOffLine(blocker / "llm-debug")
+
+    with caplog.at_level(logging.WARNING, logger="ai_trainer.llm.debug_log"):
+        await _cut_off_append(debug_log)
+        drained = asyncio.create_task(debug_log.drained())
+        await asyncio.sleep(0.05)
+        assert not drained.done()
+        assert "LLM debug log not written" not in caplog.text
+
+        debug_log.release.set()
+        await drained
+
+    assert "LLM debug log not written" in caplog.text
+
+
+async def test_cancelling_drained_leaves_the_pending_write_to_finish(tmp_path: Path) -> None:
+    debug_log = _HeldCutOffLine(tmp_path)
+
+    await _cut_off_append(debug_log)
+    drained = asyncio.create_task(debug_log.drained())
+    await asyncio.sleep(0.05)
+    drained.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await drained
+
+    debug_log.release.set()
+    await debug_log.drained()
+
+    [line] = _lines(tmp_path)
+    assert line["error"] == "CancelledError"
