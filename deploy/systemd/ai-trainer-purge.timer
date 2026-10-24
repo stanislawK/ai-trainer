@@ -1,0 +1,14 @@
+# Runs ai-trainer-purge.service every day (ticket #226), before the 02:30 backup so that night's
+# dump already leaves out the expired conversations. Persistent: a day missed while the host was
+# down runs at the next boot.
+[Unit]
+Description=ai-trainer daily purge of expired conversations
+
+[Timer]
+OnCalendar=*-*-* 02:00:00 UTC
+RandomizedDelaySec=15m
+Persistent=true
+Unit=ai-trainer-purge.service
+
+[Install]
+WantedBy=timers.target

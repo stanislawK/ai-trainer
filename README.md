@@ -202,6 +202,8 @@ The owner provisions the Hetzner host by following [deploy/RUNBOOK.md](deploy/RU
 
 The host backs up the database every night: [deploy/backup.sh](deploy/backup.sh) streams `pg_dump` through age, encrypted to the owner's offline key, into a Cloudflare R2 bucket whose lock keeps each copy for its retention window (RUNBOOK section 8). `make backup-check` runs the same script against your local database.
 
+Every day at 02:00 UTC, before the backup, a systemd timer runs `ai-trainer purge-conversations` in the app container. It deletes conversations past `CONVERSATION_RETENTION_DAYS` and logs only the count (ADR-0021, RUNBOOK section 9).
+
 ## Releasing
 
 Only the owner releases (ADR-0023). Agents cannot tag: `.claude/hooks/guard_release.py` blocks it. A `v*` tag runs [`.github/workflows/release.yml`](.github/workflows/release.yml). Its `build` job pushes `ghcr.io/stanislawk/ai-trainer:<tag>`, fails the run if the image holds an env file or a private key, then attests the image's provenance. The image digest is the job's `digest` output and appears in the run log.

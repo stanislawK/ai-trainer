@@ -1,0 +1,21 @@
+# The daily conversation purge (ADR-0021 "Retention", ADR-0023, ticket #226): deletes conversations
+# past CONVERSATION_RETENTION_DAYS. The CLI prints only the count, so the journal holds no content.
+# Started by ai-trainer-purge.timer; deploy/RUNBOOK.md installs both.
+[Unit]
+Description=ai-trainer daily purge of expired conversations
+Wants=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+User=deploy
+Group=deploy
+# Runs in the app container, which has the .env and the backend network. `docker exec` fails when
+# the container is stopped or missing, so the unit fails and shows in `systemctl --failed`.
+ExecStart=/usr/bin/docker exec ai-trainer-prod-app-1 ai-trainer purge-conversations
+# A oneshot has no start timeout by default; a stuck run would never show as failed.
+TimeoutStartSec=15min
+SyslogIdentifier=ai-trainer-purge
+NoNewPrivileges=yes
+PrivateTmp=yes
+UMask=0077
