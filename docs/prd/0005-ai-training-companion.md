@@ -4,7 +4,7 @@
 |---|---|
 | Product | ai-trainer |
 | Version | 0.6 |
-| Status | Approved |
+| Status | Superseded by [PRD 0007](0007-ai-training-companion.md) (through PRD 0006, never approved on its own) |
 | Date | 2026-10-19 |
 | Related | ADR-0001 … ADR-0026 ([index](../adr/README.md)); supersedes [PRD 0004](0004-ai-training-companion.md) v0.5 — adds a response-time bound for logging (G14), measured against the ADR-0025 baseline and delivered by ADR-0026 |
 
