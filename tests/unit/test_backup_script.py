@@ -19,18 +19,55 @@ MARKER = "PLAINTEXT-DUMP-MARKER"
 SECRET = "r2-secret-access-key-do-not-log"
 KEY_ID = "r2-access-key-id-do-not-log"
 
-# The dump: the marker repeated, so a plaintext copy anywhere on disk is easy to find. With
-# FAKE_PG_DUMP_FAIL it stops halfway and fails, as a dropped connection would.
+SNAPSHOT = "00000003-0000001B-1"
+COUNTS = "alembic_version 1\nconversations 3\nmessages 12\n"
+# Exact rows per table, one `name count` line each, in one statement so a REPEATABLE READ
+# transaction reads them all from one snapshot. The restore drill runs the same query (#224).
+COUNT_SQL = (
+    "SELECT format('%s %s', c.relname, (xpath('/row/n/text()', query_to_xml("
+    "format('SELECT count(*) AS n FROM public.%I', c.relname), false, true, '')))[1]) "
+    "FROM pg_class c JOIN pg_namespace s ON s.oid = c.relnamespace "
+    "WHERE s.nspname = 'public' AND c.relkind IN ('r', 'p') ORDER BY c.relname;"
+)
+
+# Two commands. `psql` is the session holding the snapshot: it answers line by line, and its
+# transaction is open (a `txn-open` file) from BEGIN to COMMIT; with FAKE_PSQL_FAIL it fails
+# first, as a stopped database would. `pg_dump` is the dump: the marker repeated, so a
+# plaintext copy anywhere on disk is easy to find, and it records whether the snapshot's
+# transaction was open throughout. With FAKE_PG_DUMP_FAIL it stops halfway and fails, as a
+# dropped connection would.
 FAKE_DOCKER = f"""#!/usr/bin/env python3
 import os, sys
-with open(os.environ["FAKE_LOG"] + "/docker.args", "w") as f:
-    f.write(" ".join(sys.argv[1:]))
+from pathlib import Path
+log = Path(os.environ["FAKE_LOG"])
+tool = "psql" if "psql" in sys.argv else "pg_dump"
+(log / f"docker.{{tool}}.args").write_text(" ".join(sys.argv[1:]))
+txn = log / "txn-open"
+if tool == "psql":
+    if os.environ.get("FAKE_PSQL_FAIL"):
+        sys.stderr.write("psql: error: connection to server failed\\n")
+        sys.exit(2)
+    for line in sys.stdin:
+        (log / "psql.sql").open("a").write(line)
+        if line.startswith("BEGIN ISOLATION LEVEL REPEATABLE READ"):
+            txn.touch()
+        elif "pg_export_snapshot()" in line:
+            print("{SNAPSHOT}", flush=True)
+        elif "query_to_xml" in line:
+            print(os.environ.get("FAKE_COUNTS", {COUNTS!r}), end="", flush=True)
+        elif line.startswith("SELECT '-- end'"):
+            print("-- end", flush=True)
+        elif line.startswith("COMMIT"):
+            txn.unlink()
+    sys.exit(0)
+open_at_start = txn.exists()
 chunk = ("{MARKER}\\n" * 1000).encode()
 for i in range(20):
     if i == 10 and os.environ.get("FAKE_PG_DUMP_FAIL"):
         sys.stderr.write("pg_dump: error: connection lost\\n")
         sys.exit(1)
     sys.stdout.buffer.write(chunk)
+(log / "snapshot-held").write_text(str(open_at_start and txn.exists()))
 """
 
 # Stands in for encryption: a header, then the input with every byte flipped, so the marker
@@ -46,8 +83,9 @@ while block := sys.stdin.buffer.read(65536):
 
 # The bucket. Like a multipart upload, the object appears only once stdin ends; killed before
 # that, nothing is stored. Early in the stream and again at its end it looks for the marker in
-# every file under the script's working directory and TMPDIR. With FAKE_RCLONE_FAIL it fails the
-# way a refused request does, echoing credentials, which the script must not pass on.
+# every file under the script's working directory and TMPDIR. With FAKE_RCLONE_FAIL (1, or an
+# object name's suffix) it fails the way a refused request does, echoing credentials, which the
+# script must not pass on.
 FAKE_RCLONE = """#!/usr/bin/env python3
 import os, sys
 from pathlib import Path
@@ -68,7 +106,8 @@ def scan():
     (log / "plaintext-on-disk").write_text("\\n".join(sorted(seen)))
 data = sys.stdin.buffer.read(4096)
 scan()
-if os.environ.get("FAKE_RCLONE_FAIL"):
+fail = os.environ.get("FAKE_RCLONE_FAIL")
+if fail and (fail == "1" or sys.argv[2].endswith(fail)):
     key = os.environ.get("RCLONE_CONFIG_R2_ACCESS_KEY_ID", "")
     secret = os.environ.get("RCLONE_CONFIG_R2_SECRET_ACCESS_KEY", "")
     sys.stderr.write(f"ERROR : Failed to rcat: AccessDenied: key {key} secret {secret}\\n")
@@ -138,12 +177,30 @@ def _objects(env: dict[str, str]) -> list[str]:
     return sorted(str(p.relative_to(bucket)) for p in bucket.rglob("*") if p.is_file())
 
 
+def _backup(prefix: str, stamp: str) -> list[str]:
+    """One backup's objects: the counts manifest and the dump."""
+    base = f"r2/ai-trainer-backups/{prefix}/ai-trainer-{stamp}"
+    return [f"{base}.counts.age", f"{base}.dump.age"]
+
+
+def _stored(env: dict[str, str], path: str) -> bytes:
+    return (Path(env["FAKE_BUCKET"]) / "r2/ai-trainer-backups" / path).read_bytes()
+
+
+def _decrypted(env: dict[str, str], path: str) -> str:
+    """Undoes the fake age: drops its header and flips every byte back."""
+    stored = _stored(env, path)
+    header = b"age-encryption.org/v1\n"
+    assert stored.startswith(header)
+    return stored[len(header) :].translate(bytes(range(255, -1, -1))).decode()
+
+
 def test_nightly_uploads_an_age_file_under_daily(env: dict[str, str]) -> None:
     result = _run(env, "nightly")
 
     assert result.returncode == 0, result.stderr
-    assert _objects(env) == ["r2/ai-trainer-backups/daily/ai-trainer-20261023T023000Z.dump.age"]
-    stored = (Path(env["FAKE_BUCKET"]) / "r2" / _objects(env)[0].split("/", 1)[1]).read_bytes()
+    assert _objects(env) == _backup("daily", "20261023T023000Z")
+    stored = _stored(env, "daily/ai-trainer-20261023T023000Z.dump.age")
     assert stored.startswith(b"age-encryption.org/v1\n")
     assert MARKER.encode() not in stored
     assert "daily/ai-trainer-20261023T023000Z.dump.age" in result.stdout
@@ -152,10 +209,72 @@ def test_nightly_uploads_an_age_file_under_daily(env: dict[str, str]) -> None:
 def test_dumps_the_production_database_in_custom_format(env: dict[str, str]) -> None:
     assert _run(env, "nightly").returncode == 0
 
-    args = (Path(env["FAKE_LOG"]) / "docker.args").read_text()
+    args = (Path(env["FAKE_LOG"]) / "docker.pg_dump.args").read_text()
     assert args == (
-        "exec ai-trainer-prod-db-1 pg_dump --format=custom --username=ai_trainer ai_trainer"
+        "exec ai-trainer-prod-db-1 pg_dump --format=custom --username=ai_trainer"
+        f" --snapshot={SNAPSHOT} ai_trainer"
     )
+
+
+def test_uploads_the_row_counts_encrypted_beside_the_dump(env: dict[str, str]) -> None:
+    """The restore drill (#224) compares a restored backup against these counts."""
+    result = _run(env, "nightly")
+
+    assert result.returncode == 0, result.stderr
+    assert _decrypted(env, "daily/ai-trainer-20261023T023000Z.counts.age") == COUNTS
+    assert "daily/ai-trainer-20261023T023000Z.counts.age" in result.stdout
+
+
+def test_counts_and_dump_read_the_same_snapshot(env: dict[str, str]) -> None:
+    """Writes during the dump would otherwise make the drill report false mismatches."""
+    assert _run(env, "nightly").returncode == 0
+
+    log = Path(env["FAKE_LOG"])
+    sql = (log / "psql.sql").read_text().splitlines()
+    assert sql[0] == "BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;"
+    assert sql[1] == "SELECT pg_export_snapshot();"
+    assert "query_to_xml" in sql[2]
+    assert sql[-1] == "COMMIT;"
+    assert f"--snapshot={SNAPSHOT}" in (log / "docker.pg_dump.args").read_text()
+    # The exporting transaction stayed open until pg_dump had finished.
+    assert (log / "snapshot-held").read_text() == "True"
+    assert not (log / "txn-open").exists()
+
+
+def test_counts_rows_with_the_query_the_drill_uses(env: dict[str, str]) -> None:
+    assert _run(env, "nightly").returncode == 0
+
+    count_sql = (Path(env["FAKE_LOG"]) / "psql.sql").read_text().splitlines()[2]
+    assert count_sql == COUNT_SQL
+
+
+def test_a_database_it_cannot_count_uploads_nothing(env: dict[str, str], tmp_path: Path) -> None:
+    env["FAKE_PSQL_FAIL"] = "1"
+
+    result = _run(env, "nightly")
+
+    assert result.returncode != 0
+    assert "connection to server failed" in result.stderr
+    assert "backup: could not count rows" in result.stderr
+    assert _objects(env) == []
+    assert not (Path(env["FAKE_LOG"]) / "docker.pg_dump.args").exists()
+    assert list((tmp_path / "tmp").iterdir()) == []
+
+
+def test_a_failed_counts_upload_exits_non_zero_without_credentials(env: dict[str, str]) -> None:
+    """The dump is already stored and locked; the failed unit makes the missing counts
+    visible, and the drill refuses a backup without them."""
+    env["FAKE_RCLONE_FAIL"] = ".counts.age"
+
+    result = _run(env, "nightly")
+
+    assert result.returncode != 0
+    assert "backup: upload failed: r2:ai-trainer-backups/daily/" in result.stderr
+    assert ".counts.age" in result.stderr
+    output = result.stdout + result.stderr
+    assert SECRET not in output
+    assert KEY_ID not in output
+    assert _objects(env) == ["r2/ai-trainer-backups/daily/ai-trainer-20261023T023000Z.dump.age"]
 
 
 def test_the_db_container_can_be_the_local_stacks(env: dict[str, str]) -> None:
@@ -163,11 +282,9 @@ def test_the_db_container_can_be_the_local_stacks(env: dict[str, str]) -> None:
 
     assert _run(env, "nightly").returncode == 0
 
-    assert (
-        (Path(env["FAKE_LOG"]) / "docker.args")
-        .read_text()
-        .startswith("exec ai-trainer-db-1 pg_dump ")
-    )
+    log = Path(env["FAKE_LOG"])
+    assert (log / "docker.pg_dump.args").read_text().startswith("exec ai-trainer-db-1 pg_dump ")
+    assert (log / "docker.psql.args").read_text().startswith("exec -i ai-trainer-db-1 psql ")
 
 
 def test_encrypts_to_the_owners_recipient_only(env: dict[str, str]) -> None:
@@ -181,7 +298,7 @@ def test_sundays_nightly_goes_under_weekly(env: dict[str, str]) -> None:
 
     assert _run(env, "nightly").returncode == 0
 
-    assert _objects(env) == ["r2/ai-trainer-backups/weekly/ai-trainer-20261025T023000Z.dump.age"]
+    assert _objects(env) == _backup("weekly", "20261025T023000Z")
 
 
 def test_predeploy_goes_under_predeploy_on_any_day(env: dict[str, str]) -> None:
@@ -189,7 +306,7 @@ def test_predeploy_goes_under_predeploy_on_any_day(env: dict[str, str]) -> None:
 
     assert _run(env, "predeploy").returncode == 0
 
-    assert _objects(env) == ["r2/ai-trainer-backups/predeploy/ai-trainer-20261025T101500Z.dump.age"]
+    assert _objects(env) == _backup("predeploy", "20261025T101500Z")
 
 
 def test_writes_no_plaintext_dump_to_disk(env: dict[str, str], tmp_path: Path) -> None:
