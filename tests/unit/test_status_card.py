@@ -1,7 +1,7 @@
 """The status/error card's action buttons (`components/status_card.html`, #58): a secondary
-action on its own is `btn-outline` so it doesn't read as a bare link; beside a primary
-button it stays `btn-ghost`, per the Status and errors mock. The status screens pair a plain
-"Sign in again" link (#88) with "Sign out"."""
+action on its own is `lg-clear` so it doesn't read as a bare link; beside a primary
+button it is `lg-ghost`, per the Status and errors mock in Liquid Glass v4 (#268). The
+status screens pair a plain "Sign in again" link (#88) with "Sign out"."""
 
 import re
 
@@ -15,7 +15,7 @@ def _render(template: str, **context: object) -> str:
 
 
 def _buttons(html: str) -> list[str]:
-    return re.findall(r'<(?:a|button)[^>]*class="btn [^"]*"[^>]*>[^<]*', html)
+    return re.findall(r'<(?:a|button)[^>]*class="lg [^"]*"[^>]*>[^<]*', html)
 
 
 @pytest.mark.parametrize("status", ["pending", "disabled"])
@@ -24,23 +24,23 @@ def test_status_page_offers_sign_in_again_above_a_ghost_sign_out(status: str) ->
 
     sign_in_again, sign_out = _buttons(html)
     assert "Sign in again" in sign_in_again
-    assert "btn-primary" in sign_in_again
+    assert "lg-tinted" in sign_in_again
     assert sign_in_again.startswith("<a ")
     assert 'href="/auth/login"' in sign_in_again
     assert "hx-" not in sign_in_again
     assert "Sign out" in sign_out
-    assert "btn-ghost" in sign_out
-    assert "btn-outline" not in sign_out
+    assert "lg-ghost" in sign_out
+    assert "lg-clear" not in sign_out
 
 
 def test_500_page_keeps_a_ghost_secondary_beside_its_primary() -> None:
     html = _render("partials/errors/500.html")
 
     primary, secondary = _buttons(html)
-    assert "btn-primary" in primary
+    assert "lg-tinted" in primary
     assert "Back to chat" in secondary
-    assert "btn-ghost" in secondary
-    assert "btn-outline" not in secondary
+    assert "lg-ghost" in secondary
+    assert "lg-clear" not in secondary
 
 
 @pytest.mark.parametrize("code", ["401", "403", "404"])
@@ -48,8 +48,8 @@ def test_single_action_error_pages_show_only_their_primary_button(code: str) -> 
     html = _render(f"partials/errors/{code}.html")
 
     [primary] = _buttons(html)
-    assert "btn-primary" in primary
-    assert "btn-outline" not in html
+    assert "lg-tinted" in primary
+    assert "lg-clear" not in html
 
 
 def test_500_page_icon_keeps_the_triangle_alert_dot() -> None:

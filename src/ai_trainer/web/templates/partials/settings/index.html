@@ -5,34 +5,34 @@
   </h1>
   <section class="flex flex-col gap-2" aria-label="Appearance">
     <h2 class="text-[13px] font-medium text-base-content/70 px-1">Appearance</h2>
-    <div class="glass-regular glass-rim relative rounded-box p-4 flex items-center justify-between gap-3">
+    <div class="mat-content rounded-box p-4 flex items-center justify-between gap-3">
       <span class="text-[16px]">Theme</span>
-      <div class="tabs tabs-box glass-regular rounded-full p-1 gap-0.5" role="group" aria-label="Theme">
+      <div class="lgs relative inline-flex w-fit gap-0.5 rounded-full p-1" role="group" aria-label="Theme">
         <button
           type="button"
-          class="tab tab-active h-9 rounded-full px-3 gap-1.5 text-[14px] [--tab-bg:light-dark(var(--color-base-100),color-mix(in_oklch,var(--color-base-content)_18%,transparent))] shadow-sm"
+          class="relative lg lg-clear lg-seg-on"
           data-theme-option="trainer-dark"
           aria-pressed="true"
-        >{{ icon("moon", "size-4") }}Dark</button>
+        ><span class="absolute inset-x-0 -inset-y-0.5" aria-hidden="true"></span>{{ icon("moon", "size-4") }}Dark</button>
         <button
           type="button"
-          class="tab text-base-content/70 h-9 rounded-full px-3 gap-1.5 text-[14px] [--tab-bg:light-dark(var(--color-base-100),color-mix(in_oklch,var(--color-base-content)_18%,transparent))]"
+          class="relative lg-seg-item"
           data-theme-option="trainer-light"
           aria-pressed="false"
-        >{{ icon("sun", "size-4") }}Light</button>
+        ><span class="absolute inset-x-0 -inset-y-0.5" aria-hidden="true"></span>{{ icon("sun", "size-4") }}Light</button>
       </div>
     </div>
   </section>
   <section class="flex flex-col gap-2" aria-label="Danger zone">
     <h2 class="text-[13px] font-medium text-error px-1">Danger zone</h2>
-    <div class="glass-regular relative rounded-box p-4 flex flex-col gap-3 border-error/40">
+    <div class="mat-content rounded-box p-4 flex flex-col gap-3">
       <p class="text-[15px] leading-[22px]">
         <span class="font-medium">Delete account.</span>
         <span class="text-base-content/80">Removes your sessions, plans and messages for good. There is no undo.</span>
       </p>
       <button
         type="button"
-        class="btn btn-outline btn-error self-start gap-1.5"
+        class="lg lg-danger self-start"
         data-delete-account-trigger
       >{{ icon("trash-2", "size-4") }}Delete account…</button>
     </div>
@@ -40,7 +40,7 @@
 </div>
 
 <dialog id="delete-account-dialog" class="modal modal-bottom lg:modal-middle" aria-label="Delete your account">
-  <div class="modal-box glass-thick glass-rim max-w-none lg:max-w-md p-6 pb-10 lg:pb-6 flex flex-col gap-4">
+  <div class="modal-box lgs lgs-thick relative max-w-none lg:max-w-md p-6 pb-10 lg:pb-6 flex flex-col gap-4">
     <span class="mx-auto h-1.5 w-10 rounded-full bg-base-content/20 lg:hidden" aria-hidden="true"></span>
     <span class="size-12 rounded-[22%] bg-error/20 text-error grid place-items-center">{{ icon("triangle-alert", "size-6") }}</span>
     <h2 class="text-[22px]/[28px] font-semibold tracking-tight">Delete your account?</h2>
@@ -51,7 +51,7 @@
       <legend class="fieldset-legend text-[13px]">Type DELETE to confirm</legend>
       <input
         type="text"
-        class="input w-full text-[16px] bg-base-100/50 border-base-content/20 tracking-widest"
+        class="lg-field tracking-widest"
         aria-label="Type DELETE to confirm"
         autocomplete="off"
         data-delete-account-input
@@ -59,13 +59,13 @@
     </fieldset>
     <button
       type="button"
-      class="btn btn-error w-full"
+      class="lg lg-danger w-full"
       hx-post="/settings/delete-account"
       disabled
       data-delete-account-confirm
     >Delete account</button>
     <form method="dialog">
-      <button class="btn btn-ghost w-full">Cancel</button>
+      <button class="lg lg-ghost w-full">Cancel</button>
     </form>
   </div>
   <form method="dialog" class="modal-backdrop">

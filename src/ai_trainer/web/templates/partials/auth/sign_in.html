@@ -6,7 +6,7 @@
   >
     <div class="flex flex-1 flex-col">
       <div class="flex items-center gap-2.5 lg:gap-3">
-        <span class="relative size-9 lg:size-10 rounded-[22%] glass-regular glass-rim grid place-items-center text-primary" aria-hidden="true">
+        <span class="lg lg-clear lg-mark [--m:36px] lg:[--m:40px] text-primary" aria-hidden="true">
           {{ icon("mountain", "size-5 lg:size-6") }}
         </span>
         <span class="text-[17px] lg:text-[19px] font-semibold tracking-tight">ai-trainer</span>
@@ -22,16 +22,16 @@
         </div>
 
         <div class="flex flex-1 flex-col justify-center gap-3 py-6 lg:hidden" aria-hidden="true">
-          <div class="relative glass-regular glass-rim rounded-[20px] rounded-bl-md p-3.5 flex flex-col gap-2 mr-8">
+          <div class="mat-content rounded-[20px] rounded-bl-md p-3.5 flex flex-col gap-2 mr-8">
             <div class="flex items-center gap-1.5 text-[11px] font-medium text-base-content/70">{{ icon("mountain", "size-3.5") }}Climbing · Tue</div>
             <p class="text-[15px]/[21px]">Hades 8a on the third try. Rest tomorrow, fingerboard Thursday?</p>
           </div>
-          <div class="self-end bg-primary/20 border border-primary/25 rounded-[20px] rounded-br-md px-3.5 py-2.5 text-[15px]/[21px] ml-12">Thursday works. Under 45 minutes.</div>
+          <div class="self-end mat-bubble rounded-[20px] rounded-br-md px-3.5 py-2.5 text-[15px]/[21px] ml-12">Thursday works. Under 45 minutes.</div>
         </div>
 
         <div class="flex flex-col gap-3 lg:gap-4 lg:w-[340px]">
           {% if sign_in_failed %}
-            <div role="alert" class="alert glass-regular border-0 text-[15px]">
+            <div role="alert" class="alert mat-content border-0 text-[15px]">
               {{ icon("circle-alert", "size-5 text-error") }}<span>Google sign-in didn’t finish. Try again.</span>
             </div>
           {% endif %}
@@ -39,7 +39,7 @@
             href="/auth/login"
             data-google-sign-in
             aria-busy="false"
-            class="btn h-14 lg:h-12 w-full rounded-full gap-3 text-[16px] font-medium shadow-sm transition-transform active:scale-[0.98] motion-reduce:transition-none bg-[#131314] text-[#e3e3e3] border-[#131314] hover:bg-[#2a2a2c] dark:bg-white dark:text-[#1f1f1f] dark:border-white dark:hover:bg-[#f2f2f2] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+            class="inline-flex items-center justify-center cursor-pointer select-none border h-14 lg:h-12 w-full rounded-full gap-3 text-[16px] font-medium shadow-sm transition-transform active:scale-[0.98] motion-reduce:transition-none bg-[#131314] text-[#e3e3e3] border-[#131314] hover:bg-[#2a2a2c] dark:bg-white dark:text-[#1f1f1f] dark:border-white dark:hover:bg-[#f2f2f2] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
           >
             <span data-idle class="inline-flex items-center gap-3">
               <img src="/static/brand/google-g.svg" alt="" class="size-5" width="20" height="20" />
@@ -59,12 +59,12 @@
     </div>
 
     <div id="sign-in-preview-desktop" class="relative hidden lg:flex flex-col justify-center gap-4 pl-6" aria-hidden="true">
-      <div class="relative glass-regular glass-rim rounded-[22px] rounded-bl-md p-4 max-w-[420px] flex flex-col gap-3">
+      <div class="mat-content rounded-[22px] rounded-bl-md p-4 max-w-[420px] flex flex-col gap-3">
         <div class="flex items-center gap-2 text-[12px] font-medium text-base-content/70">{{ icon("mountain", "size-3.5") }}Climbing · Tue 16 Sep</div>
         <p class="text-[16px]/[23px]">Hades 8a went in on the third try. That’s your hardest send this year. Rest tomorrow, then a short fingerboard block Thursday?</p>
       </div>
-      <div class="self-end bg-primary/20 border border-primary/25 rounded-[22px] rounded-br-md px-4 py-3 max-w-[320px] text-[16px]/[23px]">Thursday works. Keep it under 45 minutes.</div>
-      <div class="relative glass-regular glass-rim rounded-[22px] rounded-bl-md p-4 max-w-[420px] flex flex-col gap-3">
+      <div class="self-end mat-bubble rounded-[22px] rounded-br-md px-4 py-3 max-w-[320px] text-[16px]/[23px]">Thursday works. Keep it under 45 minutes.</div>
+      <div class="mat-content rounded-[22px] rounded-bl-md p-4 max-w-[420px] flex flex-col gap-3">
         <p class="text-[16px]/[23px]">Done. I moved Saturday’s ride to Sunday so your fingers get two full rest days before the next project session.</p>
         <div class="grid grid-cols-3 gap-2">
           <div class="rounded-2xl px-3 py-2 flex flex-col"><span class="text-[11px] text-base-content/70">Thu</span><span class="text-[14px] font-medium flex items-center gap-1.5">{{ icon("mountain", "size-3.5") }}45 min</span></div>
