@@ -332,6 +332,28 @@
   }
 }
 
+/* Quiet: tertiary or destructive (Discard). No material at rest; a faint error-tinted glass on hover. */
+@utility lg-quiet {
+  --lg-rim-a: transparent;
+  --lg-rim-b: transparent;
+  --lg-rim-side: transparent;
+  --lg-edge: transparent;
+  --lg-lit: color-mix(in oklch, var(--color-error) 18%, transparent);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  font-weight: 500;
+  padding: 0 14px;
+  color: color-mix(in oklch, var(--color-base-content) 70%, transparent);
+
+  &:hover {
+    --lg-tint: color-mix(in oklch, var(--color-error) 10%, transparent);
+    --lg-rim-a: color-mix(in oklch, var(--color-error) 40%, transparent);
+    --lg-rim-b: color-mix(in oklch, var(--color-error) 22%, transparent);
+    --lg-rim-side: color-mix(in oklch, var(--color-error) 10%, transparent);
+    color: var(--color-error);
+  }
+}
+
 /*
  * Geometry modifiers. Material comes from the variant. In `glass-v2.css` each wins by coming
  * after the variants; Tailwind v4 orders utilities by their number of declarations instead, so
@@ -355,6 +377,20 @@
 
   &.lg:active {
     transform: scale(1.03);
+  }
+
+  /* The draft card's date chip: a primary calendar, and an edit glyph that surfaces on hover. */
+  &.lg .chip-cal {
+    color: var(--color-primary);
+  }
+
+  &.lg .chip-edit {
+    opacity: .4;
+    transition: opacity .15s;
+  }
+
+  &.lg:hover .chip-edit {
+    opacity: .85;
   }
 
   /* A chip that toggles a hidden checkbox (the summary's days): checked is tinted, as
@@ -382,6 +418,15 @@
     height: 36px;
     padding: 0 14px;
     font-size: 14px;
+  }
+}
+
+@utility lg-xs {
+  &.lg {
+    height: 28px;
+    padding: 0 10px;
+    gap: 4px;
+    font-size: 13px;
   }
 }
 

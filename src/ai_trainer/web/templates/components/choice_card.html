@@ -1,4 +1,4 @@
-{#- The choice card (F9, ADR-0015, ticket #162), built from the Components Chat mock: a question in the assistant's voice, then large tappable rows (label and what tells the options apart), then a quiet "Let me type instead". Import with `{% from "components/choice_card.html" import choice_card %}`. A tap posts the option's ID, never its label, in one htmx POST and the card swaps for the answered row (and, for a sport, the draft); an option the question never offered is refused by the server. Once answered it collapses to the chosen option, and "Let me type instead" collapses it to a quiet row and hands the composer back. `copy_key` names the option's copy in `components/sport_copy.html`, or, for a reading question, in its sport's copy (`components/climbing_copy.html`, ticket #164; `components/gym_copy.html` and `components/cycling_copy.html`, ticket #206), whose `params` fill its label and hint; a label starts upper case. Single mode only; the multi-select rows wait for the first question that needs them. `choice_options` is the question and its rows alone, for a question asked inside another card: the draft card's same-session question (ticket #166), whose `copy_key` names its copy in `components/session_copy.html` and whose `params` fill it. -#}
+{#- The choice card (F9, ADR-0015, ticket #162), built from the Components Chat mock: a question in the assistant's voice, then large tappable rows (label and what tells the options apart), then a quiet "Let me type instead". Import with `{% from "components/choice_card.html" import choice_card %}`. A tap posts the option's ID, never its label, in one htmx POST and the card swaps for the answered row (and, for a sport, the draft); an option the question never offered is refused by the server. Once answered it collapses to the chosen option, and "Let me type instead" collapses it to a quiet row and hands the composer back. `copy_key` names the option's copy in `components/sport_copy.html`, or, for a reading question, in its sport's copy (`components/climbing_copy.html`, ticket #164; `components/gym_copy.html` and `components/cycling_copy.html`, ticket #206), whose `params` fill its label and hint; a label starts upper case. Single mode only; the multi-select rows wait for the first question that needs them. `choice_options` is the question and its rows alone, for a question asked inside another card: the draft card's same-session question (ticket #166), whose `copy_key` names its copy in `components/session_copy.html` and whose `params` fill it. In v4 (Components Chat v4, #265) the card and its answered row are the content material, the rows `lg-clear lg-row` controls, "Let me type instead" a ghost control, and the skipped row the dashed row with no material, 62 px tall as a discarded draft's. -#}
 {%- from "components/icon.html" import icon -%}
 {%- from "components/sport_copy.html" import sport_copy -%}
 {%- from "components/session_copy.html" import session_copy -%}
@@ -15,7 +15,7 @@
 {{- copy.get("hint", "").format(**option.params) -}}
 {%- endmacro %}
 {% macro choice_option(question, option, target, disable) -%}
-<button type="button" class="flex items-center gap-3 min-h-14 w-full rounded-2xl bg-base-content/10 px-4 py-2.5 text-left" hx-post="/clarifications/{{ question.id }}/answer" hx-vals='{{ {"option_ids": option.id} | tojson }}' hx-target="{{ target }}" hx-swap="outerHTML" hx-disable="{{ disable }}" hx-status:4xx="swap:none" data-choice-option="{{ option.id }}">
+<button type="button" class="lg lg-clear lg-row" hx-post="/clarifications/{{ question.id }}/answer" hx-vals='{{ {"option_ids": option.id} | tojson }}' hx-target="{{ target }}" hx-swap="outerHTML" hx-disable="{{ disable }}" hx-status:4xx="swap:none" data-choice-option="{{ option.id }}">
       <span class="flex flex-col flex-1 min-w-0"><span class="text-[16px] font-medium">{{ option_label(option) }}</span><span class="text-[13px] text-base-content/70">{{ option_hint(option) }}</span></span>
       {{ icon("chevron-right", "size-4 text-base-content/70") }}
     </button>
@@ -32,11 +32,11 @@
 {%- set question = card.clarification -%}
 {%- if question.status == "answered" %}
 {%- set chosen = card.chosen %}
-<div class="chat-message glass-regular relative rounded-box px-4 py-3 flex items-center gap-3" role="status" data-choice-card="{{ question.id }}">{{ icon("circle-check", "size-5 text-success") }}<div class="flex flex-col flex-1 min-w-0"><span class="text-[13px] text-base-content/70">{{ question.clarification.question }}</span><span class="text-[16px] font-medium">{{ option_label(chosen) if chosen else "" }}</span></div></div>
+<div class="chat-message mat-content rounded-box px-4 py-3 flex items-center gap-3" role="status" data-choice-card="{{ question.id }}">{{ icon("circle-check", "size-5 text-success") }}<div class="flex flex-col flex-1 min-w-0"><span class="text-[13px] text-base-content/70">{{ question.clarification.question }}</span><span class="text-[16px] font-medium">{{ option_label(chosen) if chosen else "" }}</span></div></div>
 {%- elif question.status == "abandoned" %}
-<div class="chat-message rounded-box px-4 py-3 flex items-center gap-3 border border-dashed border-base-content/20 text-base-content/70" role="status" data-choice-card="{{ question.id }}">{{ icon("x", "size-4") }}<span class="flex-1 text-[15px]">Skipped, you'll type it instead</span></div>
+<div class="chat-message rounded-box min-h-[62px] px-4 py-3 flex items-center gap-3 border border-dashed border-base-content/20 text-base-content/70" role="status" data-choice-card="{{ question.id }}">{{ icon("x", "size-4") }}<span class="flex-1 text-[15px]">Skipped, you'll type it instead</span></div>
 {%- else %}
-<div class="chat-message glass-regular glass-rim relative rounded-box p-4 flex flex-col gap-3" role="group" id="choice-{{ question.id }}" aria-labelledby="choice-{{ question.id }}-question" data-choice-card="{{ question.id }}">
+<div class="chat-message mat-content rounded-box p-4 flex flex-col gap-3" role="group" id="choice-{{ question.id }}" aria-labelledby="choice-{{ question.id }}-question" data-choice-card="{{ question.id }}">
   <p id="choice-{{ question.id }}-question" class="text-[16px] leading-6">{{ question.clarification.question }}</p>
   <div class="flex flex-col gap-2">
     {%- for option in question.clarification.options %}
@@ -47,7 +47,7 @@
   <p class="text-[13px] text-error" role="alert">Couldn't make the draft. Tap an option to try again.</p>
   {%- endif %}
   {%- if question.clarification.allow_free_text %}
-  <button type="button" class="btn btn-link btn-sm min-h-11 text-base-content/70 self-start px-0 font-normal" hx-post="/clarifications/{{ question.id }}/abandon" hx-target="closest [data-choice-card]" hx-swap="outerHTML" hx-disable="#choice-{{ question.id }} button" hx-status:4xx="swap:none">Let me type instead</button>
+  <button type="button" class="lg lg-ghost self-start -ml-3 font-normal text-base-content/70" hx-post="/clarifications/{{ question.id }}/abandon" hx-target="closest [data-choice-card]" hx-swap="outerHTML" hx-disable="#choice-{{ question.id }} button" hx-status:4xx="swap:none">Let me type instead</button>
   {%- endif %}
 </div>
 {%- endif %}
