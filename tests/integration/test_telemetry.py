@@ -1,10 +1,15 @@
 """Real-socket telemetry behaviour (ADR-0018) — belongs in integration, not unit (ADR-0013)."""
 
+import time
+
+from fastapi.testclient import TestClient
+from opentelemetry import trace
+from opentelemetry.sdk.trace import TracerProvider
 from pydantic import PostgresDsn, SecretStr
 from pydantic_ai import Agent, InstrumentationSettings
 from pydantic_ai.models.test import TestModel
 
-from ai_trainer.main import _build_tracer_provider
+from ai_trainer.main import _OTLP_EXPORT_TIMEOUT_SECONDS, _build_tracer_provider, create_app
 from ai_trainer.settings import Settings
 
 DATABASE_URL = "postgresql+psycopg://ai_trainer:secret@localhost:5432/ai_trainer"
@@ -38,4 +43,22 @@ async def test_unreachable_otlp_endpoint_does_not_raise_into_the_caller() -> Non
     result = await Agent(TestModel()).run("hello")
 
     assert result.output is not None
+    provider.force_flush(timeout_millis=6000)
+
+
+def test_an_unreachable_otlp_endpoint_neither_fails_nor_slows_a_traced_request() -> None:
+    """#271 AC5: request spans queue for the background exporter, so requests answer as
+    fast as untraced ones while every export to the closed port fails."""
+    client = TestClient(
+        create_app(_settings(otel_enabled=True, otel_exporter_otlp_endpoint=UNREACHABLE_ENDPOINT))
+    )
+
+    started = time.perf_counter()
+    statuses = [client.get("/", follow_redirects=False).status_code for _ in range(5)]
+    elapsed = time.perf_counter() - started
+
+    assert statuses == [303] * 5
+    assert elapsed < _OTLP_EXPORT_TIMEOUT_SECONDS / 2
+    provider = trace.get_tracer_provider()
+    assert isinstance(provider, TracerProvider)
     provider.force_flush(timeout_millis=6000)

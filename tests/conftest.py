@@ -2,6 +2,10 @@ import os
 from collections.abc import Iterator
 
 import pytest
+from opentelemetry import trace
+from opentelemetry.instrumentation.httpx import HTTPX2ClientInstrumentor
+from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
+from opentelemetry.util._once import Once
 from pydantic_ai import Agent, models
 
 # No test may reach a real model (ADR-0013 invariant 1).
@@ -40,6 +44,13 @@ def _no_real_telemetry(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     original = Agent._instrument_default
     yield
     Agent._instrument_default = original
+    # `create_app` with tracing on patches SQLAlchemy and httpx2 process-wide and sets the
+    # global tracer provider, which OpenTelemetry allows only once per process (#271).
+    for instrumentor in (SQLAlchemyInstrumentor(), HTTPX2ClientInstrumentor()):
+        if instrumentor.is_instrumented_by_opentelemetry:
+            instrumentor.uninstrument()
+    trace._TRACER_PROVIDER_SET_ONCE = Once()
+    trace._TRACER_PROVIDER = None
 
 
 @pytest.fixture(autouse=True)

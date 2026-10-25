@@ -10,12 +10,18 @@ from urllib.parse import urlsplit
 from authlib.integrations.starlette_client import OAuth
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
+from opentelemetry import trace
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from opentelemetry.instrumentation.httpx import HTTPX2ClientInstrumentor
+from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor, SpanExporter
+from opentelemetry.sdk.trace.sampling import ParentBased, TraceIdRatioBased
 from opentelemetry.util.re import parse_env_headers
 from pydantic_ai import Agent, InstrumentationSettings
+from sqlalchemy.ext.asyncio import AsyncEngine
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
@@ -30,6 +36,7 @@ from ai_trainer.adapters.llm_calls_repository import SqlAlchemyLlmCallsRepositor
 from ai_trainer.adapters.onboarding_repository import SqlAlchemyOnboardingRepository
 from ai_trainer.adapters.session_draft_repository import SqlAlchemySessionDraftRepository
 from ai_trainer.adapters.sessions_repository import SqlAlchemySessionsRepository
+from ai_trainer.adapters.telemetry import ScrubbingSpanExporter
 from ai_trainer.adapters.training_session_repository import SqlAlchemyTrainingSessionRepository
 from ai_trainer.adapters.user_status_changer import SqlAlchemyUserStatusChanger
 from ai_trainer.adapters.users_repository import SqlAlchemyUsersRepository
@@ -66,6 +73,9 @@ _PROMPTS_ROOT = Path(__file__).resolve().parent / "llm" / "prompts"
 # Bounds a single export attempt (including its retries) so a request that later flushes or
 # shuts down the provider is never stalled for long by an unreachable collector (ADR-0018).
 _OTLP_EXPORT_TIMEOUT_SECONDS = 5.0
+
+# Regexes searched in each request's URL without its query (ADR-0030).
+_UNTRACED_URLS = r"^https?://[^/]+/health/?$"
 
 _GOOGLE_SERVER_METADATA_URL = "https://accounts.google.com/.well-known/openid-configuration"
 
@@ -112,7 +122,8 @@ def build_onboarding_reader(
     )
 
 
-def create_app(settings: Settings) -> FastAPI:
+def create_app(settings: Settings, *, span_exporter: SpanExporter | None = None) -> FastAPI:
+    """`span_exporter` lets tests keep spans in memory; production always exports over OTLP."""
     engine = build_engine(str(settings.database_url))
 
     # The onboarding's background reads, held so none is collected mid-read (ADR-0028).
@@ -281,11 +292,9 @@ def create_app(settings: Settings) -> FastAPI:
     assert public_host is not None  # `Settings` only accepts an origin with a host
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=[public_host])
 
-    tracer_provider = _build_tracer_provider(settings)
+    tracer_provider = _build_tracer_provider(settings, span_exporter)
     if tracer_provider is not None:
-        Agent.instrument_all(
-            InstrumentationSettings(tracer_provider=tracer_provider, include_content=False)
-        )
+        _trace_every_request(app, engine, tracer_provider)
 
     return app
 
@@ -310,11 +319,39 @@ def _build_tracer_provider(
     """
     if not settings.otel_enabled:
         return None
-    resource = Resource.create({"service.name": settings.otel_service_name})
-    provider = TracerProvider(resource=resource)
+    resource = Resource.create(
+        {
+            "service.name": settings.otel_service_name,
+            "service.version": settings.app_version,
+            "deployment.environment": settings.deployment_environment,
+        }
+    )
+    provider = TracerProvider(
+        resource=resource,
+        sampler=ParentBased(TraceIdRatioBased(settings.otel_traces_sampler_ratio)),
+    )
     exporter = span_exporter if span_exporter is not None else _build_otlp_span_exporter(settings)
-    provider.add_span_processor(BatchSpanProcessor(exporter))
+    provider.add_span_processor(BatchSpanProcessor(ScrubbingSpanExporter(exporter)))
     return provider
+
+
+def _trace_every_request(app: FastAPI, engine: AsyncEngine, provider: TracerProvider) -> None:
+    """Request, database, outbound HTTP and agent spans share one global provider, so a
+    request's queries and model calls land in its trace (ADR-0030)."""
+    trace.set_tracer_provider(provider)
+    FastAPIInstrumentor.instrument_app(
+        app,
+        tracer_provider=provider,
+        # The container probe calls it every few seconds (ADR-0023).
+        excluded_urls=_UNTRACED_URLS,
+        # One span per ASGI message would bury the request's real work.
+        exclude_spans=["receive", "send"],
+    )
+    # The engine is async; SQLAlchemy's events fire on the sync engine inside it.
+    SQLAlchemyInstrumentor().instrument(engine=engine.sync_engine, tracer_provider=provider)
+    # OpenRouter, Jev and the external lookups all go through httpx2.
+    HTTPX2ClientInstrumentor().instrument(tracer_provider=provider)
+    Agent.instrument_all(InstrumentationSettings(tracer_provider=provider, include_content=False))
 
 
 _TRACES_EXPORT_PATH = "v1/traces"
