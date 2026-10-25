@@ -1,8 +1,18 @@
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from opentelemetry.sdk.trace import Tracer
+from opentelemetry import trace
+from opentelemetry.instrumentation.httpx import HTTPX2ClientInstrumentor
+from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
+from opentelemetry.sdk.trace import Tracer, TracerProvider
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+from opentelemetry.trace import (
+    NonRecordingSpan,
+    ProxyTracerProvider,
+    SpanContext,
+    TraceFlags,
+    set_span_in_context,
+)
 from pydantic import PostgresDsn, SecretStr
 from pydantic_ai import Agent, InstrumentationSettings
 from pydantic_ai.models.test import TestModel
@@ -316,3 +326,125 @@ def test_create_app_exposes_the_default_sport_registry() -> None:
         "gym",
         "cycling",
     ]
+
+
+def test_build_tracer_provider_describes_the_release_and_the_environment() -> None:
+    provider = _build_tracer_provider(
+        _settings(
+            otel_enabled=True,
+            otel_exporter_otlp_endpoint=UNREACHABLE_ENDPOINT,
+            app_version="v0.3.1",
+            deployment_environment="production",
+        )
+    )
+
+    assert provider is not None
+    assert provider.resource.attributes["service.version"] == "v0.3.1"
+    assert provider.resource.attributes["deployment.environment"] == "production"
+
+
+def test_build_tracer_provider_samples_root_spans_by_the_ratio_and_follows_the_parent() -> None:
+    provider = _build_tracer_provider(
+        _settings(
+            otel_enabled=True,
+            otel_exporter_otlp_endpoint=UNREACHABLE_ENDPOINT,
+            otel_traces_sampler_ratio=0.0,
+        )
+    )
+    assert provider is not None
+    tracer = provider.get_tracer(__name__)
+    sampled_parent = SpanContext(
+        trace_id=1, span_id=1, is_remote=True, trace_flags=TraceFlags(TraceFlags.SAMPLED)
+    )
+
+    root = tracer.start_span("root")
+    child = tracer.start_span(
+        "child", context=set_span_in_context(NonRecordingSpan(sampled_parent))
+    )
+
+    assert not root.is_recording()
+    assert child.is_recording()
+
+
+def test_create_app_builds_no_provider_and_applies_no_instrumentor_when_otel_disabled() -> None:
+    app = create_app(_settings(otel_enabled=False))
+
+    assert isinstance(trace.get_tracer_provider(), ProxyTracerProvider)
+    assert not getattr(app, "_is_instrumented_by_opentelemetry", False)
+    assert not SQLAlchemyInstrumentor().is_instrumented_by_opentelemetry
+    assert not HTTPX2ClientInstrumentor().is_instrumented_by_opentelemetry
+
+
+def test_create_app_sets_the_global_provider_and_instruments_requests_db_and_httpx() -> None:
+    app = create_app(_settings(otel_enabled=True, otel_exporter_otlp_endpoint=UNREACHABLE_ENDPOINT))
+
+    assert isinstance(trace.get_tracer_provider(), TracerProvider)
+    assert getattr(app, "_is_instrumented_by_opentelemetry", False)
+    assert SQLAlchemyInstrumentor().is_instrumented_by_opentelemetry
+    assert HTTPX2ClientInstrumentor().is_instrumented_by_opentelemetry
+
+
+def test_health_produces_no_span_while_other_requests_do() -> None:
+    exporter = InMemorySpanExporter()
+    app = create_app(
+        _settings(otel_enabled=True, otel_exporter_otlp_endpoint=UNREACHABLE_ENDPOINT),
+        span_exporter=exporter,
+    )
+    client = TestClient(app)
+
+    client.get("/health")
+    _flush()
+    after_health = exporter.get_finished_spans()
+    client.get("/", follow_redirects=False)
+    _flush()
+
+    assert after_health == ()
+    assert [
+        span.attributes["http.route"]
+        for span in exporter.get_finished_spans()
+        if span.attributes and "http.route" in span.attributes
+    ] == ["/"]
+
+
+def _flush() -> None:
+    provider = trace.get_tracer_provider()
+    assert isinstance(provider, TracerProvider)
+    provider.force_flush(timeout_millis=2000)
+
+
+def test_a_user_id_in_a_request_path_reaches_no_span() -> None:
+    """`/admin/users/{user_id}/status` names a user; its span keeps the route template."""
+    exporter = InMemorySpanExporter()
+    app = create_app(
+        _settings(otel_enabled=True, otel_exporter_otlp_endpoint=UNREACHABLE_ENDPOINT),
+        span_exporter=exporter,
+    )
+    user_id = "6f1c2a9e-0b5e-4c47-9d1a-2f3e4b5c6d7e"
+
+    TestClient(app).get(f"/admin/users/{user_id}/status", follow_redirects=False)
+    _flush()
+
+    spans = exporter.get_finished_spans()
+    assert spans
+    for span in spans:
+        assert user_id not in repr((span.name, dict(span.attributes or {}))), span.name
+
+
+def test_only_the_health_route_itself_goes_untraced() -> None:
+    exporter = InMemorySpanExporter()
+    client = TestClient(
+        create_app(
+            _settings(otel_enabled=True, otel_exporter_otlp_endpoint=UNREACHABLE_ENDPOINT),
+            span_exporter=exporter,
+        )
+    )
+
+    client.get("/health/", follow_redirects=False)
+    client.get("/health?probe=1")
+    _flush()
+    untraced = exporter.get_finished_spans()
+    client.get("/foo/health", follow_redirects=False)
+    _flush()
+
+    assert untraced == ()
+    assert exporter.get_finished_spans()

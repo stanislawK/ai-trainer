@@ -194,6 +194,11 @@ class Settings(BaseSettings):
     otel_exporter_otlp_protocol: Literal["http/protobuf"] = "http/protobuf"
     otel_exporter_otlp_headers: str | None = None
     otel_service_name: str = "ai-trainer"
+    # The share of new traces kept; a request carrying a sampled parent stays sampled (ADR-0030).
+    otel_traces_sampler_ratio: float = Field(default=1.0, ge=0.0, le=1.0)
+    # The trace resource's `service.version` (the release tag) and `deployment.environment`.
+    app_version: str = "dev"
+    deployment_environment: str = "development"
 
     @field_validator(
         "google_client_id", "google_client_secret", "session_secret_key", "csrf_secret_key"
