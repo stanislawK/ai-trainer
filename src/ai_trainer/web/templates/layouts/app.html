@@ -7,20 +7,12 @@
 {#- The chat pages pass the athlete's conversations; the list is a drawer on a phone and a sidebar section on desktop (F17, mock "Conversation list v3", #213). -#}
 {%- set has_list = conversations is defined -%}
 
+{#- A section row in the chat menu and the sidebar: a tinted `lg-nav` lens when current, a ghost row otherwise (Liquid Glass v4, mock "Components Navigation v4", #267). -#}
 {% macro nav_link(section) -%}
-<a
-  href="{{ section.href }}"
-  class="min-h-11 gap-3 content-center{% if section.is_current(current_path) %} menu-active{% endif %}"
-  {%- if section.is_current(current_path) %} aria-current="page"{% endif %}
->{{ icon(section.icon, "size-5") }}{{ section.label }}</a>
-{%- endmacro %}
-
-{#- The sidebar is content (`mat-content`), so the active section is an `lg-clear` capsule and the others plain 44 px rows (Liquid Glass v4). -#}
-{% macro sidebar_link(section) -%}
 {%- set active = section.is_current(current_path) -%}
 <a
   href="{{ section.href }}"
-  class="{% if active %}lg lg-clear w-full min-w-0 justify-start gap-3 px-4{% else %}min-h-11 w-full min-w-0 flex items-center gap-3 px-4 rounded-full transition-colors hover:bg-base-content/10 text-[15px] lbl-1{% endif %}"
+  class="lg {% if active %}lg-tinted{% else %}lg-ghost{% endif %} lg-nav"
   {%- if active %} aria-current="page"{% endif %}
 >{{ icon(section.icon, "size-5") }}{{ section.label }}</a>
 {%- endmacro %}
@@ -45,7 +37,7 @@
     </div>
     <ul class="flex flex-col gap-1 mt-2 shrink-0" aria-label="Sections">
       {% for section in nav_sections %}
-      <li class="min-w-0">{{ sidebar_link(section) }}</li>
+      <li class="min-w-0">{{ nav_link(section) }}</li>
       {% endfor %}
     </ul>
     {% if has_list %}
@@ -77,13 +69,13 @@
     <header class="lg:hidden sticky top-0 z-20 flex items-center justify-between h-11 px-4 mt-4">
       <button
         type="button"
-        class="lg lg-clear size-11 p-0"
+        class="lg lg-clear lg-icon group"
         popovertarget="sections-menu"
         aria-label="Sections"
         aria-expanded="false"
         aria-controls="sections-menu"
         data-sections-trigger
-      >{{ icon("menu", "size-5") }}</button>
+      >{{ icon("menu", "size-5 group-aria-expanded:hidden") }}{{ icon("x", "size-5 hidden group-aria-expanded:block") }}</button>
       <span class="text-[17px] font-semibold">{% block chat_title %}Chat{% endblock %}</span>
       <div class="flex items-center gap-2">
         {% if has_list %}
@@ -110,11 +102,11 @@
     <ul
       id="sections-menu"
       popover
-      class="hidden! [&:popover-open]:flex! menu absolute top-16 left-4 w-64 glass-thick glass-rim rounded-box p-2 gap-0.5 text-[16px] [--menu-active-bg:color-mix(in_oklch,var(--color-primary)_20%,transparent)] [--menu-active-fg:var(--color-base-content)]"
+      class="hidden! [&:popover-open]:flex! lgs lgs-thick absolute top-16 left-4 w-64 rounded-[20px] p-2 flex-col gap-0.5"
       aria-label="Sections"
     >
       {% for section in nav_sections %}
-      <li>{{ nav_link(section) }}</li>
+      <li{% if section.admin_only %} class="border-t border-base-content/10 mt-1 pt-1"{% endif %}>{{ nav_link(section) }}</li>
       {% endfor %}
     </ul>
     {% endif %}
@@ -125,15 +117,23 @@
 
     {% if variant != "chat" %}
     <nav
-      class="dock lg:hidden fixed bottom-[calc(1.25rem+env(safe-area-inset-bottom))] inset-x-4 w-auto h-16 pb-0 rounded-full glass-thick glass-rim px-2 z-20"
+      class="lgs lg:hidden fixed bottom-[calc(1.25rem+env(safe-area-inset-bottom))] inset-x-3 h-16 rounded-full px-1.5 flex items-center z-20"
       aria-label="Sections"
+      data-dock
     >
       {% for section in nav_sections %}
+      {%- if section.is_current(current_path) %}
       <a
         href="{{ section.href }}"
-        class="min-h-11{% if section.is_current(current_path) %} text-primary{% endif %}"
-        {%- if section.is_current(current_path) %} aria-current="page"{% endif %}
-      >{{ icon(section.icon, "size-5") }}<span class="dock-label">{{ section.label }}</span></a>
+        class="lg lg-tinted lg-tab"
+        aria-current="page"
+      >{{ icon(section.icon, "size-5") }}<span>{{ section.label }}</span></a>
+      {%- else %}
+      <a
+        href="{{ section.href }}"
+        class="lg-dock-item"
+      >{{ icon(section.icon, "size-5") }}<span>{{ section.label }}</span></a>
+      {%- endif %}
       {% endfor %}
     </nav>
     {% endif %}

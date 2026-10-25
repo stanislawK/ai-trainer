@@ -3,6 +3,7 @@ vs. the chat page's header menu, admin-only visibility, and 44px tap targets. Us
 `ActiveUserGateMiddleware` fakes as `test_active_user_gate.py`."""
 
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from uuid import UUID, uuid4
 
 from fastapi import FastAPI
@@ -16,6 +17,9 @@ from ai_trainer.web.auth import SESSION_COOKIE_NAME
 from ai_trainer.web.templating import build_templates
 from tests.chat_support import include_chat
 
+WEB = Path(__file__).parents[2] / "src" / "ai_trainer" / "web"
+TEMPLATES = WEB / "templates"
+STATIC = WEB / "static"
 FROZEN_NOW = datetime(2026, 9, 24, 12, 0, tzinfo=UTC)
 USER_EMAIL = "athlete@example.com"
 
@@ -115,7 +119,7 @@ def _client(*, admin_emails: list[str]) -> TestClient:
 def test_chat_page_has_no_dock_and_shows_the_sections_menu_button() -> None:
     response = _client(admin_emails=[]).get("/")
 
-    assert 'class="dock lg:hidden' not in response.text
+    assert "data-dock" not in response.text
     assert 'popovertarget="sections-menu"' in response.text
     assert 'id="sections-menu"' in response.text
 
@@ -139,7 +143,7 @@ def test_sections_menu_is_hidden_by_default_regardless_of_daisyui_menu_display()
 def test_admin_page_shows_the_dock_and_no_menu_button() -> None:
     response = _client(admin_emails=[USER_EMAIL]).get("/admin")
 
-    assert 'class="dock lg:hidden' in response.text
+    assert "data-dock" in response.text
     assert 'popovertarget="sections-menu"' not in response.text
 
 
@@ -205,47 +209,46 @@ def test_every_nav_target_on_the_chat_page_resolves() -> None:
         assert response.status_code == 200, href
 
 
-def test_dock_and_menu_items_meet_the_44px_tap_target() -> None:
-    response = _client(admin_emails=[USER_EMAIL]).get("/admin")
-
-    # Every generated nav_link and the dock anchor itself carries min-h-11 (44px).
-    assert response.text.count("min-h-11") >= 4
-
-
 def _nav_block(html: str, opening_marker: str, closing_tag: str) -> str:
     start = html.index(opening_marker)
     return html[start : html.index(closing_tag, start)]
 
 
-def test_sidebar_items_center_icon_and_label_vertically() -> None:
-    """The sidebar is `mat-content` since #213 (mock "Conversation list v3"): the active section
-    is an `lg lg-clear` capsule, which centres its content, and the others are 44 px flex rows
-    with `items-center`, so neither pins icon and label to the top of the target (#58)."""
+def _links(block: str) -> list[str]:
+    return block.split("<a")[1:]
+
+
+def _classes(link: str) -> set[str]:
+    return set(link.split('class="')[1].split('"')[0].split())
+
+
+def test_sidebar_rows_are_lg_nav_with_the_active_one_tinted() -> None:
+    """The sidebar stays `mat-content` (#213); its section rows are `lg-nav` (Liquid Glass v4,
+    #267): the active one a tinted lens with `aria-current`, the others ghost rows."""
     html = _client(admin_emails=[USER_EMAIL]).get("/admin").text
     sidebar = _nav_block(html, 'aria-label="Primary"', "</ul>")
 
-    links = sidebar.split("<a")[1:]
-    assert links
+    links = _links(sidebar)
+    assert len(links) == 3
     for link in links:
-        classes = link.split('class="')[1].split('"')[0].split()
-        assert {"lg", "lg-clear"} <= set(classes) or {"flex", "items-center", "min-h-11"} <= set(
-            classes
-        )
+        assert {"lg", "lg-nav"} <= _classes(link)
         assert 'class="size-5"' in link
+    (active,) = [link for link in links if 'aria-current="page"' in link]
+    assert 'href="/admin"' in active
+    assert "lg-tinted" in _classes(active)
+    for link in links:
+        if link is not active:
+            assert "lg-ghost" in _classes(link)
 
 
-def test_sidebar_is_content_material_with_the_active_section_a_clear_capsule() -> None:
+def test_sidebar_is_content_material() -> None:
     html = _client(admin_emails=[USER_EMAIL]).get("/admin").text
     start = html.rindex("<aside", 0, html.index('aria-label="Primary"'))
     aside = html[start : html.index(">", html.index('aria-label="Primary"'))]
-    sidebar = _nav_block(html, 'aria-label="Primary"', "</ul>")
 
     assert "mat-content" in aside
     assert "w-72" in aside
     assert "glass-thick" not in aside
-    (active,) = [link for link in sidebar.split("<a")[1:] if 'aria-current="page"' in link]
-    assert 'href="/admin"' in active
-    assert "lg lg-clear" in active
 
 
 def test_only_the_chat_pages_carry_the_conversation_list() -> None:
@@ -257,50 +260,85 @@ def test_only_the_chat_pages_carry_the_conversation_list() -> None:
     assert 'class="drawer"' not in admin
 
 
-def test_chat_menu_items_center_icon_and_label_vertically() -> None:
+def test_chat_menu_is_a_thick_surface_of_lg_nav_rows() -> None:
     html = _client(admin_emails=[USER_EMAIL]).get("/").text
+    menu_tag = _nav_block(html, 'id="sections-menu"', ">")
     menu = _nav_block(html, 'id="sections-menu"', "</ul>")
 
-    links = menu.split("<a")[1:]
-    assert links
+    assert {"lgs", "lgs-thick"} <= _classes(menu_tag)
+    links = _links(menu)
+    assert len(links) == 3
     for link in links:
-        assert "content-center" in link.split(">")[0]
+        assert {"lg", "lg-nav"} <= _classes(link)
         assert 'class="size-5"' in link
+    (active,) = [link for link in links if 'aria-current="page"' in link]
+    assert 'href="/"' in active
+    assert "lg-tinted" in _classes(active)
+    for link in links:
+        if link is not active:
+            assert "lg-ghost" in _classes(link)
 
 
-def test_dock_icons_are_sized_so_the_label_clears_the_active_underline() -> None:
-    """An unsized SVG grew to 36.5px in a dock item and pushed the label onto daisyUI's
-    active underline; the mock's icons are 1.25rem (#58)."""
+def test_chat_menu_trigger_is_a_clear_icon_lens() -> None:
+    html = _client(admin_emails=[]).get("/").text
+    trigger = html[html.rindex("<button", 0, html.index("data-sections-trigger")) :]
+    trigger = trigger[: trigger.index(">")]
+
+    assert {"lg", "lg-clear", "lg-icon"} <= _classes(trigger)
+    assert "btn-circle" not in trigger
+
+
+def test_dock_is_an_lgs_capsule_with_the_active_item_a_tinted_tab() -> None:
     html = _client(admin_emails=[USER_EMAIL]).get("/admin").text
-    dock = _nav_block(html, 'class="dock lg:hidden', "</nav>")
+    dock_tag = _nav_block(html, "<nav\n      class=", ">")
+    dock = _nav_block(html, "data-dock", "</nav>")
 
-    links = dock.split("<a")[1:]
-    assert links
+    assert {"lgs", "h-16", "rounded-full"} <= _classes(dock_tag)
+    assert "lg:hidden" in _classes(dock_tag)
+    links = _links(dock)
+    assert len(links) == 3
     for link in links:
         assert 'class="size-5"' in link
+    (active,) = [link for link in links if 'aria-current="page"' in link]
+    assert 'href="/admin"' in active
+    assert {"lg", "lg-tinted", "lg-tab"} <= _classes(active)
+    for link in links:
+        if link is not active:
+            assert _classes(link) == {"lg-dock-item"}
 
 
-def test_dock_width_yields_to_its_side_insets() -> None:
-    """daisyUI's `.dock` sets `width: 100%`, so with `inset-x-4` alone it spanned 16px→406px
-    on a 390px screen, its right end off-canvas; the mock adds `w-auto` (#58)."""
+def test_admin_is_an_extra_dock_item_for_admins() -> None:
+    """The dock and the sidebar share `nav_sections`, which `visible_sections` filters by
+    admin rights, so a member's chat page (no dock) shows no Admin link anywhere."""
+    admin = _nav_block(_client(admin_emails=[USER_EMAIL]).get("/admin").text, "data-dock", "</nav>")
+
+    assert len(_links(admin)) == 3
+    assert 'href="/admin"' in admin
+
+
+def test_dock_floats_above_the_safe_area() -> None:
+    """The mock floats the dock 20px above the safe area, so the inset goes into the offset
+    (#58); its items share the width with `flex-1`, so six fit at 390px (#267)."""
     html = _client(admin_emails=[USER_EMAIL]).get("/admin").text
-    dock_tag = _nav_block(html, 'class="dock lg:hidden', ">")
+    dock_tag = _nav_block(html, "<nav\n      class=", ">")
 
-    assert "inset-x-4" in dock_tag
-    assert "w-auto" in dock_tag
-
-
-def test_dock_floats_above_the_safe_area_instead_of_padding_into_it() -> None:
-    """daisyUI's `.dock` adds `padding-bottom: env(safe-area-inset-bottom)`; inside the fixed
-    `h-16` that ate 34px on a home-indicator iPhone and put the label back on the underline.
-    The mock floats the dock 20px above the safe area, so the inset goes into the offset
-    (skeptic finding, #58 review gate)."""
-    html = _client(admin_emails=[USER_EMAIL]).get("/admin").text
-    dock_tag = _nav_block(html, 'class="dock lg:hidden', ">")
-
-    assert "pb-0" in dock_tag
+    assert "inset-x-3" in dock_tag
     assert "bottom-[calc(1.25rem+env(safe-area-inset-bottom))]" in dock_tag
-    assert " bottom-5 " not in dock_tag
+
+
+def test_the_shell_has_no_v1_glass_or_daisyui_nav_classes() -> None:
+    source = (TEMPLATES / "layouts" / "app.html").read_text()
+
+    for leftover in ("glass-", "btn-circle", "menu-active", "dock-label", "min-h-11"):
+        assert leftover not in source, leftover
+
+
+def test_nav_utilities_keep_44px_targets() -> None:
+    css = (STATIC / "css" / "glass.css").read_text()
+
+    for name, height in (("lg-nav", "44px"), ("lg-tab", "52px"), ("lg-dock-item", "52px")):
+        block = css.split(f"@utility {name} ", 1)[1].split("\n}\n", 1)[0]
+        assert f"height: {height}" in block, name
 
 
 def test_chat_section_stays_current_on_a_conversation_url() -> None:
@@ -311,4 +349,4 @@ def test_chat_section_stays_current_on_a_conversation_url() -> None:
 
     (active,) = [link for link in sidebar.split("<a")[1:] if 'aria-current="page"' in link]
     assert 'href="/"' in active
-    assert "lg lg-clear" in active
+    assert "lg-tinted" in _classes(active)

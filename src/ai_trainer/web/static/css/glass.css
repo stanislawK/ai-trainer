@@ -482,6 +482,65 @@
   }
 }
 
+/* A section row in a menu or the sidebar: tinted when active, ghost otherwise (#267). */
+@utility lg-nav {
+  &.lg {
+    display: flex;
+    width: 100%;
+    height: 44px;
+    padding: 0 12px;
+    gap: 12px;
+    justify-content: flex-start;
+    border-radius: 12px;
+    font-size: 15px;
+    font-weight: 500;
+  }
+
+  &.lg:active {
+    transform: scale(1.02);
+  }
+}
+
+/* The dock's active item: a tinted lens that shares the capsule's width (#267). */
+@utility lg-tab {
+  &.lg {
+    flex: 1 1 0;
+    min-width: 0;
+    flex-direction: column;
+    height: 52px;
+    padding: 0 6px;
+    gap: 2px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+}
+
+/* The dock's resting items: no material, a label under the icon (#267). */
+@utility lg-dock-item {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  height: 52px;
+  border-radius: 9999px;
+  font-size: 11px;
+  font-weight: 500;
+  color: color-mix(in oklch, var(--color-base-content) 75%, transparent);
+  transition: color .15s;
+
+  &:hover {
+    color: var(--color-base-content);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 3px;
+  }
+}
+
 /* A non-interactive glass tile (the assistant's mark). Size via --m. */
 @utility lg-mark {
   &.lg {
