@@ -8,6 +8,7 @@ from pydantic import JsonValue
 from ai_trainer.domain.athlete_profile import AthleteProfile
 from ai_trainer.domain.goals import Goal
 from ai_trainer.domain.onboarding import OnboardingAnswer, OnboardingStep
+from ai_trainer.domain.sport_profile import SportProfile
 
 
 class OnboardingRepositoryPort(Protocol):
@@ -106,12 +107,15 @@ class OnboardingAnswersPort(Protocol):
         *,
         profile: AthleteProfile,
         sport_ids: Sequence[str],
+        sport_profiles: Mapping[str, SportProfile],
+        goals: Sequence[Goal],
         timezone: str,
         when: datetime,
     ) -> None:
-        """In one transaction: stores `profile`, makes `sport_ids` the user's sports, stores the
-        timezone, sets `onboarded_at` to `when`, and deletes every answer (ADR-0028 invariants
-        1 and 4)."""
+        """In one transaction: stores `profile`, makes `sport_ids` the user's sports and
+        `sport_profiles` their sport profiles, makes `goals` exactly the user's goals, stores
+        the timezone, sets `onboarded_at` to `when`, and deletes every answer (ADR-0028
+        invariants 1 and 4)."""
         ...
 
 

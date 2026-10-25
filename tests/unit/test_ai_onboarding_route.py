@@ -143,6 +143,11 @@ async def _answered(athlete: Athlete, read: dict[str, JsonValue] | None = AC_REA
     )
     if read is not None:
         await athlete.answers.save_read(athlete.user.id, ABOUT_YOU, None, revision, read)
+    # The sport's steps answered and read as empty, so the summary is due without marking them
+    # skipped or reading them again (#255).
+    for step in (OnboardingStep.GOALS, OnboardingStep.LEVEL, OnboardingStep.SCHEDULE):
+        sport_revision = await athlete.answers.store_answer(athlete.user.id, step, "climbing", "-")
+        await athlete.answers.save_read(athlete.user.id, step, "climbing", sport_revision, {})
 
 
 def _summary(athlete: Athlete) -> str:
@@ -259,7 +264,7 @@ async def test_about_you_asks_its_question_with_skip_back_and_optional(athlete: 
 
 async def test_the_next_step_appears_before_the_model_call_returns() -> None:
     """AC: the next step appears before the model call returns. The read never returns here,
-    yet the send answers with the summary."""
+    yet the send answers with the next card, Goals (#255)."""
     reader = FakeReader(AC_READ)
     reader.hold = True
     for athlete in _athlete(reader=reader):
@@ -271,7 +276,7 @@ async def test_the_next_step_appears_before_the_model_call_returns() -> None:
             headers=HX,
         )
 
-        assert response.headers["HX-Redirect"] == "/onboarding/summary"
+        assert response.headers["HX-Redirect"] == "/onboarding/goals"
         [answer] = await athlete.answers.list_answers(athlete.user.id)
         assert answer.status is AnswerStatus.PENDING
         assert athlete.reads.running((athlete.user.id, ABOUT_YOU, None)) is not None
@@ -293,7 +298,7 @@ async def test_skip_leaves_about_you_empty_and_moves_on(athlete: Athlete) -> Non
 
     response = athlete.client.post("/onboarding/about-you/skip", headers=HX)
 
-    assert response.headers["HX-Redirect"] == "/onboarding/summary"
+    assert response.headers["HX-Redirect"] == "/onboarding/goals"
     [answer] = await athlete.answers.list_answers(athlete.user.id)
     assert answer.status is AnswerStatus.SKIPPED
     assert athlete.reader.calls == []
@@ -314,7 +319,7 @@ async def test_a_reload_resumes_at_the_next_unanswered_card(athlete: Athlete) ->
 
     await athlete.answers.skip_answer(athlete.user.id, ABOUT_YOU, None)
     response = athlete.client.get("/onboarding", follow_redirects=False)
-    assert response.headers["location"] == "/onboarding/summary"
+    assert response.headers["location"] == "/onboarding/goals"
 
 
 # --- The summary ---------------------------------------------------------------------------
@@ -464,7 +469,8 @@ async def test_a_bad_field_shows_the_summary_again_with_it_flagged(athlete: Athl
     assert 'value="20"' in height.group(0)
     assert _value(response.text, "age") == "31"
     assert athlete.answers.profiles == {}
-    assert len(await athlete.answers.list_answers(athlete.user.id)) == 1
+    # About you and the sport's three steps are all kept.
+    assert len(await athlete.answers.list_answers(athlete.user.id)) == 4
 
 
 def test_the_old_sports_step_is_gone(athlete: Athlete) -> None:

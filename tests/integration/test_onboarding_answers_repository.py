@@ -3,7 +3,7 @@ bumps the revision, a read writes only while its revision matches, and confirm w
 and deletes the answers in one transaction. Every method is scoped to one athlete."""
 
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from uuid import UUID
 
 import pytest
@@ -13,7 +13,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ai_trainer.adapters.onboarding_repository import SqlAlchemyOnboardingRepository
 from ai_trainer.adapters.users_repository import SqlAlchemyUsersRepository
 from ai_trainer.domain.athlete_profile import AthleteProfile
+from ai_trainer.domain.goals import Goal
 from ai_trainer.domain.onboarding import AnswerStatus, OnboardingAnswer, OnboardingStep
+from ai_trainer.domain.sport_profile import SportProfile
 from ai_trainer.domain.users import NewUser, UserStatus
 
 ABOUT_YOU = OnboardingStep.ABOUT_YOU
@@ -169,7 +171,13 @@ async def test_confirm_writes_the_profile_sports_zone_and_date_and_deletes_the_a
     profile = AthleteProfile(birth_year=1995, height_cm=178, weight_kg=72.5, limits="Shoulder")
 
     await repository.confirm(
-        user, profile=profile, sport_ids=["climbing"], timezone="Europe/Warsaw", when=WHEN
+        user,
+        profile=profile,
+        sport_ids=["climbing"],
+        sport_profiles={},
+        goals=[],
+        timezone="Europe/Warsaw",
+        when=WHEN,
     )
 
     assert await repository.get_profile(user) == profile
@@ -188,12 +196,20 @@ async def test_confirming_again_replaces_the_profile(
         user,
         profile=AthleteProfile(height_cm=178),
         sport_ids=["climbing"],
+        sport_profiles={},
+        goals=[],
         timezone="UTC",
         when=WHEN,
     )
 
     await repository.confirm(
-        user, profile=AthleteProfile(limits="Knee"), sport_ids=["gym"], timezone="UTC", when=WHEN
+        user,
+        profile=AthleteProfile(limits="Knee"),
+        sport_ids=["gym"],
+        sport_profiles={},
+        goals=[],
+        timezone="UTC",
+        when=WHEN,
     )
 
     assert await repository.get_profile(user) == AthleteProfile(limits="Knee")
@@ -212,6 +228,8 @@ async def test_a_confirm_that_fails_writes_nothing(
             user,
             profile=AthleteProfile(height_cm=20),
             sport_ids=["gym"],
+            sport_profiles={},
+            goals=[],
             timezone="Europe/Warsaw",
             when=WHEN,
         )
@@ -231,7 +249,13 @@ async def test_one_athletes_answers_and_profile_never_reach_another(
     second = await _user(db_session_factory, "tenant-b")
     revision = await repository.store_answer(first, ABOUT_YOU, None, "31")
     await repository.confirm(
-        first, profile=AthleteProfile(height_cm=178), sport_ids=[], timezone="UTC", when=WHEN
+        first,
+        profile=AthleteProfile(height_cm=178),
+        sport_ids=[],
+        sport_profiles={},
+        goals=[],
+        timezone="UTC",
+        when=WHEN,
     )
     await repository.store_answer(first, ABOUT_YOU, None, "31")
 
@@ -245,7 +269,13 @@ async def test_one_athletes_answers_and_profile_never_reach_another(
     assert answer.text == "31"
 
     await repository.confirm(
-        second, profile=AthleteProfile(), sport_ids=[], timezone="UTC", when=WHEN
+        second,
+        profile=AthleteProfile(),
+        sport_ids=[],
+        sport_profiles={},
+        goals=[],
+        timezone="UTC",
+        when=WHEN,
     )
     assert len(await repository.list_answers(first)) == 1
     assert await repository.get_profile(first) == AthleteProfile(height_cm=178)
@@ -290,3 +320,114 @@ async def test_one_athletes_pick_leaves_anothers_sports_and_answers_alone(
 
     assert list(await repository.list_sports(second)) == ["climbing"]
     assert len(await repository.list_answers(second)) == 1
+
+
+CLIMBING = SportProfile(
+    level="Projecting 7b",
+    exercises="Board, hangboard",
+    sessions_per_week=4,
+    session_minutes=120,
+    preferred_days=(0, 2, 4, 5),
+)
+FIRST_7C = Goal(
+    text="Send my first 7c outdoors", target_date=date(2027, 6, 30), sport_id="climbing"
+)
+
+
+async def test_confirm_writes_the_sports_profile_and_goals_with_the_rest(
+    db_session_factory: Factory, repository: SqlAlchemyOnboardingRepository
+) -> None:
+    """Ticket #255: the sport's profile and goals are written in confirm's one transaction."""
+    user = await _user(db_session_factory, "confirm-sport-a")
+    await repository.start(user, "climbing", "UTC")
+
+    await repository.confirm(
+        user,
+        profile=AthleteProfile(),
+        sport_ids=["climbing"],
+        sport_profiles={"climbing": CLIMBING},
+        goals=[FIRST_7C, Goal(text="Climb outside more", sport_id="climbing")],
+        timezone="UTC",
+        when=WHEN,
+    )
+
+    assert await repository.list_sport_profiles(user) == {"climbing": CLIMBING}
+    assert list(await repository.list_goals(user)) == [
+        FIRST_7C,
+        Goal(text="Climb outside more", sport_id="climbing"),
+    ]
+
+
+async def test_confirming_again_replaces_the_sport_profiles_and_goals(
+    db_session_factory: Factory, repository: SqlAlchemyOnboardingRepository
+) -> None:
+    user = await _user(db_session_factory, "confirm-sport-b")
+    await repository.replace_goals(user, [Goal(text="An old goal")])
+    for sport_profiles, goals in (
+        ({"climbing": CLIMBING}, [FIRST_7C]),
+        ({"gym": SportProfile()}, []),
+    ):
+        await repository.confirm(
+            user,
+            profile=AthleteProfile(),
+            sport_ids=list(sport_profiles),
+            sport_profiles=sport_profiles,
+            goals=goals,
+            timezone="UTC",
+            when=WHEN,
+        )
+
+    assert await repository.list_sport_profiles(user) == {"gym": SportProfile()}
+    assert list(await repository.list_goals(user)) == []
+
+
+async def test_a_confirm_with_a_sport_out_of_bounds_writes_nothing(
+    db_session_factory: Factory, repository: SqlAlchemyOnboardingRepository
+) -> None:
+    user = await _user(db_session_factory, "confirm-sport-c")
+    await repository.start(user, "climbing", "UTC")
+
+    with pytest.raises(Exception, match="sport_profiles_sessions_range"):
+        await repository.confirm(
+            user,
+            profile=AthleteProfile(height_cm=178),
+            sport_ids=["climbing"],
+            sport_profiles={"climbing": SportProfile(sessions_per_week=20)},
+            goals=[FIRST_7C],
+            timezone="UTC",
+            when=WHEN,
+        )
+
+    assert await repository.get_profile(user) is None
+    assert await repository.list_sport_profiles(user) == {}
+    assert list(await repository.list_goals(user)) == []
+
+
+async def test_one_athletes_sport_profiles_and_goals_never_reach_another(
+    db_session_factory: Factory, repository: SqlAlchemyOnboardingRepository
+) -> None:
+    first = await _user(db_session_factory, "tenant-sport-a")
+    second = await _user(db_session_factory, "tenant-sport-b")
+    await repository.confirm(
+        first,
+        profile=AthleteProfile(),
+        sport_ids=["climbing"],
+        sport_profiles={"climbing": CLIMBING},
+        goals=[FIRST_7C],
+        timezone="UTC",
+        when=WHEN,
+    )
+
+    await repository.confirm(
+        second,
+        profile=AthleteProfile(),
+        sport_ids=["climbing"],
+        sport_profiles={"climbing": SportProfile()},
+        goals=[],
+        timezone="UTC",
+        when=WHEN,
+    )
+
+    assert await repository.list_sport_profiles(first) == {"climbing": CLIMBING}
+    assert list(await repository.list_goals(first)) == [FIRST_7C]
+    assert list(await repository.list_goals(second)) == []

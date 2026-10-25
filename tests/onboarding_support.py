@@ -9,7 +9,9 @@ from uuid import UUID
 from pydantic import JsonValue
 
 from ai_trainer.domain.athlete_profile import AthleteProfile
+from ai_trainer.domain.goals import Goal
 from ai_trainer.domain.onboarding import AnswerStatus, OnboardingAnswer, OnboardingStep
+from ai_trainer.domain.sport_profile import SportProfile
 
 type AnswerKey = tuple[UUID, OnboardingStep, str | None]
 
@@ -20,6 +22,8 @@ class FakeOnboardingAnswers:
         self.timezones: dict[UUID, str] = {}
         self.answers: dict[AnswerKey, OnboardingAnswer] = {}
         self.profiles: dict[UUID, AthleteProfile] = {}
+        self.sport_profiles: dict[UUID, dict[str, SportProfile]] = {}
+        self.goals: dict[UUID, list[Goal]] = {}
         self.onboarded_at: dict[UUID, datetime] = {}
 
     async def start(self, user_id: UUID, sport_id: str, timezone: str) -> None:
@@ -114,10 +118,14 @@ class FakeOnboardingAnswers:
         *,
         profile: AthleteProfile,
         sport_ids: Sequence[str],
+        sport_profiles: Mapping[str, SportProfile],
+        goals: Sequence[Goal],
         timezone: str,
         when: datetime,
     ) -> None:
         self.profiles[user_id] = profile
+        self.sport_profiles[user_id] = dict(sport_profiles)
+        self.goals[user_id] = list(goals)
         self.sports[user_id] = list(sport_ids)
         self.timezones[user_id] = timezone
         self.onboarded_at[user_id] = when

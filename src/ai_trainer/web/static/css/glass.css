@@ -356,6 +356,25 @@
   &.lg:active {
     transform: scale(1.03);
   }
+
+  /* A chip that toggles a hidden checkbox (the summary's days): checked is tinted, as
+     `lg-tinted`, and the box's keyboard focus shows on the chip. */
+  &.lg:has(:checked) {
+    --lg-tint: light-dark(color-mix(in oklch, var(--color-primary) 20%, transparent), color-mix(in oklch, var(--color-primary) 34%, transparent));
+    --lg-rim-side: light-dark(color-mix(in oklch, var(--color-primary) 22%, transparent), color-mix(in oklch, var(--color-primary) 18%, transparent));
+    color: light-dark(color-mix(in oklch, var(--color-primary), black 38%), color-mix(in oklch, var(--color-primary), white 72%));
+  }
+
+  &.lg:has(:focus-visible) {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 3px;
+  }
+
+  @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+    &.lg:has(:checked) {
+      --lg-tint: color-mix(in oklch, var(--color-primary) 30%, var(--color-base-100));
+    }
+  }
 }
 
 @utility lg-sm {

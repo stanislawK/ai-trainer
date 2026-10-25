@@ -128,6 +128,15 @@ def test_create_app_registers_the_admin_route() -> None:
     assert "/admin" in app.openapi()["paths"]
 
 
+def test_create_app_serves_the_ai_onboarding_cards() -> None:
+    """Ticket #255: goals, level and schedule are wired, each with its Skip."""
+    paths = create_app(_settings()).openapi()["paths"]
+
+    for card in ("goals", "level", "schedule"):
+        assert f"/onboarding/{card}" in paths
+        assert f"/onboarding/{card}/skip" in paths
+
+
 def test_create_app_wires_the_designed_404_and_500_pages() -> None:
     """`register_error_handlers` (ticket #44) is called from `create_app`. A full HTTP round
     trip can't prove this here: `ActiveUserGateMiddleware` refuses any non-exempt, unmatched

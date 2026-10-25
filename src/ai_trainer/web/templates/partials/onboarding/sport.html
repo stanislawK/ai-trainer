@@ -2,10 +2,10 @@
     required. Each row submits its sport; `onboarding_zone.js` fills in the browser's IANA zone,
     which the summary shows to correct. -#}
 {% from "components/icon.html" import icon %}
-{% from "components/onboarding_frame.html" import frame, column %}
+{% from "components/onboarding_frame.html" import frame, column, card_count %}
 {% from "components/sport_copy.html" import sport_copy %}
 <main id="onboarding-card" class="{{ column }}">
-  {{ frame(0, 2) }}
+  {{ frame(0, card_count) }}
   <div class="relative flex-1 min-h-0 flex flex-col px-4 pb-[max(2rem,env(safe-area-inset-bottom))] pt-2">
     <div class="mt-auto mb-auto flex flex-col gap-5">
       <div class="flex flex-col gap-2 px-2">

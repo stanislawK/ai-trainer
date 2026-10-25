@@ -1,4 +1,5 @@
-"""A new account walks through onboarding into the chat (PRD-0007 F1, F6, G11; tickets #86, #254).
+"""A new account walks through onboarding into the chat (PRD 0008 F1, F6, G11; tickets #86, #254,
+#255).
 
 It is the first flow every athlete takes, so it earns a permanent spec (ADR-0013). The
 streamed reply is out of scope: stubbing OpenRouter inside the compose stack is not decided
@@ -20,20 +21,24 @@ def _press(page: Page, name: str) -> None:
 
 
 def test_new_account_completes_onboarding_and_lands_in_chat(not_onboarded_page: Page) -> None:
-    """Sport, About you skipped (so no model call leaves the stack), the summary, and confirm
-    (ADR-0028, ticket #254). #256 extends it to two sports."""
+    """Sport, About you and the sport's goals, level and schedule skipped (so no model call
+    leaves the stack), the summary, and confirm (ADR-0028, tickets #254, #255). #256 extends it
+    to two sports."""
     page = not_onboarded_page
     page.goto(f"{BASE_URL}/")
     expect(page).to_have_url(f"{BASE_URL}/onboarding/sport")
 
     _press(page, "Climbing")
 
-    expect(page).to_have_url(f"{BASE_URL}/onboarding/about-you")
-    _press(page, "Skip")
+    for card in ("about-you", "goals", "level", "schedule"):
+        expect(page).to_have_url(f"{BASE_URL}/onboarding/{card}")
+        _press(page, "Skip")
 
     expect(page).to_have_url(f"{BASE_URL}/onboarding/summary")
-    expect(page.get_by_text("Skipped")).to_be_visible()
+    # About you and Climbing, both skipped.
+    expect(page.get_by_text("Skipped")).to_have_count(2)
     expect(page.get_by_label("Age", exact=True)).to_have_value("")
+    expect(page.get_by_label("Sessions a week", exact=True)).to_have_value("")
     _press(page, "Looks right, build my plan")
 
     expect(page).to_have_url(f"{BASE_URL}/")

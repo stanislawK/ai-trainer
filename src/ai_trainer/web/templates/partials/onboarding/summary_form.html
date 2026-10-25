@@ -1,29 +1,45 @@
 {#- The editable onboarding summary (Onboarding v4, F21, B35, B36): every field read from the
-    answers, "Not mentioned" where it is empty, "Skipped" on a skipped step, and the timezone the
-    browser gave, to correct. Nothing is saved until Confirm; a bad field comes back flagged. -#}
+    answers, "Not mentioned" where it is empty, "Skipped" on a skipped step, a section per sport,
+    and the timezone the browser gave, to correct. Nothing is saved until Confirm; a bad field
+    comes back flagged. A sport's fields are named `<sport_id>.<field>`; its goals post their text
+    and date by position. -#}
 {% from "components/icon.html" import icon %}
+{% from "components/sport_copy.html" import sport_copy %}
 {% set problem_copy = {
   "age": "An age from 10 to 100.",
   "height_cm": "A height from 100 to 250 cm.",
   "weight_kg": "A weight from 25 to 300 kg, with at most one decimal.",
   "limits": "At most 300 characters.",
   "timezone": "Choose a timezone from the list.",
+  "level": "At most 200 characters.",
+  "exercises": "At most 300 characters.",
+  "sessions_per_week": "From 1 to 14 sessions a week.",
+  "session_minutes": "From 5 to 600 minutes.",
+  "days": "Choose days from the list.",
+  "goal_date": "Choose a date that exists.",
+  "goal_text": "At most 200 characters.",
+  "goal_text.required": "Add the goal this date is for.",
 } %}
-{% macro field(name, label, kind="number", wide=false, min=none, max=none, step=none) -%}
+{#- User-facing weekday names live here (G5); weekday 0 is Monday. -#}
+{% set weekday_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] %}
+{% macro field(name, label, value, problem="", kind="number", wide=false, min=none, max=none, step=none, maxlength=none) -%}
+{% set field_id = name | replace(".", "-") %}
 <label class="flex flex-col gap-1 min-w-0{{ ' col-span-2' if wide }}">
   <span class="text-[12px] text-base-content/70">{{ label }}</span>
   <input
     class="lg-field h-11 text-[15px]"
     name="{{ name }}"
-    value="{{ values[name] }}"
-    placeholder="Not mentioned"
-    {% if kind == "number" %}type="number" inputmode="decimal" min="{{ min }}" max="{{ max }}" step="{{ step or 1 }}"{% else %}type="text" maxlength="{{ max_limits }}"{% endif %}
-    {% if name in problems %}aria-invalid="true" aria-describedby="{{ name }}-error"{% endif %}
+    value="{{ value }}"
+    {% if kind == "number" %}placeholder="Not mentioned" type="number" inputmode="decimal" min="{{ min }}" max="{{ max }}" step="{{ step or 1 }}"{% elif kind == "date" %}type="date"{% else %}placeholder="Not mentioned" type="text" maxlength="{{ maxlength }}"{% endif %}
+    {% if problem %}aria-invalid="true" aria-describedby="{{ field_id }}-error"{% endif %}
   />
-  {% if name in problems %}
-  <span id="{{ name }}-error" class="text-[12px] text-error">{{ problem_copy[name] }}</span>
+  {% if problem %}
+  <span id="{{ field_id }}-error" class="text-[12px] text-error">{{ problem }}</span>
   {% endif %}
 </label>
+{%- endmacro %}
+{% macro problem_of(name, copy_key=none) -%}
+{{ problem_copy[copy_key or name] if name in problems else "" }}
 {%- endmacro %}
 <form class="flex-1 min-h-0 flex flex-col gap-3" hx-post="/onboarding/confirm" hx-target="#onboarding-summary" hx-swap="innerHTML">
   <div class="flex-1 min-h-0 overflow-y-auto -mx-4 px-4 pb-2">
@@ -39,12 +55,48 @@
           {% if skipped %}<span class="badge badge-sm badge-ghost">Skipped</span>{% endif %}
         </header>
         <div class="grid grid-cols-2 gap-x-3 gap-y-3">
-          {{ field("age", "Age", min=10, max=100) }}
-          {{ field("height_cm", "Height, cm", min=100, max=250) }}
-          {{ field("weight_kg", "Weight, kg", min=25, max=300, step=0.1) }}
-          {{ field("limits", "Injuries or limits", kind="text", wide=true) }}
+          {{ field("age", "Age", values.age, problem_of("age"), min=10, max=100) }}
+          {{ field("height_cm", "Height, cm", values.height_cm, problem_of("height_cm"), min=100, max=250) }}
+          {{ field("weight_kg", "Weight, kg", values.weight_kg, problem_of("weight_kg"), min=25, max=300, step=0.1) }}
+          {{ field("limits", "Injuries or limits", values.limits, problem_of("limits"), kind="text", wide=true, maxlength=max_limits) }}
         </div>
       </section>
+      {% for sport in sports %}
+      {% set label = sport_copy[sport.label_key].label %}
+      {% set typed = sport.form %}
+      <section class="flex flex-col gap-3" aria-label="{{ label }}">
+        <header class="flex items-center gap-2 border-t border-base-content/10 pt-4">
+          {{ icon(sport.icon, "size-4 text-primary") }}
+          <span class="flex-1 text-[15px] font-semibold">{{ label }}</span>
+          {% if sport.skipped %}<span class="badge badge-sm badge-ghost">Skipped</span>{% endif %}
+        </header>
+        <div class="grid grid-cols-2 gap-x-3 gap-y-3">
+          {% for text in typed.goal_texts %}
+          {% set n = loop.index0 %}
+          {% set text_problem = problems.get(sport.id ~ ".goal_text." ~ n) %}
+          {{ field(sport.id ~ ".goal_text", "Goal", text, (problem_copy["goal_text.required"] if text_problem == "required" else problem_copy.goal_text) if text_problem else "", kind="text", wide=true, maxlength=max_goal) }}
+          {{ field(sport.id ~ ".goal_date", "Target date", typed.goal_dates[n] if n < typed.goal_dates | length else "", problem_of(sport.id ~ ".goal_date." ~ n, "goal_date"), kind="date", wide=true) }}
+          {% endfor %}
+          {{ field(sport.id ~ ".level", "Current level", typed.fields.level, problem_of(sport.id ~ ".level", "level"), kind="text", wide=true, maxlength=max_level) }}
+          {{ field(sport.id ~ ".exercises", "Current exercises", typed.fields.exercises, problem_of(sport.id ~ ".exercises", "exercises"), kind="text", wide=true, maxlength=max_exercises) }}
+          {{ field(sport.id ~ ".sessions_per_week", "Sessions a week", typed.fields.sessions_per_week, problem_of(sport.id ~ ".sessions_per_week", "sessions_per_week"), min=1, max=14) }}
+          {{ field(sport.id ~ ".session_minutes", "Session length, min", typed.fields.session_minutes, problem_of(sport.id ~ ".session_minutes", "session_minutes"), min=5, max=600) }}
+          {% set days_problem = problem_of(sport.id ~ ".days", "days") %}
+          <fieldset class="col-span-2 flex flex-col gap-1 min-w-0"{% if days_problem %} aria-invalid="true" aria-describedby="{{ sport.id }}-days-error"{% endif %}>
+            <legend class="text-[12px] text-base-content/70 pb-1">Preferred days</legend>
+            <div class="flex flex-wrap gap-x-1">
+              {% for name in weekday_names %}
+              {#- The chip is 32 px; the label around it is the 44 px tap target. -#}
+              <label class="h-11 grid place-items-center cursor-pointer"><span class="lg lg-clear lg-chip"><input type="checkbox" class="sr-only" name="{{ sport.id }}.days" value="{{ loop.index0 }}"{{ " checked" if (loop.index0 | string) in typed.days }}>{{ name }}</span></label>
+              {% endfor %}
+            </div>
+            {% if days_problem %}
+            <span id="{{ sport.id }}-days-error" class="text-[12px] text-error">{{ days_problem }}</span>
+            {% endif %}
+          </fieldset>
+        </div>
+      </section>
+      {% endfor %}
       <section class="flex flex-col gap-3" aria-label="Timezone">
         <header class="flex items-center gap-2 border-t border-base-content/10 pt-4">
           {{ icon("clock", "size-4 text-primary") }}

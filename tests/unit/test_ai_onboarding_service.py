@@ -106,7 +106,7 @@ async def test_an_unknown_sport_is_rejected_and_stores_nothing(
     assert answers.sports == {}
 
 
-async def test_the_card_follows_the_sport_then_about_you_then_the_summary(
+async def test_the_card_follows_the_sport_then_about_you_then_the_sports_steps(
     answers: FakeOnboardingAnswers,
 ) -> None:
     user = uuid4()
@@ -114,7 +114,8 @@ async def test_the_card_follows_the_sport_then_about_you_then_the_summary(
     await answers.start(user, "climbing", "UTC")
     assert await current_card(user, answers=answers) is OnboardingCard.ABOUT_YOU
     await answers.skip_answer(user, ABOUT_YOU, None)
-    assert await current_card(user, answers=answers) is OnboardingCard.SUMMARY
+    # Then goals, level and schedule (#255), and then the summary.
+    assert await current_card(user, answers=answers) is OnboardingCard.GOALS
 
 
 async def test_a_send_returns_before_the_model_call_does(
