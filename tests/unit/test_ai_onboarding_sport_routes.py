@@ -8,29 +8,20 @@ from collections.abc import Iterator
 from datetime import date
 
 import pytest
-from fastapi import APIRouter
-from fastapi.routing import APIRoute
 from pydantic import JsonValue
 
-from ai_trainer.application.background_reads import BackgroundReads
 from ai_trainer.domain.goals import Goal
 from ai_trainer.domain.onboarding import AnswerStatus, OnboardingStep
 from ai_trainer.domain.sport_profile import SportProfile
-from ai_trainer.domain.sports.registry import default_sport_registry
-from ai_trainer.web.ai_onboarding import build_ai_onboarding_router
-from ai_trainer.web.onboarding import build_onboarding_router
-from ai_trainer.web.templating import build_templates
-from tests.onboarding_support import FakeOnboardingAnswers, FakeReader
+from tests.onboarding_support import FakeReader
 from tests.unit.test_ai_onboarding_route import (
     HX,
     Athlete,
-    FakeClock,
     _athlete,
     _picked,
     _summary,
     _value,
 )
-from tests.unit.test_onboarding_route import FakeOnboardingRepository
 
 ABOUT_YOU, GOALS, LEVEL, SCHEDULE = (
     OnboardingStep.ABOUT_YOU,
@@ -80,7 +71,7 @@ async def test_about_you_moves_on_to_goals(athlete: Athlete) -> None:
 
     response = athlete.client.post("/onboarding/about-you", data={"answer": "31"}, headers=HX)
 
-    assert response.headers["HX-Redirect"] == "/onboarding/goals"
+    assert response.headers["HX-Redirect"] == "/onboarding/climbing/goals"
 
 
 async def test_the_goals_card_asks_the_sports_question_with_skip_back_and_progress(
@@ -88,7 +79,7 @@ async def test_the_goals_card_asks_the_sports_question_with_skip_back_and_progre
 ) -> None:
     await _at_goals(athlete)
 
-    response = athlete.client.get("/onboarding/goals")
+    response = athlete.client.get("/onboarding/climbing/goals")
 
     assert response.status_code == 200
     assert "What do you want from climbing?" in response.text
@@ -96,8 +87,8 @@ async def test_the_goals_card_asks_the_sports_question_with_skip_back_and_progre
     assert "Climbing · Goals" in response.text
     for hint in ("Goal", "Target date"):
         assert f">{hint}</span>" in response.text
-    assert 'hx-post="/onboarding/goals/skip"' in response.text
-    assert 'hx-post="/onboarding/goals"' in response.text
+    assert 'hx-post="/onboarding/climbing/goals/skip"' in response.text
+    assert 'hx-post="/onboarding/climbing/goals"' in response.text
     assert 'href="/onboarding/about-you"' in response.text
     assert 'aria-valuenow="3"' in response.text
     assert 'aria-valuemax="5"' in response.text
@@ -108,12 +99,12 @@ async def test_each_card_has_its_own_sports_copy() -> None:
         await _at_goals(each, "gym")
         await each.answers.skip_answer(each.user.id, GOALS, "gym")
 
-        response = each.client.get("/onboarding/level", headers=HX)
+        response = each.client.get("/onboarding/gym/level", headers=HX)
 
         assert "<html" not in response.text
         assert "Your main lifts and the exercises you do." in response.text
         assert "Gym · Level and exercises" in response.text
-        assert 'href="/onboarding/goals"' in response.text
+        assert 'href="/onboarding/gym/goals"' in response.text
 
 
 async def test_the_schedule_card_asks_how_often_and_how_long(athlete: Athlete) -> None:
@@ -121,10 +112,10 @@ async def test_the_schedule_card_asks_how_often_and_how_long(athlete: Athlete) -
     for step in (GOALS, LEVEL):
         await athlete.answers.skip_answer(athlete.user.id, step, "climbing")
 
-    response = athlete.client.get("/onboarding/schedule")
+    response = athlete.client.get("/onboarding/climbing/schedule")
 
     assert "How often do you want to train, and for how long?" in response.text
-    assert 'href="/onboarding/level"' in response.text
+    assert 'href="/onboarding/climbing/level"' in response.text
     assert 'aria-valuenow="5"' in response.text
 
 
@@ -136,33 +127,36 @@ async def test_a_send_moves_straight_on_while_the_read_runs() -> None:
         await _at_goals(each)
 
         response = each.client.post(
-            "/onboarding/goals", data={"answer": "Send my first 7c outdoors by June"}, headers=HX
+            "/onboarding/climbing/goals",
+            data={"answer": "Send my first 7c outdoors by June"},
+            headers=HX,
         )
 
-        assert response.headers["HX-Redirect"] == "/onboarding/level"
+        assert response.headers["HX-Redirect"] == "/onboarding/climbing/level"
         answer = next(a for a in await each.answers.list_answers(each.user.id) if a.step is GOALS)
         assert (answer.sport_id, answer.status) == ("climbing", AnswerStatus.PENDING)
         assert each.reads.running((each.user.id, GOALS, "climbing")) is not None
 
 
-async def test_skip_and_send_lead_through_level_and_schedule_to_the_summary(
+async def test_skip_and_send_lead_through_level_and_schedule_to_another_sport(
     athlete: Athlete,
 ) -> None:
     await _at_goals(athlete)
 
-    skipped = athlete.client.post("/onboarding/goals/skip", headers=HX)
-    sent = athlete.client.post("/onboarding/level", data={"answer": "7b"}, headers=HX)
-    last = athlete.client.post("/onboarding/schedule/skip", headers=HX)
+    skipped = athlete.client.post("/onboarding/climbing/goals/skip", headers=HX)
+    sent = athlete.client.post("/onboarding/climbing/level", data={"answer": "7b"}, headers=HX)
+    last = athlete.client.post("/onboarding/climbing/schedule/skip", headers=HX)
 
-    assert skipped.headers["HX-Redirect"] == "/onboarding/level"
-    assert sent.headers["HX-Redirect"] == "/onboarding/schedule"
-    assert last.headers["HX-Redirect"] == "/onboarding/summary"
+    assert skipped.headers["HX-Redirect"] == "/onboarding/climbing/level"
+    assert sent.headers["HX-Redirect"] == "/onboarding/climbing/schedule"
+    # Two sports are left, so "Add another sport?" comes before the summary (#256).
+    assert last.headers["HX-Redirect"] == "/onboarding/more"
 
 
 async def test_a_blank_answer_shows_the_card_again_with_an_error(athlete: Athlete) -> None:
     await _at_goals(athlete)
 
-    response = athlete.client.post("/onboarding/goals", data={"answer": " "}, headers=HX)
+    response = athlete.client.post("/onboarding/climbing/goals", data={"answer": " "}, headers=HX)
 
     assert response.status_code == 422
     assert "<html" not in response.text
@@ -174,7 +168,7 @@ async def test_back_shows_the_earlier_answer_to_change(athlete: Athlete) -> None
     await _at_goals(athlete)
     await athlete.answers.store_answer(athlete.user.id, GOALS, "climbing", "First 7c by June")
 
-    response = athlete.client.get("/onboarding/goals")
+    response = athlete.client.get("/onboarding/climbing/goals")
 
     assert "First 7c by June</textarea>" in response.text
 
@@ -182,14 +176,18 @@ async def test_back_shows_the_earlier_answer_to_change(athlete: Athlete) -> None
 async def test_a_card_not_yet_due_sends_the_athlete_to_the_one_that_is(athlete: Athlete) -> None:
     await _picked(athlete)
 
-    for path in ("/onboarding/goals", "/onboarding/level", "/onboarding/schedule"):
+    for path in (
+        "/onboarding/climbing/goals",
+        "/onboarding/climbing/level",
+        "/onboarding/climbing/schedule",
+    ):
         response = athlete.client.get(path, follow_redirects=False)
         assert response.headers["location"] == "/onboarding/about-you", path
 
-    response = athlete.client.post("/onboarding/schedule/skip", follow_redirects=False)
+    response = athlete.client.post("/onboarding/climbing/schedule/skip", follow_redirects=False)
     assert response.headers["location"] == "/onboarding/about-you"
     response = athlete.client.post(
-        "/onboarding/goals", data={"answer": "7c"}, follow_redirects=False
+        "/onboarding/climbing/goals", data={"answer": "7c"}, follow_redirects=False
     )
     assert response.headers["location"] == "/onboarding/about-you"
     assert len(await athlete.answers.list_answers(athlete.user.id)) == 0
@@ -201,37 +199,7 @@ async def test_a_reload_resumes_at_the_next_unanswered_sport_step(athlete: Athle
 
     response = athlete.client.get("/onboarding", follow_redirects=False)
 
-    assert response.headers["location"] == "/onboarding/level"
-
-
-def test_the_form_onboarding_shares_no_route_with_the_ai_onboarding() -> None:
-    """Both routers sit under `/onboarding`, and the one included first wins a shared path: the
-    form onboarding's goals step hid the Goals card until #255 removed it."""
-    templates = build_templates()
-    form = build_onboarding_router(
-        templates,
-        registry=default_sport_registry(),
-        onboarding=FakeOnboardingRepository(),
-        clock=FakeClock(),
-    )
-    ai = build_ai_onboarding_router(
-        templates,
-        registry=default_sport_registry(),
-        answers=FakeOnboardingAnswers(),
-        reads=BackgroundReads(),
-        reader=FakeReader(),
-        clock=FakeClock(),
-    )
-
-    def keys(router: APIRouter) -> set[tuple[str, str]]:
-        return {
-            (method, route.path)
-            for route in router.routes
-            if isinstance(route, APIRoute)
-            for method in route.methods or ()
-        }
-
-    assert keys(form) & keys(ai) == set()
+    assert response.headers["location"] == "/onboarding/climbing/level"
 
 
 # --- The summary --------------------------------------------------------------------------

@@ -12,6 +12,7 @@ from pydantic import JsonValue
 from ai_trainer.application.ai_onboarding import (
     InvalidSummaryError,
     OnboardingCard,
+    Place,
     SportSummary,
     catch_up,
     confirm_summary,
@@ -25,6 +26,7 @@ from ai_trainer.domain.athlete_profile import FieldProblem
 from ai_trainer.domain.goals import Goal
 from ai_trainer.domain.onboarding import AnswerStatus, OnboardingStep
 from ai_trainer.domain.sport_profile import SportForm, SportProfile, SportSection
+from ai_trainer.domain.sports.registry import default_sport_registry
 from tests.onboarding_support import FakeOnboardingAnswers, FakeReader
 
 ABOUT_YOU, GOALS, LEVEL, SCHEDULE = (
@@ -34,6 +36,7 @@ ABOUT_YOU, GOALS, LEVEL, SCHEDULE = (
     OnboardingStep.SCHEDULE,
 )
 NOW = datetime(2026, 10, 25, 18, 0, tzinfo=UTC)
+REGISTRY = default_sport_registry()
 GOALS_READ: dict[str, JsonValue] = {
     "goals": [{"text": "Send my first 7c outdoors", "target_date": "2027-06-30"}]
 }
@@ -71,10 +74,15 @@ async def test_the_card_follows_about_you_with_goals_level_and_schedule(
         (LEVEL, OnboardingCard.LEVEL),
         (SCHEDULE, OnboardingCard.SCHEDULE),
     ):
-        assert await current_card(user, answers=answers) is card
+        assert await current_card(user, answers=answers, registry=REGISTRY) == Place(
+            card, "climbing"
+        )
         await answers.skip_answer(user, step, "climbing")
 
-    assert await current_card(user, answers=answers) is OnboardingCard.SUMMARY
+    # The other two sports are left to add (#256).
+    assert await current_card(user, answers=answers, registry=REGISTRY) == Place(
+        OnboardingCard.MORE
+    )
 
 
 async def test_a_sport_step_is_stored_under_the_sport_and_read_with_it(

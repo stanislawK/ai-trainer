@@ -918,38 +918,6 @@
         "summary": "Skip About You"
       }
     },
-    "/onboarding/availability": {
-      "get": {
-        "operationId": "availability_step_onboarding_availability_get",
-        "responses": {
-          "200": {
-            "content": {
-              "text/html": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "Availability Step"
-      },
-      "post": {
-        "operationId": "set_availability_step_onboarding_availability_post",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "Set Availability Step"
-      }
-    },
     "/onboarding/confirm": {
       "post": {
         "operationId": "confirm_onboarding_confirm_post",
@@ -966,9 +934,10 @@
         "summary": "Confirm"
       }
     },
-    "/onboarding/goals": {
+    "/onboarding/more": {
       "get": {
-        "operationId": "onboarding_goals_card_onboarding_goals_get",
+        "description": "\"Add another sport?\" (#256): the sports not picked yet, and the way to the summary.",
+        "operationId": "more_card_onboarding_more_get",
         "responses": {
           "200": {
             "content": {
@@ -979,10 +948,10 @@
             "description": "Successful Response"
           }
         },
-        "summary": "Onboarding Goals Card"
+        "summary": "More Card"
       },
       "post": {
-        "operationId": "onboarding_goals_send_onboarding_goals_post",
+        "operationId": "choose_another_sport_onboarding_more_post",
         "responses": {
           "200": {
             "content": {
@@ -993,115 +962,7 @@
             "description": "Successful Response"
           }
         },
-        "summary": "Onboarding Goals Send"
-      }
-    },
-    "/onboarding/goals/skip": {
-      "post": {
-        "operationId": "onboarding_goals_skip_onboarding_goals_skip_post",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "Onboarding Goals Skip"
-      }
-    },
-    "/onboarding/level": {
-      "get": {
-        "operationId": "onboarding_level_card_onboarding_level_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "Onboarding Level Card"
-      },
-      "post": {
-        "operationId": "onboarding_level_send_onboarding_level_post",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "Onboarding Level Send"
-      }
-    },
-    "/onboarding/level/skip": {
-      "post": {
-        "operationId": "onboarding_level_skip_onboarding_level_skip_post",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "Onboarding Level Skip"
-      }
-    },
-    "/onboarding/schedule": {
-      "get": {
-        "operationId": "onboarding_schedule_card_onboarding_schedule_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "Onboarding Schedule Card"
-      },
-      "post": {
-        "operationId": "onboarding_schedule_send_onboarding_schedule_post",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "Onboarding Schedule Send"
-      }
-    },
-    "/onboarding/schedule/skip": {
-      "post": {
-        "operationId": "onboarding_schedule_skip_onboarding_schedule_skip_post",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "Onboarding Schedule Skip"
+        "summary": "Choose Another Sport"
       }
     },
     "/onboarding/sport": {
@@ -1184,9 +1045,20 @@
         "summary": "Stream Summary"
       }
     },
-    "/onboarding/timezone": {
+    "/onboarding/{sport_id}/goals": {
       "get": {
-        "operationId": "timezone_step_onboarding_timezone_get",
+        "operationId": "onboarding_goals_card_onboarding__sport_id__goals_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "sport_id",
+            "required": true,
+            "schema": {
+              "title": "Sport Id",
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -1195,12 +1067,33 @@
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
-        "summary": "Timezone Step"
+        "summary": "Onboarding Goals Card"
       },
       "post": {
-        "operationId": "confirm_timezone_step_onboarding_timezone_post",
+        "operationId": "onboarding_goals_send_onboarding__sport_id__goals_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "sport_id",
+            "required": true,
+            "schema": {
+              "title": "Sport Id",
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -1209,9 +1102,274 @@
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
-        "summary": "Confirm Timezone Step"
+        "summary": "Onboarding Goals Send"
+      }
+    },
+    "/onboarding/{sport_id}/goals/skip": {
+      "post": {
+        "operationId": "onboarding_goals_skip_onboarding__sport_id__goals_skip_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "sport_id",
+            "required": true,
+            "schema": {
+              "title": "Sport Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Onboarding Goals Skip"
+      }
+    },
+    "/onboarding/{sport_id}/level": {
+      "get": {
+        "operationId": "onboarding_level_card_onboarding__sport_id__level_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "sport_id",
+            "required": true,
+            "schema": {
+              "title": "Sport Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Onboarding Level Card"
+      },
+      "post": {
+        "operationId": "onboarding_level_send_onboarding__sport_id__level_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "sport_id",
+            "required": true,
+            "schema": {
+              "title": "Sport Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Onboarding Level Send"
+      }
+    },
+    "/onboarding/{sport_id}/level/skip": {
+      "post": {
+        "operationId": "onboarding_level_skip_onboarding__sport_id__level_skip_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "sport_id",
+            "required": true,
+            "schema": {
+              "title": "Sport Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Onboarding Level Skip"
+      }
+    },
+    "/onboarding/{sport_id}/schedule": {
+      "get": {
+        "operationId": "onboarding_schedule_card_onboarding__sport_id__schedule_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "sport_id",
+            "required": true,
+            "schema": {
+              "title": "Sport Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Onboarding Schedule Card"
+      },
+      "post": {
+        "operationId": "onboarding_schedule_send_onboarding__sport_id__schedule_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "sport_id",
+            "required": true,
+            "schema": {
+              "title": "Sport Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Onboarding Schedule Send"
+      }
+    },
+    "/onboarding/{sport_id}/schedule/skip": {
+      "post": {
+        "operationId": "onboarding_schedule_skip_onboarding__sport_id__schedule_skip_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "sport_id",
+            "required": true,
+            "schema": {
+              "title": "Sport Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Onboarding Schedule Skip"
       }
     },
     "/settings": {

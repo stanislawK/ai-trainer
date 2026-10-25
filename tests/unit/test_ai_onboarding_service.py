@@ -13,6 +13,7 @@ from ai_trainer.application.ai_onboarding import (
     EmptyAnswerError,
     InvalidSummaryError,
     OnboardingCard,
+    Place,
     catch_up,
     confirm_summary,
     current_card,
@@ -109,13 +110,19 @@ async def test_an_unknown_sport_is_rejected_and_stores_nothing(
 async def test_the_card_follows_the_sport_then_about_you_then_the_sports_steps(
     answers: FakeOnboardingAnswers,
 ) -> None:
-    user = uuid4()
-    assert await current_card(user, answers=answers) is OnboardingCard.SPORT
+    user, registry = uuid4(), default_sport_registry()
+    assert await current_card(user, answers=answers, registry=registry) == Place(
+        OnboardingCard.SPORT
+    )
     await answers.start(user, "climbing", "UTC")
-    assert await current_card(user, answers=answers) is OnboardingCard.ABOUT_YOU
+    assert await current_card(user, answers=answers, registry=registry) == Place(
+        OnboardingCard.ABOUT_YOU
+    )
     await answers.skip_answer(user, ABOUT_YOU, None)
-    # Then goals, level and schedule (#255), and then the summary.
-    assert await current_card(user, answers=answers) is OnboardingCard.GOALS
+    # Then the sport's goals, level and schedule (#255).
+    assert await current_card(user, answers=answers, registry=registry) == Place(
+        OnboardingCard.GOALS, "climbing"
+    )
 
 
 async def test_a_send_returns_before_the_model_call_does(

@@ -118,51 +118,6 @@ async def test_replace_sports_with_nothing_clears_the_users_sports(
     assert list(await repository.list_sports(user_id)) == []
 
 
-async def test_replace_availability_stores_exactly_the_given_days(
-    db_session_factory: Callable[[], AsyncSession],
-) -> None:
-    repository = SqlAlchemyOnboardingRepository(db_session_factory)
-    user_id = await _user(db_session_factory, "sub-h")
-
-    await repository.replace_availability(user_id, {0: 60, 2: 90, 5: 180})
-
-    assert dict(await repository.list_availability(user_id)) == {0: 60, 2: 90, 5: 180}
-
-
-async def test_replace_availability_drops_days_no_longer_given(
-    db_session_factory: Callable[[], AsyncSession],
-) -> None:
-    repository = SqlAlchemyOnboardingRepository(db_session_factory)
-    user_id = await _user(db_session_factory, "sub-i")
-    await repository.replace_availability(user_id, {0: 60, 2: 90})
-
-    await repository.replace_availability(user_id, {2: 45, 6: 120})
-
-    assert dict(await repository.list_availability(user_id)) == {2: 45, 6: 120}
-
-
-async def test_replace_availability_only_touches_the_given_user(
-    db_session_factory: Callable[[], AsyncSession],
-) -> None:
-    repository = SqlAlchemyOnboardingRepository(db_session_factory)
-    first = await _user(db_session_factory, "sub-j")
-    second = await _user(db_session_factory, "sub-k")
-    await repository.replace_availability(first, {0: 60})
-
-    await repository.replace_availability(second, {1: 30})
-
-    assert dict(await repository.list_availability(first)) == {0: 60}
-    assert dict(await repository.list_availability(second)) == {1: 30}
-
-
-async def test_list_availability_of_a_user_with_none_is_empty(
-    db_session_factory: Callable[[], AsyncSession],
-) -> None:
-    repository = SqlAlchemyOnboardingRepository(db_session_factory)
-
-    assert dict(await repository.list_availability(uuid4())) == {}
-
-
 async def test_the_database_rejects_minutes_outside_1_to_600(
     db_session_factory: Callable[[], AsyncSession],
 ) -> None:
@@ -188,10 +143,19 @@ async def test_the_database_rejects_minutes_outside_1_to_600(
 async def test_deleting_a_user_cascades_their_weekly_availability(
     db_session_factory: Callable[[], AsyncSession],
 ) -> None:
-    repository = SqlAlchemyOnboardingRepository(db_session_factory)
+    """The table is no longer written (ADR-0028), but its rows still join account deletion until
+    the contract ticket drops it (ADR-0024)."""
     users = SqlAlchemyUsersRepository(db_session_factory)
     user_id = await _user(db_session_factory, "sub-m")
-    await repository.replace_availability(user_id, {0: 60, 2: 90, 5: 180})
+    async with db_session_factory() as session:
+        await session.execute(
+            text(
+                "INSERT INTO weekly_availability (user_id, weekday, minutes) "
+                "VALUES (:user_id, 0, 60), (:user_id, 2, 90)"
+            ),
+            {"user_id": user_id},
+        )
+        await session.commit()
 
     await users.delete(user_id)
 
@@ -425,35 +389,3 @@ async def test_a_new_user_starts_on_utc(
 
     assert user.timezone == "UTC"
     assert user.onboarded_at is None
-
-
-async def test_finish_onboarding_stores_the_zone_and_onboarded_at_together(
-    db_session_factory: Callable[[], AsyncSession],
-) -> None:
-    repository = SqlAlchemyOnboardingRepository(db_session_factory)
-    users = SqlAlchemyUsersRepository(db_session_factory)
-    user_id = await _user(db_session_factory, "sub-tz1")
-    when = datetime(2026, 9, 30, 12, 0, tzinfo=UTC)
-
-    await repository.finish_onboarding(user_id, "Europe/Warsaw", when)
-
-    stored = await users.get(user_id)
-    assert stored is not None
-    assert stored.timezone == "Europe/Warsaw"
-    assert stored.onboarded_at == when
-
-
-async def test_finish_onboarding_only_touches_the_given_user(
-    db_session_factory: Callable[[], AsyncSession],
-) -> None:
-    repository = SqlAlchemyOnboardingRepository(db_session_factory)
-    users = SqlAlchemyUsersRepository(db_session_factory)
-    mine = await _user(db_session_factory, "sub-tz2")
-    other = await _user(db_session_factory, "sub-tz3")
-
-    await repository.finish_onboarding(mine, "Asia/Tokyo", datetime(2026, 9, 30, tzinfo=UTC))
-
-    untouched = await users.get(other)
-    assert untouched is not None
-    assert untouched.timezone == "UTC"
-    assert untouched.onboarded_at is None

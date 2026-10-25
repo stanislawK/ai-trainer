@@ -1,7 +1,8 @@
 """The AI onboarding (PRD 0008 B33-B36, F20, F21, ADR-0028): a sport pick, About you, then goals,
-level and schedule for the sport, prose answers read in the background, and a summary the
-athlete confirms. A send stores its answer and returns at once;
-only the summary waits for reads, and only confirm writes the profile (invariants 1-4)."""
+level and schedule for the sport, another sport's three steps if the athlete adds one (#256),
+prose answers read in the background, and a summary the athlete confirms. A send stores its
+answer and returns at once; only the summary waits for reads, and only confirm writes the
+profile (invariants 1-4)."""
 
 import asyncio
 import logging
@@ -51,6 +52,7 @@ class OnboardingCard(StrEnum):
     GOALS = "goals"
     LEVEL = "level"
     SCHEDULE = "schedule"
+    MORE = "more"
     SUMMARY = "summary"
 
 
@@ -62,6 +64,31 @@ _CARD_OF = {
     OnboardingStep.LEVEL: OnboardingCard.LEVEL,
     OnboardingStep.SCHEDULE: OnboardingCard.SCHEDULE,
 }
+_STEP_OF = {card: step for step, card in _CARD_OF.items()}
+
+
+@dataclass(frozen=True)
+class Place:
+    """A card in the athlete's flow; a sport's step names its sport."""
+
+    card: OnboardingCard
+    sport_id: str | None = None
+
+
+def flow_of(sports: Sequence[str], *, sport_count: int) -> tuple[Place, ...]:
+    """Every card in order for an athlete with `sports`, of `sport_count` there are: the sport,
+    About you, each sport's three steps in the order picked, "Add another sport?" while a sport
+    is left, and the summary."""
+    places = [Place(OnboardingCard.SPORT), Place(OnboardingCard.ABOUT_YOU)]
+    places += [Place(_CARD_OF[step], sport) for sport in sports for step in SPORT_STEPS]
+    if len(sports) < sport_count:
+        places.append(Place(OnboardingCard.MORE))
+    places.append(Place(OnboardingCard.SUMMARY))
+    return tuple(places)
+
+
+class AlreadyPickedError(Exception):
+    """Raised when "Add another sport?" is sent a sport the athlete already has."""
 
 
 class EmptyAnswerError(Exception):
@@ -112,23 +139,42 @@ async def pick_sport(
 ) -> None:
     """Starts onboarding with one sport (B36) and the browser's zone. An unknown sport raises
     `UnknownSportError` and stores nothing; a zone that isn't an IANA name falls back to UTC,
-    since the summary shows it to correct."""
+    since the summary shows it to correct. Picking the first sport again, after Back, keeps
+    every sport added since and their answers (#256)."""
     registry.get(sport_id)
+    if (await answers.list_sports(user_id))[:1] == [sport_id]:
+        return
     zone = raw_timezone.strip()
     await answers.start(user_id, sport_id, zone if zone in timezone_names() else _FALLBACK_TIMEZONE)
 
 
-async def current_card(user_id: UUID, *, answers: OnboardingAnswersPort) -> OnboardingCard:
-    """The first card with no answer yet, sent or skipped: About you, then the first sport's
-    steps; the summary once every one has one."""
+async def add_sport(
+    user_id: UUID, sport_id: str, *, registry: SportRegistry, answers: OnboardingAnswersPort
+) -> None:
+    """Adds a sport after the first one's steps (#256); its own three steps follow, and the
+    answers so far are kept. An unknown sport raises `UnknownSportError`, one already picked
+    `AlreadyPickedError`, and neither stores anything."""
+    registry.get(sport_id)
+    if sport_id in await answers.list_sports(user_id):
+        raise AlreadyPickedError(sport_id)
+    await answers.add_sport(user_id, sport_id)
+
+
+async def current_card(
+    user_id: UUID, *, answers: OnboardingAnswersPort, registry: SportRegistry
+) -> Place:
+    """The first card with no answer yet, sent or skipped: About you, then each sport's steps in
+    the order picked; then "Add another sport?" while a sport is left, else the summary."""
     sports = await answers.list_sports(user_id)
     if not sports:
-        return OnboardingCard.SPORT
+        return Place(OnboardingCard.SPORT)
     stored = {(answer.step, answer.sport_id) for answer in await answers.list_answers(user_id)}
-    for step in (OnboardingStep.ABOUT_YOU, *SPORT_STEPS):
-        if (step, _sport_of(step, sports[0])) not in stored:
-            return _CARD_OF[step]
-    return OnboardingCard.SUMMARY
+    # The flow ends with the summary, which has no step, so there is always a first match.
+    return next(
+        place
+        for place in flow_of(sports, sport_count=len(registry.all()))[1:]
+        if (step := _STEP_OF.get(place.card)) is None or (step, place.sport_id) not in stored
+    )
 
 
 async def answer_of(

@@ -72,6 +72,34 @@ async def test_a_new_pick_drops_the_answers_of_the_sport_it_replaced(
     assert [answer.step for answer in await repository.list_answers(user)] == [ABOUT_YOU]
 
 
+async def test_another_sport_is_added_after_the_first_and_keeps_every_answer(
+    db_session_factory: Factory, repository: SqlAlchemyOnboardingRepository
+) -> None:
+    """#256: "Add another sport?" appends the sport; the flow asks the sports in this order."""
+    user = await _user(db_session_factory, "add-a")
+    await repository.start(user, "gym", "UTC")
+    await repository.skip_answer(user, OnboardingStep.GOALS, "gym")
+
+    await repository.add_sport(user, "climbing")
+    await repository.add_sport(user, "climbing")
+
+    assert list(await repository.list_sports(user)) == ["gym", "climbing"]
+    assert [a.sport_id for a in await repository.list_answers(user)] == ["gym"]
+
+
+async def test_adding_a_sport_only_touches_the_given_user(
+    db_session_factory: Factory, repository: SqlAlchemyOnboardingRepository
+) -> None:
+    mine = await _user(db_session_factory, "add-b")
+    other = await _user(db_session_factory, "add-c")
+    await repository.start(mine, "climbing", "UTC")
+    await repository.start(other, "climbing", "UTC")
+
+    await repository.add_sport(mine, "cycling")
+
+    assert list(await repository.list_sports(other)) == ["climbing"]
+
+
 async def test_a_send_stores_the_answer_pending_at_the_first_revision(
     db_session_factory: Factory, repository: SqlAlchemyOnboardingRepository
 ) -> None:
@@ -431,3 +459,36 @@ async def test_one_athletes_sport_profiles_and_goals_never_reach_another(
     assert await repository.list_sport_profiles(first) == {"climbing": CLIMBING}
     assert list(await repository.list_goals(first)) == [FIRST_7C]
     assert list(await repository.list_goals(second)) == []
+
+
+async def test_confirm_saves_two_sports_profiles_and_goals(
+    db_session_factory: Factory, repository: SqlAlchemyOnboardingRepository
+) -> None:
+    """#256: a second sport's section is saved alongside the first, each goal under its sport."""
+    user = await _user(db_session_factory, "two-a")
+    await repository.start(user, "climbing", "UTC")
+    await repository.add_sport(user, "gym")
+    goals = [
+        Goal(text="First 7c", target_date=date(2027, 6, 30), sport_id="climbing"),
+        Goal(text="Deadlift 150 kg", sport_id="gym"),
+    ]
+
+    await repository.confirm(
+        user,
+        profile=AthleteProfile(),
+        sport_ids=["climbing", "gym"],
+        sport_profiles={
+            "climbing": SportProfile(level="Projecting 7b"),
+            "gym": SportProfile(sessions_per_week=2, session_minutes=60),
+        },
+        goals=goals,
+        timezone="Europe/Warsaw",
+        when=WHEN,
+    )
+
+    assert sorted(await repository.list_sports(user)) == ["climbing", "gym"]
+    assert list(await repository.list_goals(user)) == goals
+    assert dict(await repository.list_sport_profiles(user)) == {
+        "climbing": SportProfile(level="Projecting 7b"),
+        "gym": SportProfile(sessions_per_week=2, session_minutes=60),
+    }
