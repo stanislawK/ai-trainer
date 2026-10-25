@@ -12,6 +12,7 @@ from ai_trainer.adapters.orm import (
     AthleteProfileOrm,
     GoalOrm,
     OnboardingAnswerOrm,
+    SportProfileOrm,
     UserOrm,
     UserSportOrm,
     WeeklyAvailabilityOrm,
@@ -19,6 +20,7 @@ from ai_trainer.adapters.orm import (
 from ai_trainer.domain.athlete_profile import AthleteProfile
 from ai_trainer.domain.goals import Goal
 from ai_trainer.domain.onboarding import AnswerStatus, OnboardingAnswer, OnboardingStep
+from ai_trainer.domain.sport_profile import SportProfile
 
 _ANSWER_KEY = "onboarding_answers_user_step_sport_key"
 _STEP_ORDER = [step.value for step in OnboardingStep]
@@ -95,26 +97,7 @@ class SqlAlchemyOnboardingRepository:
 
     async def replace_goals(self, user_id: UUID, goals: Sequence[Goal]) -> None:
         async with self._session_factory() as session:
-            await session.execute(delete(GoalOrm).where(GoalOrm.user_id == user_id))
-            if goals:
-                # `ON CONFLICT DO NOTHING` on (user_id, position), as in `replace_sports`: a
-                # double-tapped Continue must neither 500 nor store every goal twice.
-                await session.execute(
-                    insert(GoalOrm)
-                    .values(
-                        [
-                            {
-                                "user_id": user_id,
-                                "position": position,
-                                "text": goal.text,
-                                "target_date": goal.target_date,
-                                "sport_id": goal.sport_id,
-                            }
-                            for position, goal in enumerate(goals)
-                        ]
-                    )
-                    .on_conflict_do_nothing()
-                )
+            await _replace_goals(session, user_id, goals)
             await session.commit()
 
     async def list_goals(self, user_id: UUID) -> Sequence[Goal]:
@@ -288,6 +271,24 @@ class SqlAlchemyOnboardingRepository:
             await session.commit()
             return saved
 
+    async def list_sport_profiles(self, user_id: UUID) -> Mapping[str, SportProfile]:
+        async with self._session_factory() as session:
+            rows = await session.scalars(
+                select(SportProfileOrm)
+                .where(SportProfileOrm.user_id == user_id)
+                .order_by(SportProfileOrm.sport_id)
+            )
+            return {
+                row.sport_id: SportProfile(
+                    level=row.level,
+                    exercises=row.exercises,
+                    sessions_per_week=row.sessions_per_week,
+                    session_minutes=row.session_minutes,
+                    preferred_days=tuple(row.preferred_days or ()),
+                )
+                for row in rows
+            }
+
     async def get_profile(self, user_id: UUID) -> AthleteProfile | None:
         async with self._session_factory() as session:
             row = await session.get(AthleteProfileOrm, user_id)
@@ -306,6 +307,8 @@ class SqlAlchemyOnboardingRepository:
         *,
         profile: AthleteProfile,
         sport_ids: Sequence[str],
+        sport_profiles: Mapping[str, SportProfile],
+        goals: Sequence[Goal],
         timezone: str,
         when: datetime,
     ) -> None:
@@ -321,6 +324,28 @@ class SqlAlchemyOnboardingRepository:
                 upsert.on_conflict_do_update(index_elements=["user_id"], set_=values)
             )
             await _replace_sports(session, user_id, sport_ids)
+            await session.execute(delete(SportProfileOrm).where(SportProfileOrm.user_id == user_id))
+            if sport_profiles:
+                await session.execute(
+                    insert(SportProfileOrm)
+                    .values(
+                        [
+                            {
+                                "user_id": user_id,
+                                "sport_id": sport_id,
+                                "level": sport.level,
+                                "exercises": sport.exercises,
+                                "sessions_per_week": sport.sessions_per_week,
+                                "session_minutes": sport.session_minutes,
+                                "preferred_days": list(sport.preferred_days),
+                            }
+                            for sport_id, sport in sport_profiles.items()
+                        ]
+                    )
+                    # A double-tapped confirm: both may delete before either inserts.
+                    .on_conflict_do_nothing()
+                )
+            await _replace_goals(session, user_id, goals)
             await session.execute(
                 update(UserOrm)
                 .where(UserOrm.id == user_id)
@@ -350,5 +375,30 @@ async def _replace_sports(session: AsyncSession, user_id: UUID, sport_ids: Seque
         await session.execute(
             insert(UserSportOrm)
             .values([{"user_id": user_id, "sport_id": sport_id} for sport_id in sport_ids])
+            .on_conflict_do_nothing()
+        )
+
+
+async def _replace_goals(session: AsyncSession, user_id: UUID, goals: Sequence[Goal]) -> None:
+    """Makes `goals` exactly the user's `goals` rows, in order, inside the caller's
+    transaction."""
+    await session.execute(delete(GoalOrm).where(GoalOrm.user_id == user_id))
+    if goals:
+        # `ON CONFLICT DO NOTHING` on (user_id, position), as in `replace_sports`: a
+        # double-tapped Continue must neither 500 nor store every goal twice.
+        await session.execute(
+            insert(GoalOrm)
+            .values(
+                [
+                    {
+                        "user_id": user_id,
+                        "position": position,
+                        "text": goal.text,
+                        "target_date": goal.target_date,
+                        "sport_id": goal.sport_id,
+                    }
+                    for position, goal in enumerate(goals)
+                ]
+            )
             .on_conflict_do_nothing()
         )

@@ -1,5 +1,6 @@
-"""The AI onboarding (PRD-0007 B33-B36, F20, F21, ADR-0028): a sport pick, prose answers read in
-the background, and a summary the athlete confirms. A send stores its answer and returns at once;
+"""The AI onboarding (PRD 0008 B33-B36, F20, F21, ADR-0028): a sport pick, About you, then goals,
+level and schedule for the sport, prose answers read in the background, and a summary the
+athlete confirms. A send stores its answer and returns at once;
 only the summary waits for reads, and only confirm writes the profile (invariants 1-4)."""
 
 import asyncio
@@ -27,6 +28,13 @@ from ai_trainer.domain.onboarding import (
     OnboardingAnswer,
     OnboardingStep,
 )
+from ai_trainer.domain.sport_profile import (
+    SportForm,
+    SportProfile,
+    SportSection,
+    parse_sport_section,
+    sport_from_read,
+)
 from ai_trainer.domain.sports.registry import SportRegistry
 
 logger = logging.getLogger(__name__)
@@ -40,7 +48,20 @@ class OnboardingCard(StrEnum):
 
     SPORT = "sport"
     ABOUT_YOU = "about_you"
+    GOALS = "goals"
+    LEVEL = "level"
+    SCHEDULE = "schedule"
     SUMMARY = "summary"
+
+
+# The steps asked per sport (B33), in card order.
+SPORT_STEPS = (OnboardingStep.GOALS, OnboardingStep.LEVEL, OnboardingStep.SCHEDULE)
+_CARD_OF = {
+    OnboardingStep.ABOUT_YOU: OnboardingCard.ABOUT_YOU,
+    OnboardingStep.GOALS: OnboardingCard.GOALS,
+    OnboardingStep.LEVEL: OnboardingCard.LEVEL,
+    OnboardingStep.SCHEDULE: OnboardingCard.SCHEDULE,
+}
 
 
 class EmptyAnswerError(Exception):
@@ -56,13 +77,29 @@ class InvalidSummaryError(Exception):
 
 
 @dataclass(frozen=True)
+class SportSummary:
+    """One sport's section of the summary; `skipped` when all three of its steps were."""
+
+    sport_id: str
+    section: SportSection
+    skipped: bool
+
+
+@dataclass(frozen=True)
 class OnboardingSummary:
     """What the summary shows to edit (B35): the About you fields, whether that step was
-    skipped, and the timezone to correct (B36)."""
+    skipped, a section per sport, and the timezone to correct (B36)."""
 
     about_you: AboutYou
     about_you_skipped: bool
     timezone: str
+    sports: tuple[SportSummary, ...] = ()
+
+
+def _sport_of(step: OnboardingStep, sport_id: str | None) -> str | None:
+    """The `sport_id` a step's answer is stored under: none for About you, which is per
+    athlete."""
+    return None if step is OnboardingStep.ABOUT_YOU else sport_id
 
 
 async def pick_sport(
@@ -82,19 +119,32 @@ async def pick_sport(
 
 
 async def current_card(user_id: UUID, *, answers: OnboardingAnswersPort) -> OnboardingCard:
-    if not await answers.list_sports(user_id):
+    """The first card with no answer yet, sent or skipped: About you, then the first sport's
+    steps; the summary once every one has one."""
+    sports = await answers.list_sports(user_id)
+    if not sports:
         return OnboardingCard.SPORT
-    stored = await answers.list_answers(user_id)
-    if not any(answer.step is OnboardingStep.ABOUT_YOU for answer in stored):
-        return OnboardingCard.ABOUT_YOU
+    stored = {(answer.step, answer.sport_id) for answer in await answers.list_answers(user_id)}
+    for step in (OnboardingStep.ABOUT_YOU, *SPORT_STEPS):
+        if (step, _sport_of(step, sports[0])) not in stored:
+            return _CARD_OF[step]
     return OnboardingCard.SUMMARY
 
 
 async def answer_of(
-    user_id: UUID, step: OnboardingStep, *, answers: OnboardingAnswersPort
+    user_id: UUID,
+    step: OnboardingStep,
+    *,
+    answers: OnboardingAnswersPort,
+    sport_id: str | None = None,
 ) -> OnboardingAnswer | None:
-    """The step's stored answer, to prefill its card after Back."""
-    return next((a for a in await answers.list_answers(user_id) if a.step is step), None)
+    """The step's stored answer, for `sport_id` on a sport's step, to prefill its card after
+    Back."""
+    stored = _sport_of(step, sport_id)
+    return next(
+        (a for a in await answers.list_answers(user_id) if a.step is step and a.sport_id == stored),
+        None,
+    )
 
 
 async def send_answer(
@@ -108,27 +158,36 @@ async def send_answer(
     sport_id: str,
     timezone: str,
 ) -> None:
-    """Stores the answer as `pending` and starts its read in the background, never awaiting
-    it (ADR-0028 invariant 2). The text is trimmed and cut to the column's length."""
+    """Stores the answer as `pending`, under `sport_id` on a sport's step, and starts its read in
+    the background, never awaiting it (ADR-0028 invariant 2). The text is trimmed and cut to the
+    column's length."""
     # Postgres text cannot hold NUL; only a hand-crafted request sends one.
     cleaned = text.replace("\x00", "").strip()[:MAX_ANSWER_LENGTH].strip()
     if not cleaned:
         raise EmptyAnswerError
-    revision = await answers.store_answer(user_id, step, None, cleaned)
+    stored = _sport_of(step, sport_id)
+    revision = await answers.store_answer(user_id, step, stored, cleaned)
     answer = OnboardingAnswer(
-        step=step, sport_id=None, text=cleaned, revision=revision, status=AnswerStatus.PENDING
+        step=step, sport_id=stored, text=cleaned, revision=revision, status=AnswerStatus.PENDING
     )
     reads.start(
-        (user_id, step, None),
+        (user_id, step, stored),
         read_answer(
             user_id, answer, answers=answers, reader=reader, sport_id=sport_id, timezone=timezone
         ),
     )
 
 
-async def skip_step(user_id: UUID, step: OnboardingStep, *, answers: OnboardingAnswersPort) -> None:
-    """Marks the step skipped; it saves nothing and starts no read (B36)."""
-    await answers.skip_answer(user_id, step, None)
+async def skip_step(
+    user_id: UUID,
+    step: OnboardingStep,
+    *,
+    answers: OnboardingAnswersPort,
+    sport_id: str | None = None,
+) -> None:
+    """Marks the step skipped, under `sport_id` on a sport's step; it saves nothing and starts
+    no read (B36)."""
+    await answers.skip_answer(user_id, step, _sport_of(step, sport_id))
 
 
 async def read_answer(
@@ -180,21 +239,48 @@ async def catch_up(
                 answer,
                 answers=answers,
                 reader=reader,
-                sport_id=sports[0],
+                # A sport's step is read with its own sport; About you with the first one.
+                sport_id=answer.sport_id or sports[0],
                 timezone=timezone,
             )
+
+
+def _sport_summary(sport_id: str, stored: Sequence[OnboardingAnswer]) -> SportSummary:
+    of_sport = {answer.step: answer for answer in stored if answer.sport_id == sport_id}
+
+    def read(step: OnboardingStep) -> Mapping[str, object] | None:
+        answer = of_sport.get(step)
+        return answer.parsed if answer is not None else None
+
+    return SportSummary(
+        sport_id=sport_id,
+        section=sport_from_read(
+            sport_id,
+            goals=read(OnboardingStep.GOALS),
+            level=read(OnboardingStep.LEVEL),
+            schedule=read(OnboardingStep.SCHEDULE),
+        ),
+        skipped=all(
+            step in of_sport and of_sport[step].status is AnswerStatus.SKIPPED
+            for step in SPORT_STEPS
+        ),
+    )
 
 
 async def summary_of(
     user_id: UUID, *, answers: OnboardingAnswersPort, timezone: str
 ) -> OnboardingSummary:
-    about_you = await answer_of(user_id, OnboardingStep.ABOUT_YOU, answers=answers)
+    stored = await answers.list_answers(user_id)
+    about_you = next((a for a in stored if a.step is OnboardingStep.ABOUT_YOU), None)
     return OnboardingSummary(
         about_you=about_you_from_read(about_you.parsed or {})
         if about_you is not None
         else AboutYou(),
         about_you_skipped=about_you is not None and about_you.status is AnswerStatus.SKIPPED,
         timezone=timezone,
+        sports=tuple(
+            _sport_summary(sport_id, stored) for sport_id in await answers.list_sports(user_id)
+        ),
     )
 
 
@@ -202,26 +288,47 @@ async def confirm_summary(
     user_id: UUID,
     form: Mapping[str, str],
     *,
+    sport_forms: Mapping[str, SportForm] | None = None,
     answers: OnboardingAnswersPort,
     clock: ClockPort,
 ) -> None:
-    """Validates the edited summary and, in one transaction, writes the profile, the sports,
-    the timezone and `onboarded_at`, and deletes the answers (B35, B36). The age becomes a
-    birth year in the athlete's own year. Any bad field raises `InvalidSummaryError` and
-    writes nothing."""
+    """Validates the edited summary and, in one transaction, writes the profile, each sport's
+    profile and goals, the sports, the timezone and `onboarded_at`, and deletes the answers
+    (B35, B36). Only the athlete's own sports are read from `sport_forms`, and a sport's
+    problems are named `<sport_id>.<field>`. The age becomes a birth year in the athlete's own
+    year. Any bad field raises `InvalidSummaryError` and writes nothing."""
     zone = form.get("timezone", "").strip()
     parsed = parse_about_you(form)
     problems: dict[str, FieldProblem] = dict(parsed) if isinstance(parsed, dict) else {}
     if zone not in timezone_names():
         problems["timezone"] = FieldProblem.UNKNOWN
+    sports: Sequence[str] = await answers.list_sports(user_id)
+    sections: dict[str, SportSection] = {}
+    for sport_id in sports:
+        typed = (sport_forms or {}).get(sport_id, SportForm())
+        section = parse_sport_section(
+            sport_id,
+            typed.fields,
+            days=typed.days,
+            goal_texts=typed.goal_texts,
+            goal_dates=typed.goal_dates,
+        )
+        if isinstance(section, dict):
+            problems.update({f"{sport_id}.{field}": p for field, p in section.items()})
+        else:
+            sections[sport_id] = section
     if problems or isinstance(parsed, dict):
         raise InvalidSummaryError(problems)
     now = clock.now()
-    sports: Sequence[str] = await answers.list_sports(user_id)
+    sport_profiles: dict[str, SportProfile] = {
+        sport_id: section.profile for sport_id, section in sections.items()
+    }
     await answers.confirm(
         user_id,
         profile=profile_from(parsed, today=now.astimezone(ZoneInfo(zone)).date()),
         sport_ids=list(sports),
+        sport_profiles=sport_profiles,
+        goals=[goal for section in sections.values() for goal in section.goals],
         timezone=zone,
         when=now,
     )

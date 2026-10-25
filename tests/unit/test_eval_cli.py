@@ -28,7 +28,7 @@ from ai_trainer.llm.evals.cli import (
 )
 from ai_trainer.llm.evals.jev_check import JevCheck
 from ai_trainer.llm.evals.runner import EvalCaseInputs, EvalReportSummary
-from ai_trainer.llm.onboarding import AboutYouMatch
+from ai_trainer.llm.onboarding import AboutYouMatch, GoalsMatch, LevelMatch, ScheduleMatch
 from ai_trainer.llm.prompts.registry import PromptRegistry
 from ai_trainer.llm.prompts.template import PromptTemplate
 from ai_trainer.llm.router import ACTIVE_ROUTER_VERSION
@@ -885,6 +885,23 @@ def test_onboarding_about_you_runs_at_its_version_graded_on_converted_values() -
     assert cli_module._active_versions(default_sport_registry())["onboarding.about_you"] == 1
     assert cli_module._evaluators_for("onboarding.about_you") == (AboutYouMatch,)
     assert cli_module._default_registry().versions("onboarding.about_you") == [1]
+
+
+@pytest.mark.parametrize(
+    ("template_id", "evaluator"),
+    [
+        ("onboarding.goals", GoalsMatch),
+        ("onboarding.level", LevelMatch),
+        ("onboarding.schedule", ScheduleMatch),
+    ],
+)
+def test_the_sport_steps_run_at_their_version_graded_in_code(
+    template_id: str, evaluator: type[object]
+) -> None:
+    """ADR-0028, ticket #255: each sport step's template is registered and graded in code."""
+    assert cli_module._active_versions(default_sport_registry())[template_id] == 1
+    assert cli_module._evaluators_for(template_id) == (evaluator,)
+    assert cli_module._default_registry().versions(template_id) == [1]
 
 
 def test_the_default_follows_a_plugins_active_version() -> None:

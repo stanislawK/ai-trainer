@@ -1,0 +1,11 @@
+{
+  "template_id": "onboarding.goals",
+  "version": 1,
+  "model": "z-ai/glm-5.3-flash",
+  "assertions": 1.0,
+  "scores": {},
+  "thresholds": {
+    "max_assertions_drop": 0.0,
+    "max_score_drop": 0.05
+  }
+}

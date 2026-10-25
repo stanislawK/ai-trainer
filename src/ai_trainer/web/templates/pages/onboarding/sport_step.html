@@ -1,0 +1,9 @@
+{% extends "layouts/bare.html" %}
+{% from "components/sport_copy.html" import sport_copy %}
+
+{% block title %}{{ sport_copy[sport.label_key].label }} · AI Trainer{% endblock %}
+
+{% block bare_content %}
+  {% include "partials/onboarding/sport_step.html" %}
+  <script src="/static/js/onboarding_composer.js" defer></script>
+{% endblock %}

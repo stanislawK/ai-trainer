@@ -176,6 +176,36 @@ class AthleteProfileOrm(Base):
     limits: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
+class SportProfileOrm(Base):
+    """The sport part of the onboarding profile (ADR-0028), one row per athlete and sport,
+    written only by the summary's confirm. `preferred_days` holds weekdays, 0 for Monday."""
+
+    __tablename__ = "sport_profiles"
+    __table_args__ = (
+        CheckConstraint("char_length(level) <= 200", name="sport_profiles_level_length"),
+        CheckConstraint("char_length(exercises) <= 300", name="sport_profiles_exercises_length"),
+        CheckConstraint("sessions_per_week BETWEEN 1 AND 14", name="sport_profiles_sessions_range"),
+        CheckConstraint("session_minutes BETWEEN 5 AND 600", name="sport_profiles_minutes_range"),
+        CheckConstraint(
+            "preferred_days <@ ARRAY[0, 1, 2, 3, 4, 5, 6]::bigint[]",
+            name="sport_profiles_days_range",
+        ),
+    )
+
+    # The key's first column, so it indexes `user_id` too.
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    # A `SportRegistry` ID stored as text, never a database enum (ADR-0006).
+    sport_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    # `bigint` and `text`, each bounded by a CHECK, so squawk's default rules pass (ADR-0024).
+    level: Mapped[str | None] = mapped_column(Text, nullable=True)
+    exercises: Mapped[str | None] = mapped_column(Text, nullable=True)
+    sessions_per_week: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    session_minutes: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    preferred_days: Mapped[list[int] | None] = mapped_column(ARRAY(BigInteger), nullable=True)
+
+
 class OnboardingAnswerOrm(Base):
     """One onboarding step's prose (ADR-0028), kept until the summary is confirmed. `revision`
     goes up on every send, so a read writes `parsed` only while it still matches. `sport_id` is

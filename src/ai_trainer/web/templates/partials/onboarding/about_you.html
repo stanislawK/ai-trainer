@@ -1,50 +1,16 @@
-{#- The About you chat card (Onboarding v4, F20, B34): the question, what the AI looks for, a
-    composer and a visible Skip. Send moves straight on to the summary while the answer is read
-    in the background (ADR-0028), so there is no reply here. After Back, the earlier answer is in
-    the composer to change. -#}
-{% from "components/icon.html" import icon %}
-{% from "components/onboarding_frame.html" import frame, column %}
-<main id="onboarding-card" class="{{ column }}">
-  {{ frame(1, 2, back_href="/onboarding/sport") }}
-  <div class="relative flex-1 min-h-0 flex flex-col px-4 pb-[max(2rem,env(safe-area-inset-bottom))] pt-2">
-    <article class="mat-content rounded-[28px] flex flex-col my-auto max-h-full min-h-0 overflow-hidden" aria-label="About you">
-      <header class="flex items-center gap-2 pl-4 pr-2 pt-2 h-[52px] shrink-0">
-        {{ icon("user", "size-4 text-primary") }}
-        <span class="flex-1 text-[13px] font-medium text-base-content/70">About you</span>
-        {#- The control is the mock's 36 px; the button around it is the 44 px tap target. -#}
-        <button type="button" class="h-11 grid place-items-center" hx-post="/onboarding/about-you/skip" hx-swap="none"><span class="lg lg-ghost lg-sm">Skip{{ icon("chevron-right", "size-4") }}</span></button>
-      </header>
-      <div class="shrink min-h-0 overflow-y-auto px-4 pt-2 pb-4 flex flex-col gap-4">
-        <div class="flex gap-2.5">
-          <span class="lg lg-clear lg-mark shrink-0 text-primary" aria-hidden="true">{{ icon("user", "size-4") }}</span>
-          <div class="flex flex-col gap-2.5 min-w-0">
-            <p class="text-[17px]/[25px] font-medium text-pretty">Tell me about yourself: age, height, weight, and any injuries I should plan around.</p>
-            <div class="flex flex-wrap gap-1.5" aria-label="What I'm looking for">
-              {% for hint in ["Age", "Height", "Weight", "Injuries"] %}
-              <span class="lg lg-clear lg-chip pointer-events-none cursor-default">{{ hint }}</span>
-              {% endfor %}
-            </div>
-            <p class="text-[13px] text-base-content/70">Optional. Any units are fine, and Skip leaves it empty.</p>
-          </div>
-        </div>
-      </div>
-      <div class="shrink-0 px-3 pb-3 flex flex-col gap-2">
-        <form class="lgs relative rounded-[26px] flex items-end gap-2 p-1.5 pl-4" hx-post="/onboarding/about-you" hx-target="#onboarding-card" hx-swap="outerHTML" data-onboarding-composer>
-          <textarea
-            name="answer"
-            class="[field-sizing:content] flex-1 min-h-11 max-h-32 resize-none bg-transparent border-0 py-2.5 text-[16px] leading-6 outline-none placeholder:text-base-content/60"
-            rows="1"
-            maxlength="{{ max_length }}"
-            placeholder="e.g. 31, 178 cm, 72 kg"
-            aria-label="Your answer"
-            {% if error %}aria-invalid="true" aria-describedby="about-you-error"{% endif %}
-          >{{ text }}</textarea>
-          <button type="submit" class="lg lg-clear lg-icon shrink-0" aria-label="Send">{{ icon("arrow-up", "size-4") }}</button>
-        </form>
-        {% if error %}
-        <p id="about-you-error" class="px-4 text-[13px] text-error">Write an answer, or Skip.</p>
-        {% endif %}
-      </div>
-    </article>
-  </div>
-</main>
+{#- The About you chat card (Onboarding v4, F20, B34), the first card after the sport. -#}
+{% from "components/onboarding_chat.html" import chat_card %}
+{{ chat_card(
+  1,
+  back_href="/onboarding/sport",
+  label="About you",
+  mark="user",
+  question="Tell me about yourself: age, height, weight, and any injuries I should plan around.",
+  hints=["Age", "Height", "Weight", "Injuries"],
+  note="Optional. Any units are fine, and Skip leaves it empty.",
+  placeholder="e.g. 31, 178 cm, 72 kg",
+  url="/onboarding/about-you",
+  text=text,
+  error=error,
+  max_length=max_length,
+) }}

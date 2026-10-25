@@ -60,6 +60,8 @@ class FieldProblem(StrEnum):
 
     OUT_OF_RANGE = "out_of_range"
     UNKNOWN = "unknown"
+    # A value that needs another one beside it: a goal's target date without the goal.
+    REQUIRED = "required"
 
 
 def _round_half_up(value: float, digits: int = 0) -> float:
@@ -155,7 +157,8 @@ def about_you_from_profile(profile: AthleteProfile, *, today: date) -> AboutYou:
     )
 
 
-def _whole(raw: str, low: int, high: int) -> int | FieldProblem | None:
+def typed_whole(raw: str, low: int, high: int) -> int | FieldProblem | None:
+    """A whole number typed on the summary: `None` when blank, a problem outside the bounds."""
     text = raw.strip()
     if not text:
         return None
@@ -165,7 +168,8 @@ def _whole(raw: str, low: int, high: int) -> int | FieldProblem | None:
     return int(text)
 
 
-def _decimal(raw: str, low: int, high: int) -> float | FieldProblem | None:
+def typed_decimal(raw: str, low: int, high: int) -> float | FieldProblem | None:
+    """A number with at most one decimal, after a point or a comma (PRD 0008 G15)."""
     text = raw.strip().replace(",", ".")
     if not text:
         return None
@@ -180,9 +184,9 @@ def parse_about_you(form: Mapping[str, str]) -> AboutYou | dict[str, FieldProble
     its bounds is named at once, so the form can flag each one."""
     raw_limits = form.get("limits", "").replace("\x00", "").strip()
     values = {
-        "age": _whole(form.get("age", ""), MIN_AGE, MAX_AGE),
-        "height_cm": _whole(form.get("height_cm", ""), MIN_HEIGHT_CM, MAX_HEIGHT_CM),
-        "weight_kg": _decimal(form.get("weight_kg", ""), MIN_WEIGHT_KG, MAX_WEIGHT_KG),
+        "age": typed_whole(form.get("age", ""), MIN_AGE, MAX_AGE),
+        "height_cm": typed_whole(form.get("height_cm", ""), MIN_HEIGHT_CM, MAX_HEIGHT_CM),
+        "weight_kg": typed_decimal(form.get("weight_kg", ""), MIN_WEIGHT_KG, MAX_WEIGHT_KG),
         "limits": FieldProblem.OUT_OF_RANGE
         if len(raw_limits) > MAX_LIMITS_LENGTH
         else raw_limits or None,

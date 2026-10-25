@@ -1,16 +1,19 @@
-"""The AI onboarding's routes (PRD-0007 F6, F20, F21, ADR-0028, ticket #254): the sport card, the
-About you chat card with Skip and Back, the summary that catches up on reads over SSE, and its
-confirm. No request here awaits a model call except the summary stream (invariant 2), and
-`user_id` comes only from the authenticated session (ADR-0005)."""
+"""The AI onboarding's routes (PRD 0008 F6, F20, F21, ADR-0028, tickets #254, #255): the sport
+card, the About you, goals, level and schedule chat cards with Skip and Back, the summary that
+catches up on reads over SSE, and its confirm. No request here awaits a model call except the
+summary stream (invariant 2), and `user_id` comes only from the authenticated session
+(ADR-0005)."""
 
 from collections.abc import AsyncIterable, Mapping
 
 from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.sse import EventSourceResponse, ServerSentEvent
+from starlette.datastructures import FormData
 from starlette.templating import Jinja2Templates
 
 from ai_trainer.application.ai_onboarding import (
+    SPORT_STEPS,
     EmptyAnswerError,
     InvalidSummaryError,
     OnboardingCard,
@@ -30,6 +33,13 @@ from ai_trainer.application.ports.clock import ClockPort
 from ai_trainer.application.ports.onboarding import OnboardingAnswersPort, OnboardingReaderPort
 from ai_trainer.domain.athlete_profile import MAX_LIMITS_LENGTH, FieldProblem
 from ai_trainer.domain.onboarding import MAX_ANSWER_LENGTH, OnboardingStep
+from ai_trainer.domain.sport_profile import (
+    MAX_EXERCISES_LENGTH,
+    MAX_GOAL_LENGTH,
+    MAX_LEVEL_LENGTH,
+    SportForm,
+    SportSection,
+)
 from ai_trainer.domain.sports.registry import SportRegistry, UnknownSportError
 from ai_trainer.domain.users import User
 
@@ -38,10 +48,60 @@ _HOME_PATH = "/"
 _CARD_PATHS = {
     OnboardingCard.SPORT: "/onboarding/sport",
     OnboardingCard.ABOUT_YOU: "/onboarding/about-you",
+    OnboardingCard.GOALS: "/onboarding/goals",
+    OnboardingCard.LEVEL: "/onboarding/level",
+    OnboardingCard.SCHEDULE: "/onboarding/schedule",
     OnboardingCard.SUMMARY: "/onboarding/summary",
 }
-# The fields the summary posts, as typed.
+_ORDER = list(OnboardingCard)
+# The fields the summary posts, as typed; a sport's are named `<sport_id>.<field>`.
 _SUMMARY_FIELDS = ("age", "height_cm", "weight_kg", "limits", "timezone")
+_SPORT_FIELDS = ("level", "exercises", "sessions_per_week", "session_minutes")
+
+
+def _next_path(card: OnboardingCard) -> str:
+    """Where Send and Skip on `card` go: straight on to the next card (Send = Continue)."""
+    return _CARD_PATHS[_ORDER[_ORDER.index(card) + 1]]
+
+
+def _previous_path(card: OnboardingCard) -> str:
+    return _CARD_PATHS[_ORDER[_ORDER.index(card) - 1]]
+
+
+def _shown_form(section: SportSection) -> SportForm:
+    """A read section as the summary's fields show it, with one goal row even when none was
+    read, so the athlete can add one."""
+    profile = section.profile
+    goals = section.goals or ()
+    return SportForm(
+        fields={
+            "level": profile.level or "",
+            "exercises": profile.exercises or "",
+            "sessions_per_week": str(profile.sessions_per_week or ""),
+            "session_minutes": str(profile.session_minutes or ""),
+        },
+        days=tuple(str(day) for day in profile.preferred_days),
+        goal_texts=tuple(goal.text for goal in goals) or ("",),
+        goal_dates=tuple(goal.target_date.isoformat() if goal.target_date else "" for goal in goals)
+        or ("",),
+    )
+
+
+def _typed_form(form: FormData, sport_id: str) -> SportForm:
+    def all_of(name: str) -> tuple[str, ...]:
+        return tuple(
+            value for value in form.getlist(f"{sport_id}.{name}") if isinstance(value, str)
+        )
+
+    return SportForm(
+        fields={
+            field: value if isinstance(value := form.get(f"{sport_id}.{field}", ""), str) else ""
+            for field in _SPORT_FIELDS
+        },
+        days=all_of("days"),
+        goal_texts=all_of("goal_text") or ("",),
+        goal_dates=all_of("goal_date") or ("",),
+    )
 
 
 def build_ai_onboarding_router(
@@ -160,7 +220,7 @@ def build_ai_onboarding_router(
             )
         except EmptyAnswerError:
             return render_about_you(request, typed, error=True, status_code=_UNPROCESSABLE)
-        return go(request, _CARD_PATHS[OnboardingCard.SUMMARY])
+        return go(request, _next_path(OnboardingCard.ABOUT_YOU))
 
     @router.post("/about-you/skip")
     async def skip_about_you(request: Request) -> Response:
@@ -168,18 +228,100 @@ def build_ai_onboarding_router(
             return elsewhere
         user: User = request.state.user
         await skip_step(user.id, OnboardingStep.ABOUT_YOU, answers=answers)
-        return go(request, _CARD_PATHS[OnboardingCard.SUMMARY])
+        return go(request, _next_path(OnboardingCard.ABOUT_YOU))
+
+    def add_sport_step(step: OnboardingStep) -> None:
+        """A sport's chat card (#255): goals, level or schedule, asked about the athlete's sport,
+        with Skip and Back. Its path is the step's name."""
+        card = OnboardingCard(step.value)
+        path = _CARD_PATHS[card].removeprefix("/onboarding")
+
+        def render_card(
+            request: Request,
+            sport_id: str,
+            text: str,
+            *,
+            error: bool = False,
+            status_code: int = 200,
+        ) -> HTMLResponse:
+            return render(
+                request,
+                "sport_step",
+                {
+                    "step": step.value,
+                    "place": _ORDER.index(card),
+                    "back_href": _previous_path(card),
+                    "sport": registry.get(sport_id),
+                    "text": text,
+                    "error": error,
+                    "max_length": MAX_ANSWER_LENGTH,
+                },
+                status_code=status_code,
+            )
+
+        async def show(request: Request) -> Response:
+            if (elsewhere := await misplaced(request, card)) is not None:
+                return elsewhere
+            user: User = request.state.user
+            sport_id = (await answers.list_sports(user.id))[0]
+            earlier = await answer_of(user.id, step, answers=answers, sport_id=sport_id)
+            return render_card(request, sport_id, earlier.text or "" if earlier else "")
+
+        async def send(request: Request) -> Response:
+            if (elsewhere := await misplaced(request, card)) is not None:
+                return elsewhere
+            user: User = request.state.user
+            sport_id = (await answers.list_sports(user.id))[0]
+            text = (await request.form()).get("answer")
+            typed = text if isinstance(text, str) else ""
+            try:
+                await send_answer(
+                    user.id,
+                    step,
+                    typed,
+                    answers=answers,
+                    reads=reads,
+                    reader=reader,
+                    sport_id=sport_id,
+                    timezone=user.timezone,
+                )
+            except EmptyAnswerError:
+                return render_card(request, sport_id, typed, error=True, status_code=_UNPROCESSABLE)
+            return go(request, _next_path(card))
+
+        async def skip(request: Request) -> Response:
+            if (elsewhere := await misplaced(request, card)) is not None:
+                return elsewhere
+            user: User = request.state.user
+            sport_id = (await answers.list_sports(user.id))[0]
+            await skip_step(user.id, step, answers=answers, sport_id=sport_id)
+            return go(request, _next_path(card))
+
+        router.add_api_route(path, show, methods=["GET"], name=f"onboarding_{step.value}_card")
+        router.add_api_route(path, send, methods=["POST"], name=f"onboarding_{step.value}_send")
+        router.add_api_route(
+            f"{path}/skip", skip, methods=["POST"], name=f"onboarding_{step.value}_skip"
+        )
+
+    for step in SPORT_STEPS:
+        add_sport_step(step)
 
     @router.get("/summary")
     async def summary_page(request: Request) -> Response:
         if (elsewhere := await misplaced(request, OnboardingCard.SUMMARY)) is not None:
             return elsewhere
-        return render(request, "summary", {})
+        user: User = request.state.user
+        return render(
+            request,
+            "summary",
+            {"sports": [registry.get(sport) for sport in await answers.list_sports(user.id)]},
+        )
 
     def summary_context(
         summary: OnboardingSummary,
         *,
         values: Mapping[str, str] | None = None,
+        sport_forms: Mapping[str, SportForm] | None = None,
         problems: Mapping[str, FieldProblem] | None = None,
     ) -> dict[str, object]:
         about_you = summary.about_you
@@ -190,12 +332,28 @@ def build_ai_onboarding_router(
             "limits": about_you.limits or "",
             "timezone": summary.timezone,
         }
+        sports = []
+        for sport in summary.sports:
+            plugin = registry.get(sport.sport_id)
+            sports.append(
+                {
+                    "id": sport.sport_id,
+                    "icon": plugin.icon,
+                    "label_key": plugin.label_key,
+                    "skipped": sport.skipped,
+                    "form": (sport_forms or {}).get(sport.sport_id) or _shown_form(sport.section),
+                }
+            )
         return {
             "values": shown,
+            "sports": sports,
             "problems": problems or {},
             "skipped": summary.about_you_skipped,
             "zones": timezone_names(),
             "max_limits": MAX_LIMITS_LENGTH,
+            "max_goal": MAX_GOAL_LENGTH,
+            "max_level": MAX_LEVEL_LENGTH,
+            "max_exercises": MAX_EXERCISES_LENGTH,
         }
 
     @router.get("/summary/stream", response_class=EventSourceResponse)
@@ -222,14 +380,21 @@ def build_ai_onboarding_router(
             field: value if isinstance(value := form.get(field, ""), str) else ""
             for field in _SUMMARY_FIELDS
         }
+        sport_forms = {
+            sport_id: _typed_form(form, sport_id) for sport_id in await answers.list_sports(user.id)
+        }
         try:
-            await confirm_summary(user.id, typed, answers=answers, clock=clock)
+            await confirm_summary(
+                user.id, typed, sport_forms=sport_forms, answers=answers, clock=clock
+            )
         except InvalidSummaryError as exc:
             summary = await summary_of(user.id, answers=answers, timezone=user.timezone)
             return render(
                 request,
                 "summary_form",
-                summary_context(summary, values=typed, problems=exc.problems),
+                summary_context(
+                    summary, values=typed, sport_forms=sport_forms, problems=exc.problems
+                ),
                 status_code=_UNPROCESSABLE,
             )
         return go(request, _HOME_PATH)

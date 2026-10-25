@@ -968,23 +968,7 @@
     },
     "/onboarding/goals": {
       "get": {
-        "operationId": "goals_step_onboarding_goals_get",
-        "responses": {
-          "200": {
-            "content": {
-              "text/html": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "Goals Step"
-      },
-      "post": {
-        "operationId": "set_goals_step_onboarding_goals_post",
+        "operationId": "onboarding_goals_card_onboarding_goals_get",
         "responses": {
           "200": {
             "content": {
@@ -995,7 +979,129 @@
             "description": "Successful Response"
           }
         },
-        "summary": "Set Goals Step"
+        "summary": "Onboarding Goals Card"
+      },
+      "post": {
+        "operationId": "onboarding_goals_send_onboarding_goals_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Onboarding Goals Send"
+      }
+    },
+    "/onboarding/goals/skip": {
+      "post": {
+        "operationId": "onboarding_goals_skip_onboarding_goals_skip_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Onboarding Goals Skip"
+      }
+    },
+    "/onboarding/level": {
+      "get": {
+        "operationId": "onboarding_level_card_onboarding_level_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Onboarding Level Card"
+      },
+      "post": {
+        "operationId": "onboarding_level_send_onboarding_level_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Onboarding Level Send"
+      }
+    },
+    "/onboarding/level/skip": {
+      "post": {
+        "operationId": "onboarding_level_skip_onboarding_level_skip_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Onboarding Level Skip"
+      }
+    },
+    "/onboarding/schedule": {
+      "get": {
+        "operationId": "onboarding_schedule_card_onboarding_schedule_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Onboarding Schedule Card"
+      },
+      "post": {
+        "operationId": "onboarding_schedule_send_onboarding_schedule_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Onboarding Schedule Send"
+      }
+    },
+    "/onboarding/schedule/skip": {
+      "post": {
+        "operationId": "onboarding_schedule_skip_onboarding_schedule_skip_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Onboarding Schedule Skip"
       }
     },
     "/onboarding/sport": {

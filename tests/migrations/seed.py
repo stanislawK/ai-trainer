@@ -192,6 +192,17 @@ def _rows() -> dict[str, tuple[Row, ...]]:
                 "limits": "left shoulder" if a else None,
             }
         )
+        rows.setdefault("sport_profiles", []).append(
+            {
+                "user_id": user,
+                "sport_id": "climbing" if a else "gym",
+                "level": "Projecting 7b" if a else None,
+                "exercises": " Board, hangboard " if a else None,
+                "sessions_per_week": 4 if a else None,
+                "session_minutes": 120 if a else None,
+                "preferred_days": [5, 0, 2] if a else None,
+            }
+        )
         rows.setdefault("onboarding_answers", []).append(
             {
                 "id": _id(user, 10),

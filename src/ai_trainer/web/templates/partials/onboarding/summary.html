@@ -3,6 +3,17 @@
     stream runs; the stream swaps its contents (ADR-0012). The glass sheet comes in #257. -#}
 {% from "components/icon.html" import icon %}
 {% from "components/onboarding_frame.html" import frame, column %}
+{% from "components/sport_copy.html" import sport_copy %}
+{% macro skeleton_section(mark, title) -%}
+<div class="flex flex-col gap-2">
+  <div class="flex items-center gap-2 text-[13px] font-medium text-base-content/75">{{ icon(mark, "size-4") }}{{ title }}</div>
+  <div class="grid grid-cols-2 gap-2" aria-hidden="true">
+    <span class="skeleton h-11 rounded-xl motion-reduce:animate-none"></span>
+    <span class="skeleton h-11 rounded-xl motion-reduce:animate-none"></span>
+    <span class="skeleton h-11 rounded-xl col-span-2 motion-reduce:animate-none"></span>
+  </div>
+</div>
+{%- endmacro %}
 <main id="onboarding-card" class="{{ column }}">
   {{ frame(2, 2, label="Summary") }}
   <div
@@ -18,14 +29,10 @@
           <span class="text-[20px] font-semibold tracking-tight">Building your profile</span>
           <span class="skeleton skeleton-text bg-transparent bg-[linear-gradient(105deg,color-mix(in_oklch,var(--color-base-content)_70%,transparent)_0%_40%,var(--color-base-content)_50%,color-mix(in_oklch,var(--color-base-content)_70%,transparent)_60%_100%)] rounded-none text-[15px] leading-6 font-medium motion-reduce:animate-none">Reading your answers…</span>
         </div>
-        <div class="flex flex-col gap-2">
-          <div class="flex items-center gap-2 text-[13px] font-medium text-base-content/75">{{ icon("user", "size-4") }}About you</div>
-          <div class="grid grid-cols-2 gap-2" aria-hidden="true">
-            <span class="skeleton h-11 rounded-xl motion-reduce:animate-none"></span>
-            <span class="skeleton h-11 rounded-xl motion-reduce:animate-none"></span>
-            <span class="skeleton h-11 rounded-xl col-span-2 motion-reduce:animate-none"></span>
-          </div>
-        </div>
+        {{ skeleton_section("user", "About you") }}
+        {% for sport in sports %}
+        {{ skeleton_section(sport.icon, sport_copy[sport.label_key].label) }}
+        {% endfor %}
       </div>
     </div>
   </div>

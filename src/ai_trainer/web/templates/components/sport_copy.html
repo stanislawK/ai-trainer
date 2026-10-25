@@ -1,9 +1,21 @@
 {#- User-facing sport copy, keyed by the registry's `label_key` (G5). Import with
     `{% from "components/sport_copy.html" import sport_copy, general_goal_example %}`. -#}
 {% set sport_copy = {
-  "sport.climbing.label": {"label": "Climbing", "hint": "Sport, bouldering, board", "goal_example": "Send a 7a", "onboarding_detail": "Bouldering, sport, trad"},
-  "sport.gym.label": {"label": "Gym", "hint": "Strength and conditioning", "goal_example": "Pull-up +10 kg", "onboarding_detail": "Strength and conditioning"},
-  "sport.cycling.label": {"label": "Cycling", "hint": "Road, gravel, indoor", "goal_example": "Ride 100 km", "onboarding_detail": "Road, gravel, indoor"},
+  "sport.climbing.label": {
+    "label": "Climbing", "hint": "Sport, bouldering, board", "goal_example": "Send a 7a", "onboarding_detail": "Bouldering, sport, trad",
+    "goals_question": "What do you want from climbing? A grade, a route, a trip, or just climbing more.", "goals_placeholder": "e.g. First 7c outdoors by June",
+    "level_question": "Where are you now? Your grades and what your training looks like.", "level_placeholder": "e.g. Project 7b, boulder 6C",
+  },
+  "sport.gym.label": {
+    "label": "Gym", "hint": "Strength and conditioning", "goal_example": "Pull-up +10 kg", "onboarding_detail": "Strength and conditioning",
+    "goals_question": "What are you training for in the gym?", "goals_placeholder": "e.g. Deadlift 150 kg by December",
+    "level_question": "Where are you now? Your main lifts and the exercises you do.", "level_placeholder": "e.g. Squat 100 kg × 5, PPL split",
+  },
+  "sport.cycling.label": {
+    "label": "Cycling", "hint": "Road, gravel, indoor", "goal_example": "Ride 100 km", "onboarding_detail": "Road, gravel, indoor",
+    "goals_question": "What are your cycling goals?", "goals_placeholder": "e.g. A 160 km sportive in June",
+    "level_question": "Where are you now? Fitness numbers and a typical week of riding.", "level_placeholder": "e.g. FTP 240 W, 150 km a week",
+  },
 } %}
 {#- The example shown in an empty goal field on a card with no sport (General). -#}
 {% set general_goal_example = "Stay consistent" %}
