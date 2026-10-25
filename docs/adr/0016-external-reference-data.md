@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | Proposed |
+| Status | Accepted |
 | Date | 2026-09-16 |
 | Related | PRD-0001 (G10, B18–B22), ADR-0004, ADR-0006, ADR-0007, ADR-0011, ADR-0015 |
 
@@ -24,7 +24,7 @@
 | provenance | `source`, `source_url`, `fetched_at`, content hash |
 
 - **Cache first.** A lookup reads the tables; only a miss, or an entry older than `reference_data_ttl_days`, reaches the network. `external_lookups_per_user_per_day` in settings caps the spend.
-- **Grade conversion** lives in one module, `src/ai_trainer/domain/grades.py`: French, Fontainebleau, V-scale, YDS and UIAA, each mapped to the shared ordinal. "Between 7a and 7b+" becomes an ordinal range. French is canonical (B20) and the display scale is a profile preference.
+- **Grade conversion** lives in one module, `src/ai_trainer/domain/grades.py`: French, Fontainebleau, UIAA and Polish/Kurtyka first, each mapped to the shared ordinal, then V-scale and YDS on a best-effort basis (PRD 0008 G15). "Between 7a and 7b+" becomes an ordinal range. French is canonical (B20) and the display scale is a profile preference.
 - **The athlete's own grade wins.** A fetched grade fills a blank, or is offered as a correction on the draft card; it never overwrites what the athlete typed. Community grades are consensus, not truth.
 - **Two prompt templates** (ADR-0008): `climbing.route_lookup` and `climbing.area_recommend`, each with an eval dataset before it goes active (G6).
 
@@ -41,3 +41,5 @@
 - ⚠ How to query 8a.nu efficiently — which page answers a lookup in a single search, whether a crag page beats a search page, and what its terms permit — is the first M5 ticket, a spike. Its findings are recorded here before the adapter is written. If the terms do not allow this, the port stays and the adapter changes.
 - ADR-0006 gains route identity and the French-canonical grade rule; ADR-0007's web search widens beyond Q&A.
 - `.claude/rules/llm.md` carries the privacy and attribution rules.
+- Europe first, 2026-10-25 (PRD 0008 G15): the European scales' conversion tables are complete and tested before V and YDS. A V or YDS grade with no table entry keeps its original string and no French equivalent rather than a guess.
+- Amended by [ADR-0027](0027-venues-gym-grading-and-device-location.md), accepted 2026-10-25: `kurtyka` is one of the scales `grades.py` converts. Conversion skips `gym` grades, which get a French equivalent and an ordinal only from the athlete's mapping for that venue.

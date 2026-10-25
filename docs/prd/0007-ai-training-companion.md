@@ -4,7 +4,7 @@
 |---|---|
 | Product | ai-trainer |
 | Version | 0.8 |
-| Status | Approved |
+| Status | Superseded by [PRD 0008](0008-ai-training-companion.md), which keeps all of v0.8 |
 | Date | 2026-10-24 |
 | Related | ADR-0001 … ADR-0028 ([index](../adr/README.md)); supersedes [PRD 0006](0006-ai-training-companion.md) v0.7 — replaces the form onboarding with short AI-read chats that build the onboarding part of the athlete profile (B33–B36, F6, F20, F21), delivered by ADR-0028. Keeps v0.7's gyms and location check (B27–B32, F18, F19), which v0.7 added to PRD 0005 v0.6 |
 
