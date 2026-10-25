@@ -30,6 +30,7 @@ def _settings(directory: Path, *, enabled: bool = True) -> Settings:
         database_url=PostgresDsn("postgresql+psycopg://u:p@localhost:5432/db"),
         openrouter_api_key=SecretStr("test-key"),
         eval_judge_model="test/judge-model",
+        public_base_url="http://localhost:8000",
         llm_debug_log=enabled,
         llm_debug_log_dir=directory,
     )

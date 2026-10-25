@@ -17,6 +17,9 @@ os.environ["CSRF_SECRET_KEY"] = "test-csrf-secret-key"
 # Starlette's test client sends `Host: testserver`, which the trusted-host check admits only for
 # this origin (ticket #216).
 os.environ["PUBLIC_BASE_URL"] = "http://testserver"
+# A developer's `.env` may turn the debug log on, which `Settings` refuses for any host but
+# localhost (#278); tests never write it unless they ask.
+os.environ["LLM_DEBUG_LOG"] = "false"
 os.environ["ROUTER_MODEL"] = "test/router-model"
 os.environ["CHITCHAT_MODEL"] = "test/chitchat-model"
 os.environ["EXTRACT_MODEL"] = "test/extract-model"
