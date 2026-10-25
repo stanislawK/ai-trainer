@@ -102,6 +102,8 @@ Run `make` targets from the repo root; see the [Makefile](Makefile) for the comp
 
 `LLM_DEBUG_LOG=true` (default off) logs every model request to `.llm-debug/` — see [Debugging LLM calls](#debugging-llm-calls).
 
+`LOG_FORMAT` (`text` by default, `json` in `compose.prod.yaml`) and `LOG_LEVEL` (default `INFO`) set the app's and Uvicorn's logs on stdout (ADR-0030). A JSON line carries `timestamp` (UTC), `level`, `logger`, `message`, and, where they exist, `trace_id` and `span_id`, the request's `request_id` and the signed-in athlete's opaque `user_id`. Every response returns its `request_id` as `X-Request-ID`. An incoming `X-Request-ID` of up to 64 letters, digits, `.`, `_` or `-` is kept; any other is replaced. The app writes one access line per request with method, route template, status and `duration_ms`, never the raw path, the query or the client address, and none for `/health`. Uvicorn's own access line is off in both formats.
+
 ## Dev loop
 
 `make start` runs `docker compose watch` (`compose.yaml` plus the dev-only `compose.dev.yaml`) instead of `make up`'s plain `docker compose up -d --build`: same app + Postgres, but the app container runs `uvicorn --reload` and Compose Watch syncs edited files under `src/` straight into the running container — no image rebuild, no manual restart.

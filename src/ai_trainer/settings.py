@@ -200,6 +200,10 @@ class Settings(BaseSettings):
     app_version: str = "dev"
     deployment_environment: str = "development"
 
+    # Logs (ADR-0030): JSON lines with trace and request IDs in production, plain text by default.
+    log_format: Literal["json", "text"] = "text"
+    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
+
     @field_validator(
         "google_client_id", "google_client_secret", "session_secret_key", "csrf_secret_key"
     )

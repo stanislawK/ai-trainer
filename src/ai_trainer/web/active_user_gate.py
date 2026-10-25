@@ -6,6 +6,7 @@ from starlette.responses import RedirectResponse, Response
 from starlette.templating import Jinja2Templates
 from starlette.types import ASGIApp
 
+from ai_trainer.adapters.log_records import bind_user_id
 from ai_trainer.application.auth import resolve_authenticated_user
 from ai_trainer.application.ports.clock import ClockPort
 from ai_trainer.application.ports.sessions import SessionsRepositoryPort
@@ -111,6 +112,7 @@ class ActiveUserGateMiddleware(BaseHTTPMiddleware):
             )
 
         request.state.user = user
+        bind_user_id(user.id)
         request.state.is_admin = is_admin_email(user.email, self._admin_emails)
         if user.onboarded_at is None and not _is_onboarding_exempt(request.url.path):
             if is_htmx:

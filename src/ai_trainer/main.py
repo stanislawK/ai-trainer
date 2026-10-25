@@ -33,6 +33,7 @@ from ai_trainer.adapters.db import build_engine, build_session_factory
 from ai_trainer.adapters.google_oauth import AuthlibGoogleOAuthClient
 from ai_trainer.adapters.health import PsycopgDatabaseHealth
 from ai_trainer.adapters.llm_calls_repository import SqlAlchemyLlmCallsRepository
+from ai_trainer.adapters.log_records import configure_logging
 from ai_trainer.adapters.onboarding_repository import SqlAlchemyOnboardingRepository
 from ai_trainer.adapters.session_draft_repository import SqlAlchemySessionDraftRepository
 from ai_trainer.adapters.sessions_repository import SqlAlchemySessionsRepository
@@ -64,6 +65,7 @@ from ai_trainer.web.csrf import CsrfMiddleware
 from ai_trainer.web.errors import register_error_handlers
 from ai_trainer.web.health import build_health_router
 from ai_trainer.web.rate_limit import RateLimitMiddleware
+from ai_trainer.web.request_log import log_every_request
 from ai_trainer.web.settings import build_settings_router
 from ai_trainer.web.sign_in import build_sign_in_router
 from ai_trainer.web.templating import STATIC_DIR, build_templates
@@ -291,12 +293,15 @@ def create_app(settings: Settings, *, span_exporter: SpanExporter | None = None)
         auth_per_minute=settings.auth_requests_per_minute,
         session_per_minute=settings.session_requests_per_minute,
     )
-    # Added last so it is the outermost middleware: a request whose Host is not the public
-    # origin's is refused with 400 before the session, CSRF or sign-in gate sees it (ADR-0023).
-    # The port is not compared, so the host alone is allowed.
+    # A request whose Host is not the public origin's is refused with 400 before the session,
+    # CSRF or sign-in gate sees it (ADR-0023). The port is not compared, so the host alone is
+    # allowed.
     public_host = urlsplit(settings.public_base_url).hostname
     assert public_host is not None  # `Settings` only accepts an origin with a host
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=[public_host])
+    # Around Starlette's error middleware too, so a refused or failed request also gets a
+    # `request_id` and an access line (ADR-0030).
+    log_every_request(app)
 
     tracer_provider = _build_tracer_provider(settings, span_exporter)
     if tracer_provider is not None:
@@ -306,8 +311,13 @@ def create_app(settings: Settings, *, span_exporter: SpanExporter | None = None)
 
 
 def app_factory() -> FastAPI:
-    """Entry point for `uvicorn ai_trainer.main:app_factory --factory`."""
-    return create_app(Settings())
+    """Entry point for `uvicorn ai_trainer.main:app_factory --factory`.
+
+    Logging is configured here, not in `create_app`, so tests building apps keep pytest's.
+    """
+    settings = Settings()
+    configure_logging(settings)
+    return create_app(settings)
 
 
 def _build_tracer_provider(
