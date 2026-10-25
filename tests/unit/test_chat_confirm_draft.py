@@ -172,7 +172,10 @@ async def test_the_confirmed_rows_undo_posts_to_its_draft() -> None:
     row = client.post(f"/drafts/{draft.id}/confirm", headers=_HTMX).text
 
     (stored,) = drafts.all_of(user_id)
-    assert re.search(rf'<button[^>]*hx-post="/drafts/{stored.id}/undo"[^>]*>Undo</button>', row)
+    assert re.search(
+        rf'<button[^>]*hx-post="/drafts/{stored.id}/undo"[^>]*>(?:<span[^>]*></span>)?Undo</button>',
+        row,
+    )
     assert not re.search(r"<button[^>]*\bdisabled>Undo</button>", row)
 
 

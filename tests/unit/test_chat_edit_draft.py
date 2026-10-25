@@ -151,7 +151,7 @@ async def test_the_cards_edit_button_and_its_date_chip_both_open_the_form() -> N
     (chip,) = re.findall(r"<button[^>]*data-date-source=[^>]*>.*?</button>", card, re.S)
     assert f'hx-get="/drafts/{draft.id}/edit"' in chip
     assert "Assumed: today" in chip
-    assert render_icon("pencil", "size-3.5") in chip
+    assert render_icon("pencil", "size-3 chip-edit") in chip
     for opener in (edit, chip):
         assert 'hx-target="closest article"' in opener
         assert 'hx-swap="outerHTML"' in opener

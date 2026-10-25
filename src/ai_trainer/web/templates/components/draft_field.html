@@ -1,10 +1,6 @@
-{#- Helpers for a draft edit form's fields (ticket #158): a field shows what the athlete typed when the form comes back rejected, else the stored value (blank for none); a rejected field gets its error class and `aria-invalid`, pointing at its hint, whose ID is prefixed with the draft's so two forms on one page never share one. The hint's words are the caller's. -#}
+{#- Helpers for a draft edit form's fields (ticket #158): a field shows what the athlete typed when the form comes back rejected, else the stored value (blank for none); a rejected field gets `aria-invalid`, which draws an `lg-field`'s error ring (#265), pointing at its hint, whose ID is prefixed with the draft's so two forms on one page never share one. The hint's words are the caller's. -#}
 {% macro field_value(name, values, stored) -%}
 {{ values[name] if name in values else ("" if stored is none else stored) }}
-{%- endmacro %}
-
-{% macro field_class(name, errors, error_class) -%}
-{{ " " ~ error_class if name in errors else "" }}
 {%- endmacro %}
 
 {% macro _hint_id(name, prefix) -%}

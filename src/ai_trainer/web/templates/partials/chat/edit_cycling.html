@@ -1,6 +1,6 @@
 {#- A cycling draft's own fields in its edit form (ticket #160): one row per ride, as on the card, with its distance in km, moving time in minutes and climbing in metres. A distance or climbing left as shown keeps what was typed (miles, feet); a changed one is in km or metres. Zones aren't edited and stay. Runs inside `partials/chat/draft_edit.html`, which passes `card`, `values` and `errors`. -#}
 {%- from "components/cycling_copy.html" import km_value -%}
-{%- from "components/draft_field.html" import field_value, field_class, field_error, error_hint -%}
+{%- from "components/draft_field.html" import field_value, field_error, error_hint -%}
 <fieldset class="flex flex-col gap-3">
   <legend class="sr-only">Rides</legend>
   {%- for ride in card.payload.activities %}
@@ -12,15 +12,15 @@
     <div class="grid grid-cols-3 gap-2">
       <label class="flex flex-col gap-1">
         <span class="text-[12px] text-base-content/70">Distance (km)</span>
-        <input type="number" name="{{ row }}distance" inputmode="decimal" min="0" step="any" class="input h-11 w-full tabular-nums{{ field_class(row ~ 'distance', errors, 'input-error') }}" value="{{ field_value(row ~ 'distance', values, km_value(ride.distance.km) if ride.distance else none) }}"{{ field_error(row ~ 'distance', errors, card.draft.id) }}>
+        <input type="number" name="{{ row }}distance" inputmode="decimal" min="0" step="any" class="lg-field tabular-nums" value="{{ field_value(row ~ 'distance', values, km_value(ride.distance.km) if ride.distance else none) }}"{{ field_error(row ~ 'distance', errors, card.draft.id) }}>
       </label>
       <label class="flex flex-col gap-1">
         <span class="text-[12px] text-base-content/70">Moving (min)</span>
-        <input type="number" name="{{ row }}moving_time_min" inputmode="numeric" min="1" max="1440" class="input h-11 w-full tabular-nums{{ field_class(row ~ 'moving_time_min', errors, 'input-error') }}" value="{{ field_value(row ~ 'moving_time_min', values, ride.moving_time_min) }}"{{ field_error(row ~ 'moving_time_min', errors, card.draft.id) }}>
+        <input type="number" name="{{ row }}moving_time_min" inputmode="numeric" min="1" max="1440" class="lg-field tabular-nums" value="{{ field_value(row ~ 'moving_time_min', values, ride.moving_time_min) }}"{{ field_error(row ~ 'moving_time_min', errors, card.draft.id) }}>
       </label>
       <label class="flex flex-col gap-1">
         <span class="text-[12px] text-base-content/70">Climbing (m)</span>
-        <input type="number" name="{{ row }}elevation" inputmode="numeric" min="0" class="input h-11 w-full tabular-nums{{ field_class(row ~ 'elevation', errors, 'input-error') }}" value="{{ field_value(row ~ 'elevation', values, ride.elevation.m if ride.elevation else none) }}"{{ field_error(row ~ 'elevation', errors, card.draft.id) }}>
+        <input type="number" name="{{ row }}elevation" inputmode="numeric" min="0" class="lg-field tabular-nums" value="{{ field_value(row ~ 'elevation', values, ride.elevation.m if ride.elevation else none) }}"{{ field_error(row ~ 'elevation', errors, card.draft.id) }}>
       </label>
     </div>
     {% call error_hint(row ~ "distance", errors, card.draft.id) %}Enter a distance in km above 0.{% endcall %}

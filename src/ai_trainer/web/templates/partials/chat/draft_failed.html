@@ -1,4 +1,4 @@
-{#- A sport whose extraction failed while the rest of its reply came through (ticket #161): in place of its draft card, the error row of a failed reply (`reply_failed.html`), naming the sport, with Retry. Retry re-runs that sport's extraction and swaps this row for the draft's intro line and card; it is disabled while it runs, and a refusal leaves the row as it is. A Retry that fails again (`retry_error`) brings this row back with a note. The app mark, not the sport's glyph, as on every error row; the Chat mock has no frame for it, so it reuses the error row as approved at #161's plan gate. -#}
+{#- A sport whose extraction failed while the rest of its reply came through (ticket #161): in place of its draft card, the error row of a failed reply (`reply_failed.html`), naming the sport, with Retry. Retry re-runs that sport's extraction and swaps this row for the draft's intro line and card; it is disabled while it runs, and a refusal leaves the row as it is. A Retry that fails again (`retry_error`) brings this row back with a note. The app mark, not the sport's glyph, as on every error row; the Chat mock has no frame for it, so it reuses the error row as approved at #161's plan gate. Retry is a 28 px `lg-xs` control (#265), and an invisible child grows its tap target to 44 px. -#}
 {%- from "components/avatar.html" import avatar -%}
 {%- from "components/icon.html" import icon -%}
 {%- from "components/sport_copy.html" import sport_copy -%}
@@ -7,7 +7,7 @@
   <div class="flex flex-wrap items-center gap-2 min-h-7 text-[13px]">
     {{ icon("circle-alert", "size-4 text-error") }}
     <span class="text-base-content/70">{{ sport_copy[failed_sport.label_key].label }}: {{ message.text }}</span>
-    <button type="button" class="btn btn-xs h-7 rounded-full glass-regular border-0 relative after:absolute after:-inset-2.5 after:content-['']" hx-post="/messages/{{ message.id }}/retry-draft" hx-target="closest [data-draft-failed]" hx-swap="outerHTML" hx-disable="this" hx-status:4xx="swap:none">Retry<span class="loading loading-spinner loading-xs hidden [.htmx-request_&]:inline-block" aria-hidden="true"></span></button>
+    <button type="button" class="lg lg-clear lg-xs" hx-post="/messages/{{ message.id }}/retry-draft" hx-target="closest [data-draft-failed]" hx-swap="outerHTML" hx-disable="this" hx-status:4xx="swap:none"><span class="absolute -inset-2" aria-hidden="true"></span>Retry<span class="loading loading-spinner loading-xs hidden [.htmx-request_&]:inline-block" aria-hidden="true"></span></button>
     {%- if retry_error is defined and retry_error %}
     <p class="basis-full text-error" role="alert">Still couldn't draft it. Try again in a moment.</p>
     {%- endif %}
