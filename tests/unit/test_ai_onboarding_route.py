@@ -335,7 +335,7 @@ async def test_the_summary_needs_about_you_first(athlete: Athlete) -> None:
     assert response.headers["location"] == "/onboarding/about-you"
 
 
-async def test_the_summary_page_is_a_skeleton_that_owns_the_stream(athlete: Athlete) -> None:
+async def test_the_summary_page_is_the_sheet_that_owns_the_stream(athlete: Athlete) -> None:
     await _answered(athlete)
 
     response = athlete.client.get("/onboarding/summary")
@@ -343,7 +343,7 @@ async def test_the_summary_page_is_a_skeleton_that_owns_the_stream(athlete: Athl
     assert response.status_code == 200
     assert 'hx-sse:connect="/onboarding/summary/stream"' in response.text
     assert 'hx-config="sse.reconnect:false sse.pauseOnBackground:false"' in response.text
-    assert "skeleton" in response.text
+    assert 'class="lg-sheet"' in response.text
     assert 'role="status"' in response.text
 
 

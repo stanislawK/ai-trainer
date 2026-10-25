@@ -570,3 +570,242 @@
     background: var(--color-primary);
   }
 }
+
+/* The onboarding summary's parsing state (F21, ticket #257): a thick slab of glass, tilted back,
+ * with light moving inside it, like the glass-ball loader at card scale. Settled (marked
+ * `is-settled`, or while htmx holds the swap that brings the summary in) it flattens and its
+ * light fades. Markup: .lg-sheet > .lg-sheet-floor, .lg-sheet-slab, .lg-sheet-face >
+ * (.lg-sheet-light > .lg-sheet-ox > .lg-sheet-oy > .lg-sheet-photon), .lg-sheet-caustic,
+ * .lg-sheet-spec, .lg-sheet-content. */
+@utility lg-sheet {
+  --r: 28px;
+  --D: 9s;
+  position: relative;
+  isolation: isolate;
+  border-radius: var(--r);
+  transform: perspective(1400px) rotateX(9deg) translateY(0);
+  transform-origin: 50% 100%;
+  animation: lg-sheet-float 6s ease-in-out infinite alternate;
+  transition: transform .6s cubic-bezier(.32, .72, 0, 1);
+
+  &.is-settled, .htmx-swapping & {
+    transform: none;
+    animation: none;
+
+    & .lg-sheet-light, & .lg-sheet-caustic, & .lg-sheet-floor {
+      opacity: 0;
+    }
+
+    /* The floor breathes through opacity, and a running animation beats the fade. */
+    & .lg-sheet-floor {
+      animation: none;
+    }
+  }
+
+  /* The settle flattens it at once: no rotation to flat either. */
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+    transition: none;
+  }
+}
+
+/* The primary glow on the floor below the slab. */
+@utility lg-sheet-floor {
+  position: absolute;
+  left: 6%;
+  right: 6%;
+  bottom: -34px;
+  height: 64px;
+  border-radius: 50%;
+  z-index: -2;
+  background: radial-gradient(closest-side, color-mix(in oklch, var(--color-primary) 55%, transparent), transparent);
+  filter: blur(18px);
+  opacity: .8;
+  animation: lg-sheet-breathe calc(var(--D) / 2) ease-in-out infinite alternate;
+  transition: opacity .5s;
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
+}
+
+/* The slab edge: the glass thickness seen below the face. Light exits through it, so it glows
+ * at the bottom. */
+@utility lg-sheet-slab {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  z-index: -1;
+  transform: translateY(12px) scale(.985);
+  background:
+    linear-gradient(180deg, transparent 55%, light-dark(color-mix(in oklch, var(--color-primary) 40%, transparent), color-mix(in oklch, var(--color-primary) 45%, transparent)) 100%),
+    light-dark(color-mix(in oklch, var(--color-primary) 22%, oklch(96% 0.01 232 / .7)), oklch(16% 0.02 232 / .88));
+  box-shadow:
+    inset 0 -1.5px 1px 0 light-dark(oklch(100% 0 0 / .9), color-mix(in oklch, var(--color-primary), white 40%)),
+    inset 0 0 0 .5px light-dark(color-mix(in oklch, var(--color-primary) 35%, transparent), oklch(100% 0 0 / .14)),
+    0 2px 4px 0 light-dark(oklch(25% 0.02 232 / .1), oklch(0% 0 0 / .4)),
+    0 40px 70px -24px light-dark(oklch(25% 0.02 232 / .35), oklch(0% 0 0 / .75)),
+    0 18px 40px -20px color-mix(in oklch, var(--color-primary) 45%, transparent);
+}
+
+/* The face: tinted glass, darker toward the edge, with a conic rim. */
+@utility lg-sheet-face {
+  position: relative;
+  border-radius: inherit;
+  overflow: hidden;
+  isolation: isolate;
+  background: light-dark(
+    radial-gradient(130% 100% at 30% 0%, oklch(99% 0.006 232 / .72) 0%, color-mix(in oklch, var(--color-primary) 12%, oklch(97% 0.008 232 / .6)) 55%, color-mix(in oklch, var(--color-primary) 30%, oklch(94% 0.01 232 / .6)) 100%),
+    radial-gradient(130% 100% at 30% 0%, color-mix(in oklch, var(--color-primary) 16%, oklch(24% 0.014 232 / .6)) 0%, oklch(18% 0.016 232 / .62) 55%, oklch(12% 0.02 232 / .78) 100%));
+  -webkit-backdrop-filter: blur(28px) saturate(190%);
+  backdrop-filter: blur(28px) saturate(190%);
+  box-shadow:
+    inset 0 1px 0 0 light-dark(oklch(100% 0 0 / 1), oklch(100% 0 0 / .3)),
+    inset 0 0 36px 0 light-dark(color-mix(in oklch, var(--color-primary) 22%, transparent), color-mix(in oklch, var(--color-primary) 30%, transparent)),
+    inset 0 18px 24px -20px light-dark(oklch(100% 0 0 / .9), oklch(100% 0 0 / .14)),
+    inset 0 -22px 30px -24px color-mix(in oklch, var(--color-primary), white 30%);
+
+  &::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1px;
+    pointer-events: none;
+    z-index: 3;
+    background: conic-gradient(from 0deg,
+      light-dark(oklch(100% 0 0 / 1), oklch(100% 0 0 / .6)) 0deg,
+      light-dark(color-mix(in oklch, var(--color-primary) 25%, transparent), oklch(100% 0 0 / .06)) 70deg 105deg,
+      light-dark(oklch(100% 0 0 / .7), color-mix(in oklch, var(--color-primary), white 35%)) 160deg,
+      light-dark(color-mix(in oklch, var(--color-primary) 25%, transparent), oklch(100% 0 0 / .06)) 210deg 250deg,
+      light-dark(oklch(100% 0 0 / 1), oklch(100% 0 0 / .6)) 315deg 360deg);
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+  }
+
+  @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    background: color-mix(in oklch, var(--color-base-content) 7%, var(--color-base-100));
+  }
+}
+
+/* The light core: x and y eased on different periods trace a wandering path (Lissajous). */
+@utility lg-sheet-light {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  transition: opacity .5s;
+}
+
+@utility lg-sheet-ox {
+  position: absolute;
+  inset: 0;
+  animation: lg-sheet-x calc(var(--D) / 2) ease-in-out infinite alternate;
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
+}
+
+@utility lg-sheet-oy {
+  position: absolute;
+  inset: 0;
+  animation: lg-sheet-y calc(var(--D) / 2.9) ease-in-out infinite alternate;
+  animation-delay: calc(var(--D) / -5);
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
+}
+
+@utility lg-sheet-photon {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 82%;
+  aspect-ratio: 1;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: radial-gradient(closest-side,
+    oklch(100% 0 0 / .95) 0%,
+    light-dark(color-mix(in oklch, var(--color-primary), white 70%), color-mix(in oklch, var(--color-primary), white 35%)) 18%,
+    color-mix(in oklch, var(--color-primary) 45%, transparent) 45%,
+    transparent 72%);
+  filter: blur(22px);
+  mix-blend-mode: screen;
+  opacity: .85;
+
+  [data-theme="trainer-light"] & {
+    opacity: .75;
+  }
+}
+
+/* The far-edge caustic: focused light where the core's rays exit; it moves opposite the core. */
+@utility lg-sheet-caustic {
+  position: absolute;
+  left: 12%;
+  right: 12%;
+  bottom: -4%;
+  height: 22%;
+  border-radius: 50%;
+  pointer-events: none;
+  background: radial-gradient(closest-side, color-mix(in oklch, var(--color-primary), white 45%), transparent);
+  filter: blur(14px);
+  opacity: .7;
+  mix-blend-mode: screen;
+  animation: lg-sheet-x calc(var(--D) / 2) ease-in-out infinite alternate-reverse;
+  transition: opacity .5s;
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
+}
+
+/* The specular: fixed to the viewer, it does not follow the light. */
+@utility lg-sheet-spec {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: 2;
+  background:
+    radial-gradient(60% 22% at 22% 0%, oklch(100% 0 0 / .55), transparent 70%),
+    linear-gradient(160deg, light-dark(oklch(100% 0 0 / .4), oklch(100% 0 0 / .12)) 0%, transparent 26%);
+}
+
+@utility lg-sheet-content {
+  position: relative;
+  z-index: 1;
+}
+
+/* A field well carved into the slab where a read value will land. */
+@utility lg-sheet-well {
+  display: block;
+  border-radius: 12px;
+  background-color: light-dark(oklch(25% 0.02 232 / .06), oklch(0% 0 0 / .22));
+  box-shadow:
+    inset 0 1px 2px 0 light-dark(oklch(25% 0.02 232 / .14), oklch(0% 0 0 / .5)),
+    inset 0 -1px 1px 0 light-dark(oklch(100% 0 0 / .9), oklch(100% 0 0 / .08));
+}
+
+@keyframes lg-sheet-float {
+  from { translate: 0 -3px; }
+  to { translate: 0 4px; }
+}
+
+@keyframes lg-sheet-breathe {
+  from { opacity: .55; }
+  to { opacity: .9; }
+}
+
+@keyframes lg-sheet-x {
+  from { transform: translateX(-30%); }
+  to { transform: translateX(30%); }
+}
+
+@keyframes lg-sheet-y {
+  from { transform: translateY(-26%) scale(.7); opacity: .55; }
+  to { transform: translateY(24%) scale(1.15); opacity: 1; }
+}
