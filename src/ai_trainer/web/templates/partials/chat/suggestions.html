@@ -1,4 +1,4 @@
-{#- The composer's suggestion popover (ticket #85, F13): every suggestion, hidden until static/js/autocomplete.js shows up to six that match what the athlete types, with the match marked by a copy of the <template>'s <mark>. The M1 set covers what the chat can answer now; it changes per milestone. -#}
+{#- The composer's suggestion popover (ticket #85, F13): every suggestion, hidden until static/js/autocomplete.js shows up to six that match what the athlete types, with the match marked by a copy of the <template>'s <mark>. In v4 (Navigation v4, #266) it is thick floating glass with a keyboard hint on desktop. The M1 set covers what the chat can answer now; it changes per milestone. -#}
 {%- from "components/icon.html" import icon -%}
 {%- set suggestion_groups = [
   {"label": "Log", "items": [
@@ -13,15 +13,17 @@
     {"text": "What should I train tomorrow?", "hint": "Based on your recent sessions", "icon": "calendar-check"},
   ]},
 ] -%}
-<div id="chat-suggestions" class="glass-regular glass-rim relative rounded-box p-1.5 flex flex-col" role="listbox" aria-label="Suggestions" hidden>
+<div id="chat-suggestions" class="lgs lgs-thick relative rounded-[22px] p-1.5 flex flex-col" role="listbox" aria-label="Suggestions" hidden>
   <template data-suggestion-mark><mark class="bg-primary/20 text-base-content rounded px-0.5"></mark></template>
   {%- for group in suggestion_groups %}
   {%- set group_index = loop.index0 %}
-  <div class="flex flex-col" role="group" aria-labelledby="chat-suggestions-{{ group_index }}" data-suggestion-group>
+  {#- A hairline separates a group from a shown group above it, as in the mock; a group alone, or the first shown, has none. #}
+  <div class="flex flex-col [[data-suggestion-group]:not([hidden])~&]:mt-1 [[data-suggestion-group]:not([hidden])~&]:border-t [[data-suggestion-group]:not([hidden])~&]:border-base-content/10" role="group" aria-labelledby="chat-suggestions-{{ group_index }}" data-suggestion-group>
     <span id="chat-suggestions-{{ group_index }}" class="px-3 pt-2 pb-1 text-[12px] font-medium text-base-content/70">{{ group.label }}</span>
     {%- for item in group["items"] %}
     <div id="chat-suggestion-{{ group_index }}-{{ loop.index0 }}" role="option" aria-selected="false" class="flex items-center gap-3 min-h-12 px-3 rounded-2xl cursor-pointer aria-selected:bg-base-content/10" data-suggestion="{{ item.text }}" data-suggestion-hint="{{ item.hint }}" hidden>{{ icon(item.icon, "size-5 shrink-0 text-base-content/70") }}<div class="flex flex-col"><span class="text-[15px]" data-suggestion-label>{{ item.text }}</span><span class="text-[13px] text-base-content/70" data-suggestion-detail>{{ item.hint }}</span></div></div>
     {%- endfor %}
   </div>
   {%- endfor %}
+  <span class="hidden lg:flex items-center gap-1 px-3 pt-1.5 pb-1 text-[11px] text-base-content/70" aria-hidden="true" data-suggestion-keys><kbd class="kbd kbd-xs">↑</kbd><kbd class="kbd kbd-xs">↓</kbd> move · <kbd class="kbd kbd-xs">⏎</kbd> or <kbd class="kbd kbd-xs">Tab</kbd> accept · <kbd class="kbd kbd-xs">Esc</kbd> close</span>
 </div>

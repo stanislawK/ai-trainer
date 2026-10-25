@@ -1,6 +1,7 @@
 // Composer suggestions (ticket #85, F13). A starter chip fills the composer without sending.
 // While the athlete types, #chat-suggestions shows up to six suggestions that match, with the
-// match marked: ↑/↓ move, Enter or a tap picks one into the composer, Esc closes. The
+// match marked: ↑/↓ move, Enter, Tab (Navigation v4, #266) or a tap picks one into the
+// composer, Esc closes. Shift+Tab still leaves the composer. The
 // suggestions, their labels and the mark's look live in templates; this only filters and picks.
 // Delegated on the document so it survives htmx swapping the composer.
 (function () {
@@ -161,7 +162,7 @@
         event.preventDefault();
         var step = event.key === "ArrowDown" ? 1 : -1;
         activate(input, box, shown[(current + step + shown.length) % shown.length]);
-      } else if (event.key === "Enter" && !event.shiftKey) {
+      } else if ((event.key === "Enter" || event.key === "Tab") && !event.shiftKey) {
         event.preventDefault();
         event.stopImmediatePropagation();
         pick(input, box, shown[Math.max(current, 0)]);

@@ -1,3 +1,4 @@
-{#- The thinking indicator's label for the step the server reports (F14). The words live here, not in Python (G5). -#}
+{#- The thinking indicator's label for the step the server reports (F14). The words live here, not in Python (G5). It replaces the cycling word and the hidden "Thinking…", so the phase is read once and the cycling stops (#266). -#}
+{%- from "components/thinking.html" import thinking_word -%}
 {%- set labels = {"routing": "Reading your message…", "replying": "Writing your reply…"} -%}
-<template hx type="partial" hx-target="#reply-{{ message_id }}-phase" hx-swap="innerHTML">{{ labels[phase] }}</template>
+<template hx type="partial" hx-target="#reply-{{ message_id }}-phase" hx-swap="innerHTML">{{ thinking_word(labels[phase]) }}</template>

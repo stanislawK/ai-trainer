@@ -229,7 +229,11 @@ def test_the_thinking_indicator_stays_still_under_reduced_motion() -> None:
 
     html = client.post("/messages", data={"message": "hi!"}, headers=_HTMX).text
 
-    animated = re.findall(r'class="[^"]*animate-\[[^"]*"', html)
+    # The glass ball's motion lives in glass.css's ld-ball-ox/oy, which stop under reduced
+    # motion (#266); every animated class in the markup stops too.
+    assert 'class="ld-ball-ox"' in html
+    assert 'class="ld-ball-oy"' in html
+    animated = re.findall(r'class="[^"]*(?:animate-|\bskeleton\b)[^"]*"', html)
     assert animated
     assert all("motion-reduce:animate-none" in element for element in animated)
 
