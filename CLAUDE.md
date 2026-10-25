@@ -58,6 +58,7 @@ Locked by the ADRs cited below; `docs/adr/README.md` carries each ADR's current 
 - LLM latency plan: model, upstream routing, reasoning effort and timeouts per template from `Settings`, picked on measured latency, cost and evals; follow-up logs routed by the conversation's sport — ADR-0026
 - Per-athlete venues with their own gym grading, never converted without the athlete's mapping; opt-in device location matched against a bulk-imported OpenStreetMap gym directory — ADR-0027
 - Athlete profile (`athlete_profiles`, `sport_profiles`) built by AI onboarding: one prompt template per step read in the background, durable `onboarding_answers`, a summary that catches up and is the only write — ADR-0028
+- In-process request and model-call limits: sign-in routes by `CF-Connecting-IP`, other requests by session cookie, text and decision calls sharing one per-user budget; no Redis — ADR-0029
 
 ## Commands (available once M0 lands)
 

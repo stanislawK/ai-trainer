@@ -8,12 +8,18 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class LlmCallOutcome(StrEnum):
-    """Every gateway call writes exactly one row with one of these (ADR-0018 invariant 1)."""
+    """How a gateway call ended.
+
+    A call that reached the model writes exactly one row as `success`, `timeout`, `error` or
+    `cancelled` (ADR-0018 invariant 1). `rate_limited` means the budget refused it before it
+    was sent, so no row is written (ADR-0029).
+    """
 
     SUCCESS = "success"
     TIMEOUT = "timeout"
     ERROR = "error"
     CANCELLED = "cancelled"
+    RATE_LIMITED = "rate_limited"
 
 
 # OpenRouter's `reasoning.effort` levels (ADR-0026 step 3). A model that lacks the one asked

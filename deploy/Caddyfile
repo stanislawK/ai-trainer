@@ -21,6 +21,12 @@ https://{$SITE_HOST} {
 
 	header Strict-Transport-Security "max-age=31536000"
 
+	# No upload exists. Chat and onboarding forms are a few kilobytes (ADR-0029).
+	# `request_body` is in the stock caddy:2.11.7 image. A larger body is 413.
+	request_body {
+		max_size 256KiB
+	}
+
 	# Passes the original Host on, which TrustedHostMiddleware checks against PUBLIC_BASE_URL.
 	reverse_proxy app:8000
 }

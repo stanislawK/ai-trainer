@@ -126,5 +126,6 @@ def test_caddyfile_requires_the_aop_client_certificate_and_sets_hsts() -> None:
     assert mode_lines == ["mode require_and_verify"]
     assert 'Strict-Transport-Security "max-age=31536000"' in caddyfile
     assert "reverse_proxy app:8000" in caddyfile
+    assert "max_size 256KiB" in caddyfile
     # Only 443/tcp is published, so HTTP/3 must not be advertised.
     assert "protocols h1 h2" in caddyfile
