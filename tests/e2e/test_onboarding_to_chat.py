@@ -33,7 +33,7 @@ def test_new_account_completes_onboarding_and_lands_in_chat(not_onboarded_page: 
 
     expect(page).to_have_url(f"{BASE_URL}/onboarding/summary")
     expect(page.get_by_text("Skipped")).to_be_visible()
-    expect(page.get_by_label("Age")).to_have_value("")
+    expect(page.get_by_label("Age", exact=True)).to_have_value("")
     _press(page, "Looks right, build my plan")
 
     expect(page).to_have_url(f"{BASE_URL}/")
