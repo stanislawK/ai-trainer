@@ -219,6 +219,66 @@ def test_missing_extract_model_raises_naming_it(monkeypatch: pytest.MonkeyPatch)
     assert [error["loc"] for error in excinfo.value.errors()] == [("extract_model",)]
 
 
+def test_the_onboarding_group_defaults_to_the_settings_its_baseline_was_picked_on(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DATABASE_URL", DATABASE_URL)
+    monkeypatch.setenv("OPENROUTER_API_KEY", OPENROUTER_API_KEY)
+    monkeypatch.setenv("EVAL_JUDGE_MODEL", EVAL_JUDGE_MODEL)
+    for name in (
+        "ONBOARDING_MODEL",
+        "ONBOARDING_PROVIDER_PREFERENCES",
+        "ONBOARDING_CALL_TIMEOUT_SECONDS",
+        "ONBOARDING_REASONING_EFFORT",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+    settings = Settings(_env_file=None)
+
+    assert settings.onboarding_model == "z-ai/glm-5.3-flash"
+    assert settings.onboarding_provider_preferences == ProviderPreferences(
+        sort="latency", quantizations=["fp8", "nvfp4"]
+    )
+    assert settings.onboarding_call_timeout_seconds is None
+    assert settings.onboarding_reasoning_effort == "low"
+
+
+def test_the_onboarding_group_reads_its_own_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", DATABASE_URL)
+    monkeypatch.setenv("OPENROUTER_API_KEY", OPENROUTER_API_KEY)
+    monkeypatch.setenv("EVAL_JUDGE_MODEL", EVAL_JUDGE_MODEL)
+    monkeypatch.setenv("ONBOARDING_MODEL", "test/onboarding-model")
+    monkeypatch.setenv("ONBOARDING_PROVIDER_PREFERENCES", '{"sort": "price"}')
+    monkeypatch.setenv("ONBOARDING_CALL_TIMEOUT_SECONDS", "20")
+    monkeypatch.setenv("ONBOARDING_REASONING_EFFORT", "low")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.onboarding_model == "test/onboarding-model"
+    assert settings.onboarding_provider_preferences is not None
+    assert settings.onboarding_provider_preferences.sort == "price"
+    assert settings.onboarding_call_timeout_seconds == 20
+    assert settings.onboarding_reasoning_effort == "low"
+
+
+def test_a_blank_onboarding_setting_keeps_its_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", DATABASE_URL)
+    monkeypatch.setenv("OPENROUTER_API_KEY", OPENROUTER_API_KEY)
+    monkeypatch.setenv("EVAL_JUDGE_MODEL", EVAL_JUDGE_MODEL)
+    monkeypatch.setenv("ONBOARDING_MODEL", " ")
+    monkeypatch.setenv("ONBOARDING_PROVIDER_PREFERENCES", "")
+    monkeypatch.setenv("ONBOARDING_CALL_TIMEOUT_SECONDS", " ")
+    monkeypatch.setenv("ONBOARDING_REASONING_EFFORT", "")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.onboarding_model == "z-ai/glm-5.3-flash"
+    assert settings.onboarding_provider_preferences is not None
+    assert settings.onboarding_provider_preferences.sort == "latency"
+    assert settings.onboarding_reasoning_effort == "low"
+    assert settings.onboarding_call_timeout_seconds is None
+
+
 def test_decision_settings_default_to_a_pinned_jev_on_openrouter_and_a_short_timeout(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -9,17 +9,13 @@ from starlette.templating import Jinja2Templates
 from ai_trainer.application.onboarding import (
     MAX_GOAL_LENGTH,
     WEEKDAYS,
-    DroppedSportsHaveGoalsError,
-    EmptySportSelectionError,
     GoalProblem,
     InvalidAvailabilityError,
-    InvalidGoalChoiceError,
     InvalidGoalsError,
     InvalidTimezoneError,
     NoAvailabilityError,
     NoGoalsError,
     UnknownGoalSportError,
-    choose_sports,
     confirm_timezone,
     earliest_today,
     set_availability,
@@ -29,7 +25,7 @@ from ai_trainer.application.onboarding import (
 from ai_trainer.application.ports.clock import ClockPort
 from ai_trainer.application.ports.onboarding import OnboardingRepositoryPort
 from ai_trainer.domain.sports.base import SportPlugin
-from ai_trainer.domain.sports.registry import SportRegistry, UnknownSportError
+from ai_trainer.domain.sports.registry import SportRegistry
 from ai_trainer.domain.users import User
 
 _NEXT_STEP_PATH = "/onboarding/availability"
@@ -37,9 +33,7 @@ _GOALS_STEP_PATH = "/onboarding/goals"
 _TIMEZONE_STEP_PATH = "/onboarding/timezone"
 _UNPROCESSABLE = 422
 _HOME_PATH = "/"
-_FIRST_STEP_PATH = "/onboarding/sports"
 _DEFAULT_TIMEZONE = "UTC"
-_GOAL_CHOICE_PREFIX = "goals_"
 
 
 @dataclass(frozen=True)
@@ -58,8 +52,9 @@ def build_onboarding_router(
     onboarding: OnboardingRepositoryPort,
     clock: ClockPort,
 ) -> APIRouter:
-    """Wires the onboarding steps (PRD-0003 F6, ADR-0006, tickets #74-#77 and #99): sports,
-    availability, goals per sport and the timezone that finishes it. `user_id` comes only from
+    """Wires the form onboarding's later steps (PRD-0003 F6, ADR-0006, tickets #75-#77 and
+    #99): availability, goals per sport and the timezone. The AI onboarding (ADR-0028,
+    `web/ai_onboarding.py`) replaced its first step; these go in #256. `user_id` comes only from
     the authenticated session (ADR-0005)."""
     router = APIRouter(prefix="/onboarding")
 
@@ -71,61 +66,6 @@ def build_onboarding_router(
         return templates.TemplateResponse(
             request, f"{prefix}/onboarding/{page}.html", context, status_code=status_code
         )
-
-    @router.get("")
-    async def start(request: Request) -> Response:
-        # A finished athlete has nothing to set up; everyone else starts at the first step.
-        user: User = request.state.user
-        return next_step(request, _HOME_PATH if user.onboarded_at else _FIRST_STEP_PATH)
-
-    @router.get("/sports", response_class=HTMLResponse)
-    async def sports_step(request: Request) -> HTMLResponse:
-        user: User = request.state.user
-        selected = await onboarding.list_sports(user.id)
-        return render(request, "sports", {"sports": registry.all(), "selected": selected})
-
-    @router.post("/sports")
-    async def choose_sports_step(request: Request) -> Response:
-        user: User = request.state.user
-        form = await request.form()
-        picked = [value for value in form.getlist("sports") if isinstance(value, str)]
-        # Only the dialog's Confirm carries `confirm_drop`; without it, dropping a sport that
-        # has goals asks first, and with it every such sport needs its own valid choice.
-        choices: dict[str, str] | None = None
-        if form.get("confirm_drop") == "1":
-            choices = {}
-            for key in {key for key in form if key.startswith(_GOAL_CHOICE_PREFIX)}:
-                values = form.getlist(key)
-                # A repeated key would let a bad value hide behind a good one.
-                if len(values) != 1 or not isinstance(values[0], str):
-                    raise HTTPException(status_code=_UNPROCESSABLE, detail=f"one choice for {key}")
-                choices[key.removeprefix(_GOAL_CHOICE_PREFIX)] = values[0]
-        try:
-            await choose_sports(
-                user.id, picked, registry=registry, repository=onboarding, goal_choices=choices
-            )
-        except (UnknownSportError, InvalidGoalChoiceError) as exc:
-            raise HTTPException(status_code=_UNPROCESSABLE, detail=str(exc)) from exc
-        except EmptySportSelectionError:
-            return render(
-                request,
-                "sports",
-                {"sports": registry.all(), "selected": [], "error": True},
-                status_code=_UNPROCESSABLE,
-            )
-        except DroppedSportsHaveGoalsError as exc:
-            dropped = [
-                (sport, exc.dropped[sport.id])
-                for sport in registry.all()
-                if sport.id in exc.dropped
-            ]
-            return render(
-                request,
-                "sports",
-                {"sports": registry.all(), "selected": picked, "dropped": dropped},
-            )
-
-        return next_step(request, _NEXT_STEP_PATH)
 
     def next_step(request: Request, path: str) -> Response:
         # htmx never processes redirect headers on a 3xx, so an htmx request gets

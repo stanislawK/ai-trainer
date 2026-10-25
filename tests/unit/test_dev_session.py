@@ -58,6 +58,7 @@ class FakeOnboardingRepository:
         self.onboarded_at: dict[UUID, datetime | None] = {}
         self.sports: dict[UUID, list[str]] = {}
         self.goals: dict[UUID, list[Goal]] = {}
+        self.answers: dict[UUID, list[str]] = {}
 
     async def replace_sports(
         self,
@@ -91,6 +92,9 @@ class FakeOnboardingRepository:
 
     async def finish_onboarding(self, user_id: UUID, timezone: str, when: datetime) -> None:
         raise NotImplementedError
+
+    async def discard_answers(self, user_id: UUID) -> None:
+        self.answers[user_id] = []
 
 
 class FakeSessionsRepository:
@@ -324,6 +328,32 @@ async def test_not_onboarded_seed_resets_the_goals_of_an_earlier_run() -> None:
     )
 
     assert onboarding.goals[first.user_id] == []
+
+
+async def test_not_onboarded_seed_discards_the_onboarding_answers_of_an_earlier_run() -> None:
+    users = FakeUsersRepository()
+    onboarding = FakeOnboardingRepository()
+    sessions = FakeSessionsRepository()
+    first = await seed_dev_session(
+        users,
+        sessions,
+        FakeClock(),
+        onboarding=onboarding,
+        session_ttl=SESSION_TTL,
+        onboarded=False,
+    )
+    onboarding.answers[first.user_id] = ["31, 178 cm"]
+
+    await seed_dev_session(
+        users,
+        sessions,
+        FakeClock(),
+        onboarding=onboarding,
+        session_ttl=SESSION_TTL,
+        onboarded=False,
+    )
+
+    assert onboarding.answers[first.user_id] == []
 
 
 def test_parse_args_defaults_to_an_onboarded_user() -> None:

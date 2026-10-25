@@ -1,4 +1,4 @@
-"""A new account walks through onboarding into the chat (PRD-0003 F1, F6, G11; ticket #86).
+"""A new account walks through onboarding into the chat (PRD-0007 F1, F6, G11; tickets #86, #254).
 
 It is the first flow every athlete takes, so it earns a permanent spec (ADR-0013). The
 streamed reply is out of scope: stubbing OpenRouter inside the compose stack is not decided
@@ -20,27 +20,21 @@ def _press(page: Page, name: str) -> None:
 
 
 def test_new_account_completes_onboarding_and_lands_in_chat(not_onboarded_page: Page) -> None:
+    """Sport, About you skipped (so no model call leaves the stack), the summary, and confirm
+    (ADR-0028, ticket #254). #256 extends it to two sports."""
     page = not_onboarded_page
     page.goto(f"{BASE_URL}/")
-    expect(page).to_have_url(f"{BASE_URL}/onboarding/sports")
+    expect(page).to_have_url(f"{BASE_URL}/onboarding/sport")
 
-    page.get_by_label("Climbing", exact=False).check()
-    page.get_by_label("Cycling", exact=False).check()
-    _press(page, "Continue")
+    _press(page, "Climbing")
 
-    expect(page).to_have_url(f"{BASE_URL}/onboarding/availability")
-    page.locator("[data-day-chip='1']").click()
-    page.locator("[data-day-slider]").fill("90")
-    expect(page.locator("[data-day-chip='1'] [data-day-short]")).to_have_text("1h30")
-    _press(page, "Continue")
+    expect(page).to_have_url(f"{BASE_URL}/onboarding/about-you")
+    _press(page, "Skip")
 
-    expect(page).to_have_url(f"{BASE_URL}/onboarding/goals")
-    climbing_card = page.locator("[data-goal-card][data-sport='climbing']")
-    climbing_card.locator("[data-goal-list]").get_by_label("Goal text").fill("Send a 7a")
-    _press(page, "Continue")
-
-    expect(page).to_have_url(f"{BASE_URL}/onboarding/timezone")
-    _press(page, "Start chatting")
+    expect(page).to_have_url(f"{BASE_URL}/onboarding/summary")
+    expect(page.get_by_text("Skipped")).to_be_visible()
+    expect(page.get_by_label("Age", exact=True)).to_have_value("")
+    _press(page, "Looks right, build my plan")
 
     expect(page).to_have_url(f"{BASE_URL}/")
     expect(page.locator("#chat-content")).to_be_visible()
@@ -54,15 +48,3 @@ def test_new_account_completes_onboarding_and_lands_in_chat(not_onboarded_page: 
 
     page.goto(f"{BASE_URL}/onboarding")
     expect(page).to_have_url(f"{BASE_URL}/")
-
-
-def test_continuing_the_sports_step_with_nothing_picked_shows_the_inline_error(
-    not_onboarded_page: Page,
-) -> None:
-    page = not_onboarded_page
-    page.goto(f"{BASE_URL}/onboarding/sports")
-
-    _press(page, "Continue")
-
-    expect(page.get_by_role("alert")).to_contain_text("Pick at least one sport to continue.")
-    expect(page).to_have_url(f"{BASE_URL}/onboarding/sports")

@@ -872,6 +872,52 @@
         "summary": "Start"
       }
     },
+    "/onboarding/about-you": {
+      "get": {
+        "operationId": "about_you_card_onboarding_about_you_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "About You Card"
+      },
+      "post": {
+        "operationId": "answer_about_you_onboarding_about_you_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Answer About You"
+      }
+    },
+    "/onboarding/about-you/skip": {
+      "post": {
+        "operationId": "skip_about_you_onboarding_about_you_skip_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Skip About You"
+      }
+    },
     "/onboarding/availability": {
       "get": {
         "operationId": "availability_step_onboarding_availability_get",
@@ -902,6 +948,22 @@
           }
         },
         "summary": "Set Availability Step"
+      }
+    },
+    "/onboarding/confirm": {
+      "post": {
+        "operationId": "confirm_onboarding_confirm_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Confirm"
       }
     },
     "/onboarding/goals": {
@@ -936,25 +998,9 @@
         "summary": "Set Goals Step"
       }
     },
-    "/onboarding/sports": {
+    "/onboarding/sport": {
       "get": {
-        "operationId": "sports_step_onboarding_sports_get",
-        "responses": {
-          "200": {
-            "content": {
-              "text/html": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "Sports Step"
-      },
-      "post": {
-        "operationId": "choose_sports_step_onboarding_sports_post",
+        "operationId": "sport_card_onboarding_sport_get",
         "responses": {
           "200": {
             "content": {
@@ -965,7 +1011,71 @@
             "description": "Successful Response"
           }
         },
-        "summary": "Choose Sports Step"
+        "summary": "Sport Card"
+      },
+      "post": {
+        "operationId": "choose_sport_onboarding_sport_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Choose Sport"
+      }
+    },
+    "/onboarding/summary": {
+      "get": {
+        "operationId": "summary_page_onboarding_summary_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Summary Page"
+      }
+    },
+    "/onboarding/summary/stream": {
+      "get": {
+        "description": "Finishes every unread answer, then sends the editable summary in place of the\nskeleton (B35). The only onboarding request that waits on a model call.",
+        "operationId": "stream_summary_onboarding_summary_stream_get",
+        "responses": {
+          "200": {
+            "content": {
+              "text/event-stream": {
+                "itemSchema": {
+                  "properties": {
+                    "data": {
+                      "type": "string"
+                    },
+                    "event": {
+                      "type": "string"
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "retry": {
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Stream Summary"
       }
     },
     "/onboarding/timezone": {

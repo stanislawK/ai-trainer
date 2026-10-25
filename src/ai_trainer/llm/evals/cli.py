@@ -49,6 +49,7 @@ from ai_trainer.llm.evals.runner import (
 )
 from ai_trainer.llm.extract import ActivitiesMatch, DateMatch, QuestionMatch
 from ai_trainer.llm.gateway import provider_config, reasoning_at
+from ai_trainer.llm.onboarding import ABOUT_YOU_TEMPLATE_ID, ABOUT_YOU_VERSION, AboutYouMatch
 from ai_trainer.llm.prompts.registry import PromptRegistry
 from ai_trainer.llm.prompts.template import PromptTemplate, TemplateOutput
 from ai_trainer.llm.router import (
@@ -81,6 +82,8 @@ def _default_registry() -> PromptRegistry:
 _EVALUATORS: dict[str, tuple[type[Evaluator[EvalCaseInputs, BaseModel, object]], ...]] = {
     "router": (IntentKindsMatch, LogSessionSportMatch),
     "chitchat": (JevCheck,),
+    # Graded on the converted values, so any unit for the same height passes (ADR-0028).
+    ABOUT_YOU_TEMPLATE_ID: (AboutYouMatch,),
     # Every sport's extraction template is graded the same way, in code (ADR-0006, ADR-0014),
     # and one that may ask on whether it asked (ticket #164).
     **{
@@ -120,6 +123,7 @@ def _active_versions(sports: SportRegistry) -> dict[str, int]:
     return {
         ROUTER_TEMPLATE_ID: ACTIVE_ROUTER_VERSION,
         CHITCHAT_TEMPLATE_ID: chitchat_template().version,
+        ABOUT_YOU_TEMPLATE_ID: ABOUT_YOU_VERSION,
         **{
             plugin.extraction.template_id: plugin.extraction.version
             for plugin in sports.all()

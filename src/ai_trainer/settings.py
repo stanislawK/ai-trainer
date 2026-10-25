@@ -35,6 +35,13 @@ ProviderPreferencesSetting = Annotated[
 # A template's own call timeout; unset falls back to `llm_call_timeout_seconds`.
 CallTimeout = Annotated[float | None, Field(gt=0)]
 
+# Picked on `onboarding.about_you`'s first eval baseline (ADR-0028, #254): 98% of its
+# assertions at `low` effort on fp8/nvfp4 upstreams sorted by latency. OpenRouter's default
+# price sort lands on an upstream with no structured outputs, which fails the read.
+DEFAULT_ONBOARDING_MODEL = "z-ai/glm-5.3-flash"
+DEFAULT_ONBOARDING_PROVIDER = ProviderPreferences(sort="latency", quantizations=["fp8", "nvfp4"])
+DEFAULT_ONBOARDING_REASONING_EFFORT: ReasoningEffort = "low"
+
 # A Jev ID carries a version number; aliases such as `~typesafe/jev-latest` move under a
 # calibrated threshold, so they are refused (ADR-0020).
 _VERSIONED_DECISION_MODEL = re.compile(r"^[a-z0-9-]+/jev-\d+\.\d+(\.\d+)?(-\d{8})?$")
@@ -89,6 +96,14 @@ class Settings(BaseSettings):
     extract_call_timeout_seconds: CallTimeout = None
     # The extraction templates' reasoning effort, like `router_reasoning_effort`.
     extract_reasoning_effort: ReasoningEffort | None = None
+    # One group for the four `onboarding.<step>` templates, which read answers in the
+    # background, off the critical path (ADR-0028). Model, routing and effort have defaults,
+    # picked on `onboarding.about_you`'s first eval baseline (#254), so no deploy needs a new
+    # key; a blank key keeps them.
+    onboarding_model: str = DEFAULT_ONBOARDING_MODEL
+    onboarding_provider_preferences: ProviderPreferencesSetting = DEFAULT_ONBOARDING_PROVIDER
+    onboarding_call_timeout_seconds: CallTimeout = None
+    onboarding_reasoning_effort: ReasoningEffort | None = DEFAULT_ONBOARDING_REASONING_EFFORT
     # Evals (ADR-0009): pinned, distinct from the model under test, set explicitly on every
     # eval run with `set_default_judge_model`. No default here — a stable/GA OpenRouter model
     # id is an operator choice, not a code default (`.claude/rules/llm.md`).
@@ -202,6 +217,7 @@ class Settings(BaseSettings):
     @field_validator(
         "router_call_timeout_seconds",
         "extract_call_timeout_seconds",
+        "onboarding_call_timeout_seconds",
         "router_reasoning_effort",
         "extract_reasoning_effort",
         mode="before",
@@ -211,6 +227,22 @@ class Settings(BaseSettings):
         # Before the type check, so a blank effort or timeout is unset rather than invalid; a
         # non-string is left for that check to refuse.
         return value.strip() or None if isinstance(value, str) else value
+
+    @field_validator(
+        "onboarding_model",
+        "onboarding_provider_preferences",
+        "onboarding_reasoning_effort",
+        mode="before",
+    )
+    @classmethod
+    def _blank_onboarding_setting_is_the_default(
+        cls, value: object, info: ValidationInfo
+    ) -> object:
+        # `.env.example` lists the keys blank, so a copied `.env` keeps the picked defaults.
+        if isinstance(value, str) and not value.strip():
+            assert info.field_name is not None
+            return cls.model_fields[info.field_name].default
+        return value
 
     @field_validator("decision_model")
     @classmethod
