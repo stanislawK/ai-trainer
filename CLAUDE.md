@@ -59,6 +59,7 @@ Locked by the ADRs cited below; `docs/adr/README.md` carries each ADR's current 
 - Per-athlete venues with their own gym grading, never converted without the athlete's mapping; opt-in device location matched against a bulk-imported OpenStreetMap gym directory — ADR-0027
 - Athlete profile (`athlete_profiles`, `sport_profiles`) built by AI onboarding: one prompt template per step read in the background, durable `onboarding_answers`, a summary that catches up and is the only write — ADR-0028
 - In-process request and model-call limits: sign-in routes by `CF-Connecting-IP`, other requests by session cookie, text and decision calls sharing one per-user budget; no Redis — ADR-0029
+- Production telemetry through one pinned Grafana Alloy container to Grafana Cloud: app OTLP, container and journal logs, host, Caddy and Postgres metrics; JSON logs with trace and request IDs; dashboards and alerts as JSON in `deploy/grafana/`, imported by the owner — ADR-0030
 
 ## Commands (available once M0 lands)
 

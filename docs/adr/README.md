@@ -33,5 +33,6 @@ ADRs own the *how*: stack, architecture, testing and agent workflow. The current
 | 0027 | [Venues, gym grading and device location](0027-venues-gym-grading-and-device-location.md) | Accepted | 2026-10-22 |
 | 0028 | [Athlete profile and AI onboarding](0028-athlete-profile-and-ai-onboarding.md) | Accepted | 2026-10-24 |
 | 0029 | [Request and model-call limits](0029-request-and-model-call-limits.md) | Proposed | 2026-10-25 |
+| 0030 | [Production observability on Grafana Cloud](0030-production-observability-on-grafana-cloud.md) | Proposed | 2026-10-25 |
 
 How to add an ADR: [docs/templates/README.md](../templates/README.md).
