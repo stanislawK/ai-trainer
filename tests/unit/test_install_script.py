@@ -14,6 +14,7 @@ SCRIPT = ROOT / "deploy/install.sh"
 HOST_FILES = (
     "compose.prod.yaml",
     "deploy/Caddyfile",
+    "deploy/alloy/config.alloy",
     "deploy/deploy.sh",
     "deploy/backup.sh",
     "deploy/systemd/ai-trainer-deploy.service",
@@ -81,10 +82,21 @@ def test_copies_only_the_host_files_the_poller_does_not_update() -> None:
     assert "certs/" not in match.group("body")
     assert "mktemp -d" in text
     assert "rm -rf" in text
-    assert "--force-recreate caddy" in text
+    # The running ones among Caddy and Alloy, collected in `recreate`.
+    assert '--force-recreate "\\${recreate[@]}"' in text
     # Compose interpolates the whole file, so recreating Caddy still needs APP_IMAGE.
     assert "export APP_IMAGE=" in text
     assert "/opt/ai-trainer/app-image" in text
     # Wait for the poller's lock. flock -n would skip the install instead of waiting.
     assert "flock /opt/ai-trainer/.deploy.lock" in text
     assert "flock -n" not in text
+
+
+def test_a_running_caddy_or_alloy_is_recreated_to_read_its_new_config() -> None:
+    """Both bind one file; replacing it changes the host inode, which a running container
+    doesn't see (ADR-0023, ADR-0030)."""
+    text = SCRIPT.read_text()
+    assert "install -d -m 0750 /opt/ai-trainer/deploy/alloy" in text
+    for service in ("caddy", "alloy"):
+        assert f"ai-trainer-prod-{service}-1" in text
+    assert "up -d --no-deps --force-recreate" in text

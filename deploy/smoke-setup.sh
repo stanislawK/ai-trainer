@@ -46,8 +46,20 @@ chmod 644 certs/*
 
 password=$(openssl rand -hex 24)
 printf 'POSTGRES_PASSWORD=%s\n' "$password" > db.env
+# The app exports to Alloy (compose.prod.yaml), so any OTLP headers in your .env go nowhere.
 sed -e "s|^PUBLIC_BASE_URL=.*|PUBLIC_BASE_URL=https://$HOST|" \
     -e "s|^DATABASE_URL=.*|DATABASE_URL=postgresql+psycopg://ai_trainer:$password@db:5432/ai_trainer|" \
+    -e "s|^OTEL_EXPORTER_OTLP_HEADERS=.*|OTEL_EXPORTER_OTLP_HEADERS=|" \
     ../.env > .env
 
-echo "smoke-setup: wrote $SMOKE/ (certs/, .env, db.env, client.pem, rogue-client.pem, origin-ca.pem)"
+# Alloy relays to a local grafana/otel-lgtm on the host instead of Grafana Cloud (README
+# "Production smoke run"); it ignores the credentials. No real Grafana Cloud value goes here.
+cat > alloy.env <<'ALLOY'
+GRAFANA_CLOUD_OTLP_URL=http://host.docker.internal:4318
+GRAFANA_CLOUD_OTLP_USER=local
+GRAFANA_CLOUD_LOGS_URL=http://host.docker.internal:3100/loki/api/v1/push
+GRAFANA_CLOUD_LOGS_USER=local
+GRAFANA_CLOUD_TOKEN=local
+ALLOY
+
+echo "smoke-setup: wrote $SMOKE/ (certs/, .env, db.env, alloy.env, client.pem, rogue-client.pem, origin-ca.pem)"

@@ -33,6 +33,7 @@ repo=$(cd "$(dirname "$0")/.." && pwd)
 files=(
   "compose.prod.yaml|/opt/ai-trainer/compose.prod.yaml|0644|deploy"
   "deploy/Caddyfile|/opt/ai-trainer/deploy/Caddyfile|0644|deploy"
+  "deploy/alloy/config.alloy|/opt/ai-trainer/deploy/alloy/config.alloy|0644|deploy"
   "deploy/deploy.sh|/opt/ai-trainer/deploy/deploy.sh|0755|deploy"
   "deploy/backup.sh|/opt/ai-trainer/deploy/backup.sh|0755|deploy"
   "deploy/systemd/ai-trainer-deploy.service|/etc/systemd/system/ai-trainer-deploy.service|0644|root"
@@ -73,6 +74,7 @@ ssh "deploy@${host}" "STAGE=${quoted_stage} flock /opt/ai-trainer/.deploy.lock b
 set -euo pipefail
 trap 'rm -rf "\$STAGE"' EXIT
 install -d -m 0750 /opt/ai-trainer/deploy
+install -d -m 0750 /opt/ai-trainer/deploy/alloy
 while IFS='|' read -r base dest mode owner; do
   [[ -n \$base ]] || continue
   if [[ \$owner == root ]]; then
@@ -84,26 +86,32 @@ done <<'LIST'
 ${manifest}
 LIST
 sudo systemctl daemon-reload
-# The bind is one file. Replacing it changes the host inode, which the running container
-# does not see, and Caddy has already read the old file. Recreate only when it is up.
-if [[ -f /opt/ai-trainer/deploy.env ]] &&
-  docker ps --format '{{.Names}}' | grep -qx ai-trainer-prod-caddy-1; then
+# Caddy and Alloy each bind one file. Replacing it changes the host inode, which a running
+# container does not see, and it has already read the old file. Recreate each only when it is up.
+recreate=()
+for name in ai-trainer-prod-caddy-1 ai-trainer-prod-alloy-1; do
+  if docker ps --format '{{.Names}}' | grep -qx "\$name"; then
+    service=\${name#ai-trainer-prod-}
+    recreate+=("\${service%-1}")
+  fi
+done
+if [[ -f /opt/ai-trainer/deploy.env && \${#recreate[@]} -gt 0 ]]; then
   set -a
   # shellcheck disable=SC1091
   . /opt/ai-trainer/deploy.env
   set +a
   [[ -n \${SITE_HOST:-} ]] || {
-    echo "install: SITE_HOST is unset; Caddy was not recreated" >&2
+    echo "install: SITE_HOST is unset; \${recreate[*]} not recreated" >&2
     exit 1
   }
   # Compose interpolates the whole file. migrate and app require APP_IMAGE even for `up caddy`.
   # set +a is already in effect, so the assignment has to be exported.
   if ! app_image=\$(cat /opt/ai-trainer/app-image); then
-    echo "install: could not read app-image; Caddy was not recreated" >&2
+    echo "install: could not read app-image; \${recreate[*]} not recreated" >&2
     exit 1
   fi
   export APP_IMAGE=\$app_image
   docker compose --project-directory /opt/ai-trainer -f /opt/ai-trainer/compose.prod.yaml \
-    up -d --no-deps --force-recreate caddy
+    up -d --no-deps --force-recreate "\${recreate[@]}"
 fi
 EOF

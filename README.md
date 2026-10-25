@@ -74,6 +74,7 @@ Run `make` targets from the repo root; see the [Makefile](Makefile) for the comp
 | `make health` | Curl the running app's `/health` |
 | `make smoke-setup` / `make smoke-up` / `make smoke-down` | Run the production stack (`compose.prod.yaml`) locally behind Caddy — see [Production smoke run](#production-smoke-run) |
 | `make cloud-init-check` | Validate the production host's `deploy/cloud-init.yaml` with Debian 13's cloud-init, in a container — see [deploy/RUNBOOK.md](deploy/RUNBOOK.md) |
+| `make alloy-check` | Format-check and validate `deploy/alloy/config.alloy` with the Alloy image `compose.prod.yaml` pins, in a container; `config=<file>` checks another file — see [Production smoke run](#production-smoke-run) |
 | `make backup-check` | Round-trip `deploy/backup.sh` and `deploy/restore-drill.sh` against the `make start` database: a throwaway age key, a local directory as the bucket, then a restore into a throwaway Postgres with every table's row count compared, in Debian 13 with the host's age and rclone — see [Production host](#production-host) |
 | `make install` | `uv sync` — install dependencies locally |
 | `make css` | Compile the Tailwind CSS v4 + daisyUI 5 stylesheet (no Node) |
@@ -88,7 +89,7 @@ Run `make` targets from the repo root; see the [Makefile](Makefile) for the comp
 | `make squawk` | Lint the SQL of migration revisions new since `origin/main` with squawk (ADR-0024); `base=<ref>` overrides the base |
 | `make openapi` | Regenerate the OpenAPI snapshot (`docs/api/openapi.json`) |
 | `make openapi-check` | Regenerate, then fail if the committed snapshot drifted (what CI runs) |
-| `make check` | Everything CI runs: lint, format check, typecheck, import-lint, squawk, openapi-check, cloud-init-check, tests |
+| `make check` | Everything CI runs: lint, format check, typecheck, import-lint, squawk, openapi-check, cloud-init-check, alloy-check, tests |
 | `make purge-conversations` | Hard-delete conversations (and their messages) last active more than `CONVERSATION_RETENTION_DAYS` ago and print how many (ADR-0021); safe to repeat |
 | `make llm-report [since=<ISO time>]` | Summarize the LLM debug log per template and model — see [Debugging LLM calls](#debugging-llm-calls) |
 | `make latency-scenario [url=<base URL>]` | Replay the latency scenario on the running app and print p50/p95 per log turn — calls real models, costs money; see [Debugging LLM calls](#debugging-llm-calls) |
@@ -177,7 +178,7 @@ The first finds requests that failed or were cut off by the timeout; the second,
 
 ## Production smoke run
 
-`compose.prod.yaml` is the production stack (ADR-0023): Postgres, a one-shot `migrate`, the app and Caddy. Only Caddy publishes a port, 443, and it accepts only clients that present a certificate from the Authenticated Origin Pulls CA — in production, Cloudflare. To try it on your machine with test certificates:
+`compose.prod.yaml` is the production stack (ADR-0023): Postgres, a one-shot `migrate`, the app, Caddy and Grafana Alloy, which relays telemetry (ADR-0030). Only Caddy publishes a port, 443, and it accepts only clients that present a certificate from the Authenticated Origin Pulls CA — in production, Cloudflare. To try it on your machine with test certificates:
 
 ```bash
 make smoke-setup   # writes .smoke/: test CAs and certificates, a random DB password, an app .env from yours
@@ -196,7 +197,19 @@ cd .. && make smoke-down
 
 - It needs port 443 free and a filled-in `.env` (the Google keys may be dummies; only the sign-in redirect is checked). `make start` can keep running alongside: the smoke stack is its own Compose project, `ai-trainer-prod`, and publishes nothing else.
 - In production `APP_IMAGE` is `ghcr.io/stanislawk/ai-trainer@sha256:<digest>`, `SITE_HOST` the host of `PUBLIC_BASE_URL`, and the config directory (`.env`, `db.env`, `certs/`) is `/opt/ai-trainer`. The smoke run uses a local tag instead, because a local build has no registry digest.
-- `make smoke-down` keeps the smoke stack's volumes; `docker compose -p ai-trainer-prod down -v` drops them.
+- `make smoke-down` keeps the smoke stack's volumes; `docker compose -p ai-trainer-prod down -v` drops them. Drop them before re-running `make smoke-setup`: it writes a new database password, which an existing volume refuses (`migrate` fails with `password authentication failed`).
+
+**Telemetry in the smoke run.** `make smoke-setup` also writes `.smoke/alloy.env`, which points Alloy at a local [`grafana/otel-lgtm`](https://github.com/grafana/docker-otel-lgtm) on the host instead of Grafana Cloud. Start it before `make smoke-up`:
+
+```bash
+docker run --rm -d --name lgtm -p 3000:3000 -p 3100:3100 -p 4317:4317 -p 4318:4318 grafana/otel-lgtm:0.36.0
+```
+
+Then open http://localhost:3000 → Explore:
+- **Loki** with `{service="app"}` (or `caddy`, `db`, `alloy`) shows that container's lines.
+- **Tempo** with a `trace_id` from an app line shows that request's trace.
+
+Alloy reads only this Compose project's containers, labels them by `service` alone, and masks email-shaped values. A container that lives only a few seconds, like `migrate`, can exit before Alloy tails it; in production its output reaches the deploy unit's journal (ADR-0030). Without otel-lgtm the stack runs just the same, and Alloy retries in the background.
 
 ## Production host
 

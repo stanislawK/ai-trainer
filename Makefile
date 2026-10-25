@@ -1,6 +1,6 @@
 .PHONY: install css test test-unit test-integration coverage lint format format-check \
 	typecheck import-lint squawk openapi openapi-check check up up-build start stop down logs ps \
-	health smoke-setup smoke-up smoke-down cloud-init-check backup-check migrate purge-conversations llm-report latency-scenario evals e2e-install e2e
+	health smoke-setup smoke-up smoke-down alloy-check cloud-init-check backup-check migrate purge-conversations llm-report latency-scenario evals e2e-install e2e
 
 install: ## Install dependencies (uv sync)
 	uv sync
@@ -44,7 +44,7 @@ openapi: ## Regenerate the OpenAPI snapshot (docs/api/openapi.json)
 openapi-check: openapi ## Fail if docs/api/openapi.json is out of date (CI drift check)
 	git diff --exit-code -- docs/api/openapi.json
 
-check: lint format-check typecheck import-lint squawk openapi-check cloud-init-check test ## Everything CI runs
+check: lint format-check typecheck import-lint squawk openapi-check cloud-init-check alloy-check test ## Everything CI runs
 
 up: ## Start app + postgres in the background
 	docker compose up -d
@@ -87,6 +87,25 @@ smoke-up: ## Build the image and run compose.prod.yaml locally behind Caddy on h
 
 smoke-down: ## Stop the smoke stack (keeps its volumes; add `-v` by hand to drop them)
 	$(SMOKE_COMPOSE) down
+
+ALLOY_IMAGE = grafana/alloy:v1.20.1@sha256:2aa2099af76c0098d4af7a4d6e48f86cb66dc1a000222ad927a1c67c6542d13f
+config ?= deploy/alloy/config.alloy
+
+# Placeholders for the load step: no network, so nothing is ever sent.
+ALLOY_CHECK_ENV = -e GRAFANA_CLOUD_OTLP_URL=http://127.0.0.1:1 -e GRAFANA_CLOUD_OTLP_USER=check \
+	-e GRAFANA_CLOUD_LOGS_URL=http://127.0.0.1:1/loki/api/v1/push -e GRAFANA_CLOUD_LOGS_USER=check \
+	-e GRAFANA_CLOUD_TOKEN=check
+
+alloy-check: ## Format-check, validate and load the Alloy config with the image compose.prod.yaml runs (ADR-0030, #272); `config=<file>` checks another
+	docker run --rm -v "$(abspath $(config)):/check/config.alloy:ro" $(ALLOY_IMAGE) fmt --test /check/config.alloy
+	docker run --rm -v "$(abspath $(config)):/check/config.alloy:ro" $(ALLOY_IMAGE) validate /check/config.alloy
+	@# `validate` skips what fails only when components are built, like a regex RE2 rejects.
+	@cid=$$(docker run -d --network none $(ALLOY_CHECK_ENV) -v "$(abspath $(config)):/check/config.alloy:ro" \
+		$(ALLOY_IMAGE) run --storage.path=/tmp/alloy /check/config.alloy) && sleep 6; \
+	running=$$(docker inspect -f '{{.State.Running}}' $$cid); \
+	[ "$$running" = true ] || docker logs $$cid 2>&1 | grep -E '^Error'; \
+	docker rm -f $$cid >/dev/null; \
+	[ "$$running" = true ] && echo "alloy-check: $(config) loads"
 
 cloud-init-check: ## Validate deploy/cloud-init.yaml with Debian 13's own cloud-init (ADR-0023, #222)
 	docker run --rm -e DEBIAN_FRONTEND=noninteractive -v "$(CURDIR)/deploy:/src/deploy:ro" -w /src debian:trixie sh -c \

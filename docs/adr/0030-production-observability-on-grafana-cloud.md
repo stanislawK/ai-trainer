@@ -116,6 +116,9 @@ The owner's `solid` project already ships to Grafana Cloud through Grafana Alloy
   - Its `prometheus.exporter.unix` ran without host mounts, so it most likely reported the Alloy container rather than the VPS.
   - Its Alloy Helm chart was unpinned.
 - **Docker socket.** `loki.source.docker` needs `/var/run/docker.sock`. Even mounted read-only, the Docker API is root-equivalent, so Alloy's only listeners are on `telemetry` and the socket must never be exposed further. The alternative is tailing `/var/lib/docker/containers/*/*-json.log` with `local.file_match`, which drops the compose-service labels.
+- **Found in the relay ticket (#272):**
+  - `loki.source.docker` misses most containers that exit within a few seconds: in a test, 2 of 6 sequential 2.5 s containers were shipped, and Alloy logged `could not inspect container info` for the rest. `migrate` runs that briefly. Its output reaches Grafana Cloud through the deploy unit's journal (`compose run` under `deploy.sh`), not through the Docker source.
+  - The Alloy image's `/var/lib/alloy` belongs to its `alloy` user, mode 770. Alloy runs as root with every capability dropped, so it can't enter it and crash-loops on start. Its storage lives at `/data`, a volume Docker creates root-owned. Compose's `--wait` still reports it healthy, because it has no healthcheck.
 - **Flagged, to resolve in the tickets:**
   - `loki.source.journal` needs the host journal mounted (`/var/log/journal`, `/run/log/journal`, `/etc/machine-id`). Whether Debian 13's journal is persistent on the CX23 is unverified.
   - `matches` combines terms with AND ([Alloy, `loki.source.journal`](https://grafana.com/docs/alloy/latest/reference/components/loki/loki.source.journal/)), so selecting the three identifiers needs a relabel `keep` rule instead.
