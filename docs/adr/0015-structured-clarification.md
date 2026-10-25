@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | Proposed |
+| Status | Accepted |
 | Date | 2026-09-16 |
 | Related | PRD-0001 (B3, B17, F9), ADR-0008, ADR-0009, ADR-0012, ADR-0014, ADR-0016 |
 
@@ -68,3 +68,4 @@ B3 promises a clarifying question when input is ambiguous, and ADR-0008 makes th
   - **When they ask.** Gym asks about a movement only when the name fits two movements and neither the log, the athlete's recent messages nor their recent sessions settle it. A name a lifter reads one way never asks. Gym asks about a unit, and cycling about a distance's unit, only when the recent history mixes the two units. With no history the metric default holds.
   - **The pick in code.** A movement names every exercise typed as the question asked. A unit applies to every load or distance typed without one, even where the resumed run gave it a unit. Every other entry stays as the message said (`SessionExtraction.answered`).
   - **Invariant 5.** The eval cases are the `reading:` cases in `evals/datasets/gym.extract.yaml` and `cycling.extract.yaml`, graded by `QuestionMatch`, which now compares the whole question with its readings in any order. The integration tests that nothing is written are the gym and cycling cases in `tests/integration/test_reading_question_repository.py`. Known at promotion (owner-approved 2026-10-21, `--repeat 3`): `gym.extract` v3 baselines at 0.990 and `cycling.extract` v3 at 0.990. Every case from before passes 3/3 on gym. Two gym reading cases still flip. When one press is in the recent sessions, a bare "press" is sometimes drafted as typed: less specific, never wrong. The other is model noise reading "3x5".
+- Europe first, owner-directed 2026-10-25 ([PRD 0008](../prd/0008-ai-training-companion.md) G15). The kg/lb and km/mi unit questions from #206 stay as built. They ask only when the athlete's own history mixes the units, so a metric-only athlete never sees them. New unit or scale questions are added for European ambiguity first. An imperial-only question needs a sign that athletes need it, and a miss on an imperial or American-grade `reading:` case doesn't block a promotion.

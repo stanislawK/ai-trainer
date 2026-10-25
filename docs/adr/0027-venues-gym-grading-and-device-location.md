@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | Proposed |
+| Status | Accepted |
 | Date | 2026-10-22 |
 | Related | PRD-0006 (B20, B23, B27–B32, F6, F18, F19, G10), ADR-0004, ADR-0006, ADR-0014, ADR-0015, ADR-0016, ADR-0017, ADR-0018, ADR-0020, ADR-0022, ADR-0024 |
 
@@ -28,7 +28,7 @@ The owner also wants the app to fill in the gym from the phone's location. That 
 - `VenueGrading` is one of:
   - `numbers` on a range `{min, max}`;
   - `colours`: an ordered list of colour names;
-  - a standard scale: `font`, `v`, `french`, `kurtyka`, `uiaa` or `yds`.
+  - a standard scale: `french`, `font`, `kurtyka` or `uiaa`, or the best-effort `v` or `yds` (PRD 0008 G15).
 - The climbing payload's `GradeScale` gains `gym` and `kurtyka`. A gym grade is stored as `{original: "6", scale: "gym"}`, and the session's venue says whose gym. Adding these values bumps `CLIMBING_PAYLOAD_VERSION` (ADR-0022 invariant 4).
 - A `gym` grade gets `french` and `ordinal` only from a mapping the athlete has entered for that venue (each gym step → a French or Font grade). With no mapping, both stay null, in M5 too. ADR-0016's conversion module skips `gym` grades. Where a page shows grades in the athlete's display scale, it shows a gym grade as typed, with the gym's name.
 - In the extraction context, the athlete's venues reach `climbing.extract` as name, disciplines and grading. The template keeps every grade exactly as typed, which it already does. Scale detection in code reads the venue: a bare number or a colour at a numbers or colours venue is `gym`. A letter grade keeps the scale it is written in. A bare number with no venue keeps `scale: null`.
