@@ -54,7 +54,6 @@ from ai_trainer.web.chat import build_chat_router
 from ai_trainer.web.csrf import CsrfMiddleware
 from ai_trainer.web.errors import register_error_handlers
 from ai_trainer.web.health import build_health_router
-from ai_trainer.web.onboarding import build_onboarding_router
 from ai_trainer.web.settings import build_settings_router
 from ai_trainer.web.sign_in import build_sign_in_router
 from ai_trainer.web.templating import STATIC_DIR, build_templates
@@ -216,11 +215,6 @@ def create_app(settings: Settings) -> FastAPI:
         )
     )
     app.include_router(build_settings_router(templates, users=users))
-    app.include_router(
-        build_onboarding_router(
-            templates, registry=app.state.sport_registry, onboarding=onboarding, clock=clock
-        )
-    )
     app.include_router(
         build_ai_onboarding_router(
             templates,

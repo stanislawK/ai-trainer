@@ -1,5 +1,6 @@
-"""The AI onboarding's routes (PRD 0008 F6, F20, F21, ADR-0028, tickets #254, #255): the sport
-card, the About you, goals, level and schedule chat cards with Skip and Back, the summary that
+"""The AI onboarding's routes (PRD 0008 F6, F20, F21, ADR-0028, tickets #254-#256): the sport
+card, the About you chat card, each sport's goals, level and schedule chat cards under
+`/onboarding/<sport_id>/`, all with Skip and Back, "Add another sport?", the summary that
 catches up on reads over SSE, and its confirm. No request here awaits a model call except the
 summary stream (invariant 2), and `user_id` comes only from the authenticated session
 (ADR-0005)."""
@@ -14,14 +15,18 @@ from starlette.templating import Jinja2Templates
 
 from ai_trainer.application.ai_onboarding import (
     SPORT_STEPS,
+    AlreadyPickedError,
     EmptyAnswerError,
     InvalidSummaryError,
     OnboardingCard,
     OnboardingSummary,
+    Place,
+    add_sport,
     answer_of,
     catch_up,
     confirm_summary,
     current_card,
+    flow_of,
     pick_sport,
     send_answer,
     skip_step,
@@ -48,24 +53,33 @@ _HOME_PATH = "/"
 _CARD_PATHS = {
     OnboardingCard.SPORT: "/onboarding/sport",
     OnboardingCard.ABOUT_YOU: "/onboarding/about-you",
-    OnboardingCard.GOALS: "/onboarding/goals",
-    OnboardingCard.LEVEL: "/onboarding/level",
-    OnboardingCard.SCHEDULE: "/onboarding/schedule",
+    OnboardingCard.MORE: "/onboarding/more",
     OnboardingCard.SUMMARY: "/onboarding/summary",
 }
-_ORDER = list(OnboardingCard)
 # The fields the summary posts, as typed; a sport's are named `<sport_id>.<field>`.
+_SPORT, _ABOUT_YOU, _MORE, _SUMMARY = (
+    Place(OnboardingCard.SPORT),
+    Place(OnboardingCard.ABOUT_YOU),
+    Place(OnboardingCard.MORE),
+    Place(OnboardingCard.SUMMARY),
+)
 _SUMMARY_FIELDS = ("age", "height_cm", "weight_kg", "limits", "timezone")
 _SPORT_FIELDS = ("level", "exercises", "sessions_per_week", "session_minutes")
 
 
-def _next_path(card: OnboardingCard) -> str:
-    """Where Send and Skip on `card` go: straight on to the next card (Send = Continue)."""
-    return _CARD_PATHS[_ORDER[_ORDER.index(card) + 1]]
+def _path(place: Place) -> str:
+    """A card's URL; a sport's step is `/onboarding/<sport_id>/<step>`."""
+    if place.sport_id is None:
+        return _CARD_PATHS[place.card]
+    return f"/onboarding/{place.sport_id}/{place.card.value}"
 
 
-def _previous_path(card: OnboardingCard) -> str:
-    return _CARD_PATHS[_ORDER[_ORDER.index(card) - 1]]
+def _progress(step: OnboardingStep, *, first: bool) -> tuple[int, int]:
+    """A sport step's place in its round, counted from 0, and the round's length (Onboarding
+    v4): the first sport's round is the sport, About you and its three steps; a later one's is
+    "Add another sport?" and its three steps."""
+    index = SPORT_STEPS.index(step)
+    return (2 + index, 5) if first else (1 + index, 4)
 
 
 def _shown_form(section: SportSection) -> SportForm:
@@ -131,28 +145,44 @@ def build_ai_onboarding_router(
             return Response(status_code=200, headers={"HX-Redirect": path})
         return RedirectResponse(url=path, status_code=303)
 
-    async def misplaced(request: Request, card: OnboardingCard) -> Response | None:
-        """Where to send an athlete who may not be on `card` yet, or at all: home once
-        onboarded, else the card the server says comes next when that is an earlier one."""
+    async def flow(user: User) -> tuple[Place, ...]:
+        sports = await answers.list_sports(user.id)
+        return flow_of(sports, sport_count=len(registry.all()))
+
+    async def misplaced(request: Request, place: Place) -> Response | None:
+        """Where to send an athlete who may not be on `place` yet, or at all: home once
+        onboarded, else the card the server says is due when that is an earlier one or `place`
+        isn't in their flow (a sport not picked, or "Add another sport?" with none left)."""
         user: User = request.state.user
         if user.onboarded_at is not None:
             return go(request, _HOME_PATH)
-        due = await current_card(user.id, answers=answers)
-        order = list(OnboardingCard)
-        if order.index(due) < order.index(card):
-            return go(request, _CARD_PATHS[due])
+        due = await current_card(user.id, answers=answers, registry=registry)
+        places = await flow(user)
+        if place not in places:
+            return go(request, _path(due))
+        if due.card is OnboardingCard.MORE and place.card is OnboardingCard.SUMMARY:
+            # "No, show my summary" stores nothing (#256): the summary opens while the offer is
+            # due, and `/onboarding` comes back to the offer.
+            return None
+        if places.index(due) < places.index(place):
+            return go(request, _path(due))
         return None
+
+    async def beside(user: User, place: Place, offset: int) -> Place:
+        """The card before (`-1`, Back) or after (`1`, Send and Skip) `place` in the flow."""
+        places = await flow(user)
+        return places[places.index(place) + offset]
 
     @router.get("")
     async def start(request: Request) -> Response:
         user: User = request.state.user
         if user.onboarded_at is not None:
             return go(request, _HOME_PATH)
-        return go(request, _CARD_PATHS[await current_card(user.id, answers=answers)])
+        return go(request, _path(await current_card(user.id, answers=answers, registry=registry)))
 
     @router.get("/sport")
     async def sport_card(request: Request) -> Response:
-        if (elsewhere := await misplaced(request, OnboardingCard.SPORT)) is not None:
+        if (elsewhere := await misplaced(request, _SPORT)) is not None:
             return elsewhere
         user: User = request.state.user
         picked = await answers.list_sports(user.id)
@@ -162,7 +192,7 @@ def build_ai_onboarding_router(
 
     @router.post("/sport")
     async def choose_sport(request: Request) -> Response:
-        if (elsewhere := await misplaced(request, OnboardingCard.SPORT)) is not None:
+        if (elsewhere := await misplaced(request, _SPORT)) is not None:
             return elsewhere
         user: User = request.state.user
         form = await request.form()
@@ -192,7 +222,7 @@ def build_ai_onboarding_router(
 
     @router.get("/about-you")
     async def about_you_card(request: Request) -> Response:
-        if (elsewhere := await misplaced(request, OnboardingCard.ABOUT_YOU)) is not None:
+        if (elsewhere := await misplaced(request, _ABOUT_YOU)) is not None:
             return elsewhere
         user: User = request.state.user
         earlier = await answer_of(user.id, OnboardingStep.ABOUT_YOU, answers=answers)
@@ -200,7 +230,7 @@ def build_ai_onboarding_router(
 
     @router.post("/about-you")
     async def answer_about_you(request: Request) -> Response:
-        if (elsewhere := await misplaced(request, OnboardingCard.ABOUT_YOU)) is not None:
+        if (elsewhere := await misplaced(request, _ABOUT_YOU)) is not None:
             return elsewhere
         user: User = request.state.user
         form = await request.form()
@@ -220,37 +250,44 @@ def build_ai_onboarding_router(
             )
         except EmptyAnswerError:
             return render_about_you(request, typed, error=True, status_code=_UNPROCESSABLE)
-        return go(request, _next_path(OnboardingCard.ABOUT_YOU))
+        return go(request, _path(await beside(user, _ABOUT_YOU, 1)))
 
     @router.post("/about-you/skip")
     async def skip_about_you(request: Request) -> Response:
-        if (elsewhere := await misplaced(request, OnboardingCard.ABOUT_YOU)) is not None:
+        if (elsewhere := await misplaced(request, _ABOUT_YOU)) is not None:
             return elsewhere
         user: User = request.state.user
         await skip_step(user.id, OnboardingStep.ABOUT_YOU, answers=answers)
-        return go(request, _next_path(OnboardingCard.ABOUT_YOU))
+        return go(request, _path(await beside(user, _ABOUT_YOU, 1)))
 
     def add_sport_step(step: OnboardingStep) -> None:
-        """A sport's chat card (#255): goals, level or schedule, asked about the athlete's sport,
-        with Skip and Back. Its path is the step's name."""
+        """A sport's chat card (#255, #256): goals, level or schedule, asked about that sport,
+        with Skip and Back, at `/onboarding/<sport_id>/<step>`."""
         card = OnboardingCard(step.value)
-        path = _CARD_PATHS[card].removeprefix("/onboarding")
+        path = f"/{{sport_id}}/{step.value}"
 
-        def render_card(
+        async def render_card(
             request: Request,
-            sport_id: str,
+            place: Place,
             text: str,
             *,
             error: bool = False,
             status_code: int = 200,
         ) -> HTMLResponse:
+            user: User = request.state.user
+            sport_id = place.sport_id or ""
+            index, steps = _progress(
+                step, first=sport_id == (await answers.list_sports(user.id))[0]
+            )
             return render(
                 request,
                 "sport_step",
                 {
                     "step": step.value,
-                    "place": _ORDER.index(card),
-                    "back_href": _previous_path(card),
+                    "place": index,
+                    "round_length": steps,
+                    "back_href": _path(await beside(user, place, -1)),
+                    "url": _path(place),
                     "sport": registry.get(sport_id),
                     "text": text,
                     "error": error,
@@ -259,19 +296,19 @@ def build_ai_onboarding_router(
                 status_code=status_code,
             )
 
-        async def show(request: Request) -> Response:
-            if (elsewhere := await misplaced(request, card)) is not None:
+        async def show(request: Request, sport_id: str) -> Response:
+            place = Place(card, sport_id)
+            if (elsewhere := await misplaced(request, place)) is not None:
                 return elsewhere
             user: User = request.state.user
-            sport_id = (await answers.list_sports(user.id))[0]
             earlier = await answer_of(user.id, step, answers=answers, sport_id=sport_id)
-            return render_card(request, sport_id, earlier.text or "" if earlier else "")
+            return await render_card(request, place, earlier.text or "" if earlier else "")
 
-        async def send(request: Request) -> Response:
-            if (elsewhere := await misplaced(request, card)) is not None:
+        async def send(request: Request, sport_id: str) -> Response:
+            place = Place(card, sport_id)
+            if (elsewhere := await misplaced(request, place)) is not None:
                 return elsewhere
             user: User = request.state.user
-            sport_id = (await answers.list_sports(user.id))[0]
             text = (await request.form()).get("answer")
             typed = text if isinstance(text, str) else ""
             try:
@@ -286,16 +323,18 @@ def build_ai_onboarding_router(
                     timezone=user.timezone,
                 )
             except EmptyAnswerError:
-                return render_card(request, sport_id, typed, error=True, status_code=_UNPROCESSABLE)
-            return go(request, _next_path(card))
+                return await render_card(
+                    request, place, typed, error=True, status_code=_UNPROCESSABLE
+                )
+            return go(request, _path(await beside(user, place, 1)))
 
-        async def skip(request: Request) -> Response:
-            if (elsewhere := await misplaced(request, card)) is not None:
+        async def skip(request: Request, sport_id: str) -> Response:
+            place = Place(card, sport_id)
+            if (elsewhere := await misplaced(request, place)) is not None:
                 return elsewhere
             user: User = request.state.user
-            sport_id = (await answers.list_sports(user.id))[0]
             await skip_step(user.id, step, answers=answers, sport_id=sport_id)
-            return go(request, _next_path(card))
+            return go(request, _path(await beside(user, place, 1)))
 
         router.add_api_route(path, show, methods=["GET"], name=f"onboarding_{step.value}_card")
         router.add_api_route(path, send, methods=["POST"], name=f"onboarding_{step.value}_send")
@@ -306,9 +345,38 @@ def build_ai_onboarding_router(
     for step in SPORT_STEPS:
         add_sport_step(step)
 
+    @router.get("/more")
+    async def more_card(request: Request) -> Response:
+        """ "Add another sport?" (#256): the sports not picked yet, and the way to the summary."""
+        if (elsewhere := await misplaced(request, _MORE)) is not None:
+            return elsewhere
+        user: User = request.state.user
+        picked = await answers.list_sports(user.id)
+        return render(
+            request,
+            "more",
+            {
+                "sports": [sport for sport in registry.all() if sport.id not in picked],
+                "back_href": _path(await beside(user, _MORE, -1)),
+            },
+        )
+
+    @router.post("/more")
+    async def choose_another_sport(request: Request) -> Response:
+        if (elsewhere := await misplaced(request, _MORE)) is not None:
+            return elsewhere
+        user: User = request.state.user
+        sport = (await request.form()).get("sport")
+        sport_id = sport if isinstance(sport, str) else ""
+        try:
+            await add_sport(user.id, sport_id, registry=registry, answers=answers)
+        except (UnknownSportError, AlreadyPickedError) as exc:
+            raise HTTPException(status_code=_UNPROCESSABLE, detail=str(exc)) from exc
+        return go(request, _path(Place(OnboardingCard.GOALS, sport_id)))
+
     @router.get("/summary")
     async def summary_page(request: Request) -> Response:
-        if (elsewhere := await misplaced(request, OnboardingCard.SUMMARY)) is not None:
+        if (elsewhere := await misplaced(request, _SUMMARY)) is not None:
             return elsewhere
         user: User = request.state.user
         return render(
@@ -372,7 +440,7 @@ def build_ai_onboarding_router(
 
     @router.post("/confirm")
     async def confirm(request: Request) -> Response:
-        if (elsewhere := await misplaced(request, OnboardingCard.SUMMARY)) is not None:
+        if (elsewhere := await misplaced(request, _SUMMARY)) is not None:
             return elsewhere
         user: User = request.state.user
         form = await request.form()

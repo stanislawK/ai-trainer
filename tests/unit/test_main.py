@@ -129,12 +129,24 @@ def test_create_app_registers_the_admin_route() -> None:
 
 
 def test_create_app_serves_the_ai_onboarding_cards() -> None:
-    """Ticket #255: goals, level and schedule are wired, each with its Skip."""
+    """Tickets #255 and #256: each sport's goals, level and schedule are wired, each with its
+    Skip, and so is "Add another sport?"."""
     paths = create_app(_settings()).openapi()["paths"]
 
     for card in ("goals", "level", "schedule"):
-        assert f"/onboarding/{card}" in paths
-        assert f"/onboarding/{card}/skip" in paths
+        assert f"/onboarding/{{sport_id}}/{card}" in paths
+        assert f"/onboarding/{{sport_id}}/{card}/skip" in paths
+    assert "/onboarding/more" in paths
+
+
+def test_create_app_no_longer_wires_the_form_onboardings_steps() -> None:
+    """AC (#256): `/onboarding/availability` returns 404. As with `/admin` above, the gate
+    answers an unauthenticated request before routing, so the schema shows it isn't wired;
+    `test_the_old_form_steps_are_gone` sees the 404 through a signed-in session."""
+    paths = create_app(_settings()).openapi()["paths"]
+
+    assert "/onboarding/availability" not in paths
+    assert "/onboarding/timezone" not in paths
 
 
 def test_create_app_wires_the_designed_404_and_500_pages() -> None:

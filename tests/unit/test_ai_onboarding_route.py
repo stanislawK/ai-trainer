@@ -24,9 +24,13 @@ from ai_trainer.web.ai_onboarding import build_ai_onboarding_router
 from ai_trainer.web.auth import SESSION_COOKIE_NAME
 from ai_trainer.web.templating import build_templates
 from tests.chat_support import include_chat
-from tests.onboarding_support import FakeOnboardingAnswers, FakeReader
+from tests.onboarding_support import (
+    FakeOnboardingAnswers,
+    FakeReader,
+    FakeSessionsRepository,
+    FakeUsersRepository,
+)
 from tests.unit.test_chat_reply_route import _sse_data
-from tests.unit.test_onboarding_route import FakeSessionsRepository, FakeUsersRepository
 
 NOW = datetime(2026, 10, 24, 18, 0, tzinfo=UTC)
 ABOUT_YOU = OnboardingStep.ABOUT_YOU
@@ -276,7 +280,7 @@ async def test_the_next_step_appears_before_the_model_call_returns() -> None:
             headers=HX,
         )
 
-        assert response.headers["HX-Redirect"] == "/onboarding/goals"
+        assert response.headers["HX-Redirect"] == "/onboarding/climbing/goals"
         [answer] = await athlete.answers.list_answers(athlete.user.id)
         assert answer.status is AnswerStatus.PENDING
         assert athlete.reads.running((athlete.user.id, ABOUT_YOU, None)) is not None
@@ -298,7 +302,7 @@ async def test_skip_leaves_about_you_empty_and_moves_on(athlete: Athlete) -> Non
 
     response = athlete.client.post("/onboarding/about-you/skip", headers=HX)
 
-    assert response.headers["HX-Redirect"] == "/onboarding/goals"
+    assert response.headers["HX-Redirect"] == "/onboarding/climbing/goals"
     [answer] = await athlete.answers.list_answers(athlete.user.id)
     assert answer.status is AnswerStatus.SKIPPED
     assert athlete.reader.calls == []
@@ -319,7 +323,7 @@ async def test_a_reload_resumes_at_the_next_unanswered_card(athlete: Athlete) ->
 
     await athlete.answers.skip_answer(athlete.user.id, ABOUT_YOU, None)
     response = athlete.client.get("/onboarding", follow_redirects=False)
-    assert response.headers["location"] == "/onboarding/goals"
+    assert response.headers["location"] == "/onboarding/climbing/goals"
 
 
 # --- The summary ---------------------------------------------------------------------------

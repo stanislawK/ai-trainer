@@ -15,7 +15,6 @@ from ai_trainer.adapters.orm import (
     SportProfileOrm,
     UserOrm,
     UserSportOrm,
-    WeeklyAvailabilityOrm,
 )
 from ai_trainer.domain.athlete_profile import AthleteProfile
 from ai_trainer.domain.goals import Goal
@@ -65,36 +64,6 @@ class SqlAlchemyOnboardingRepository:
             )
             return list(rows)
 
-    async def replace_availability(
-        self, user_id: UUID, minutes_by_weekday: Mapping[int, int]
-    ) -> None:
-        async with self._session_factory() as session:
-            await session.execute(
-                delete(WeeklyAvailabilityOrm).where(WeeklyAvailabilityOrm.user_id == user_id)
-            )
-            if minutes_by_weekday:
-                # `ON CONFLICT DO NOTHING`, as in `replace_sports`: a double-tapped Continue.
-                await session.execute(
-                    insert(WeeklyAvailabilityOrm)
-                    .values(
-                        [
-                            {"user_id": user_id, "weekday": weekday, "minutes": minutes}
-                            for weekday, minutes in minutes_by_weekday.items()
-                        ]
-                    )
-                    .on_conflict_do_nothing()
-                )
-            await session.commit()
-
-    async def list_availability(self, user_id: UUID) -> Mapping[int, int]:
-        async with self._session_factory() as session:
-            rows = await session.execute(
-                select(WeeklyAvailabilityOrm.weekday, WeeklyAvailabilityOrm.minutes).where(
-                    WeeklyAvailabilityOrm.user_id == user_id
-                )
-            )
-            return {weekday: minutes for weekday, minutes in rows}
-
     async def replace_goals(self, user_id: UUID, goals: Sequence[Goal]) -> None:
         async with self._session_factory() as session:
             await _replace_goals(session, user_id, goals)
@@ -119,15 +88,6 @@ class SqlAlchemyOnboardingRepository:
             )
             await session.commit()
 
-    async def finish_onboarding(self, user_id: UUID, timezone: str, when: datetime) -> None:
-        async with self._session_factory() as session:
-            await session.execute(
-                update(UserOrm)
-                .where(UserOrm.id == user_id)
-                .values(timezone=timezone, onboarded_at=when)
-            )
-            await session.commit()
-
     async def discard_answers(self, user_id: UUID) -> None:
         async with self._session_factory() as session:
             await session.execute(
@@ -147,6 +107,18 @@ class SqlAlchemyOnboardingRepository:
             )
             await session.execute(
                 update(UserOrm).where(UserOrm.id == user_id).values(timezone=timezone)
+            )
+            await session.commit()
+
+    async def add_sport(self, user_id: UUID, sport_id: str) -> None:
+        async with self._session_factory() as session:
+            # `ON CONFLICT DO NOTHING`, as in `_replace_sports`: a double-tapped pick. The
+            # statement's own time, not the transaction's `now()`, so the sport sorts after the
+            # ones before it even when one transaction adds them all.
+            await session.execute(
+                insert(UserSportOrm)
+                .values(user_id=user_id, sport_id=sport_id, created_at=func.clock_timestamp())
+                .on_conflict_do_nothing()
             )
             await session.commit()
 

@@ -246,9 +246,16 @@ async def test_purge_leaves_goals_and_profile_rows_untouched(
     onboarding = SqlAlchemyOnboardingRepository(db_session_factory)
     user_id = await _user(db_session_factory, "ret-g")
     await onboarding.replace_sports(user_id, ["climbing"])
-    await onboarding.replace_availability(user_id, {0: 60})
+    # `weekly_availability` is no longer written (ADR-0028), but its rows stay until the
+    # contract ticket drops the table.
+    async with db_session_factory() as session:
+        await session.execute(
+            text("INSERT INTO weekly_availability (user_id, weekday, minutes) VALUES (:u, 0, 60)"),
+            {"u": user_id},
+        )
+        await session.commit()
     await onboarding.replace_goals(user_id, [Goal(text="Send 8a+ by spring")])
-    await onboarding.finish_onboarding(user_id, "Europe/Warsaw", now)
+    await onboarding.set_onboarded_at(user_id, now)
     await repository.create(user_id, "old", now - timedelta(days=15))
     before = [await _count(db_session_factory, table) for table in _PROFILE_TABLES]
 

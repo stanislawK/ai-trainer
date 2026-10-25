@@ -3,12 +3,12 @@
 {#- An onboarding chat card (Onboarding v4, F20, B34): the question, what the AI looks for, a
     composer and a visible Skip. Send moves straight on to the next card while the answer is read
     in the background (ADR-0028), so there is no reply here. After Back, the earlier answer is in
-    the composer to change. `step` is the card's place in the flow, counted from 0, and `url` the
-    path it posts to; Skip posts to `url ~ "/skip"`. -#}
-{% macro chat_card(step, back_href, label, mark, question, hints, placeholder, url, text, error, max_length, note="") -%}
-{% set error_id = url | replace("/onboarding/", "") ~ "-error" %}
+    the composer to change. `step` is the card's place in its round, counted from 0, `steps` the
+    round's length, and `url` the path it posts to; Skip posts to `url ~ "/skip"`. -#}
+{% macro chat_card(step, back_href, label, mark, question, hints, placeholder, url, text, error, max_length, note="", steps=card_count) -%}
+{% set error_id = url | replace("/onboarding/", "") | replace("/", "-") ~ "-error" %}
 <main id="onboarding-card" class="{{ column }}">
-  {{ frame(step, card_count, back_href=back_href) }}
+  {{ frame(step, steps, back_href=back_href) }}
   <div class="relative flex-1 min-h-0 flex flex-col px-4 pb-[max(2rem,env(safe-area-inset-bottom))] pt-2">
     <article class="mat-content rounded-[28px] flex flex-col my-auto max-h-full min-h-0 overflow-hidden" aria-label="{{ label }}">
       <header class="flex items-center gap-2 pl-4 pr-2 pt-2 h-[52px] shrink-0">

@@ -272,21 +272,10 @@ class InMemoryProfile:
     ) -> None:
         raise NotImplementedError
 
-    async def replace_availability(
-        self, user_id: UUID, minutes_by_weekday: Mapping[int, int]
-    ) -> None:
-        raise NotImplementedError
-
-    async def list_availability(self, user_id: UUID) -> Mapping[int, int]:
-        raise NotImplementedError
-
     async def replace_goals(self, user_id: UUID, goals: Sequence[Goal]) -> None:
         raise NotImplementedError
 
     async def set_onboarded_at(self, user_id: UUID, when: datetime | None) -> None:
-        raise NotImplementedError
-
-    async def finish_onboarding(self, user_id: UUID, timezone: str, when: datetime) -> None:
         raise NotImplementedError
 
 

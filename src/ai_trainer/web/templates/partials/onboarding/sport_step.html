@@ -1,7 +1,7 @@
 {#- A sport's goals, level or schedule chat card (Onboarding v4, F20, B33, B34), with the question
     copy per sport where the mock varies it (ADR-0028: copy in templates, not prompts). `step` is
-    `goals`, `level` or `schedule`, `place` the card's place in the flow, and `sport` the
-    registry's plugin. -#}
+    `goals`, `level` or `schedule`, `place` the card's place in its round of `round_length`, `url` its
+    `/onboarding/<sport_id>/<step>` path, and `sport` the registry's plugin. -#}
 {% from "components/onboarding_chat.html" import chat_card %}
 {% from "components/sport_copy.html" import sport_copy %}
 {% set copy = sport_copy[sport.label_key] %}
@@ -19,8 +19,9 @@
   question=this.question,
   hints=this.hints,
   placeholder=this.placeholder,
-  url="/onboarding/" ~ step,
+  url=url,
   text=text,
   error=error,
   max_length=max_length,
+  steps=round_length,
 ) }}

@@ -1,5 +1,5 @@
-"""A new account walks through onboarding into the chat (PRD 0008 F1, F6, G11; tickets #86, #254,
-#255).
+"""A new account walks through onboarding with two sports into the chat (PRD 0008 F1, F6, G11;
+tickets #86, #254, #255, #256).
 
 It is the first flow every athlete takes, so it earns a permanent spec (ADR-0013). The
 streamed reply is out of scope: stubbing OpenRouter inside the compose stack is not decided
@@ -20,25 +20,37 @@ def _press(page: Page, name: str) -> None:
     page.get_by_role("button", name=name).click()
 
 
-def test_new_account_completes_onboarding_and_lands_in_chat(not_onboarded_page: Page) -> None:
-    """Sport, About you and the sport's goals, level and schedule skipped (so no model call
-    leaves the stack), the summary, and confirm (ADR-0028, tickets #254, #255). #256 extends it
-    to two sports."""
+def test_new_account_onboards_two_sports_and_lands_in_chat(not_onboarded_page: Page) -> None:
+    """Climbing, About you and its three steps, then Gym from "Add another sport?" with only its
+    three steps, all skipped (so no model call leaves the stack), then the summary with a section
+    per sport, and confirm (ADR-0028, tickets #254-#256)."""
     page = not_onboarded_page
     page.goto(f"{BASE_URL}/")
     expect(page).to_have_url(f"{BASE_URL}/onboarding/sport")
 
     _press(page, "Climbing")
-
-    for card in ("about-you", "goals", "level", "schedule"):
-        expect(page).to_have_url(f"{BASE_URL}/onboarding/{card}")
+    expect(page).to_have_url(f"{BASE_URL}/onboarding/about-you")
+    _press(page, "Skip")
+    for step in ("goals", "level", "schedule"):
+        expect(page).to_have_url(f"{BASE_URL}/onboarding/climbing/{step}")
         _press(page, "Skip")
 
+    expect(page).to_have_url(f"{BASE_URL}/onboarding/more")
+    expect(page.get_by_role("button", name="Climbing")).to_have_count(0)
+    _press(page, "Gym")
+    # No About you for a second sport.
+    for step in ("goals", "level", "schedule"):
+        expect(page).to_have_url(f"{BASE_URL}/onboarding/gym/{step}")
+        _press(page, "Skip")
+
+    expect(page).to_have_url(f"{BASE_URL}/onboarding/more")
+    page.get_by_role("link", name="No, show my summary").click()
+
     expect(page).to_have_url(f"{BASE_URL}/onboarding/summary")
-    # About you and Climbing, both skipped.
-    expect(page.get_by_text("Skipped")).to_have_count(2)
-    expect(page.get_by_label("Age", exact=True)).to_have_value("")
-    expect(page.get_by_label("Sessions a week", exact=True)).to_have_value("")
+    # About you, Climbing and Gym, all skipped.
+    expect(page.get_by_text("Skipped")).to_have_count(3)
+    expect(page.locator('section[aria-label="Climbing"]')).to_be_visible()
+    expect(page.locator('section[aria-label="Gym"]')).to_be_visible()
     _press(page, "Looks right, build my plan")
 
     expect(page).to_have_url(f"{BASE_URL}/")

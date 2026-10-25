@@ -1,5 +1,6 @@
 """Fakes for the AI onboarding (ADR-0028, ticket #254): an in-memory `OnboardingAnswersPort` with
-the database's revision rules, and an `OnboardingReaderPort` a test can hold mid-read."""
+the database's revision rules, an `OnboardingReaderPort` a test can hold mid-read, and the users
+and sessions the active-user gate reads."""
 
 import asyncio
 from collections.abc import Callable, Mapping, Sequence
@@ -11,7 +12,9 @@ from pydantic import JsonValue
 from ai_trainer.domain.athlete_profile import AthleteProfile
 from ai_trainer.domain.goals import Goal
 from ai_trainer.domain.onboarding import AnswerStatus, OnboardingAnswer, OnboardingStep
+from ai_trainer.domain.sessions import NewSession, Session
 from ai_trainer.domain.sport_profile import SportProfile
+from ai_trainer.domain.users import NewUser, User
 
 type AnswerKey = tuple[UUID, OnboardingStep, str | None]
 
@@ -35,8 +38,13 @@ class FakeOnboardingAnswers:
             if key[0] != user_id or key[2] in (None, sport_id)
         }
 
+    async def add_sport(self, user_id: UUID, sport_id: str) -> None:
+        sports = self.sports.setdefault(user_id, [])
+        if sport_id not in sports:
+            sports.append(sport_id)
+
     async def list_sports(self, user_id: UUID) -> Sequence[str]:
-        return self.sports.get(user_id, [])
+        return list(self.sports.get(user_id, []))
 
     async def discard_answers(self, user_id: UUID) -> None:
         self.answers = {key: a for key, a in self.answers.items() if key[0] != user_id}
@@ -156,3 +164,43 @@ class FakeReader:
         if callable(self._reply):
             return self._reply(answer.text or "")
         return self._reply
+
+
+class FakeUsersRepository:
+    def __init__(self, *users: User) -> None:
+        self._users = {user.id: user for user in users}
+
+    def replace(self, user: User) -> None:
+        self._users[user.id] = user
+
+    async def get_by_sub(self, sub: str) -> User | None:
+        raise NotImplementedError
+
+    async def get(self, user_id: UUID) -> User | None:
+        return self._users.get(user_id)
+
+    async def create(self, new_user: NewUser) -> User:
+        raise NotImplementedError
+
+    async def list_all(self) -> list[User]:
+        raise NotImplementedError
+
+    async def delete(self, user_id: UUID) -> None:
+        raise NotImplementedError
+
+
+class FakeSessionsRepository:
+    def __init__(self, *sessions: Session) -> None:
+        self._sessions = {session.id: session for session in sessions}
+
+    async def create(self, new_session: NewSession) -> Session:
+        raise NotImplementedError
+
+    async def get(self, session_id: UUID) -> Session | None:
+        return self._sessions.get(session_id)
+
+    async def delete(self, session_id: UUID) -> None:
+        raise NotImplementedError
+
+    async def delete_for_user(self, user_id: UUID) -> None:
+        raise NotImplementedError

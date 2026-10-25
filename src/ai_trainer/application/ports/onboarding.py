@@ -30,15 +30,6 @@ class OnboardingRepositoryPort(Protocol):
 
     async def list_sports(self, user_id: UUID) -> Sequence[str]: ...
 
-    async def replace_availability(
-        self, user_id: UUID, minutes_by_weekday: Mapping[int, int]
-    ) -> None:
-        """Makes `minutes_by_weekday` (weekday 0 = Monday to minutes) exactly the user's
-        `weekly_availability` rows."""
-        ...
-
-    async def list_availability(self, user_id: UUID) -> Mapping[int, int]: ...
-
     async def replace_goals(self, user_id: UUID, goals: Sequence[Goal]) -> None:
         """Makes `goals` exactly the user's `goals` rows, keeping their order."""
         ...
@@ -46,10 +37,6 @@ class OnboardingRepositoryPort(Protocol):
     async def list_goals(self, user_id: UUID) -> Sequence[Goal]: ...
 
     async def set_onboarded_at(self, user_id: UUID, when: datetime | None) -> None: ...
-
-    async def finish_onboarding(self, user_id: UUID, timezone: str, when: datetime) -> None:
-        """Stores the user's IANA `timezone` and sets `onboarded_at` to `when`, together."""
-        ...
 
 
 class OnboardingAnswersPort(Protocol):
@@ -62,7 +49,14 @@ class OnboardingAnswersPort(Protocol):
         so it is written before the summary (ADR-0028: flow state comes from the server)."""
         ...
 
-    async def list_sports(self, user_id: UUID) -> Sequence[str]: ...
+    async def add_sport(self, user_id: UUID, sport_id: str) -> None:
+        """Adds `sport_id` to the user's `user_sports` rows after the ones already there, keeping
+        every answer (#256). Like `start`, the athlete's own pick, written before the summary."""
+        ...
+
+    async def list_sports(self, user_id: UUID) -> Sequence[str]:
+        """The user's sports in the order picked."""
+        ...
 
     async def discard_answers(self, user_id: UUID) -> None:
         """Deletes the user's answers, so onboarding starts over (a fresh dev-session user)."""
