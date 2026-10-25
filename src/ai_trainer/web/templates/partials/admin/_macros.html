@@ -12,7 +12,7 @@
 </span>
 {% else %}
 <select
-  class="select select-sm h-10 w-44 text-[15px] bg-base-100/50 border-base-content/20"
+  class="lg-field lg-select w-44"
   aria-label="Access for {{ user.email }}"
   name="status"
   hx-post="/admin/users/{{ user.id }}/status"
@@ -31,7 +31,7 @@
 {% endmacro %}
 
 {% macro user_row(user, current_user, oob=false) %}
-<tr id="user-row-{{ user.id }}" class="border-base-content/10"{% if oob %} hx-swap-oob="true"{% endif %}>
+<tr id="user-row-{{ user.id }}" class="border-base-content/10 hover:bg-base-content/10"{% if oob %} hx-swap-oob="true"{% endif %}>
   <td class="font-medium">{{ user.email }}</td>
   <td>{{ user.name or "—" }}</td>
   <td>{{ _status_badge(user.status) }}</td>
@@ -42,7 +42,7 @@
 
 {% macro user_card(user, current_user, oob=false) %}
 {% set initials = (user.name or user.email).split(" ") | map("first") | join("") | upper %}
-<li id="user-card-{{ user.id }}" class="glass-regular glass-rim relative rounded-box p-4 flex flex-col gap-3"{% if oob %} hx-swap-oob="true"{% endif %}>
+<li id="user-card-{{ user.id }}" class="mat-content rounded-box p-4 flex flex-col gap-3"{% if oob %} hx-swap-oob="true"{% endif %}>
   <div class="flex items-start gap-3">
     <span class="size-10 rounded-full bg-base-content/10 grid place-items-center text-[13px] font-semibold shrink-0">{{ initials }}</span>
     <div class="flex flex-col flex-1 min-w-0">
@@ -57,7 +57,7 @@
   </span>
   {% else %}
   <select
-    class="select w-full text-[16px] bg-base-100/50 border-base-content/20"
+    class="lg-field lg-select"
     aria-label="Access for {{ user.email }}"
     name="status"
     hx-post="/admin/users/{{ user.id }}/status"
@@ -74,7 +74,7 @@
 
 {% macro toast(message, variant="success", undo_user_id=none, undo_status=none, oob=false) %}
 <div id="admin-toast-region" class="toast toast-top toast-center lg:toast-bottom lg:toast-end z-40"{% if oob %} hx-swap-oob="true"{% endif %}>
-  <div role="status" class="alert glass-thick glass-rim relative border-0 text-[15px]">
+  <div role="status" class="alert lgs lgs-thick relative border-0 text-[15px]">
     {% if variant == "error" %}
     {{ icon("triangle-alert", "size-5 text-error") }}
     {% else %}
@@ -84,11 +84,11 @@
     {% if undo_user_id and undo_status %}
     <button
       type="button"
-      class="btn btn-sm btn-ghost"
+      class="lg lg-ghost lg-sm"
       hx-post="/admin/users/{{ undo_user_id }}/status"
       hx-vals='{"status": "{{ undo_status }}"}'
       hx-swap="none"
-    >Undo</button>
+    ><span class="absolute -inset-x-px -inset-y-1" aria-hidden="true"></span>Undo</button>
     {% endif %}
   </div>
 </div>

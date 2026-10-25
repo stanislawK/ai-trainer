@@ -2,17 +2,17 @@
 
 {% macro status_action(action, variant) -%}
 {%- if action.get("logout", false) -%}
-<button type="button" class="btn {{ variant }} w-full h-12" hx-post="/auth/logout">{{ action.label }}</button>
+<button type="button" class="lg {{ variant }} w-full" hx-post="/auth/logout">{{ action.label }}</button>
 {%- elif action.get("reload", false) -%}
-<button type="button" class="btn {{ variant }} w-full h-12" data-reload-page>{{ action.label }}</button>
+<button type="button" class="lg {{ variant }} w-full" data-reload-page>{{ action.label }}</button>
 {%- else -%}
-<a href="{{ action.href }}" class="btn {{ variant }} w-full h-12">{{ action.label }}</a>
+<a href="{{ action.href }}" class="lg {{ variant }} w-full">{{ action.label }}</a>
 {%- endif -%}
 {%- endmacro %}
 
 {% macro status_card(icon_name, kicker, title, body, primary=none, secondary=none, email=none) %}
 <main class="hero min-h-screen px-4">
-  <div class="hero-content w-full lg:w-[440px] flex-col text-center gap-5 lg:gap-6 glass-regular glass-rim rounded-[28px] px-6 py-8 lg:px-10 lg:py-10">
+  <div class="hero-content w-full lg:w-[440px] flex-col text-center gap-5 lg:gap-6 mat-content rounded-[28px] px-6 py-8 lg:px-10 lg:py-10">
     <span class="size-14 lg:size-16 rounded-[22%] bg-base-content/10 grid place-items-center" aria-hidden="true">
       {{ icon(icon_name, "size-7 lg:size-8") }}
     </span>
@@ -25,8 +25,8 @@
     <span class="badge badge-soft h-8 px-3 text-[13px]">Signed in as {{ email }}</span>
     {% endif %}
     <div class="flex flex-col gap-2 w-full">
-      {% if primary %}{{ status_action(primary, "btn-primary") }}{% endif %}
-      {% if secondary %}{{ status_action(secondary, "btn-ghost" if primary else "btn-outline") }}{% endif %}
+      {% if primary %}{{ status_action(primary, "lg-tinted") }}{% endif %}
+      {% if secondary %}{{ status_action(secondary, "lg-ghost" if primary else "lg-clear") }}{% endif %}
     </div>
   </div>
 </main>

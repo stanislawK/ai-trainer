@@ -19,7 +19,7 @@
     role="dialog"
     aria-modal="true"
     aria-label="{{ title }}"
-    class="glass-thick glass-rim absolute inset-x-4 top-1/2 -translate-y-1/2 max-h-[min(720px,90dvh)] rounded-[28px] flex flex-col overflow-hidden lg:inset-x-auto lg:left-1/2 lg:-translate-x-1/2 lg:w-[520px] lg:max-h-[min(780px,90dvh)]"
+    class="lgs lgs-thick absolute inset-x-4 top-1/2 -translate-y-1/2 max-h-[min(720px,90dvh)] rounded-[28px] flex flex-col overflow-hidden lg:inset-x-auto lg:left-1/2 lg:-translate-x-1/2 lg:w-[520px] lg:max-h-[min(780px,90dvh)]"
   >
     <input type="hidden" name="confirm_drop" value="1" />
     <div class="flex flex-col gap-1.5 px-5 pt-5 pb-3 lg:px-6 lg:pt-6 lg:pb-4">
@@ -53,12 +53,12 @@
     <div class="flex gap-2 px-5 pt-3 pb-5 lg:justify-end lg:px-6 lg:pt-4 lg:pb-6">
       <button
         type="button"
-        class="btn btn-ghost flex-1 lg:flex-none"
+        class="lg lg-ghost flex-1 lg:flex-none"
         hx-get="{{ cancel_url }}"
         hx-target="{{ target }}"
         hx-swap="outerHTML"
       >Cancel</button>
-      <button type="submit" class="btn btn-primary flex-1 lg:flex-none lg:px-8">Confirm</button>
+      <button type="submit" class="lg lg-tinted flex-1 lg:flex-none lg:px-8">Confirm</button>
     </div>
   </div>
 </div>

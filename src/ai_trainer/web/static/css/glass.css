@@ -354,6 +354,24 @@
   }
 }
 
+/* Danger: tinted glass in the error hue, for confirmed destructive actions (Delete account, #268). */
+@utility lg-danger {
+  --lg-tint: light-dark(color-mix(in oklch, var(--color-error) 18%, transparent), color-mix(in oklch, var(--color-error) 32%, transparent));
+  --lg-rim-side: color-mix(in oklch, var(--color-error) 20%, transparent);
+  --lg-edge: light-dark(oklch(100% 0 0 / .6), color-mix(in oklch, color-mix(in oklch, var(--color-error), white 40%) 40%, transparent));
+  --lg-lit: light-dark(oklch(100% 0 0 / .55), color-mix(in oklch, var(--color-error), white 50%));
+  --lg-drop: 0 1px 2px 0 color-mix(in oklch, var(--color-error) 20%, transparent), 0 10px 22px -8px color-mix(in oklch, var(--color-error) 50%, transparent);
+  color: light-dark(color-mix(in oklch, var(--color-error), black 35%), color-mix(in oklch, var(--color-error), white 70%));
+
+  &:hover {
+    --lg-tint: light-dark(color-mix(in oklch, var(--color-error) 26%, transparent), color-mix(in oklch, var(--color-error) 40%, transparent));
+  }
+
+  @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+    --lg-tint: color-mix(in oklch, var(--color-error) 26%, var(--color-base-100));
+  }
+}
+
 /*
  * Geometry modifiers. Material comes from the variant. In `glass-v2.css` each wins by coming
  * after the variants; Tailwind v4 orders utilities by their number of declarations instead, so
@@ -473,6 +491,53 @@
     border-radius: 22%;
     pointer-events: none;
     cursor: default;
+  }
+}
+
+/* Segmented control (#268): the track is an `lgs`; the selected segment is a raised clear lens
+ * (`lg lg-clear lg-seg-on`), the others plain `lg-seg-item` labels at 72%. */
+@utility lg-seg-on {
+  &.lg {
+    height: 40px;
+    --lg-tint: light-dark(oklch(100% 0 0 / .9), oklch(100% 0 0 / .16));
+    --lg-drop: 0 1px 2px 0 light-dark(oklch(25% 0.02 232 / .1), oklch(0% 0 0 / .3)), 0 4px 10px -4px light-dark(oklch(25% 0.02 232 / .14), oklch(0% 0 0 / .4));
+    color: var(--color-base-content);
+  }
+
+  /* Keep the lens on hover: `lg-clear:hover` comes later and would swap its tint. */
+  &.lg:hover {
+    --lg-tint: light-dark(oklch(100% 0 0 / .9), oklch(100% 0 0 / .16));
+  }
+}
+
+@utility lg-seg-item {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 40px;
+  padding: 0 16px;
+  border-radius: 9999px;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font-size: 15px;
+  font-weight: 500;
+  color: color-mix(in oklch, var(--color-base-content) 72%, transparent);
+  transition: color .15s, background-color .15s;
+
+  &:hover {
+    color: var(--color-base-content);
+    background-color: color-mix(in oklch, var(--color-base-content) 6%, transparent);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 3px;
+  }
+
+  @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+    color: color-mix(in oklch, var(--color-base-content) 85%, transparent);
   }
 }
 

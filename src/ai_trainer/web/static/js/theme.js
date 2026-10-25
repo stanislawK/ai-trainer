@@ -29,9 +29,11 @@
     document.querySelectorAll("[data-theme-option]").forEach(function (button) {
       var active = button.getAttribute("data-theme-option") === theme;
       button.setAttribute("aria-pressed", String(active));
-      button.classList.toggle("tab-active", active);
-      button.classList.toggle("shadow-sm", active);
-      button.classList.toggle("text-base-content/70", !active);
+      // The Liquid Glass v4 segment (#268): the selected option is a raised clear lens.
+      button.classList.toggle("lg", active);
+      button.classList.toggle("lg-clear", active);
+      button.classList.toggle("lg-seg-on", active);
+      button.classList.toggle("lg-seg-item", !active);
     });
   }
 
