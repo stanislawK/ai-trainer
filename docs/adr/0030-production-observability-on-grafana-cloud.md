@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | Proposed |
+| Status | Accepted |
 | Date | 2026-10-25 |
 | Related | PRD-0008 (G12, G13, G14), ADR-0018 (supersedes its rejected alternative "A Grafana Alloy collector in compose"), ADR-0023 (supersedes its "Observability … recommended at go-live, but not required" line), ADR-0027, ADR-0029 |
 
