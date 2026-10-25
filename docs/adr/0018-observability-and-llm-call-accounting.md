@@ -66,7 +66,7 @@ the database, not in a third-party trace store.
 - **The Logfire SDK** — already declined in ADR-0009; it puts a vendor SDK in application code, where
   OTLP is vendor-neutral and Pydantic AI emits it natively.
 - **A Grafana Alloy collector in compose** — an extra container for a local POC; the direct OTLP
-  endpoint needs none. Revisit if the POC ever grows a fleet of processes.
+  endpoint needs none. Revisit if the POC ever grows a fleet of processes. *Superseded by [ADR-0030](0030-production-observability-on-grafana-cloud.md) (2026-10-25): production telemetry goes through one Alloy container, because Caddy, Postgres, the timers and the host can't export OTLP themselves.*
 
 ## Consequences
 
