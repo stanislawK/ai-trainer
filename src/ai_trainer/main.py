@@ -231,7 +231,13 @@ def create_app(settings: Settings, *, span_exporter: SpanExporter | None = None)
         recent_sessions=settings.extract_recent_sessions,
     )
     app.include_router(
-        build_chat_router(templates, chat=chat, replies=replies, sports=app.state.sport_registry)
+        build_chat_router(
+            templates,
+            chat=chat,
+            replies=replies,
+            sports=app.state.sport_registry,
+            retention_days=settings.conversation_retention_days,
+        )
     )
     app.include_router(
         build_admin_router(

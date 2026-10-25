@@ -1,0 +1,69 @@
+{#- The conversation list (PRD-0008 B25, F17, ADR-0021, ticket #213; mock "Conversation list v3", option A): New conversation as the one tinted action, then the athlete's conversations inside the retention window, newest first, the open one an `lg-clear` capsule with `aria-current="true"`. `variant` is "phone" (the drawer's sheet) or "desktop" (the sidebar section); `oob` re-renders it out of band after an htmx swap or a sent message, so the mark and the order follow. -#}
+{%- from "components/icon.html" import icon -%}
+
+{%- set weekdays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] -%}
+{%- set months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"] -%}
+
+{% macro time_label(when) -%}
+{%- if when.kind == "today" -%}{{ "%02d:%02d" | format(when.local.hour, when.local.minute) }}
+{%- elif when.kind == "yesterday" -%}Yesterday
+{%- elif when.kind == "weekday" -%}{{ weekdays[when.local.weekday()] }}
+{%- else -%}{{ when.local.day }} {{ months[when.local.month - 1] }}
+{%- endif -%}
+{%- endmacro %}
+
+{% macro conversation_list(variant, conversations, current_conversation_id, retention_days, oob=False) -%}
+{%- set phone = variant == "phone" -%}
+{%- set size = "" if phone else " text-[14px]" -%}
+<div id="conversation-list-{{ variant }}" class="flex flex-col gap-2 flex-1 min-h-0"{% if oob %} hx-swap-oob="true"{% endif %}>
+  <a
+    href="/c/new"
+    class="lg lg-tinted w-full gap-2 shrink-0"
+    data-new-conversation
+    data-conversation-link
+    hx-get="/c/new"
+    hx-target="#chat-content"
+    hx-swap="outerHTML"
+    hx-push-url="true"
+  >{{ icon("plus", "size-4") }}New conversation</a>
+  {%- if conversations %}
+  {%- if phone %}
+  <span class="px-3 pt-2 text-[12px] font-medium lbl-2">Last {{ retention_days }} days</span>
+  {%- endif %}
+  <ul class="flex flex-col gap-0.5 overflow-y-auto overflow-x-hidden min-h-0{% if phone %} text-[15px]{% endif %}" aria-label="Conversations, newest first">
+    {%- for row in conversations %}
+    {%- set open = row.id == current_conversation_id %}
+    <li class="min-w-0">
+      <a
+        href="/c/{{ row.id }}"
+        class="{% if open %}lg lg-clear w-full min-w-0 justify-start gap-3 px-4{% else %}min-h-11 w-full min-w-0 flex items-center gap-3 px-4 rounded-full transition-colors hover:bg-base-content/10{% endif %}{{ size }}"
+        data-conversation-row="{{ row.id }}"
+        data-conversation-link
+        hx-get="/c/{{ row.id }}"
+        hx-target="#chat-content"
+        hx-swap="outerHTML"
+        hx-push-url="true"
+        {%- if open %} aria-current="true"{% endif %}
+      ><span class="flex-1 min-w-0 truncate text-left{% if not open %} lbl-1{% endif %}" data-title>{{ row.title or "Untitled conversation" }}</span><span class="shrink-0 {{ 'text-[13px]' if phone else 'text-[12px]' }} font-normal tabular-nums lbl-2" data-time>{{ time_label(row.last_active) }}</span></a>
+    </li>
+    {%- endfor %}
+  </ul>
+  {%- elif phone %}
+  <div class="flex-1 flex flex-col items-center justify-center text-center gap-3 px-6 pb-16">
+    <span class="size-14 rounded-[22%] bg-base-content/10 grid place-items-center lbl-2" aria-hidden="true">{{ icon("messages-square", "size-7") }}</span>
+    <p class="text-[17px] font-semibold lbl-1">No conversations yet</p>
+    <p class="text-[15px] leading-[22px] lbl-2">Conversations from the last {{ retention_days }} days show up here.</p>
+  </div>
+  {%- else %}
+  <div class="px-3 py-2 flex flex-col gap-1">
+    <p class="text-[14px] font-medium lbl-1">No conversations yet</p>
+    <p class="text-[13px] leading-5 lbl-2">Conversations from the last {{ retention_days }} days show up here.</p>
+  </div>
+  {%- endif %}
+</div><!-- /conversation-list -->
+{%- endmacro %}
+
+{% macro conversation_lists_oob(conversations, current_conversation_id, retention_days) -%}
+{{ conversation_list("phone", conversations, current_conversation_id, retention_days, oob=True) }}
+{{ conversation_list("desktop", conversations, current_conversation_id, retention_days, oob=True) }}
+{%- endmacro %}

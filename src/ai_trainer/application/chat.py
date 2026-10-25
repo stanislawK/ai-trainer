@@ -8,6 +8,7 @@ from ai_trainer.domain.chat import ChatMessage, ChatRole, Conversation, conversa
 
 MAX_MESSAGE_LENGTH = 4000
 HISTORY_LIMIT = 50
+CONVERSATION_LIST_LIMIT = 100
 
 
 class EmptyMessageError(Exception):
@@ -45,6 +46,14 @@ async def latest_conversation(
     first message (ADR-0021)."""
     recent = await conversations.list_recent(user_id, 1)
     return recent[0] if recent else None
+
+
+async def list_conversations(
+    user_id: UUID, *, conversations: ConversationRepositoryPort
+) -> Sequence[Conversation]:
+    """The athlete's conversations inside the retention window, latest activity first, for the
+    conversation list (B25, F17). The window bounds it; the cap only guards the page."""
+    return await conversations.list_recent(user_id, CONVERSATION_LIST_LIMIT)
 
 
 async def send_message(

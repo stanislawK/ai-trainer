@@ -217,17 +217,44 @@ def _nav_block(html: str, opening_marker: str, closing_tag: str) -> str:
     return html[start : html.index(closing_tag, start)]
 
 
-def test_sidebar_menu_items_center_icon_and_label_vertically() -> None:
-    """daisyUI's menu item sets `align-content: flex-start`, pinning icon and label to the top
-    of the 44px tap target; the Components Navigation mock adds `content-center` (#58)."""
+def test_sidebar_items_center_icon_and_label_vertically() -> None:
+    """The sidebar is `mat-content` since #213 (mock "Conversation list v3"): the active section
+    is an `lg lg-clear` capsule, which centres its content, and the others are 44 px flex rows
+    with `items-center`, so neither pins icon and label to the top of the target (#58)."""
     html = _client(admin_emails=[USER_EMAIL]).get("/admin").text
     sidebar = _nav_block(html, 'aria-label="Primary"', "</ul>")
 
     links = sidebar.split("<a")[1:]
     assert links
     for link in links:
-        assert "content-center" in link.split(">")[0]
+        classes = link.split('class="')[1].split('"')[0].split()
+        assert {"lg", "lg-clear"} <= set(classes) or {"flex", "items-center", "min-h-11"} <= set(
+            classes
+        )
         assert 'class="size-5"' in link
+
+
+def test_sidebar_is_content_material_with_the_active_section_a_clear_capsule() -> None:
+    html = _client(admin_emails=[USER_EMAIL]).get("/admin").text
+    start = html.rindex("<aside", 0, html.index('aria-label="Primary"'))
+    aside = html[start : html.index(">", html.index('aria-label="Primary"'))]
+    sidebar = _nav_block(html, 'aria-label="Primary"', "</ul>")
+
+    assert "mat-content" in aside
+    assert "w-72" in aside
+    assert "glass-thick" not in aside
+    (active,) = [link for link in sidebar.split("<a")[1:] if 'aria-current="page"' in link]
+    assert 'href="/admin"' in active
+    assert "lg lg-clear" in active
+
+
+def test_only_the_chat_pages_carry_the_conversation_list() -> None:
+    client = _client(admin_emails=[USER_EMAIL])
+
+    assert 'id="conversation-list-desktop"' in client.get("/").text
+    admin = client.get("/admin").text
+    assert "conversation-list-" not in admin
+    assert 'class="drawer"' not in admin
 
 
 def test_chat_menu_items_center_icon_and_label_vertically() -> None:
@@ -274,3 +301,14 @@ def test_dock_floats_above_the_safe_area_instead_of_padding_into_it() -> None:
     assert "pb-0" in dock_tag
     assert "bottom-[calc(1.25rem+env(safe-area-inset-bottom))]" in dock_tag
     assert " bottom-5 " not in dock_tag
+
+
+def test_chat_section_stays_current_on_a_conversation_url() -> None:
+    """`/c/new` and `/c/<id>` are the chat too (ADR-0021), so the Chat section keeps its mark
+    there, on a full load as after an htmx swap from `/` (#213 skeptic finding)."""
+    html = _client(admin_emails=[]).get("/c/new").text
+    sidebar = _nav_block(html, 'aria-label="Primary"', "</ul>")
+
+    (active,) = [link for link in sidebar.split("<a")[1:] if 'aria-current="page"' in link]
+    assert 'href="/"' in active
+    assert "lg lg-clear" in active

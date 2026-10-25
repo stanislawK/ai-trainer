@@ -162,7 +162,11 @@ def _app(conversation: AccountedConversation) -> tuple[FastAPI, FakeLlmCalls]:
     services = replace(reply_services(chat, conversation=conversation), clock=TickingClock())
     app.include_router(
         build_chat_router(
-            build_templates(), chat=chat, replies=services, sports=sports_with_rowing()
+            build_templates(),
+            chat=chat,
+            replies=services,
+            sports=sports_with_rowing(),
+            retention_days=14,
         )
     )
     user = sign_in_as(app)

@@ -367,7 +367,11 @@ def _app(
     app = FastAPI()
     app.include_router(
         build_chat_router(
-            build_templates(), chat=chat, replies=replies, sports=sports_with_rowing()
+            build_templates(),
+            chat=chat,
+            replies=replies,
+            sports=sports_with_rowing(),
+            retention_days=14,
         )
     )
     sign_in_as(app, user)

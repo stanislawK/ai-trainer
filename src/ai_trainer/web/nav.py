@@ -13,10 +13,15 @@ class NavSection:
     href: str
     icon: str
     admin_only: bool = False
+    # Paths under these prefixes belong to the section too (the chat's `/c/…`, ADR-0021).
+    prefixes: tuple[str, ...] = ()
+
+    def is_current(self, path: str) -> bool:
+        return path == self.href or path.startswith(self.prefixes)
 
 
 NAV_SECTIONS: tuple[NavSection, ...] = (
-    NavSection(id="chat", label="Chat", href="/", icon="message-circle"),
+    NavSection(id="chat", label="Chat", href="/", icon="message-circle", prefixes=("/c/",)),
     NavSection(id="settings", label="Settings", href="/settings", icon="settings"),
     NavSection(id="admin", label="Admin", href="/admin", icon="shield-check", admin_only=True),
 )

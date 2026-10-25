@@ -116,9 +116,12 @@ class InMemoryConversationRepository:
             for owner, conversation in self.rows
             if owner == user_id and self._live(conversation)
         ]
-        return sorted(own, key=lambda conversation: conversation.last_message_at, reverse=True)[
-            :limit
-        ]
+        # Ties go by id, latest first, as the database adapter orders them.
+        return sorted(
+            own,
+            key=lambda conversation: (conversation.last_message_at, conversation.id),
+            reverse=True,
+        )[:limit]
 
     async def purge_before(self, cutoff: datetime) -> int:
         kept = [(owner, c) for owner, c in self.rows if c.last_message_at >= cutoff]
@@ -863,7 +866,13 @@ def include_chat(
         fast_router=fast_router,
     )
     app.include_router(
-        build_chat_router(templates, chat=repository, replies=services, sports=sports_with_rowing())
+        build_chat_router(
+            templates,
+            chat=repository,
+            replies=services,
+            sports=sports_with_rowing(),
+            retention_days=14,
+        )
     )
     return repository
 
