@@ -1,6 +1,47 @@
 name: onboarding.about_you
 cases:
-- name: 'units: the AC answer in feet and pounds'
+- name: 'units: the AC answer, metric with a decimal comma'
+  inputs:
+    prompt: 31, 1,78 m, 73 kg, sore left shoulder
+    deps:
+      sport: climbing
+      today: '2026-10-24'
+      timezone: Europe/Warsaw
+  metadata: null
+  expected_output:
+    age: 31
+    height:
+      value: 1.78
+      unit: m
+    weight:
+      value: 73
+      unit: kg
+    limits: Sore left shoulder
+  evaluators:
+  - LLMJudge:
+      rubric: The limits name the sore left shoulder, and nothing else.
+      include_input: true
+      assertion:
+        evaluation_name: limits_faithful
+        include_reason: true
+- name: 'units: a decimal comma in metres and kilos'
+  inputs:
+    prompt: 29 lat, 1,65 m, 58,5 kg
+    deps:
+      sport: gym
+      today: '2026-10-24'
+      timezone: Europe/Warsaw
+  metadata: null
+  expected_output:
+    age: 29
+    height:
+      value: 1.65
+      unit: m
+    weight:
+      value: 58.5
+      unit: kg
+    limits: null
+- name: 'units: feet and pounds, best effort'
   inputs:
     prompt: 31, 5 ft 10, 160 lb, sore left shoulder
     deps:

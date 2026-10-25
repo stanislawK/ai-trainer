@@ -34,7 +34,7 @@ from tests.unit.test_llm_gateway import FakeLlmCallsRepository
 _PROMPTS_ROOT = Path(__file__).parents[2] / "src" / "ai_trainer" / "llm" / "prompts"
 # 23:30 UTC on 31 Dec is already New Year's Day in Warsaw (ADR-0014).
 _NOW = datetime(2026, 12, 31, 23, 30, tzinfo=UTC)
-_AC_ANSWER = "31, 5 ft 10, 160 lb, sore left shoulder"
+_AC_ANSWER = "31, 1,78 m, 73 kg, sore left shoulder"
 
 
 class FakeClock:
@@ -64,6 +64,16 @@ def _settings() -> Settings:
 def _read_ac_answer(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
     read = {
         "age": 31,
+        "height": {"value": 1.78, "unit": "m"},
+        "weight": {"value": 73, "unit": "kg"},
+        "limits": "Sore left shoulder",
+    }
+    return ModelResponse(parts=[TextPart(json.dumps(read))], provider_details={"cost": 0.0001})
+
+
+def _read_feet_and_pounds(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+    read = {
+        "age": 31,
         "height": {"value": 5, "unit": "ft_in", "inches": 10},
         "weight": {"value": 160, "unit": "lb"},
         "limits": "Sore left shoulder",
@@ -82,7 +92,7 @@ def _reader(gateway: OpenRouterGateway, **settings: object) -> LlmOnboardingRead
 
 
 async def test_the_ac_answer_reads_as_31_178_cm_73_kg_and_the_shoulder() -> None:
-    """AC: "31, 5 ft 10, 160 lb, sore left shoulder" shows 31, 178 cm, 73 kg, shoulder under
+    """AC: "31, 1,78 m, 73 kg, sore left shoulder" shows 31, 178 cm, 73 kg, shoulder under
     limits."""
     gateway = OpenRouterGateway(_settings(), FakeLlmCallsRepository())
     with gateway.agent.override(model=FunctionModel(_read_ac_answer)):
@@ -96,6 +106,21 @@ async def test_the_ac_answer_reads_as_31_178_cm_73_kg_and_the_shoulder() -> None
         "weight_kg": 73.0,
         "limits": "Sore left shoulder",
     }
+
+
+async def test_feet_and_pounds_still_read_as_178_cm_and_73_kg() -> None:
+    """Imperial units are best effort (PRD 0008 G15), but a read that names them converts."""
+    gateway = OpenRouterGateway(_settings(), FakeLlmCallsRepository())
+    with gateway.agent.override(model=FunctionModel(_read_feet_and_pounds)):
+        parsed = await _reader(gateway).read(
+            uuid4(),
+            _answer("31, 5 ft 10, 160 lb, sore left shoulder"),
+            sport_id="climbing",
+            timezone="Europe/Warsaw",
+        )
+
+    assert parsed is not None
+    assert (parsed["height_cm"], parsed["weight_kg"]) == (178, 73.0)
 
 
 async def test_every_read_writes_one_llm_calls_row_under_the_athlete() -> None:

@@ -139,7 +139,7 @@ async def _picked(athlete: Athlete, sport: str = "climbing", zone: str = "Europe
 async def _answered(athlete: Athlete, read: dict[str, JsonValue] | None = AC_READ) -> None:
     await _picked(athlete)
     revision = await athlete.answers.store_answer(
-        athlete.user.id, ABOUT_YOU, None, "31, 5 ft 10, 160 lb, sore left shoulder"
+        athlete.user.id, ABOUT_YOU, None, "31, 1,78 m, 73 kg, sore left shoulder"
     )
     if read is not None:
         await athlete.answers.save_read(athlete.user.id, ABOUT_YOU, None, revision, read)
@@ -267,7 +267,7 @@ async def test_the_next_step_appears_before_the_model_call_returns() -> None:
 
         response = athlete.client.post(
             "/onboarding/about-you",
-            data={"answer": "31, 5 ft 10, 160 lb, sore left shoulder"},
+            data={"answer": "31, 1,78 m, 73 kg, sore left shoulder"},
             headers=HX,
         )
 
@@ -304,7 +304,7 @@ async def test_back_to_about_you_shows_the_earlier_answer_to_change(athlete: Ath
 
     response = athlete.client.get("/onboarding/about-you")
 
-    assert "31, 5 ft 10, 160 lb, sore left shoulder</textarea>" in response.text
+    assert "31, 1,78 m, 73 kg, sore left shoulder</textarea>" in response.text
 
 
 async def test_a_reload_resumes_at_the_next_unanswered_card(athlete: Athlete) -> None:
@@ -339,7 +339,7 @@ async def test_the_summary_page_is_a_skeleton_that_owns_the_stream(athlete: Athl
 
 
 async def test_the_ac_answer_shows_31_178_cm_73_kg_and_the_shoulder(athlete: Athlete) -> None:
-    """AC: "31, 5 ft 10, 160 lb, sore left shoulder" shows 31, 178 cm, 73 kg, shoulder under
+    """AC: "31, 1,78 m, 73 kg, sore left shoulder" shows 31, 178 cm, 73 kg, shoulder under
     limits."""
     await _answered(athlete, read=None)
 
@@ -381,7 +381,7 @@ async def test_a_restart_mid_read_still_fills_the_summary(athlete: Athlete) -> N
     event = _summary(athlete)
 
     assert athlete.reader.calls == [
-        (athlete.user.id, "31, 5 ft 10, 160 lb, sore left shoulder", "climbing", "Europe/Warsaw")
+        (athlete.user.id, "31, 1,78 m, 73 kg, sore left shoulder", "climbing", "Europe/Warsaw")
     ]
     assert _value(event, "height_cm") == "178"
 

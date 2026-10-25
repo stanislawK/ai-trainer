@@ -125,7 +125,7 @@ async def test_a_send_returns_before_the_model_call_does(
     reader = FakeReader(READ)
     reader.hold = True
 
-    await _send(user, "31, 5 ft 10, 160 lb, sore left shoulder", answers, reads, reader)
+    await _send(user, "31, 1,78 m, 73 kg, sore left shoulder", answers, reads, reader)
 
     [answer] = await answers.list_answers(user)
     assert answer.status is AnswerStatus.PENDING

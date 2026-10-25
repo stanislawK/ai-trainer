@@ -29,7 +29,7 @@ def test_the_ac_answer_is_expected_as_31_178_cm_73_kg_and_the_shoulder() -> None
     [case] = [
         case
         for case in _dataset().cases
-        if case.inputs.prompt == "31, 5 ft 10, 160 lb, sore left shoulder"
+        if case.inputs.prompt == "31, 1,78 m, 73 kg, sore left shoulder"
     ]
     assert isinstance(case.expected_output, AboutYouRead)
     assert case.expected_output.converted() == AboutYou(
