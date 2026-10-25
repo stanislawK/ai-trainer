@@ -4,7 +4,7 @@
 |---|---|
 | Status | Accepted |
 | Date | 2026-10-24 |
-| Related | PRD-0007 (B9, B10, B15, B24, B33–B36, F6, F18–F21, G1, G7), ADR-0004, ADR-0006, ADR-0008, ADR-0012, ADR-0014, ADR-0018, ADR-0019, ADR-0020, ADR-0024, ADR-0026, ADR-0027 |
+| Related | PRD-0007, superseded by [PRD 0008](../prd/0008-ai-training-companion.md) (B9, B10, B15, B24, B33–B36, F6, F18–F21, G1, G7, G15), ADR-0004, ADR-0006, ADR-0008, ADR-0012, ADR-0014, ADR-0018, ADR-0019, ADR-0020, ADR-0024, ADR-0026, ADR-0027 |
 
 ## Context
 
@@ -96,3 +96,4 @@ The owner requires that the athlete never wait between steps. Only the summary m
   - a Settings profile page reusing the summary partial (post-POC, PRD-0007);
   - feed B33's fields into the reply context (`application/reply.py`'s `_context`), in the ticket that first uses them.
 - **Flagged:** the OpenRouter MCP was not authorized when this was written (2026-10-24), so no model is named yet. The owner authorizes it, and T1 picks the default on its first eval baseline.
+- Europe first, owner-directed 2026-10-25 ([PRD 0008](../prd/0008-ai-training-companion.md) G15). `about_you` must read metric answers reliably, including a decimal comma ("1,78 m", "72,5 kg"). The `ft_in` and `lb` units built in #254 stay but are best effort: an imperial answer the template can't read leaves the field empty for the summary, and a miss on an imperial eval case doesn't block a promotion. Stone isn't a unit; such a weight stays empty.

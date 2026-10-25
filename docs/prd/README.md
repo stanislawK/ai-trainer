@@ -1,6 +1,6 @@
 # Product requirements (PRD)
 
-**Current:** [PRD 0007 — AI training companion v0.8](0007-ai-training-companion.md) — *Approved.* Replaces the form onboarding with AI-read chats and the onboarding part of the athlete profile (B33–B36, F20, F21), on top of PRD 0006's gyms and location check (B27–B32, F18, F19).
+**Current:** [PRD 0008 — AI training companion v0.9](0008-ai-training-companion.md) — *Approved.* Europe first: metric units and the European grade scales are the bar, imperial units and American grades are best effort (G15). Keeps PRD 0007's AI onboarding (B33–B36, F20, F21) and PRD 0006's gyms and location check (B27–B32, F18, F19).
 
 Only one PRD may be Approved at a time. Older PRDs stay in this folder as history (Deprecated / Superseded).
 
@@ -12,6 +12,7 @@ Only one PRD may be Approved at a time. Older PRDs stay in this folder as histor
 | 0004 | [AI training companion v0.5](0004-ai-training-companion.md) | Superseded by 0005 | 0003 |
 | 0005 | [AI training companion v0.6](0005-ai-training-companion.md) | Superseded by 0007 | 0004 |
 | 0006 | [AI training companion v0.7](0006-ai-training-companion.md) | Superseded by 0007 | 0005 |
-| 0007 | [AI training companion v0.8](0007-ai-training-companion.md) | Approved | 0006 |
+| 0007 | [AI training companion v0.8](0007-ai-training-companion.md) | Superseded by 0008 | 0006 |
+| 0008 | [AI training companion v0.9](0008-ai-training-companion.md) | Approved | 0007 |
 
 How to add a revision: [docs/templates/README.md](../templates/README.md).
