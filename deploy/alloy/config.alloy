@@ -65,6 +65,36 @@ loki.source.docker "stack" {
 	forward_to    = [loki.process.scrub.receiver]
 }
 
+// The outcome lines of the three scheduled jobs (ADR-0030, ticket #274): the journal of the host,
+// mounted read-only with /etc/machine-id. `matches` combines terms with AND, so one `keep` rule
+// picks the three syslog identifiers instead (`SyslogIdentifier=` in the systemd units), and the
+// `job` label carries the name each outcome line starts with (`backup: result=ok`). Any other
+// unit's line is dropped here and never leaves the host. `max_age` lets a restarted Alloy catch
+// up on the 02:30 backup instead of missing its line. With no `path`, Alloy reads both
+// /var/log/journal and /run/log/journal.
+loki.relabel "jobs" {
+	forward_to = []
+
+	rule {
+		source_labels = ["__journal_syslog_identifier"]
+		regex         = "ai-trainer-(backup|purge|deploy)"
+		action        = "keep"
+	}
+
+	rule {
+		source_labels = ["__journal_syslog_identifier"]
+		regex         = "ai-trainer-(backup|purge|deploy)"
+		target_label  = "job"
+		replacement   = "$1"
+	}
+}
+
+loki.source.journal "jobs" {
+	max_age       = "26h"
+	relabel_rules = loki.relabel.jobs.rules
+	forward_to    = [loki.process.scrub.receiver]
+}
+
 // No log line may carry an email (ADR-0030 invariant 3). The app never writes one, but a
 // Postgres error can quote one (`Key (email)=(…)`). Letters and digits are any script's, for
 // names like józef.nowak@poczta.pl, and a URL-encoded `@` (`%40`) counts too.

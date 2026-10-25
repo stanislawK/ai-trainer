@@ -26,19 +26,45 @@
 # object for its retention window, so a truncated one couldn't be removed; if the dump or the
 # encryption fails, rclone is stopped before it sees the end of its input, and an upload that
 # never ends is never stored.
+#
+# The last line of every run is its outcome (ADR-0030, #274): `backup: result=ok kind=<kind>`,
+# or `backup: result=failed kind=<kind> reason=<usage|config|count|dump|upload|error> exit=<n>`
+# on stderr, with a non-zero exit. The reason is one of a fixed set, never a tool's own message,
+# so the line holds no secret and no row data. Alloy ships it to Grafana Cloud.
 set -euo pipefail
 umask 077
+
+kind=
+reason=error
+cleanup() { :; }
+# One EXIT trap for every way out, `die` and an unexpected `set -e` stop included: it cleans up,
+# then says how the run ended, last.
+# shellcheck disable=SC2317  # called from the EXIT trap only
+finish() {
+  local status=$?
+  # A cleanup that fails must not end the trap before the outcome line (`set -e`).
+  cleanup || true
+  if ((status == 0)); then
+    echo "backup: result=ok kind=$kind"
+  else
+    echo "backup: result=failed kind=${kind:-unknown} reason=$reason exit=$status" >&2
+  fi
+}
+trap finish EXIT
 
 die() {
   echo "backup: $*" >&2
   exit 2
 }
 
+reason=usage
 [[ $# -eq 1 && ($1 == nightly || $1 == predeploy) ]] || die "usage: backup.sh nightly|predeploy"
 kind=$1
+reason=config
 [[ -n ${BACKUP_DEST:-} ]] || die "BACKUP_DEST is not set"
 [[ ${BACKUP_AGE_RECIPIENT:-} =~ ^age1[02-9ac-hj-np-z]+$ ]] ||
   die "BACKUP_AGE_RECIPIENT must be an age public key (age1…)"
+reason=error
 container=${BACKUP_DB_CONTAINER:-ai-trainer-prod-db-1}
 
 read -r weekday stamp < <(date -u '+%u %Y%m%dT%H%M%SZ')
@@ -77,7 +103,6 @@ cleanup() {
   [[ -n $local_copy ]] && rm -f "$local_copy.partial"
   rm -rf "$work"
 }
-trap cleanup EXIT
 
 # The snapshot's session, over two FIFOs (no coproc: the drill's tests run this on macOS's
 # bash 3.2 too). All four statements go in one write, before psql can have failed; the write
@@ -102,6 +127,7 @@ if read -r -u 5 snapshot; then
   done
 fi
 if [[ -z $ended ]]; then
+  reason=count
   echo "backup: could not count rows; nothing uploaded" >&2
   exit 1
 fi
@@ -114,6 +140,7 @@ rclone_pid=$!
 exec 3>"$work/upload"
 
 upload_failed() {
+  reason=upload
   rclone_pid=
   redact <"$work/rclone.err" >&2
   echo "backup: upload failed: $1" >&2
@@ -138,6 +165,7 @@ if ! docker exec "$container" pg_dump --format=custom --username=ai_trainer \
   wait "$rclone_pid" 2>/dev/null || status=$?
   [[ $status -eq 137 ]] || upload_failed "$object"
   rclone_pid=
+  reason=dump
   echo "backup: dump or encryption failed; nothing uploaded" >&2
   exit 1
 fi

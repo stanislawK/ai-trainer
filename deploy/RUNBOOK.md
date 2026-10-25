@@ -216,11 +216,11 @@ Run on the server (`ssh deploy@<ip>`). `r2env` loads the token into the current 
 | # | Check | Command | Expected |
 |---|---|---|---|
 | 1 | Timer | `systemctl list-timers ai-trainer-backup.timer` | one row, `NEXT` between 02:30 and 02:45 UTC |
-| 2 | A run by hand | `sudo systemctl start ai-trainer-backup.service; journalctl -u ai-trainer-backup.service -n 5 --no-pager` | `backup: uploaded r2:ai-trainer-backups/daily/ai-trainer-<UTC time>.dump.age` (`weekly/` on a Sunday), and `systemctl is-failed ai-trainer-backup.service` prints `inactive` |
+| 2 | A run by hand | `sudo systemctl start ai-trainer-backup.service; journalctl -u ai-trainer-backup.service -n 5 --no-pager` | `backup: uploaded r2:ai-trainer-backups/daily/ai-trainer-<UTC time>.dump.age` (`weekly/` on a Sunday) and, last, `backup: result=ok kind=nightly`, and `systemctl is-failed ai-trainer-backup.service` prints `inactive` |
 | 3 | In the bucket | `r2env; rclone lsl "$BACKUP_DEST"` | the object from check 2: about 1 kB for the empty pre-go-live database, more once athletes use it |
 | 4 | Next morning | `r2env; rclone lsl "$BACKUP_DEST"` | a second object, stamped between 02:30 and 02:45 UTC |
 | 5 | Lock refuses delete | `r2env; rclone deletefile "$BACKUP_DEST/<path from check 3>"; echo $?` | an R2 error and a non-zero exit; `rclone lsl` still lists the object |
-| 6 | A failure is visible | before go-live only: `docker stop ai-trainer-prod-db-1; sudo systemctl start ai-trainer-backup.service; systemctl --failed; docker start ai-trainer-prod-db-1` | `ai-trainer-backup.service` listed as failed; `journalctl -u ai-trainer-backup.service` says why, and holds no token |
+| 6 | A failure is visible | before go-live only: `docker stop ai-trainer-prod-db-1; sudo systemctl start ai-trainer-backup.service; systemctl --failed; docker start ai-trainer-prod-db-1` | `ai-trainer-backup.service` listed as failed; `journalctl -u ai-trainer-backup.service` says why, ends on `backup: result=failed kind=nightly reason=count exit=1`, and holds no token |
 
 A check-6 run leaves no object behind: `backup.sh` stops the upload before it completes whenever the dump or the encryption fails. Run `sudo systemctl reset-failed ai-trainer-backup.service` afterwards.
 
@@ -266,7 +266,7 @@ A backup counts only once it has been restored. [`restore-drill.sh`](restore-dri
 
 Source: ADR-0021 *Retention*, ADR-0023 *The server's scheduled jobs*, PRD 0005 B26. Ticket #226.
 
-Every day at 02:00 UTC (up to 15 minutes later, always before the 02:30 backup), `ai-trainer-purge.timer` starts `ai-trainer-purge.service`. The service runs `ai-trainer purge-conversations` inside the app container, `ai-trainer-prod-app-1`. That deletes every conversation whose last message is older than `CONVERSATION_RETENTION_DAYS` (default 14), with its messages. The journal gets one line, the number deleted, and never any content.
+Every day at 02:00 UTC (up to 15 minutes later, always before the 02:30 backup), `ai-trainer-purge.timer` starts `ai-trainer-purge.service`. The service runs `ai-trainer purge-conversations` inside the app container, `ai-trainer-prod-app-1`. That deletes every conversation whose last message is older than `CONVERSATION_RETENTION_DAYS` (default 14), with its messages. The journal gets one line, `purge: result=ok deleted=<count>`, and never any content. A run that fails, including one with the app container stopped, ends on `purge: result=failed` instead (the unit's `ExecStopPost=`).
 
 ### 9.1 Install on the server
 
@@ -285,8 +285,8 @@ Run on the server (`ssh deploy@<ip>`).
 | # | Check | Command | Expected |
 |---|---|---|---|
 | 1 | Timer | `systemctl list-timers ai-trainer-purge.timer` | one row, `NEXT` between 02:00 and 02:15 UTC |
-| 2 | A run by hand | `sudo systemctl start ai-trainer-purge.service; journalctl -u ai-trainer-purge.service -n 5 --no-pager` | a line `ai-trainer-purge[<pid>]: <count>` (`0` while nothing has expired) and no other output; `systemctl is-failed ai-trainer-purge.service` prints `inactive` |
-| 3 | A failure is visible | before go-live only: `docker stop ai-trainer-prod-app-1; sudo systemctl start ai-trainer-purge.service; systemctl --failed; docker start ai-trainer-prod-app-1` | `systemctl start` reports the job failed; `ai-trainer-purge.service` is listed as failed; `journalctl -u ai-trainer-purge.service` shows Docker's `is not running` error |
+| 2 | A run by hand | `sudo systemctl start ai-trainer-purge.service; journalctl -u ai-trainer-purge.service -n 5 --no-pager` | a line `ai-trainer-purge[<pid>]: purge: result=ok deleted=<count>` (`deleted=0` while nothing has expired) and no other output; `systemctl is-failed ai-trainer-purge.service` prints `inactive` |
+| 3 | A failure is visible | before go-live only: `docker stop ai-trainer-prod-app-1; sudo systemctl start ai-trainer-purge.service; systemctl --failed; docker start ai-trainer-prod-app-1` | `systemctl start` reports the job failed; `ai-trainer-purge.service` is listed as failed; `journalctl -u ai-trainer-purge.service` shows Docker's `is not running` error, then `purge: result=failed` as its last line |
 
 Run `sudo systemctl reset-failed ai-trainer-purge.service` after check 3.
 
@@ -372,10 +372,11 @@ The `alloy` service relays two things to one Grafana Cloud stack:
 
 - **The app's traces**: OTLP over the internal `telemetry` network to `alloy:4318`.
 - **This project's container logs**: read through the Docker socket and labelled by compose service (`app`, `caddy`, `db`, `alloy`), with email-shaped values masked.
+- **The scheduled jobs' outcomes** (ticket #274): the host's journal, mounted read-only with `/etc/machine-id`, keeping only the `ai-trainer-backup`, `ai-trainer-purge` and `ai-trainer-deploy` syslog identifiers. Each line is labelled `job` (`backup`, `purge`, `deploy`). A run ends on `<job>: result=ok …` or `<job>: result=failed …`, with no secret and no row data; an idle deploy poll prints nothing. Every other unit's lines stay on the host.
 
 Alloy publishes no port and is never on `edge`. Only it reads `/opt/ai-trainer/alloy.env`, the one place a Grafana Cloud credential lives: never the app's `.env`, the repo, the image or CI. Without that file Alloy can't build its exporters and restarts in a loop, shipping nothing. Nothing depends on it, so no request, deploy, backup or purge fails over it.
 
-`migrate` runs for a few seconds, usually too short for Alloy to tail. Its output is in the deploy unit's journal (`journalctl -u ai-trainer-deploy.service`), which the job-outcomes ticket (#274) ships.
+`migrate` runs for a few seconds, usually too short for Alloy to tail. Its output is in the deploy unit's journal (`journalctl -u ai-trainer-deploy.service`), which Alloy ships under `job="deploy"`.
 
 Agents never sign in to Grafana Cloud or call its API. Every step here is yours.
 
@@ -414,7 +415,19 @@ GRAFANA_CLOUD_TOKEN=<token>
 
 A missing `alloy.env` is fine, but a broken one is not. A stray line (`key cannot contain a space`), a mode the `deploy` user can't read, or a directory at that path fails *every* compose command on this file. That would make the next deploy fail before `db` starts. `config --quiet` catches all three, so don't skip it after editing the file.
 
-### 11.3 Checks (ticket #272 acceptance)
+### 11.3 Is the journal persistent? (ticket #274)
+
+Alloy reads `/var/log/journal`. If the host keeps its journal only in memory (`/run/log/journal`), the outcome lines are lost at every reboot, a 02:30 backup failure included. On the server:
+
+```sh
+ls -d /var/log/journal                       # must exist; "No such file or directory" means volatile
+journalctl --disk-usage                      # "Archived and active journals take up …" on disk
+journalctl --header | grep -m1 'File path'   # a path under /var/log/journal/<machine-id>/
+```
+
+If the directory is missing, make the journal persistent once: create `/var/log/journal` (`sudo mkdir -p /var/log/journal`), then `sudo systemd-tmpfiles --create --prefix /var/log/journal` and restart `systemd-journald`; or set `Storage=persistent` in a drop-in under `/etc/systemd/journald.conf.d/`. Write down which you did in the provisioning record. Then recreate Alloy (the last command in 11.2) so it sees the directory.
+
+### 11.4 Checks (ticket #272 acceptance)
 
 Run on the server (`ssh deploy@<ip>`) unless noted.
 
@@ -426,6 +439,15 @@ Run on the server (`ssh deploy@<ip>`) unless noted.
 | 4 | Traces arrive | laptop: `curl -sS https://<domain>/sign-in >/dev/null`, then Explore → Tempo: a `trace_id` from that request's `ai_trainer.access` line | the `GET /sign-in` trace |
 | 5 | No email shipped | Explore → Loki: `{service=~".+"} \|~ "[\\pL\\pN._%+-]+(@\|%40)[\\pL\\pN.-]+\\.\\pL{2,}"` over the last day | no lines |
 | 6 | An outage costs nothing | before go-live only: `docker stop ai-trainer-prod-alloy-1; curl -sS https://<domain>/health; docker start ai-trainer-prod-alloy-1` | `{"database":"ok"}` while Alloy is down |
+
+### 11.5 Checks (ticket #274 acceptance)
+
+| # | Check | Command | Expected |
+|---|---|---|---|
+| 1 | Journal is persistent | section 11.3 | the three commands answer as described |
+| 2 | Outcome lines arrive | start `ai-trainer-backup.service` and `ai-trainer-purge.service` with `sudo systemctl start`, then laptop, Grafana Cloud → Explore → Loki: `{job=~"backup\|purge\|deploy"}` | `backup: result=ok kind=nightly` under `job="backup"` and `purge: result=ok deleted=<n>` under `job="purge"` within a minute |
+| 3 | Nothing else is shipped | Explore → Loki: the label browser for `job` | only `backup`, `purge` and `deploy`; no `sshd`, `sudo` or other unit's lines |
+| 4 | A failure arrives | before go-live only: `docker stop ai-trainer-prod-app-1`, `sudo systemctl start ai-trainer-purge.service`, `docker start ai-trainer-prod-app-1`, then Explore → Loki: `{job="purge"} \|= "result=failed"` | one `purge: result=failed` line; run `sudo systemctl reset-failed ai-trainer-purge.service` afterwards |
 
 ## Provisioning record
 

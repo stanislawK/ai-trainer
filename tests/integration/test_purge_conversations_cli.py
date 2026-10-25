@@ -67,7 +67,8 @@ async def test_main_deletes_the_expired_conversation_prints_a_count_and_a_second
     after_first = await _ids()
     await cli.run(["purge-conversations"], output=second)
 
-    assert int(first.getvalue()) >= 1
+    assert first.getvalue().startswith("purge: result=ok deleted=")
+    assert int(first.getvalue().rsplit("=", 1)[1]) >= 1
     assert after_first == {live}
-    assert second.getvalue() == "0\n"
+    assert second.getvalue() == "purge: result=ok deleted=0\n"
     assert ancient not in after_first

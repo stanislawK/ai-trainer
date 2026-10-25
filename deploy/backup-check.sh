@@ -13,7 +13,12 @@ trap 'rm -rf "$work"' EXIT
 
 age-keygen -o "$work/key.txt" 2>/dev/null
 BACKUP_DEST="$work/bucket" BACKUP_AGE_RECIPIENT=$(age-keygen -y "$work/key.txt") \
-  BACKUP_DB_CONTAINER=$container deploy/backup.sh nightly
+  BACKUP_DB_CONTAINER=$container deploy/backup.sh nightly | tee "$work/backup.out"
+# The journal line Alloy ships (ADR-0030, #274) is the run's last.
+[[ $(tail -n 1 "$work/backup.out") == 'backup: result=ok kind=nightly' ]] || {
+  echo "backup-check: backup.sh did not end with 'backup: result=ok'" >&2
+  exit 1
+}
 
 dump=$(find "$work/bucket" -type f -name '*.dump.age')
 counts=$(find "$work/bucket" -type f -name '*.counts.age')

@@ -436,3 +436,62 @@ def test_a_failed_predeploy_leaves_no_local_copy(env: dict[str, str], failure: s
     assert _run(env, "predeploy").returncode != 0
 
     assert _local(env) == []
+
+
+def _last(text: str) -> str:
+    return text.rstrip("\n").splitlines()[-1]
+
+
+@pytest.mark.parametrize("kind", ["nightly", "predeploy"])
+def test_a_successful_run_ends_with_the_ok_outcome_line(env: dict[str, str], kind: str) -> None:
+    """ADR-0030 (#274): Alloy ships this line, so the journal says a backup succeeded."""
+    result = _run(env, kind)
+
+    assert result.returncode == 0, result.stderr
+    assert _last(result.stdout) == f"backup: result=ok kind={kind}"
+
+
+@pytest.mark.parametrize(
+    ("failure", "reason"),
+    [
+        ("FAKE_PSQL_FAIL", "count"),
+        ("FAKE_PG_DUMP_FAIL", "dump"),
+        ("FAKE_RCLONE_FAIL", "upload"),
+    ],
+)
+def test_a_forced_failure_ends_with_the_failed_outcome_line_and_a_non_zero_exit(
+    env: dict[str, str], failure: str, reason: str
+) -> None:
+    env[failure] = "1"
+
+    result = _run(env, "nightly")
+
+    assert result.returncode == 1
+    assert _last(result.stderr) == f"backup: result=failed kind=nightly reason={reason} exit=1"
+    assert "result=ok" not in result.stdout
+
+
+def test_a_refused_run_ends_with_the_failed_outcome_line(env: dict[str, str]) -> None:
+    del env["BACKUP_DEST"]
+
+    result = _run(env, "nightly")
+
+    assert result.returncode == 2
+    assert _last(result.stderr) == "backup: result=failed kind=nightly reason=config exit=2"
+
+
+def test_a_bad_usage_ends_with_the_failed_outcome_line(env: dict[str, str]) -> None:
+    result = _run(env, "hourly")
+
+    assert result.returncode == 2
+    assert _last(result.stderr) == "backup: result=failed kind=unknown reason=usage exit=2"
+
+
+def test_the_outcome_line_carries_no_secret_or_row_data(env: dict[str, str]) -> None:
+    env["FAKE_RCLONE_FAIL"] = "1"
+
+    line = _last(_run(env, "nightly").stderr)
+
+    assert SECRET not in line
+    assert KEY_ID not in line
+    assert "conversations" not in line

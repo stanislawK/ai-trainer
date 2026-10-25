@@ -13,7 +13,7 @@ from ai_trainer import cli
 from tests.chat_support import FROZEN_NOW, FixedClock, InMemoryChatRepository
 
 
-async def test_purge_prints_only_the_count_of_deleted_conversations() -> None:
+async def test_purge_prints_only_the_outcome_line_with_the_count_of_deleted_conversations() -> None:
     chat = InMemoryChatRepository()
     await chat.conversations.create(uuid4(), "a private title", FROZEN_NOW - timedelta(days=30))
     await chat.conversations.create(uuid4(), "another title", FROZEN_NOW - timedelta(days=15))
@@ -24,7 +24,7 @@ async def test_purge_prints_only_the_count_of_deleted_conversations() -> None:
         clock=FixedClock(), conversations=chat.conversations, retention_days=14, output=output
     )
 
-    assert output.getvalue() == "2\n"
+    assert output.getvalue() == "purge: result=ok deleted=2\n"
 
 
 async def test_a_second_run_prints_zero() -> None:
@@ -37,7 +37,10 @@ async def test_a_second_run_prints_zero() -> None:
             clock=FixedClock(), conversations=chat.conversations, retention_days=14, output=output
         )
 
-    assert (first.getvalue(), second.getvalue()) == ("1\n", "0\n")
+    assert (first.getvalue(), second.getvalue()) == (
+        "purge: result=ok deleted=1\n",
+        "purge: result=ok deleted=0\n",
+    )
 
 
 def test_the_parser_knows_purge_conversations() -> None:

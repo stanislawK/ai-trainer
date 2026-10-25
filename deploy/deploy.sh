@@ -22,6 +22,12 @@
 #                           fine-grained token for this repository only (Deployments read and
 #                           write, Attestations read). It's passed to gh alone, per call.
 #   DEPLOY_ROOT             optional; default /opt/ai-trainer
+#
+# A run that did something ends with its outcome line (ADR-0030, #274), which Alloy ships to
+# Grafana Cloud: `deploy: result=ok deployment=<id> image=<short digest>`, or on stderr
+# `deploy: result=failed deployment=<id> image=<short digest>` (the reason is the line before)
+# and `deploy: result=failed reason=<config|poll> exit=<n>` when it stopped before it knew of a
+# queued release. An idle poll, every two minutes, prints nothing. No line holds a secret.
 set -euo pipefail
 
 REPO=stanislawK/ai-trainer
@@ -35,6 +41,16 @@ WAIT_TIMEOUT=120
 HEALTH_POLLS=30
 HEALTH_INTERVAL=3
 
+# Until a queued release is found, any non-zero exit says so, `die` and a failed read of the
+# deployments included. Replaced by `stopped` below.
+reason=config
+# shellcheck disable=SC2317  # called from the EXIT trap only
+early_exit() {
+  local status=$?
+  ((status == 0)) || echo "deploy: result=failed reason=$reason exit=$status" >&2
+}
+trap early_exit EXIT
+
 die() {
   echo "deploy: $*" >&2
   exit 2
@@ -45,6 +61,7 @@ root=${DEPLOY_ROOT:-/opt/ai-trainer}
 token_file=${CREDENTIALS_DIRECTORY:-}/github-token
 [[ -n ${CREDENTIALS_DIRECTORY:-} && -r $token_file ]] ||
   die "no github-token credential (LoadCredential= in ai-trainer-deploy.service)"
+reason=poll
 
 # One run at a time. systemd never starts the unit while it's still running, and this covers a
 # run started by hand as well.
@@ -89,10 +106,17 @@ report() {
 }
 
 finished=
+# Set once the digest is known, so the outcome line can name the image.
+short=-
+outcome() {
+  echo "deploy: result=$1 deployment=$id image=$short"
+}
 fail() {
   echo "deploy: deployment $id: $1" >&2
   finished=1
-  report failure "$1"
+  # A status that can't be posted (GitHub unreachable, token expired) must not hide the outcome.
+  report failure "$1" || echo "deploy: could not report the failure to GitHub" >&2
+  outcome failed >&2
   exit 1
 }
 
@@ -109,7 +133,8 @@ stopped() {
     APP_IMAGE=$previous compose up -d --wait --wait-timeout "$WAIT_TIMEOUT" --no-deps app || true
     why="$why; rolled back to ${previous_short}"
   fi
-  report failure "$why"
+  report failure "$why" || echo "deploy: could not report the failure to GitHub" >&2
+  outcome failed >&2
 }
 trap 'exit 143' TERM
 trap '[[ -n $finished ]] || stopped' EXIT
@@ -168,8 +193,10 @@ if APP_IMAGE=$image compose up -d --wait --wait-timeout "$WAIT_TIMEOUT" --no-dep
   healthy; then
   echo "$image" >"$root/app-image"
   finished=1
-  report success "deployed $short"
+  # The release is live either way: say so, even if GitHub can't be told.
+  report success "deployed $short" || echo "deploy: could not report the success to GitHub" >&2
   echo "deploy: deployment $id succeeded: $image"
+  outcome ok
   exit 0
 fi
 

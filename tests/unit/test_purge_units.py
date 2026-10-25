@@ -3,6 +3,9 @@ server's scheduled jobs"): a oneshot service as `deploy` that runs `ai-trainer p
 inside the production app container, and a timer that fires before the nightly backup."""
 
 import configparser
+import os
+import shlex
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -84,3 +87,31 @@ def test_timer_fires_daily_before_the_backup_and_catches_up(
     # leaves out the expired conversations.
     assert unit["RandomizedDelaySec"] == "15m"
     assert _unit("ai-trainer-backup.timer")["Timer"]["OnCalendar"] == "*-*-* 02:30:00 UTC"
+
+
+def _stop_post(service: configparser.ConfigParser, result: str) -> subprocess.CompletedProcess[str]:
+    """Runs the unit's ExecStopPost the way systemd would: `$$` unescaped to `$`, and
+    SERVICE_RESULT set to how the service ended."""
+    command = service["Service"]["ExecStopPost"].replace("$$", "$")
+    return subprocess.run(
+        shlex.split(command),
+        env={"SERVICE_RESULT": result, "PATH": os.environ["PATH"]},
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+
+@pytest.mark.parametrize("result", ["exit-code", "timeout", "signal"])
+def test_a_failed_run_ends_with_the_failed_outcome_line(
+    service: configparser.ConfigParser, result: str
+) -> None:
+    """A stopped app container makes `docker exec` fail before the CLI runs, so the unit says
+    it (ADR-0030, #274)."""
+    assert _stop_post(service, result).stdout == "purge: result=failed\n"
+
+
+def test_a_successful_run_adds_nothing_to_the_cli_s_own_ok_line(
+    service: configparser.ConfigParser,
+) -> None:
+    assert _stop_post(service, "success").stdout == ""
