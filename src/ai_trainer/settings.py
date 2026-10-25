@@ -1,10 +1,18 @@
 import json
 import re
 from pathlib import Path
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, Self
 from urllib.parse import urlsplit
 
-from pydantic import BeforeValidator, Field, PostgresDsn, SecretStr, ValidationInfo, field_validator
+from pydantic import (
+    BeforeValidator,
+    Field,
+    PostgresDsn,
+    SecretStr,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 from ai_trainer.domain.llm_calls import ProviderPreferences, ReasoningEffort
@@ -45,6 +53,8 @@ DEFAULT_ONBOARDING_REASONING_EFFORT: ReasoningEffort = "low"
 # A Jev ID carries a version number; aliases such as `~typesafe/jev-latest` move under a
 # calibrated threshold, so they are refused (ADR-0020).
 _VERSIONED_DECISION_MODEL = re.compile(r"^[a-z0-9-]+/jev-\d+\.\d+(\.\d+)?(-\d{8})?$")
+# The only hosts `LLM_DEBUG_LOG` may run behind (#278); `localhost.example.com` is public.
+_LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1"})
 
 
 class Settings(BaseSettings):
@@ -54,6 +64,9 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         frozen=True,
+        # A failed check prints its message, never the input, which for a check across settings
+        # is every setting, the database URL among them.
+        hide_input_in_errors=True,
     )
 
     database_url: PostgresDsn
@@ -219,6 +232,16 @@ class Settings(BaseSettings):
         ):
             raise ValueError(message)
         return f"{parts.scheme}://{parts.netloc.lower()}"
+
+    @model_validator(mode="after")
+    def _llm_debug_log_only_on_localhost(self) -> Self:
+        # The debug log holds athletes' words (ADR-0018), so it is refused wherever the app is
+        # served beyond this machine, and logs may leave the host (ADR-0030, #278).
+        if self.llm_debug_log and urlsplit(self.public_base_url).hostname not in _LOCAL_HOSTS:
+            raise ValueError(
+                "LLM_DEBUG_LOG must be off unless PUBLIC_BASE_URL's host is localhost or 127.0.0.1"
+            )
+        return self
 
     @field_validator(
         "router_call_timeout_seconds",

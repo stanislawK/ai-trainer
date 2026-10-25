@@ -631,3 +631,43 @@ def test_an_invalid_public_base_url_fails_at_startup_naming_the_key(
 
     assert [error["loc"] for error in excinfo.value.errors()] == [("public_base_url",)]
     assert "PUBLIC_BASE_URL" in str(excinfo.value)
+
+
+@pytest.mark.parametrize("origin", ["http://localhost:8000", "http://127.0.0.1:8000"])
+def test_llm_debug_log_is_allowed_on_localhost(
+    monkeypatch: pytest.MonkeyPatch, origin: str
+) -> None:
+    _set_required_keys(monkeypatch)
+    monkeypatch.setenv("LLM_DEBUG_LOG", "true")
+    monkeypatch.setenv("PUBLIC_BASE_URL", origin)
+
+    assert Settings(_env_file=None).llm_debug_log is True
+
+
+@pytest.mark.parametrize(
+    "origin", ["https://trainer.example", "https://localhost.example.com", "http://testserver"]
+)
+def test_llm_debug_log_on_a_public_host_fails_naming_the_setting(
+    monkeypatch: pytest.MonkeyPatch, origin: str
+) -> None:
+    # The debug log holds athletes' words, so it never runs where logs leave the host (#278).
+    _set_required_keys(monkeypatch)
+    monkeypatch.setenv("LLM_DEBUG_LOG", "true")
+    monkeypatch.setenv("PUBLIC_BASE_URL", origin)
+
+    with pytest.raises(ValidationError) as excinfo:
+        Settings(_env_file=None)
+
+    message = str(excinfo.value)
+    assert "LLM_DEBUG_LOG" in message
+    assert "PUBLIC_BASE_URL" in message
+    for other_value in (OPENROUTER_API_KEY, DATABASE_URL, "secret", "test-client-secret"):
+        assert other_value not in message
+
+
+def test_llm_debug_log_off_is_allowed_on_a_public_host(monkeypatch: pytest.MonkeyPatch) -> None:
+    _set_required_keys(monkeypatch)
+    monkeypatch.setenv("LLM_DEBUG_LOG", "false")
+    monkeypatch.setenv("PUBLIC_BASE_URL", "https://trainer.example")
+
+    assert Settings(_env_file=None).llm_debug_log is False
