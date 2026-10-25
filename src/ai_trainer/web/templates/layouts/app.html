@@ -1,45 +1,70 @@
 {% extends "layouts/base.html" %}
 {% from "components/icon.html" import icon %}
+{% from "partials/chat/conversations.html" import conversation_list %}
 
 {%- block nav_variant -%}dock{%- endblock -%}
+
+{#- The chat pages pass the athlete's conversations; the list is a drawer on a phone and a sidebar section on desktop (F17, mock "Conversation list v3", #213). -#}
+{%- set has_list = conversations is defined -%}
 
 {% macro nav_link(section) -%}
 <a
   href="{{ section.href }}"
-  class="min-h-11 gap-3 content-center{% if section.href == current_path %} menu-active{% endif %}"
-  {%- if section.href == current_path %} aria-current="page"{% endif %}
+  class="min-h-11 gap-3 content-center{% if section.is_current(current_path) %} menu-active{% endif %}"
+  {%- if section.is_current(current_path) %} aria-current="page"{% endif %}
+>{{ icon(section.icon, "size-5") }}{{ section.label }}</a>
+{%- endmacro %}
+
+{#- The sidebar is content (`mat-content`), so the active section is an `lg-clear` capsule and the others plain 44 px rows (Liquid Glass v4). -#}
+{% macro sidebar_link(section) -%}
+{%- set active = section.is_current(current_path) -%}
+<a
+  href="{{ section.href }}"
+  class="{% if active %}lg lg-clear w-full min-w-0 justify-start gap-3 px-4{% else %}min-h-11 w-full min-w-0 flex items-center gap-3 px-4 rounded-full transition-colors hover:bg-base-content/10 text-[15px] lbl-1{% endif %}"
+  {%- if active %} aria-current="page"{% endif %}
 >{{ icon(section.icon, "size-5") }}{{ section.label }}</a>
 {%- endmacro %}
 
 {% block content %}
 {% set variant = self.nav_variant() | trim %}
+{% if has_list %}
+<div class="drawer">
+<input id="conversations-drawer" type="checkbox" class="drawer-toggle" aria-hidden="true" tabindex="-1">
+<div class="drawer-content">
+{% endif %}
 <div class="flex min-h-screen">
   <aside
-    class="hidden lg:flex glass-thick glass-rim fixed inset-y-4 left-4 w-60 rounded-box p-3 flex-col z-30"
+    class="hidden lg:flex mat-content fixed inset-y-4 left-4 w-72 rounded-[28px] p-3 flex-col z-30"
     aria-label="Primary"
   >
-    <div class="flex items-center gap-3 px-2 h-14">
-      <span class="size-9 rounded-[22%] glass-regular grid place-items-center text-primary">
-        {{ icon("mountain", "size-5") }}
+    <div class="flex items-center gap-3 px-2 h-14 shrink-0">
+      <span class="size-9 rounded-[22%] grid place-items-center bg-[radial-gradient(120%_120%_at_22%_0%,color-mix(in_oklch,var(--color-primary)_38%,var(--color-base-100)),var(--color-base-300))]" aria-hidden="true">
+        {{ icon("trending-up", "size-5") }}
       </span>
-      <span class="text-[17px] font-semibold tracking-tight">ai-trainer</span>
+      <span class="text-[17px] font-semibold tracking-tight lbl-1">ai-trainer</span>
     </div>
-    <ul
-      class="menu w-full p-0 gap-0.5 text-[15px] mt-2 [--menu-active-bg:color-mix(in_oklch,var(--color-primary)_20%,transparent)] [--menu-active-fg:var(--color-base-content)]"
-      aria-label="Sections"
-    >
+    <ul class="flex flex-col gap-1 mt-2 shrink-0" aria-label="Sections">
       {% for section in nav_sections %}
-      <li>{{ nav_link(section) }}</li>
+      <li class="min-w-0">{{ sidebar_link(section) }}</li>
       {% endfor %}
     </ul>
+    {% if has_list %}
+    <nav class="mt-4 flex flex-col gap-2 flex-1 min-h-0" aria-label="Conversations">
+      <h2 class="px-3 h-6 flex items-center text-[13px] font-medium lbl-2 shrink-0">Conversations</h2>
+      {{ conversation_list("desktop", conversations, current_conversation_id, retention_days) }}
+    </nav>
+    {% endif %}
     {% if current_user %}
-    <div class="mt-auto flex items-center gap-3 px-2 pt-3 border-t border-base-content/10">
+    <div class="{% if has_list %}mt-3{% else %}mt-auto{% endif %} flex items-center gap-3 px-2 pt-3 border-t border-base-content/10 shrink-0">
+      {%- set initials = (current_user.name or current_user.email).split()[:2] | map("first") | join | upper %}
+      <span class="size-9 shrink-0 rounded-full bg-base-content/10 grid place-items-center text-[13px] font-semibold" aria-hidden="true">{{ initials }}</span>
       <div class="flex flex-col min-w-0 flex-1">
-        <span class="text-[13px] text-base-content/70 truncate">{{ current_user.email }}</span>
+        {% if current_user.name %}<span class="text-[14px] font-medium truncate lbl-1">{{ current_user.name }}</span>{% endif %}
+        <span class="text-[12px] truncate lbl-2">{{ current_user.email }}</span>
       </div>
       <button
         type="button"
-        class="btn btn-ghost btn-circle"
+        class="lg lg-clear size-11 p-0"
         aria-label="Sign out"
         hx-post="/auth/logout"
       >{{ icon("log-out", "size-4") }}</button>
@@ -47,12 +72,12 @@
     {% endif %}
   </aside>
 
-  <div class="flex-1 flex flex-col min-w-0 lg:ml-[272px]">
+  <div class="flex-1 flex flex-col min-w-0 lg:ml-80">
     {% if variant == "chat" %}
     <header class="lg:hidden sticky top-0 z-20 flex items-center justify-between h-11 px-4 mt-4">
       <button
         type="button"
-        class="btn btn-circle glass-regular glass-rim relative border-0 min-h-11"
+        class="lg lg-clear size-11 p-0"
         popovertarget="sections-menu"
         aria-label="Sections"
         aria-expanded="false"
@@ -60,15 +85,27 @@
         data-sections-trigger
       >{{ icon("menu", "size-5") }}</button>
       <span class="text-[17px] font-semibold">{% block chat_title %}Chat{% endblock %}</span>
-      <a
-        href="/c/new"
-        class="btn btn-circle glass-regular glass-rim relative border-0 min-h-11"
-        aria-label="New conversation"
-        hx-get="/c/new"
-        hx-target="#chat-content"
-        hx-swap="outerHTML"
-        hx-push-url="true"
-      >{{ icon("plus", "size-5") }}</a>
+      <div class="flex items-center gap-2">
+        {% if has_list %}
+        <button
+          type="button"
+          class="lg lg-clear size-11 p-0"
+          aria-label="Conversations"
+          aria-controls="conversations-sheet"
+          aria-expanded="false"
+          data-drawer-open="conversations-drawer"
+        >{{ icon("messages-square", "size-5") }}</button>
+        {% endif %}
+        <a
+          href="/c/new"
+          class="lg lg-clear size-11 p-0"
+          aria-label="New conversation"
+          hx-get="/c/new"
+          hx-target="#chat-content"
+          hx-swap="outerHTML"
+          hx-push-url="true"
+        >{{ icon("plus", "size-5") }}</a>
+      </div>
     </header>
     <ul
       id="sections-menu"
@@ -82,7 +119,7 @@
     </ul>
     {% endif %}
 
-    <main class="flex-1 min-w-0 {% if variant != 'chat' %}pb-28{% endif %} lg:pb-6">
+    <main class="flex-1 min-w-0 {% if variant != 'chat' %}pb-28{% else %}lg:pr-4{% endif %} lg:pb-6">
       {% block app_content %}{% endblock %}
     </main>
 
@@ -94,13 +131,36 @@
       {% for section in nav_sections %}
       <a
         href="{{ section.href }}"
-        class="min-h-11{% if section.href == current_path %} text-primary{% endif %}"
-        {%- if section.href == current_path %} aria-current="page"{% endif %}
+        class="min-h-11{% if section.is_current(current_path) %} text-primary{% endif %}"
+        {%- if section.is_current(current_path) %} aria-current="page"{% endif %}
       >{{ icon(section.icon, "size-5") }}<span class="dock-label">{{ section.label }}</span></a>
       {% endfor %}
     </nav>
     {% endif %}
   </div>
 </div>
+{% if has_list %}
+</div>
+<div class="drawer-side z-40 lg:hidden">
+  <label for="conversations-drawer" aria-label="Close conversations" class="drawer-overlay bg-base-300/60!"></label>
+  <aside
+    id="conversations-sheet"
+    class="mat-content mt-[calc(0.75rem+env(safe-area-inset-top))] mb-3 ml-3 w-[312px] max-w-[calc(100vw-1.5rem)] h-[calc(100dvh-1.5rem-env(safe-area-inset-top))] rounded-[36px] p-3 flex flex-col gap-2"
+    aria-label="Conversations"
+  >
+    <div class="flex items-center justify-between h-11 pl-3 shrink-0">
+      <h2 class="text-[17px] font-semibold lbl-1">Conversations</h2>
+      <button
+        type="button"
+        class="lg lg-clear size-11 p-0"
+        aria-label="Close conversations"
+        data-drawer-close="conversations-drawer"
+      >{{ icon("x", "size-5") }}</button>
+    </div>
+    {{ conversation_list("phone", conversations, current_conversation_id, retention_days) }}
+  </aside>
+</div>
+</div>
+{% endif %}
 <script src="/static/js/nav.js" defer></script>
 {% endblock %}

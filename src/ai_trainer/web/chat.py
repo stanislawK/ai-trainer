@@ -30,6 +30,7 @@ from ai_trainer.application.chat import (
     EmptyMessageError,
     MessageTooLongError,
     latest_conversation,
+    list_conversations,
     list_history,
     open_conversation,
     send_message,
@@ -84,6 +85,7 @@ from ai_trainer.domain.training import (
 )
 from ai_trainer.domain.users import User
 from ai_trainer.web.clarifications import ChoiceCard, choice_cards
+from ai_trainer.web.conversations import conversation_rows
 from ai_trainer.web.drafts import (
     DraftCard,
     build_failed_draft_sport,
@@ -116,6 +118,7 @@ def build_chat_router(
     chat: ChatRepositoryPort,
     replies: ReplyServices,
     sports: SportRegistry,
+    retention_days: int,
 ) -> APIRouter:
     router = APIRouter()
     templates.env.globals["reply_glyph"] = build_reply_glyph(sports)
@@ -189,8 +192,23 @@ def build_chat_router(
         except MessageNotFoundError:
             raise HTTPException(status_code=_NOT_FOUND) from None
 
+    async def conversation_list(user: User, current: UUID | None) -> dict[str, Any]:
+        """The conversation list's context: the athlete's rows, which one is open, and the
+        retention window it covers (B25, B26, F17, ticket #213)."""
+        found = await list_conversations(user.id, conversations=conversations)
+        return {
+            "conversations": conversation_rows(found, now=clock.now(), timezone=user.timezone),
+            "current_conversation_id": current,
+            "retention_days": retention_days,
+        }
+
     def is_htmx(request: Request) -> bool:
-        return request.headers.get("HX-Request") == "true"
+        """A swap of part of the page. htmx 4's Back/Forward restore also sends `HX-Request` but
+        swaps the whole body, so it gets the full page (#213)."""
+        return (
+            request.headers.get("HX-Request") == "true"
+            and request.headers.get("HX-History-Restore-Request") != "true"
+        )
 
     def composer(
         request: Request, conversation_id: UUID | None, *, text: str = "", error: str | None = None
@@ -246,6 +264,9 @@ def build_chat_router(
             "text": "",
             "error": None,
             "max_length": MAX_MESSAGE_LENGTH,
+            # An htmx swap replaces only the chat, so the lists follow out of band.
+            "list_oob": is_htmx(request),
+            **await conversation_list(user, conversation.id if conversation is not None else None),
         }
         template_name = "partials/chat/index.html" if is_htmx(request) else "pages/chat/index.html"
         return templates.TemplateResponse(request, template_name, context)
@@ -308,6 +329,7 @@ def build_chat_router(
                 "text": "",
                 "error": None,
                 "max_length": MAX_MESSAGE_LENGTH,
+                **await conversation_list(user, message.conversation_id),
             },
         )
         if conversation_id is None:

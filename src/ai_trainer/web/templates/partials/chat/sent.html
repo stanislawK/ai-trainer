@@ -1,3 +1,5 @@
-{#- A sent message: a fresh composer for the form's target, with Stop where Send was, and the message and its streaming reply appended to the history out of band. -#}
+{#- A sent message: a fresh composer for the form's target, with Stop where Send was, and the message and its streaming reply appended to the history out of band. The conversation lists follow too, so it moves to the top, marked (#213). -#}
+{% from "partials/chat/conversations.html" import conversation_lists_oob %}
 {% with streaming_id = message.id %}{% include "partials/chat/composer.html" %}{% endwith %}
 <div hx-swap-oob="beforeend:#chat-history">{% include "partials/chat/message.html" %}{% include "partials/chat/reply.html" %}</div>
+{{ conversation_lists_oob(conversations, current_conversation_id, retention_days) }}

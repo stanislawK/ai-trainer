@@ -1,18 +1,12 @@
 {% from "components/icon.html" import icon %}
+{% from "partials/chat/conversations.html" import conversation_lists_oob %}
 <div
-  class="group/chat mx-auto w-full max-w-[720px] px-4 flex flex-col min-h-[calc(100dvh-4.75rem)] lg:min-h-[calc(100dvh-3rem)]"
+  class="group/chat mx-auto w-full max-w-[752px] px-4 lg:pt-4 flex flex-col min-h-[calc(100dvh-4.75rem)] lg:min-h-[calc(100dvh-3rem)]"
   id="chat-content"
 >
-  <div class="hidden lg:flex items-center justify-between h-14">
+  {#- On desktop, New conversation is the list's action in the sidebar (mock "Conversation list v3", #213). #}
+  <div class="hidden lg:flex items-center h-14">
     <h1 class="text-[17px] font-semibold">Chat</h1>
-    <a
-      href="/c/new"
-      class="btn btn-ghost btn-sm min-h-11 gap-2 rounded-full"
-      hx-get="/c/new"
-      hx-target="#chat-content"
-      hx-swap="outerHTML"
-      hx-push-url="true"
-    >{{ icon("plus", "size-4") }}New conversation</a>
   </div>
   <div id="chat-history" class="flex-1 flex flex-col justify-end gap-4 py-4">
     <div class="flex-1 flex flex-col items-center justify-center text-center gap-3 px-6 group-has-[.chat-message]/chat:hidden" id="chat-empty">
@@ -33,3 +27,7 @@
   </div>
   {% with streaming_id = history[-1].id if history and history[-1].role == "user" else None %}{% include "partials/chat/composer.html" %}{% endwith %}
 </div>
+<!-- /chat-content -->
+{%- if list_oob %}
+{{ conversation_lists_oob(conversations, current_conversation_id, retention_days) }}
+{%- endif %}
