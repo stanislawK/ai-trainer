@@ -1,0 +1,8 @@
+{% from "components/status_card.html" import status_card %}
+{{ status_card(
+  icon_name="clock",
+  kicker="429",
+  title="Slow down a moment",
+  body="Too many requests from here. Wait a little, then try again.",
+  primary={"label": "Try again", "reload": true}
+) }}

@@ -99,6 +99,8 @@ ssh deploy@<ip> 'sudo install -o root -g root -m 0600 /tmp/origin.pem /tmp/origi
 
 The app's `.env` comes from `.env.example`, filled with the production values: the production Google OAuth client, `PUBLIC_BASE_URL=https://<domain>`, and `DATABASE_URL` with a fresh random password. The database password goes to `db.env` as well, which `compose.prod.yaml` reads for the `db` container.
 
+On the production OpenRouter key, set a credit limit in the OpenRouter dashboard (ADR-0029). The app caps model calls per user and cannot see that limit. It is the backstop if the app's cap is wrong. The key's secret stays in `.env` only.
+
 Log in with `ssh deploy@<ip>`, then on the server:
 
 ```sh

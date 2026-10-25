@@ -34,6 +34,8 @@ from ai_trainer.adapters.training_session_repository import SqlAlchemyTrainingSe
 from ai_trainer.adapters.user_status_changer import SqlAlchemyUserStatusChanger
 from ai_trainer.adapters.users_repository import SqlAlchemyUsersRepository
 from ai_trainer.application.background_reads import BackgroundReads
+from ai_trainer.application.budgeted_gateways import BudgetedDecisionGateway, BudgetedLlmGateway
+from ai_trainer.application.model_budget import ModelCallBudget
 from ai_trainer.application.ports.clock import ClockPort
 from ai_trainer.application.ports.llm_gateway import LlmGatewayPort
 from ai_trainer.application.reply import ReplyServices
@@ -54,6 +56,7 @@ from ai_trainer.web.chat import build_chat_router
 from ai_trainer.web.csrf import CsrfMiddleware
 from ai_trainer.web.errors import register_error_handlers
 from ai_trainer.web.health import build_health_router
+from ai_trainer.web.rate_limit import RateLimitMiddleware
 from ai_trainer.web.settings import build_settings_router
 from ai_trainer.web.sign_in import build_sign_in_router
 from ai_trainer.web.templating import STATIC_DIR, build_templates
@@ -171,9 +174,19 @@ def create_app(settings: Settings) -> FastAPI:
     sport_registry = app.state.sport_registry
     llm_calls = SqlAlchemyLlmCallsRepository(session_factory)
     debug_log = build_debug_log(settings, clock)
-    gateway = OpenRouterGateway(settings, llm_calls, debug_log=debug_log)
+    # One budget for text calls and decision calls (ADR-0029). Evals build their own gateways.
+    budget = ModelCallBudget(
+        clock,
+        per_hour=settings.llm_calls_per_user_per_hour,
+        in_flight=settings.llm_calls_in_flight_per_user,
+    )
+    gateway = BudgetedLlmGateway(
+        OpenRouterGateway(settings, llm_calls, debug_log=debug_log), budget
+    )
     conversation = build_llm_conversation(settings, sport_registry, gateway)
-    decisions = OpenRouterDecisionGateway(settings, llm_calls, debug_log=debug_log)
+    decisions = BudgetedDecisionGateway(
+        OpenRouterDecisionGateway(settings, llm_calls, debug_log=debug_log), budget
+    )
     replies = ReplyServices(
         chat=chat,
         conversations=SqlAlchemyConversationRepository(
@@ -252,6 +265,15 @@ def create_app(settings: Settings) -> FastAPI:
         )
     )
 
+    # Inside the host check, outside CSRF and the sign-in gate (ADR-0029). Added before
+    # TrustedHostMiddleware, which is added last and so stays the outermost.
+    app.add_middleware(
+        RateLimitMiddleware,
+        clock=clock,
+        templates=templates,
+        auth_per_minute=settings.auth_requests_per_minute,
+        session_per_minute=settings.session_requests_per_minute,
+    )
     # Added last so it is the outermost middleware: a request whose Host is not the public
     # origin's is refused with 400 before the session, CSRF or sign-in gate sees it (ADR-0023).
     # The port is not compared, so the host alone is allowed.

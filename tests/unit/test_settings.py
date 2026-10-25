@@ -89,6 +89,10 @@ def test_reads_values_from_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     assert settings.openrouter_api_key.get_secret_value() == OPENROUTER_API_KEY
     assert settings.eval_judge_model == EVAL_JUDGE_MODEL
     assert settings.llm_call_timeout_seconds == 30.0
+    assert settings.auth_requests_per_minute == 10
+    assert settings.session_requests_per_minute == 120
+    assert settings.llm_calls_per_user_per_hour == 300
+    assert settings.llm_calls_in_flight_per_user == 8
     assert settings.session_cookie_secure is True
     assert settings.session_ttl_days == 14
     assert settings.admin_emails == []

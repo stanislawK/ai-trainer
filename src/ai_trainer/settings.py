@@ -59,6 +59,12 @@ class Settings(BaseSettings):
     database_url: PostgresDsn
     openrouter_api_key: SecretStr
     llm_call_timeout_seconds: float = 30.0
+    # How often one address may hit the sign-in routes, and one session the rest of the app
+    # (ADR-0029). Model calls share one budget across the text gateway and the decision gateway.
+    auth_requests_per_minute: int = Field(default=10, ge=1)
+    session_requests_per_minute: int = Field(default=120, ge=1)
+    llm_calls_per_user_per_hour: int = Field(default=300, ge=1)
+    llm_calls_in_flight_per_user: int = Field(default=8, ge=1)
     # Local debugging only (ADR-0018, owner's direction 2026-10-14): when on, every model
     # request the gateways make appends one JSON line, prompt and reply included, under
     # `llm_debug_log_dir`. Never exported to traces; off by default.

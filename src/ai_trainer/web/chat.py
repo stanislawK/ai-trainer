@@ -177,6 +177,7 @@ def build_chat_router(
                 "partials/chat/reply_failed.html",
                 message_id=message_id,
                 timed_out=event.outcome is LlmCallOutcome.TIMEOUT,
+                limited=event.outcome is LlmCallOutcome.RATE_LIMITED,
             )
         return ServerSentEvent(raw_data=html)
 
