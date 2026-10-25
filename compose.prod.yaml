@@ -92,6 +92,8 @@ services:
       # The Dockerfile's CMD runs Uvicorn with --proxy-headers; Uvicorn reads this variable and
       # trusts X-Forwarded-* only from the edge subnet, where Caddy is the only other member.
       FORWARDED_ALLOW_IPS: 10.221.0.0/24
+      # JSON lines with trace, request and user IDs for Alloy to ship (ADR-0030).
+      LOG_FORMAT: json
     depends_on:
       db:
         condition: service_healthy

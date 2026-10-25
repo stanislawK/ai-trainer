@@ -671,3 +671,26 @@ def test_llm_debug_log_off_is_allowed_on_a_public_host(monkeypatch: pytest.Monke
     monkeypatch.setenv("PUBLIC_BASE_URL", "https://trainer.example")
 
     assert Settings(_env_file=None).llm_debug_log is False
+
+
+def test_logs_default_to_text_at_info(monkeypatch: pytest.MonkeyPatch) -> None:
+    _set_required_keys(monkeypatch)
+    monkeypatch.delenv("LOG_FORMAT", raising=False)
+    monkeypatch.delenv("LOG_LEVEL", raising=False)
+
+    settings = Settings(_env_file=None)
+
+    assert (settings.log_format, settings.log_level) == ("text", "INFO")
+
+
+@pytest.mark.parametrize(("key", "value"), [("LOG_FORMAT", "xml"), ("LOG_LEVEL", "LOUD")])
+def test_an_unknown_log_format_or_level_fails_naming_the_setting(
+    monkeypatch: pytest.MonkeyPatch, key: str, value: str
+) -> None:
+    _set_required_keys(monkeypatch)
+    monkeypatch.setenv(key, value)
+
+    with pytest.raises(ValidationError) as excinfo:
+        Settings(_env_file=None)
+
+    assert [error["loc"] for error in excinfo.value.errors()] == [(key.lower(),)]

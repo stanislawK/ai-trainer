@@ -222,11 +222,15 @@ def test_app_factory_wires_settings_from_the_environment(
 ) -> None:
     monkeypatch.setenv("DATABASE_URL", DATABASE_URL)
     monkeypatch.setenv("OPENROUTER_API_KEY", OPENROUTER_API_KEY)
+    # The real one would reconfigure this process's loggers for every later test.
+    configured: list[Settings] = []
+    monkeypatch.setattr("ai_trainer.main.configure_logging", configured.append)
 
     app = app_factory()
 
     assert isinstance(app, FastAPI)
     assert str(app.state.settings.database_url) == DATABASE_URL
+    assert configured == [app.state.settings]
 
 
 def test_traces_endpoint_returns_none_when_unset() -> None:
