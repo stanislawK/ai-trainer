@@ -7,7 +7,7 @@
   <div class="flex flex-wrap items-center gap-2 min-h-7 text-[13px]">
     {{ icon("circle-alert", "size-4 text-error") }}
     <span class="text-base-content/70">{% if limited %}You've sent a lot in the last hour. Give it a little while, then try again.{% elif timed_out %}The reply took too long.{% else %}The reply didn't come through.{% endif %}</span>
-    <button type="button" class="btn btn-xs h-7 rounded-full glass-regular border-0 relative after:absolute after:-inset-2.5 after:content-['']" hx-get="/messages/{{ message_id }}/retry" hx-target="#reply-{{ message_id }}" hx-swap="outerHTML">Retry</button>
+    <button type="button" class="lg lg-clear lg-xs" hx-get="/messages/{{ message_id }}/retry" hx-target="#reply-{{ message_id }}" hx-swap="outerHTML"><span class="absolute -inset-x-px -inset-y-2" aria-hidden="true"></span>Retry</button>
   </div>
 </div>
 </template>

@@ -3,6 +3,7 @@ empty chat, and the suggestion listbox the composer filters while the athlete ty
 highlighting and the keyboard live in `static/js/autocomplete.js`; these tests pin the markup
 it works on."""
 
+import re
 from html.parser import HTMLParser
 from uuid import uuid4
 
@@ -70,11 +71,14 @@ def test_empty_chat_offers_three_or_four_starter_chips_that_do_not_submit() -> N
 def test_starter_chips_keep_a_44px_tap_target() -> None:
     client, _, _ = _client()
 
-    chips = _Elements(client.get("/").text).having("data-chat-chip")
+    page = client.get("/").text
+    chips = re.findall(r"<button[^>]*data-chat-chip[^>]*>(.*?)</button>", page, re.S)
 
-    assert chips
-    for _, attrs in chips:
-        assert "after:-inset-y-[5px]" in (attrs["class"] or "")
+    # 36 px lg-sm chips grow by 4 px each way through an invisible child (#266): an lg's own
+    # ::before and ::after are its rim and light.
+    assert len(chips) == len(_Elements(page).having("data-chat-chip")) > 0
+    for chip in chips:
+        assert chip.startswith('<span class="absolute -inset-x-px -inset-y-1" aria-hidden="true">')
 
 
 async def test_chips_are_not_rendered_once_the_chat_has_history() -> None:

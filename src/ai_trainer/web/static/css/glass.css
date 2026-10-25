@@ -537,6 +537,15 @@
   }
 }
 
+/* The thick surface: text-dense floating UI such as the suggestions popover (#266). */
+@utility lgs-thick {
+  --lgs-tint: light-dark(oklch(98% 0.005 232 / .74), oklch(22% 0.012 232 / .72));
+
+  @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+    --lgs-tint: color-mix(in oklch, var(--color-base-content) 6%, var(--color-base-100));
+  }
+}
+
 /* The athlete's own message on the content layer. */
 @utility mat-bubble {
   color: var(--color-base-content);
@@ -853,4 +862,142 @@
 @keyframes lg-sheet-y {
   from { transform: translateY(-26%) scale(.7); opacity: .55; }
   to { transform: translateY(24%) scale(1.15); opacity: 1; }
+}
+
+/* The thinking indicator (#266, Loading v4): a clear glass ball with a light core on a tilted
+ * orbit, a fixed specular, a caustic on the far wall and a floor glow. Size with --s on the root.
+ * Markup: .ld-ball > .ld-ball-floor, .ld-ball-sphere > (.ld-ball-caustic, .ld-ball-orbit >
+ * .ld-ball-ox > .ld-ball-oy > .ld-ball-photon, .ld-ball-spec, .ld-ball-hot). Under reduced
+ * motion the core parks in front. */
+@utility ld-ball {
+  --s: 28px;
+  --D: calc(var(--ld-dur, 1.1s) * 2);
+  position: relative;
+  flex: none;
+  width: var(--s);
+  height: var(--s);
+}
+
+@utility ld-ball-floor {
+  position: absolute;
+  left: 14%;
+  right: 14%;
+  bottom: -16%;
+  height: 24%;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, color-mix(in oklch, var(--color-primary) 45%, transparent), transparent);
+  filter: blur(calc(var(--s) * .05));
+}
+
+@utility ld-ball-sphere {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  overflow: hidden;
+  isolation: isolate;
+  background: light-dark(
+    radial-gradient(circle at 38% 30%, color-mix(in oklch, var(--color-primary) 22%, transparent) 0%, color-mix(in oklch, var(--color-primary) 34%, transparent) 50%, color-mix(in oklch, var(--color-primary) 62%, transparent) 86%, color-mix(in oklch, var(--color-primary), white 45%) 100%),
+    radial-gradient(circle at 38% 30%, color-mix(in oklch, var(--color-primary) 28%, transparent) 0%, color-mix(in oklch, var(--color-primary) 8%, transparent) 45%, oklch(12% 0.02 232 / .72) 84%, color-mix(in oklch, var(--color-primary), white 25%) 100%));
+  -webkit-backdrop-filter: blur(2px) saturate(160%);
+  backdrop-filter: blur(2px) saturate(160%);
+  box-shadow:
+    inset 0 0 0 0.5px light-dark(color-mix(in oklch, var(--color-primary) 30%, transparent), oklch(100% 0 0 / .22)),
+    inset 0 0 calc(var(--s) * .12) light-dark(color-mix(in oklch, var(--color-primary) 30%, transparent), color-mix(in oklch, var(--color-primary) 45%, transparent)),
+    0 calc(var(--s) * .05) calc(var(--s) * .14) calc(var(--s) * -.03) light-dark(oklch(25% 0.02 232 / .22), oklch(0% 0 0 / .55));
+}
+
+/* The back-wall caustic: light focused on the far side of the sphere. */
+@utility ld-ball-caustic {
+  position: absolute;
+  left: 40%;
+  top: 58%;
+  width: 46%;
+  height: 26%;
+  border-radius: 50%;
+  transform: rotate(-28deg);
+  background: radial-gradient(closest-side, color-mix(in oklch, var(--color-primary), white 35%), transparent);
+  opacity: .55;
+  filter: blur(calc(var(--s) * .04));
+}
+
+/* The orbit: x and y eased a quarter period apart trace an ellipse; y also drives depth. */
+@utility ld-ball-orbit {
+  position: absolute;
+  inset: 0;
+  transform: rotate(-18deg);
+}
+
+@utility ld-ball-ox {
+  position: absolute;
+  inset: 0;
+  animation: ld-ball-x calc(var(--D) / 2) ease-in-out infinite alternate;
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
+}
+
+@utility ld-ball-oy {
+  position: absolute;
+  inset: 0;
+  animation: ld-ball-y calc(var(--D) / 2) ease-in-out infinite alternate;
+  animation-delay: calc(var(--D) / -4);
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+    transform: translateY(calc(var(--s) * .06));
+  }
+}
+
+@utility ld-ball-photon {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 46%;
+  height: 46%;
+  margin: -23% 0 0 -23%;
+  border-radius: 50%;
+  background: radial-gradient(closest-side,
+    oklch(100% 0 0) 0%,
+    light-dark(color-mix(in oklch, var(--color-primary), white 70%), color-mix(in oklch, var(--color-primary), white 30%)) 32%,
+    light-dark(color-mix(in oklch, var(--color-primary), white 60%), color-mix(in oklch, var(--color-primary) 55%, transparent)) 52%,
+    transparent 100%);
+  filter: blur(calc(var(--s) * .02));
+
+  [data-theme="trainer-light"] & {
+    mix-blend-mode: screen;
+  }
+}
+
+/* The front surface, fixed to the viewer: a soft cap and a sharp hotspot, top left. */
+@utility ld-ball-spec {
+  position: absolute;
+  left: 17%;
+  top: 6%;
+  width: 54%;
+  height: 32%;
+  border-radius: 50%;
+  transform: rotate(-14deg);
+  background: linear-gradient(180deg, oklch(100% 0 0 / .7), oklch(100% 0 0 / 0) 90%);
+}
+
+@utility ld-ball-hot {
+  position: absolute;
+  left: 27%;
+  top: 17%;
+  width: 11%;
+  height: 11%;
+  border-radius: 50%;
+  background: oklch(100% 0 0 / .95);
+  filter: blur(calc(var(--s) * .008));
+}
+
+@keyframes ld-ball-x {
+  from { transform: translateX(calc(var(--s) * -.21)); }
+  to { transform: translateX(calc(var(--s) * .21)); }
+}
+
+@keyframes ld-ball-y {
+  from { transform: translateY(calc(var(--s) * -.09)) scale(.55); opacity: .45; }
+  to { transform: translateY(calc(var(--s) * .09)) scale(1.12); opacity: 1; }
 }

@@ -1,4 +1,4 @@
-{#- Starter chips on an empty chat (ticket #85, F13): tapping one fills the composer without sending (static/js/autocomplete.js). The row hides itself while the composer has text and once a message is appended. The M1 set covers what the chat can answer now; it changes per milestone. Chips look 36 px tall as in the mock, and an invisible layer, measured from inside the 1 px glass border, grows each tap target to 44 px (ADR-0019). -#}
+{#- Starter chips on an empty chat (ticket #85, F13): tapping one fills the composer without sending (static/js/autocomplete.js). The row hides itself while the composer has text and once a message is appended. The M1 set covers what the chat can answer now; it changes per milestone. Chips are clear 36 px glass controls (`lg-sm`, Navigation v4, #266), and an invisible child grows each tap target to 44 px (ADR-0019), since an `lg`'s own `::before` and `::after` are its rim and light. -#}
 {%- from "components/icon.html" import icon -%}
 {%- set starter_chips = [
   {"text": "Log today's session", "icon": "plus"},
@@ -8,6 +8,6 @@
 ] -%}
 <div class="flex flex-wrap gap-2 justify-center group-has-[.chat-message]/chat:hidden group-has-[[data-chat-input]:not(:placeholder-shown)]/chat:hidden" role="group" aria-label="Starter suggestions" data-chat-chips>
   {%- for chip in starter_chips %}
-  <button type="button" class="btn btn-sm h-9 rounded-full glass-regular border-0 font-normal gap-1.5 relative after:absolute after:-inset-x-px after:-inset-y-[5px]" data-chat-chip="{{ chip.text }}">{% if chip.get("icon") %}{{ icon(chip["icon"], "size-4") }}{% endif %}{{ chip.text }}</button>
+  <button type="button" class="lg lg-clear lg-sm" data-chat-chip="{{ chip.text }}"><span class="absolute -inset-x-px -inset-y-1" aria-hidden="true"></span>{% if chip.get("icon") %}{{ icon(chip["icon"], "size-4") }}{% endif %}{{ chip.text }}</button>
   {%- endfor %}
 </div>
