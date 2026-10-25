@@ -299,7 +299,7 @@ The server pulls approved releases, so GitHub holds no credential to it. Every t
 1. It verifies the image's provenance against `release.yml` with `gh attestation verify`. On a failure it reports `failure` and pulls nothing.
 2. It reports `in_progress` and pulls the image by digest.
 3. It starts `db`, then runs `backup.sh predeploy`: uploaded to `predeploy/` in R2, and the same encrypted file kept in `/opt/ai-trainer/backups/predeploy/` (the newest three).
-4. It runs `migrate`, then starts `app` and `caddy` on the new image.
+4. It runs `migrate`, then starts `app` and `caddy` on the new image. Right after the pull it starts `alloy` ([section 11](#11-telemetry-to-grafana-cloud)) without waiting for it; a failure there only prints a warning.
 5. It polls `https://<domain>/health` through Cloudflare and Caddy for up to 90 seconds.
 6. It reports `success` and records the digest in `/opt/ai-trainer/app-image`. Otherwise it starts the previous digest from that file again and reports `failure` with the reason. The database is never rolled back: migrations are expand-only (ADR-0024 invariant 4).
 
@@ -318,7 +318,7 @@ The health check comes from the server, through Cloudflare, with curl's user age
 
 A failed release is fixed forward with a new tag. A broken database is restored from a backup; the restore drill ([section 8.6](#86-restore-drill-laptop)) proves the latest one restores. After an incident, pass that drill a path from before the incident rather than taking the newest stamp.
 
-The poller changes only the app image. When `compose.prod.yaml`, `deploy/Caddyfile`, `deploy.sh`, `backup.sh` or a unit file changes, run [`install.sh`](install.sh) ([section 8.4](#84-install-on-the-server)) before the release that needs them. Approving first can start the new image against the old files. Do not copy those files out of the pulled image.
+The poller changes only the app image. When `compose.prod.yaml`, `deploy/Caddyfile`, `deploy/alloy/config.alloy`, `deploy.sh`, `backup.sh` or a unit file changes, run [`install.sh`](install.sh) ([section 8.4](#84-install-on-the-server)) before the release that needs them. Approving first can start the new image against the old files. Do not copy those files out of the pulled image.
 
 ### 10.1 The GitHub token (laptop)
 
@@ -363,6 +363,69 @@ Run on the server (`ssh deploy@<ip>`) unless noted. Checks 3–5 make a real rel
 | 8 | No token in the journal (AC 6) | `journalctl -u ai-trainer-deploy.service --no-pager \| grep -c github_pat_` | `0` |
 
 A failing attestation (AC 2) and a failing health check (AC 4) can't be staged safely on the real host: only `release.yml` creates the deployments the poller acts on, and it attests every image it pushes. `tests/unit/test_deploy_script.py` covers both, and a real one shows as a `failure` status whose description says why.
+
+## 11. Telemetry to Grafana Cloud
+
+Source: ADR-0030 *Pipeline*, *Secrets*, invariants 1, 2, 5 and 6; PRD 0008 G12. Ticket #272.
+
+The `alloy` service relays two things to one Grafana Cloud stack:
+
+- **The app's traces**: OTLP over the internal `telemetry` network to `alloy:4318`.
+- **This project's container logs**: read through the Docker socket and labelled by compose service (`app`, `caddy`, `db`, `alloy`), with email-shaped values masked.
+
+Alloy publishes no port and is never on `edge`. Only it reads `/opt/ai-trainer/alloy.env`, the one place a Grafana Cloud credential lives: never the app's `.env`, the repo, the image or CI. Without that file Alloy can't build its exporters and restarts in a loop, shipping nothing. Nothing depends on it, so no request, deploy, backup or purge fails over it.
+
+`migrate` runs for a few seconds, usually too short for Alloy to tail. Its output is in the deploy unit's journal (`journalctl -u ai-trainer-deploy.service`), which the job-outcomes ticket (#274) ships.
+
+Agents never sign in to Grafana Cloud or call its API. Every step here is yours.
+
+### 11.1 Stack, policy and token (laptop, Grafana Cloud portal)
+
+1. Create the stack, or pick the existing one, in the region nearest the host (EU).
+2. On the stack's **OpenTelemetry** *Details* page, note the **OTLP endpoint** and the **instance ID**.
+3. On the stack's **Loki** *Details* page, note the **URL**, ending in `/loki/api/v1/push`, and the **user**, a number.
+4. **Access Policies** → *Create access policy*:
+   - **Realm:** this stack.
+   - **Scopes:** `traces:write`, `logs:write` and `metrics:write`, and nothing else. `metrics:write` is for the metrics tickets (#273, #275).
+5. *Add token* on that policy and copy it once. Set its expiry, and a calendar reminder a week before. An expired token stops all shipping, which the "no log line in 15 min" alert (#277) reports.
+
+### 11.2 Install on the server
+
+[`install.sh`](install.sh) ([section 8.4](#84-install-on-the-server)) copies `compose.prod.yaml` and `deploy/alloy/config.alloy`. If Alloy is running, it recreates it so it reads the new config. On the server:
+
+```sh
+umask 077
+cat > /opt/ai-trainer/alloy.env   # paste the five lines below with your values, Enter, then Ctrl-D
+ls -l /opt/ai-trainer/alloy.env   # -rw------- deploy deploy
+cd /opt/ai-trainer && set -a && . ./deploy.env && set +a && export APP_IMAGE=$(cat app-image)
+docker compose -f compose.prod.yaml config --quiet && echo ok   # must print ok; see below
+docker compose -f compose.prod.yaml up -d --no-deps --force-recreate alloy
+```
+
+```
+GRAFANA_CLOUD_OTLP_URL=<OTLP endpoint>
+GRAFANA_CLOUD_OTLP_USER=<instance ID>
+GRAFANA_CLOUD_LOGS_URL=<Loki URL>/loki/api/v1/push
+GRAFANA_CLOUD_LOGS_USER=<Loki user>
+GRAFANA_CLOUD_TOKEN=<token>
+```
+
+[`alloy.env.example`](alloy.env.example) lists the same keys. Alloy reads the file only when its container is created, so recreate it after every change, as above. Before the first deploy there is no `app-image` yet, so skip the last command: the first deploy starts Alloy with the file in place.
+
+A missing `alloy.env` is fine, but a broken one is not. A stray line (`key cannot contain a space`), a mode the `deploy` user can't read, or a directory at that path fails *every* compose command on this file. That would make the next deploy fail before `db` starts. `config --quiet` catches all three, so don't skip it after editing the file.
+
+### 11.3 Checks (ticket #272 acceptance)
+
+Run on the server (`ssh deploy@<ip>`) unless noted.
+
+| # | Check | Command | Expected |
+|---|---|---|---|
+| 1 | Running, no port | `docker ps --filter name=ai-trainer-prod-alloy-1 --format '{{.Status}} {{.Ports}}'` | `Up …` and nothing after it |
+| 2 | Shipping without errors | `docker logs --since 10m ai-trainer-prod-alloy-1 2>&1 \| grep -cE 'level=(warn\|error)'` | `0`; a `401` or `403` here means a wrong user, URL or token scope |
+| 3 | Logs arrive | laptop, Grafana Cloud → Explore → Loki: `{service="app"}`, then `caddy` and `db` | recent lines for each; app lines are JSON with `request_id` |
+| 4 | Traces arrive | laptop: `curl -sS https://<domain>/sign-in >/dev/null`, then Explore → Tempo: a `trace_id` from that request's `ai_trainer.access` line | the `GET /sign-in` trace |
+| 5 | No email shipped | Explore → Loki: `{service=~".+"} \|~ "[\\pL\\pN._%+-]+(@\|%40)[\\pL\\pN.-]+\\.\\pL{2,}"` over the last day | no lines |
+| 6 | An outage costs nothing | before go-live only: `docker stop ai-trainer-prod-alloy-1; curl -sS https://<domain>/health; docker start ai-trainer-prod-alloy-1` | `{"database":"ok"}` while Alloy is down |
 
 ## Provisioning record
 

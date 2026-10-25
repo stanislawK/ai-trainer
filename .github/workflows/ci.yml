@@ -92,6 +92,10 @@ jobs:
       - name: Validate cloud-init (cloud-init schema)
         run: make cloud-init-check
 
+      # The Alloy relay's config (#272), formatted and validated by the image compose runs.
+      - name: Validate Alloy config (alloy fmt + validate)
+        run: make alloy-check
+
       - name: OpenAPI snapshot drift check
         run: |
           uv run python scripts/generate_openapi.py

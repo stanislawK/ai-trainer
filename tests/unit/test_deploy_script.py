@@ -132,6 +132,9 @@ if "run" in args and "migrate" in args:
     if os.environ.get("FAKE_MIGRATE_FAIL"):
         sys.stderr.write("alembic: FAILED: relation already exists\\n")
         sys.exit(1)
+if "up" in args and "alloy" in args and os.environ.get("FAKE_ALLOY_FAIL"):
+    sys.stderr.write("Error response from daemon: alloy failed to start\\n")
+    sys.exit(1)
 if "up" in args and "app" in args:
     (state / "serving").write_text(os.environ["APP_IMAGE"])
     if os.environ["APP_IMAGE"].endswith(os.environ.get("FAKE_HANG_DIGEST", "-")):
@@ -295,7 +298,9 @@ class Server:
                 elif "migrate" in args:
                     names.append("migrate")
                 elif "up" in args:
-                    names.append("up:" + "+".join(a for a in ("db", "app", "caddy") if a in args))
+                    names.append(
+                        "up:" + "+".join(a for a in ("db", "app", "caddy", "alloy") if a in args)
+                    )
             else:
                 names.append(call["tool"])
         return names
@@ -336,6 +341,7 @@ def test_steps_run_in_the_adr_order(server: Server) -> None:
         "verify",
         "status:in_progress",
         "pull",
+        "up:alloy",
         "up:db",
         "backup.sh",
         "migrate",
@@ -419,7 +425,7 @@ def test_every_wait_is_bounded(server: Server) -> None:
 
     server.run()
 
-    ups = [c["args"] for c in server.calls("docker") if "up" in c["args"]]
+    ups = [c["args"] for c in server.calls("docker") if "--wait" in c["args"]]
     assert len(ups) == 3  # db, the new app, the rollback
     for args in ups:
         assert args[args.index("--wait-timeout") + 1] == "120"
@@ -817,3 +823,24 @@ def test_refuses_to_run_without_the_site_host(server: Server) -> None:
     assert result.returncode == 2
     assert "SITE_HOST" in result.stderr
     assert server.calls() == []
+
+
+def test_alloy_starts_without_waiting_and_by_itself(server: Server) -> None:
+    """ADR-0030 invariant 5: telemetry never holds up a deploy."""
+    assert server.run().returncode == 0
+
+    (up,) = [c for c in server.calls("docker") if "up" in c["args"] and "alloy" in c["args"]]
+    assert {"-d", "--no-deps"} <= set(up["args"])
+    assert "--wait" not in up["args"]
+    assert up["args"][-1] == "alloy"
+
+
+def test_an_alloy_that_fails_to_start_never_fails_the_deploy(server: Server) -> None:
+    server.env["FAKE_ALLOY_FAIL"] = "1"
+
+    result = server.run()
+
+    assert result.returncode == 0, result.stderr
+    assert server.posted()[-1]["state"] == "success"
+    assert server.serving() == f"{IMAGE}@{NEW}"
+    assert "alloy" in result.stderr

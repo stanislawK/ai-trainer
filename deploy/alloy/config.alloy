@@ -1,0 +1,89 @@
+// Relays this stack's telemetry to Grafana Cloud (ADR-0030, ticket #272). Every URL, user and
+// the token come from alloy.env through sys.env(); none is written here. `make alloy-check`
+// formats and validates this file with the image compose.prod.yaml runs.
+
+// The app's OTLP/HTTP export (`OTEL_EXPORTER_OTLP_ENDPOINT=http://alloy:4318`), on the
+// internal `telemetry` network only: Alloy publishes no port.
+otelcol.receiver.otlp "app" {
+	http {
+		endpoint = "0.0.0.0:4318"
+	}
+
+	output {
+		metrics = [otelcol.processor.batch.app.input]
+		traces  = [otelcol.processor.batch.app.input]
+	}
+}
+
+otelcol.processor.batch "app" {
+	output {
+		metrics = [otelcol.exporter.otlphttp.grafana_cloud.input]
+		traces  = [otelcol.exporter.otlphttp.grafana_cloud.input]
+	}
+}
+
+// Grafana's docs say to use the HTTP exporter for Grafana Cloud's OTLP gateway.
+otelcol.exporter.otlphttp "grafana_cloud" {
+	client {
+		endpoint = sys.env("GRAFANA_CLOUD_OTLP_URL")
+		auth     = otelcol.auth.basic.grafana_cloud_otlp.handler
+	}
+}
+
+otelcol.auth.basic "grafana_cloud_otlp" {
+	username = sys.env("GRAFANA_CLOUD_OTLP_USER")
+	password = sys.env("GRAFANA_CLOUD_TOKEN")
+}
+
+// Container logs of this compose project only, through the read-only Docker socket.
+discovery.docker "stack" {
+	host             = "unix:///var/run/docker.sock"
+	refresh_interval = "5s"
+
+	filter {
+		name   = "label"
+		values = ["com.docker.compose.project=ai-trainer-prod"]
+	}
+}
+
+// `service` is the only label: a bounded set. Request and user IDs stay in the line
+// (ADR-0030 invariant 4). A container that lives only a few seconds can exit before it is
+// tailed; `migrate` runs under deploy.sh, whose journal carries its output.
+discovery.relabel "stack" {
+	targets = discovery.docker.stack.targets
+
+	rule {
+		source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+		target_label  = "service"
+	}
+}
+
+loki.source.docker "stack" {
+	host          = "unix:///var/run/docker.sock"
+	targets       = discovery.relabel.stack.output
+	relabel_rules = discovery.relabel.stack.rules
+	forward_to    = [loki.process.scrub.receiver]
+}
+
+// No log line may carry an email (ADR-0030 invariant 3). The app never writes one, but a
+// Postgres error can quote one (`Key (email)=(…)`). Letters and digits are any script's, for
+// names like józef.nowak@poczta.pl, and a URL-encoded `@` (`%40`) counts too.
+loki.process "scrub" {
+	stage.replace {
+		expression = "([\\pL\\pN._%+-]+(?:@|%40)[\\pL\\pN.-]+\\.\\pL{2,})"
+		replace    = "<email>"
+	}
+
+	forward_to = [loki.write.grafana_cloud.receiver]
+}
+
+loki.write "grafana_cloud" {
+	endpoint {
+		url = sys.env("GRAFANA_CLOUD_LOGS_URL")
+
+		basic_auth {
+			username = sys.env("GRAFANA_CLOUD_LOGS_USER")
+			password = sys.env("GRAFANA_CLOUD_TOKEN")
+		}
+	}
+}

@@ -74,6 +74,7 @@ uv run python scripts/generate_openapi.py   # regenerate docs/api/openapi.json (
 docker compose up -d             # app + postgres
 make start                       # dev loop: app + postgres with uvicorn --reload and a live Tailwind CSS rebuild over src/ (foreground)
 make cloud-init-check             # validate deploy/cloud-init.yaml with Debian 13's cloud-init (deploy/RUNBOOK.md provisions the host; owner only)
+make alloy-check                 # alloy fmt --test + validate on deploy/alloy/config.alloy with the pinned image; config=<file> checks another (ADR-0030)
 make backup-check                # round-trip deploy/backup.sh and the restore drill against the `make start` database with a throwaway age key (ADR-0023, #223, #224)
 make smoke-setup && make smoke-up   # compose.prod.yaml locally behind Caddy with test certificates (README "Production smoke run"); `make smoke-down` stops it
 git tag v0.1.0 && git push origin v0.1.0   # release, owner only (ADR-0023): starts release.yml; agents never tag (README "Releasing")

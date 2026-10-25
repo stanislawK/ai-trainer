@@ -142,6 +142,9 @@ report in_progress "deploying $short"
 echo "deploy: deploying $image"
 
 docker pull "$image" || fail "image pull failed for $short; nothing changed"
+# Telemetry never holds up a deploy (ADR-0030 invariant 5): no --wait, and a failure only warns.
+APP_IMAGE=$image compose up -d --no-deps alloy ||
+  echo "deploy: alloy did not start; telemetry is off until it does" >&2
 APP_IMAGE=$image compose up -d --wait --wait-timeout "$WAIT_TIMEOUT" db ||
   fail "the database did not start; nothing migrated"
 "$(dirname "$0")/backup.sh" predeploy || fail "the pre-deploy backup failed; nothing migrated"

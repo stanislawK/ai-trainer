@@ -1,6 +1,7 @@
-# The production stack (ADR-0023, ticket #221): Postgres, a one-shot `migrate`, the app and
-# Caddy. Only Caddy publishes a port (443); it accepts only Cloudflare's Authenticated Origin
-# Pulls client certificate and proxies to `app:8000` over the `edge` network.
+# The production stack (ADR-0023, ticket #221): Postgres, a one-shot `migrate`, the app, Caddy
+# and Grafana Alloy (ADR-0030, ticket #272). Only Caddy publishes a port (443); it accepts only
+# Cloudflare's Authenticated Origin Pulls client certificate and proxies to `app:8000` over the
+# `edge` network.
 #
 # Run from the directory that holds this file and `deploy/Caddyfile`. Everything secret comes
 # from CONFIG_DIR (default `.`, i.e. /opt/ai-trainer on the server), never from the repo or image:
@@ -8,6 +9,7 @@
 #   db.env  POSTGRES_PASSWORD only — a separate file, so .env keeps a strict 1:1 match with
 #           Settings (tests/unit/test_settings.py)
 #   certs/  origin.pem + origin-key.pem (Cloudflare Origin CA) and aop-ca.pem (the zone's AOP CA)
+#   alloy.env  Grafana Cloud URLs, users and token, read by `alloy` only (deploy/alloy.env.example)
 # APP_IMAGE is `ghcr.io/stanislawk/ai-trainer@sha256:<digest>` in production; the README's local
 # smoke run passes a locally built tag instead, since a local build has no registry digest.
 #
@@ -94,15 +96,20 @@ services:
       FORWARDED_ALLOW_IPS: 10.221.0.0/24
       # JSON lines with trace, request and user IDs for Alloy to ship (ADR-0030).
       LOG_FORMAT: json
+      # Traces go to Alloy on `telemetry`; an unreachable Alloy never fails a request.
+      OTEL_ENABLED: "true"
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://alloy:4318
     depends_on:
       db:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
-    # `edge` for Caddy and outbound calls (OpenRouter, Google), `backend` for Postgres.
+    # `edge` for Caddy and outbound calls (OpenRouter, Google), `backend` for Postgres,
+    # `telemetry` for Alloy.
     networks:
       - edge
       - backend
+      - telemetry
     deploy:
       resources:
         limits:
@@ -136,6 +143,39 @@ services:
         limits:
           memory: 256m
 
+  # Relays the app's OTLP and this project's container logs to Grafana Cloud (ADR-0030). It
+  # publishes no port and is never on `edge`, whose subnet the app trusts for X-Forwarded-*.
+  # Nothing depends on it, and its env file is optional: without credentials Alloy can't build
+  # its exporters and restarts in a loop, shipping nothing, but the rest of the stack starts and
+  # serves (ADR-0030 invariant 5).
+  alloy:
+    <<: *hardening
+    image: grafana/alloy:v1.20.1@sha256:2aa2099af76c0098d4af7a4d6e48f86cb66dc1a000222ad927a1c67c6542d13f
+    restart: unless-stopped
+    env_file:
+      - path: ${CONFIG_DIR:-.}/alloy.env
+        required: false
+    command:
+      - run
+      - /etc/alloy/config.alloy
+      # The image's /var/lib/alloy belongs to its `alloy` user (mode 770), which root can't enter
+      # without DAC_OVERRIDE; a path the image doesn't have is created root-owned instead.
+      - --storage.path=/data
+      - --disable-reporting
+    # The image runs as root, which owns the Docker socket, so no capability is added back. The
+    # Docker API is root-equivalent even read-only: Alloy listens only on `telemetry`.
+    volumes:
+      - ./deploy/alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - alloy_data:/data
+    networks:
+      - telemetry
+      - egress
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+
 networks:
   edge:
     ipam:
@@ -144,8 +184,15 @@ networks:
   # No route out: Postgres talks only to `migrate` and `app`.
   backend:
     internal: true
+  # No route out: the app reaches Alloy here and nothing else.
+  telemetry:
+    internal: true
+  # Alloy's own way out, to Grafana Cloud.
+  egress:
+    driver: bridge
 
 volumes:
   postgres_data:
   caddy_data:
   caddy_config:
+  alloy_data:
