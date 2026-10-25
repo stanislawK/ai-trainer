@@ -1,2 +1,4 @@
-{#- The summary stream's one event: the editable card in place of the skeleton (B35). -#}
-<template hx type="partial" hx-target="#onboarding-summary" hx-swap="innerHTML">{% include "partials/onboarding/summary_form.html" %}</template>
+{#- The summary stream's one event: the editable card in place of the glass sheet (B35). The swap
+    waits 650 ms, the mock's settle time; htmx marks the target `htmx-swapping` meanwhile, which
+    flattens the sheet and fades its light (#257). -#}
+<template hx type="partial" hx-target="#onboarding-summary" hx-swap="innerHTML swap:650ms">{% include "partials/onboarding/summary_form.html" %}</template>

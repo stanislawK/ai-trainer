@@ -1,18 +1,23 @@
-{#- The onboarding summary while the answers are still being read (F21, B35): a skeleton of the
-    card, owned by the element that streams the summary in. It stays in the DOM while the
-    stream runs; the stream swaps its contents (ADR-0012). The glass sheet comes in #257. -#}
+{#- The onboarding summary while the answers are still being read (F21, B35): the glass sheet
+    from Onboarding v4's "Summary · parsing" (ticket #257), a tilted slab with light moving inside
+    it and a group of field wells per section. It is owned by the element that streams the
+    summary in, which stays in the DOM while the stream runs; the stream swaps its contents
+    after the sheet settles (ADR-0012). static/js/onboarding_sheet.js cycles the status lines. -#}
 {% from "components/icon.html" import icon %}
 {% from "components/onboarding_frame.html" import frame, column %}
 {% from "components/sport_copy.html" import sport_copy %}
-{% macro skeleton_section(mark, title) -%}
+{% macro wells(mark, title) -%}
 <div class="flex flex-col gap-2">
   <div class="flex items-center gap-2 text-[13px] font-medium text-base-content/75">{{ icon(mark, "size-4") }}{{ title }}</div>
   <div class="grid grid-cols-2 gap-2" aria-hidden="true">
-    <span class="skeleton h-11 rounded-xl motion-reduce:animate-none"></span>
-    <span class="skeleton h-11 rounded-xl motion-reduce:animate-none"></span>
-    <span class="skeleton h-11 rounded-xl col-span-2 motion-reduce:animate-none"></span>
+    <span class="lg-sheet-well h-11"></span>
+    <span class="lg-sheet-well h-11"></span>
+    <span class="lg-sheet-well h-11 col-span-2"></span>
   </div>
 </div>
+{%- endmacro %}
+{% macro line(text, first=false) -%}
+<span data-sheet-line class="{{ '' if first else 'hidden ' }}block skeleton skeleton-text bg-transparent bg-[linear-gradient(105deg,color-mix(in_oklch,var(--color-base-content)_70%,transparent)_0%_40%,var(--color-base-content)_50%,color-mix(in_oklch,var(--color-base-content)_70%,transparent)_60%_100%)] rounded-none text-[15px] leading-6 font-medium transition-all duration-200 ease-[cubic-bezier(0.32,0.72,0,1)] data-[phase=out]:-translate-y-3 data-[phase=out]:opacity-0 data-[phase=pre]:translate-y-3 data-[phase=pre]:opacity-0 data-[phase=pre]:transition-none motion-reduce:transition-none motion-reduce:animate-none">{{ text }}</span>
 {%- endmacro %}
 <main id="onboarding-card" class="{{ column }}">
   {{ frame(2, 2, label="Summary") }}
@@ -24,16 +29,33 @@
     aria-live="polite"
   >
     <div class="flex-1 flex flex-col justify-center pb-10">
-      <div class="mat-content rounded-[28px] p-5 flex flex-col gap-5" role="status" aria-label="Building your profile">
-        <div class="flex flex-col gap-1">
-          <span class="text-[20px] font-semibold tracking-tight">Building your profile</span>
-          <span class="skeleton skeleton-text bg-transparent bg-[linear-gradient(105deg,color-mix(in_oklch,var(--color-base-content)_70%,transparent)_0%_40%,var(--color-base-content)_50%,color-mix(in_oklch,var(--color-base-content)_70%,transparent)_60%_100%)] rounded-none text-[15px] leading-6 font-medium motion-reduce:animate-none">Reading your answers…</span>
+      <div class="lg-sheet" role="status" aria-label="Building your profile">
+        <span class="lg-sheet-floor"></span>
+        <span class="lg-sheet-slab"></span>
+        <div class="lg-sheet-face">
+          <span class="lg-sheet-light" aria-hidden="true"><span class="lg-sheet-ox"><span class="lg-sheet-oy"><span class="lg-sheet-photon"></span></span></span></span>
+          <span class="lg-sheet-caustic" aria-hidden="true"></span>
+          <span class="lg-sheet-spec" aria-hidden="true"></span>
+          <div class="lg-sheet-content p-5 flex flex-col gap-5">
+            <div class="flex flex-col gap-1">
+              <span class="text-[20px] font-semibold tracking-tight">Building your profile</span>
+              <span class="relative h-6 overflow-hidden" aria-hidden="true">
+                {{- line("Reading your answers…", first=true) }}
+                {{ line("Picking out the numbers…") }}
+                {% for sport in sports %}
+                {{ line("Setting up " ~ sport_copy[sport.label_key].label ~ "…") }}
+                {% endfor %}
+                {{ line("Checking for gaps…") }}
+              </span>
+            </div>
+            {{ wells("user", "About you") }}
+            {% for sport in sports %}
+            {{ wells(sport.icon, sport_copy[sport.label_key].label) }}
+            {% endfor %}
+          </div>
         </div>
-        {{ skeleton_section("user", "About you") }}
-        {% for sport in sports %}
-        {{ skeleton_section(sport.icon, sport_copy[sport.label_key].label) }}
-        {% endfor %}
       </div>
     </div>
   </div>
 </main>
+<script src="/static/js/onboarding_sheet.js" defer></script>
