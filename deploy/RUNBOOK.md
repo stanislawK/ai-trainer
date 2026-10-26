@@ -544,6 +544,38 @@ With no traffic, the three ratio rules have no data and stay quiet. "No backup i
 | 4 | A job failure emails you | test-fire step 1 | the email within about 2 minutes |
 | 5 | An outage emails you | test-fire steps 2 and 3, before go-live | both emails |
 
+### 11.9 Dashboard
+
+Source: ADR-0030 *Dashboards and alerts are code*; PRD 0008 G12, G13, G14. Ticket #276.
+
+[`grafana/dashboards/overview.json`](grafana/dashboards/overview.json) is the one page to open after a release, `ai-trainer overview`. It has four rows:
+
+| Row | Panels |
+|---|---|
+| Traffic | 5xx rate; request p50/p95; log turn p50/p95, with G14's 5 s and 10 s marked |
+| Model calls | calls, errors (`error` or `timeout`) and cost by template, and rate-limit refusals by limit kind, each over the 24 h up to the end of the range |
+| Host and database | CPU, memory and root disk use; Postgres connections against `max_connections` |
+| Logs | the backup, purge and deploy outcome lines of the last 7 days, newest first, so the top `backup:` line is the last backup's result; the app's ERROR and CRITICAL lines and its 5xx access lines, with a link on each `trace_id` |
+
+- It finds the stack's own Prometheus, Loki and Tempo by their default names, `grafanacloud-<stack>-prom`, `-logs` and `-traces`, so the import asks for nothing. If you renamed one, pick it in the dashboard's settings under *Variables*.
+- An unhandled exception's own line has no `trace_id`, because Uvicorn writes it after the request's span has closed. The request's access line, with the same `request_id` and status `500`, sits next to it and carries the link.
+- The per-day panels count the calls and refusals of the first minute after a deploy too. The rate panels (5xx, durations) and the alert ratios start about a minute after each deploy, since the app's series are new at every start.
+
+**Import** from your laptop, the first time and after every change to the file:
+
+1. Grafana Cloud → *Dashboards → New → Import*, then *Upload dashboard JSON file* and pick `deploy/grafana/dashboards/overview.json`.
+2. **Folder:** `ai-trainer`, the one the alert import created (11.7 step 4).
+3. The first time, *Import*. After that, Grafana says a dashboard with the same uid (`ai-trainer-overview`) exists: choose *Import (Overwrite)*.
+4. Change the dashboard in the file, not in Grafana. An edit saved in the UI is lost at the next import.
+
+### 11.10 Checks (ticket #276 acceptance)
+
+| # | Check | Command | Expected |
+|---|---|---|---|
+| 1 | Imported | open *Dashboards → ai-trainer → ai-trainer overview* | every panel without a red error corner; *Settings → Variables* shows `prometheus`, `loki` and `tempo` set to the stack's `grafanacloud-…` datasources |
+| 2 | Data after a release | after the first deploy, a backup and a few log turns, last 24 h | a value or line in every panel; `backup: result=ok kind=nightly` at the top of *Scheduled job outcomes* |
+| 3 | Trace link | *App errors*: click a `trace_id`, then *Open trace* | Explore → Tempo opens that request's trace |
+
 ## Provisioning record
 
 Kept by the owner, privately, outside this repo: it's public, and these are the owner's account details (ADR-0023 ⚠ *Verify at provisioning*). A password manager entry next to the server's other details does. Never commit the values.

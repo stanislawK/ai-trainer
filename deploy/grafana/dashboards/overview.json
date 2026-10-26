@@ -1,0 +1,1113 @@
+{
+  "id": null,
+  "uid": "ai-trainer-overview",
+  "title": "ai-trainer overview",
+  "description": "Is it healthy? The owner's one page after a release (ADR-0030, #276).",
+  "tags": [
+    "ai-trainer"
+  ],
+  "timezone": "browser",
+  "editable": true,
+  "graphTooltip": 1,
+  "refresh": "1m",
+  "schemaVersion": 41,
+  "version": 1,
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "annotations": {
+    "list": []
+  },
+  "links": [],
+  "templating": {
+    "list": [
+      {
+        "name": "prometheus",
+        "label": "prometheus",
+        "type": "datasource",
+        "query": "prometheus",
+        "regex": "/^(Prometheus|grafanacloud-.+-prom)$/",
+        "hide": 2,
+        "current": {},
+        "refresh": 1,
+        "multi": false,
+        "includeAll": false,
+        "options": []
+      },
+      {
+        "name": "loki",
+        "label": "loki",
+        "type": "datasource",
+        "query": "loki",
+        "regex": "/^(Loki|grafanacloud-.+-logs)$/",
+        "hide": 2,
+        "current": {},
+        "refresh": 1,
+        "multi": false,
+        "includeAll": false,
+        "options": []
+      },
+      {
+        "name": "tempo",
+        "label": "tempo",
+        "type": "datasource",
+        "query": "tempo",
+        "regex": "/^(Tempo|grafanacloud-.+-traces)$/",
+        "hide": 2,
+        "current": {},
+        "refresh": 1,
+        "multi": false,
+        "includeAll": false,
+        "options": []
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "row",
+      "id": 1,
+      "title": "Traffic",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "id": 2,
+      "title": "5xx rate",
+      "description": "Share of the app's requests answered 5xx. The alert fires above 5% over 10 min.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${prometheus}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 1,
+            "showPoints": "never",
+            "thresholdsStyle": {
+              "mode": "dashed"
+            }
+          },
+          "max": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0.05
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${prometheus}"
+          },
+          "refId": "A",
+          "expr": "(sum(rate(http_server_request_duration_seconds_count{job=\"ai-trainer\", http_response_status_class=\"5xx\"}[$__rate_interval])) or vector(0)) / sum(rate(http_server_request_duration_seconds_count{job=\"ai-trainer\"}[$__rate_interval]))",
+          "legendFormat": "5xx",
+          "range": true
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "id": 3,
+      "title": "Request duration p50 / p95",
+      "description": "Every app request, refusals and unmatched paths included; /health is left out. A reply stream lasts as long as its reply, so streams pull the p95 up.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${prometheus}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 1,
+            "showPoints": "never",
+            "stacking": {
+              "mode": "none"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${prometheus}"
+          },
+          "refId": "A",
+          "expr": "histogram_quantile(0.5, sum by (le) (rate(http_server_request_duration_seconds_bucket{job=\"ai-trainer\"}[$__rate_interval])))",
+          "legendFormat": "p50",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${prometheus}"
+          },
+          "refId": "B",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(http_server_request_duration_seconds_bucket{job=\"ai-trainer\"}[$__rate_interval])))",
+          "legendFormat": "p95",
+          "range": true
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "id": 4,
+      "title": "Log turn p50 / p95 (G14)",
+      "description": "From sending a log to its draft card. G14: at most 5 s at the median and 10 s at the 95th percentile.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${prometheus}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 1,
+            "showPoints": "always",
+            "thresholdsStyle": {
+              "mode": "dashed"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 5
+              },
+              {
+                "color": "red",
+                "value": 10
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${prometheus}"
+          },
+          "refId": "A",
+          "expr": "histogram_quantile(0.5, sum by (le) (rate(ai_trainer_log_turn_duration_seconds_bucket{job=\"ai-trainer\"}[$__rate_interval])))",
+          "legendFormat": "p50",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${prometheus}"
+          },
+          "refId": "B",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(ai_trainer_log_turn_duration_seconds_bucket{job=\"ai-trainer\"}[$__rate_interval])))",
+          "legendFormat": "p95",
+          "range": true
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "id": 5,
+      "title": "Model calls",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 9
+      },
+      "panels": []
+    },
+    {
+      "type": "bargauge",
+      "id": 6,
+      "title": "Model calls per day",
+      "description": "Model calls by prompt template in the 24 h up to the end of the range, one per llm_calls row. A series new since the day began (each deploy starts new ones) is counted by its last value, so calls before its first export count too.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${prometheus}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 0,
+        "y": 10
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "decimals": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "basic",
+        "showUnfilled": true,
+        "valueMode": "color",
+        "namePlacement": "top",
+        "sizing": "auto",
+        "text": {
+          "titleSize": 13,
+          "valueSize": 18
+        },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${prometheus}"
+          },
+          "refId": "A",
+          "expr": "sum by (template_id) ((increase(ai_trainer_llm_call_duration_seconds_count{job=\"ai-trainer\"}[1d]) and ai_trainer_llm_call_duration_seconds_count{job=\"ai-trainer\"} offset 1d) or last_over_time(ai_trainer_llm_call_duration_seconds_count{job=\"ai-trainer\"}[1d]))",
+          "legendFormat": "{{template_id}}",
+          "range": false,
+          "instant": true
+        }
+      ]
+    },
+    {
+      "type": "bargauge",
+      "id": 7,
+      "title": "Model errors per day",
+      "description": "Calls that ended in error or timeout in the 24 h up to the end of the range, by template. A template with calls and no errors shows 0.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${prometheus}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 6,
+        "y": 10
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "decimals": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "basic",
+        "showUnfilled": true,
+        "valueMode": "color",
+        "namePlacement": "top",
+        "sizing": "auto",
+        "text": {
+          "titleSize": 13,
+          "valueSize": 18
+        },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${prometheus}"
+          },
+          "refId": "A",
+          "expr": "sum by (template_id) ((increase(ai_trainer_llm_call_duration_seconds_count{job=\"ai-trainer\", outcome=~\"error|timeout\"}[1d]) and ai_trainer_llm_call_duration_seconds_count{job=\"ai-trainer\", outcome=~\"error|timeout\"} offset 1d) or last_over_time(ai_trainer_llm_call_duration_seconds_count{job=\"ai-trainer\", outcome=~\"error|timeout\"}[1d])) or sum by (template_id) ((increase(ai_trainer_llm_call_duration_seconds_count{job=\"ai-trainer\"}[1d]) and ai_trainer_llm_call_duration_seconds_count{job=\"ai-trainer\"} offset 1d) or last_over_time(ai_trainer_llm_call_duration_seconds_count{job=\"ai-trainer\"}[1d])) * 0",
+          "legendFormat": "{{template_id}}",
+          "range": false,
+          "instant": true
+        }
+      ]
+    },
+    {
+      "type": "bargauge",
+      "id": 8,
+      "title": "Model cost per day (USD)",
+      "description": "OpenRouter's accounted cost in the 24 h up to the end of the range, by template. A series new since the day began (each deploy starts new ones) is counted by its last value, so calls before its first export count too.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${prometheus}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 12,
+        "y": 10
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "min": 0,
+          "decimals": 4,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "basic",
+        "showUnfilled": true,
+        "valueMode": "color",
+        "namePlacement": "top",
+        "sizing": "auto",
+        "text": {
+          "titleSize": 13,
+          "valueSize": 18
+        },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${prometheus}"
+          },
+          "refId": "A",
+          "expr": "sum by (template_id) ((increase(ai_trainer_llm_call_cost_USD_total{job=\"ai-trainer\"}[1d]) and ai_trainer_llm_call_cost_USD_total{job=\"ai-trainer\"} offset 1d) or last_over_time(ai_trainer_llm_call_cost_USD_total{job=\"ai-trainer\"}[1d]))",
+          "legendFormat": "{{template_id}}",
+          "range": false,
+          "instant": true
+        }
+      ]
+    },
+    {
+      "type": "bargauge",
+      "id": 9,
+      "title": "Rate-limit refusals",
+      "description": "Requests and model calls refused by an ADR-0029 cap in the 24 h up to the end of the range, by limit kind; none shows 0. A series new since the day began (each deploy starts new ones) is counted by its last value, so calls before its first export count too.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${prometheus}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 18,
+        "y": 10
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "decimals": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "basic",
+        "showUnfilled": true,
+        "valueMode": "color",
+        "namePlacement": "top",
+        "sizing": "auto",
+        "text": {
+          "titleSize": 13,
+          "valueSize": 18
+        },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${prometheus}"
+          },
+          "refId": "A",
+          "expr": "sum by (limit_kind) ((increase(ai_trainer_rate_limit_refusals_total{job=\"ai-trainer\"}[1d]) and ai_trainer_rate_limit_refusals_total{job=\"ai-trainer\"} offset 1d) or last_over_time(ai_trainer_rate_limit_refusals_total{job=\"ai-trainer\"}[1d])) or on () label_replace(vector(0), \"limit_kind\", \"none\", \"\", \"\")",
+          "legendFormat": "{{limit_kind}}",
+          "range": false,
+          "instant": true
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "id": 10,
+      "title": "Host and database",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 18
+      },
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "id": 11,
+      "title": "CPU",
+      "description": "Busy share of all cores.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${prometheus}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 0,
+        "y": 19
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 1,
+            "showPoints": "never",
+            "stacking": {
+              "mode": "none"
+            }
+          },
+          "max": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.8
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${prometheus}"
+          },
+          "refId": "A",
+          "expr": "1 - avg(rate(node_cpu_seconds_total{instance=\"ai-trainer-prod\", mode=\"idle\"}[$__rate_interval]))",
+          "legendFormat": "cpu",
+          "range": true
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "id": 12,
+      "title": "Memory",
+      "description": "Used share of RAM (MemAvailable against MemTotal).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${prometheus}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 6,
+        "y": 19
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 1,
+            "showPoints": "never",
+            "stacking": {
+              "mode": "none"
+            }
+          },
+          "max": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.8
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${prometheus}"
+          },
+          "refId": "A",
+          "expr": "1 - node_memory_MemAvailable_bytes{instance=\"ai-trainer-prod\"} / node_memory_MemTotal_bytes{instance=\"ai-trainer-prod\"}",
+          "legendFormat": "memory",
+          "range": true
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "id": 13,
+      "title": "Disk",
+      "description": "Used share of the root filesystem. The alert fires above 80% for 10 min.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${prometheus}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 12,
+        "y": 19
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 1,
+            "showPoints": "never",
+            "stacking": {
+              "mode": "none"
+            }
+          },
+          "max": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.8
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${prometheus}"
+          },
+          "refId": "A",
+          "expr": "1 - node_filesystem_avail_bytes{instance=\"ai-trainer-prod\", mountpoint=\"/\"} / node_filesystem_size_bytes{instance=\"ai-trainer-prod\", mountpoint=\"/\"}",
+          "legendFormat": "/",
+          "range": true
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "id": 14,
+      "title": "Postgres connections",
+      "description": "Open connections to the ai_trainer database, against max_connections.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${prometheus}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 18,
+        "y": 19
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 1,
+            "showPoints": "never",
+            "stacking": {
+              "mode": "none"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${prometheus}"
+          },
+          "refId": "A",
+          "expr": "sum(pg_stat_database_numbackends{instance=\"ai-trainer-prod\", datname=\"ai_trainer\"})",
+          "legendFormat": "connections",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${prometheus}"
+          },
+          "refId": "B",
+          "expr": "max(pg_settings_max_connections{instance=\"ai-trainer-prod\"})",
+          "legendFormat": "max_connections",
+          "range": true
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "id": 15,
+      "title": "Logs",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 27
+      },
+      "panels": []
+    },
+    {
+      "type": "logs",
+      "id": 16,
+      "title": "Scheduled job outcomes",
+      "description": "The backup, purge and deploy outcome lines of the last 7 days, the latest first: the top backup line is the last backup's result.",
+      "datasource": {
+        "type": "loki",
+        "uid": "${loki}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 28
+      },
+      "timeFrom": "7d",
+      "hideTimeOverride": false,
+      "options": {
+        "showTime": true,
+        "showLabels": true,
+        "wrapLogMessage": true,
+        "sortOrder": "Descending",
+        "enableLogDetails": true,
+        "dedupStrategy": "none",
+        "prettifyLogMessage": false,
+        "showCommonLabels": false
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "${loki}"
+          },
+          "refId": "A",
+          "expr": "{job=~\"backup|purge|deploy\"} |= \"result=\"",
+          "queryType": "range"
+        }
+      ]
+    },
+    {
+      "type": "table",
+      "id": 17,
+      "title": "App errors",
+      "description": "The app's ERROR and CRITICAL lines and its 5xx access lines, the latest first. Click a trace_id to open its trace. An unhandled exception's line has no trace_id: its request's access line, with the same request_id, has it.",
+      "datasource": {
+        "type": "loki",
+        "uid": "${loki}"
+      },
+      "gridPos": {
+        "h": 12,
+        "w": 24,
+        "x": 0,
+        "y": 36
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "${loki}"
+          },
+          "refId": "A",
+          "expr": "{service=\"app\"} | json | level=~\"ERROR|CRITICAL\" or status >= 500",
+          "queryType": "range",
+          "maxLines": 1000
+        }
+      ],
+      "transformations": [
+        {
+          "id": "extractFields",
+          "options": {
+            "source": "labels",
+            "format": "auto",
+            "replace": false,
+            "keepTime": false
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "includeByName": {
+              "Time": true,
+              "level": true,
+              "logger": true,
+              "message": true,
+              "status": true,
+              "exc_type": true,
+              "request_id": true,
+              "trace_id": true
+            },
+            "indexByName": {
+              "Time": 0,
+              "level": 1,
+              "status": 2,
+              "message": 3,
+              "trace_id": 4,
+              "exc_type": 5,
+              "logger": 6,
+              "request_id": 7
+            },
+            "renameByName": {},
+            "excludeByName": {}
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "Time",
+                "desc": true
+              }
+            ]
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "trace_id"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Open trace ${__value.raw}",
+                    "url": "/explore?schemaVersion=1&panes={\"trace\":{\"datasource\":\"${tempo}\",\"queries\":[{\"refId\":\"A\",\"datasource\":{\"type\":\"tempo\",\"uid\":\"${tempo}\"},\"queryType\":\"traceql\",\"query\":\"${__value.raw}\"}],\"range\":{\"from\":\"now-7d\",\"to\":\"now\"}}}"
+                  }
+                ]
+              },
+              {
+                "id": "custom.width",
+                "value": 290
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Time"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 180
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "level"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 90
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "status"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 70
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "exc_type"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 160
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "logger"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 220
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "request_id"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 290
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      }
+    }
+  ]
+}
