@@ -37,6 +37,7 @@ from ai_trainer.application.ports.conversation import (
 from ai_trainer.application.ports.drafts import SessionDraftRepositoryPort
 from ai_trainer.application.ports.fast_router import FastRoute, FastRouterPort
 from ai_trainer.application.ports.llm_gateway import StreamEnd
+from ai_trainer.application.ports.metrics import NO_METRICS, MetricsPort
 from ai_trainer.application.ports.onboarding import OnboardingRepositoryPort
 from ai_trainer.application.ports.safety_screen import SafetyScreenPort
 from ai_trainer.application.ports.training import TrainingSessionRepositoryPort
@@ -147,6 +148,8 @@ class ReplyServices:
     # A sport's extraction reads its context from this many of the athlete's latest sessions in
     # it (`extract_recent_sessions`, ticket #164).
     recent_sessions: int
+    # Times each fresh log turn to its draft card (ADR-0030, G14).
+    metrics: MetricsPort = NO_METRICS
 
 
 type _Specialist = Literal["chitchat", "extract", "not_yet"]
@@ -260,7 +263,18 @@ async def _reply(
     if saved:
         yield await _replayed(user_id, message, saved, services)
         return
+    async with aclosing(_fresh_reply(user_id, message, timezone, services)) as events:
+        async for event in events:
+            if isinstance(event, ReplyDone) and event.drafts:
+                # From sending the log to its draft card (G14); a replayed reply is not a turn.
+                elapsed = services.clock.now() - message.created_at
+                services.metrics.log_turn(elapsed.total_seconds())
+            yield event
 
+
+async def _fresh_reply(
+    user_id: UUID, message: ChatMessage, timezone: str, services: ReplyServices
+) -> AsyncGenerator[ReplyEvent]:
     context = await _context(user_id, message, timezone, services)
     # Started before the router is awaited, so the screen adds no wait when the router is
     # slower; cancelled with the reply if the reader leaves while routing.

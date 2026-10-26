@@ -14,6 +14,7 @@ from starlette.templating import Jinja2Templates
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from ai_trainer.application.ports.clock import ClockPort
+from ai_trainer.application.ports.metrics import NO_METRICS, LimitKind, MetricsPort
 from ai_trainer.application.sliding_window import SlidingWindow
 from ai_trainer.web.auth import SESSION_COOKIE_NAME
 
@@ -37,8 +38,10 @@ class RateLimitMiddleware:
         templates: Jinja2Templates,
         auth_per_minute: int,
         session_per_minute: int,
+        metrics: MetricsPort = NO_METRICS,
     ) -> None:
         self._app = app
+        self._metrics = metrics
         self._templates = templates
         self._auth_per_minute = auth_per_minute
         self._session_per_minute = session_per_minute
@@ -48,10 +51,12 @@ class RateLimitMiddleware:
         if scope["type"] != "http":
             await self._app(scope, receive, send)
             return
-        retry_after = self._retry_after(scope)
-        if retry_after is None:
+        refused = self._refused(scope)
+        if refused is None:
             await self._app(scope, receive, send)
             return
+        kind, retry_after = refused
+        self._metrics.refusal(kind)
         request = Request(scope, receive)
         is_htmx = request.headers.get("HX-Request") == "true"
         template = "partials/errors/429.html" if is_htmx else "pages/errors/429.html"
@@ -59,20 +64,23 @@ class RateLimitMiddleware:
         response.headers["Retry-After"] = str(retry_after)
         await response(scope, receive, send)
 
-    def _retry_after(self, scope: Scope) -> int | None:
+    def _refused(self, scope: Scope) -> tuple[LimitKind, int] | None:
+        """The cap that refused the request and the seconds to wait, or `None`."""
         path = scope["path"]
         canonical = path.rstrip("/") or "/"
         if canonical in _EXEMPT_PATHS or path.startswith(_STATIC_PREFIX):
             return None
         if canonical in _AUTH_PATHS:
-            return self._window.allow(
+            retry_after = self._window.allow(
                 f"auth:{_client_address(scope)}",
                 limit=self._auth_per_minute,
             )
+            return None if retry_after is None else ("sign_in", retry_after)
         session = _session_cookie(scope)
         if session is None:
             return None
-        return self._window.allow(f"session:{session}", limit=self._session_per_minute)
+        retry_after = self._window.allow(f"session:{session}", limit=self._session_per_minute)
+        return None if retry_after is None else ("session", retry_after)
 
 
 def _client_address(scope: Scope) -> str:

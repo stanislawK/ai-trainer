@@ -123,6 +123,11 @@ It's foreground on purpose (`docker compose watch` can't run detached), so use a
 - A one-shot `migrate` service (#64) runs `alembic upgrade head` against Postgres before `app` starts, on every `make start` — a fresh, empty volume reaches head, and a migration pulled since your last `make start` is applied on the next one; an up-to-date schema makes it a fast no-op. A failing migration keeps `app` from starting at all; its traceback shows in `make logs`.
 - `make up`, the production image and CI's e2e job never use `--reload`, the CSS watcher, the migrate service or `compose.dev.yaml` — this is purely a local dev loop.
 
+**Metrics and traces on `make start`.** Start a local [`grafana/otel-lgtm`](https://github.com/grafana/docker-otel-lgtm) (the `docker run` line under [Production smoke run](#production-smoke-run)), then set `OTEL_ENABLED=true` and `OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4318` in `.env` and restart `make start`. The app exports its metrics once a minute (ADR-0030). At http://localhost:3000 → Explore → **Prometheus**:
+- `sum by (template_id) (ai_trainer_llm_call_duration_seconds_count)` counts model calls by template.
+- `ai_trainer_log_turn_duration_seconds_bucket` gives the log turn's send-to-card time (G14).
+- `http_server_request_duration_seconds_count` and `ai_trainer_rate_limit_refusals_total` count requests and refusals.
+
 ## Debugging LLM calls
 
 Two records exist for every model call, and they answer different questions:

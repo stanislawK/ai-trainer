@@ -4,6 +4,7 @@ repositories, prompt templates and decision sets, with OpenRouter replaced by a 
 decision call leaves its `llm_calls` row (ADR-0018), and a reply survives a reload."""
 
 import asyncio
+import re
 from collections.abc import AsyncIterator, Callable
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -14,6 +15,8 @@ import httpx2
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from opentelemetry.sdk.metrics import MeterProvider
+from opentelemetry.sdk.metrics.export import HistogramDataPoint, InMemoryMetricReader
 from pydantic import PostgresDsn, SecretStr
 from pydantic_ai import (
     ModelMessage,
@@ -45,11 +48,14 @@ from ai_trainer.adapters.chat_repository import SqlAlchemyChatRepository
 from ai_trainer.adapters.clarification_repository import SqlAlchemyClarificationRepository
 from ai_trainer.adapters.conversation_repository import SqlAlchemyConversationRepository
 from ai_trainer.adapters.llm_calls_repository import SqlAlchemyLlmCallsRepository
+from ai_trainer.adapters.metrics import OtelMetrics
 from ai_trainer.adapters.onboarding_repository import SqlAlchemyOnboardingRepository
 from ai_trainer.adapters.session_draft_repository import SqlAlchemySessionDraftRepository
 from ai_trainer.adapters.training_session_repository import SqlAlchemyTrainingSessionRepository
 from ai_trainer.adapters.users_repository import SqlAlchemyUsersRepository
+from ai_trainer.application.metered_calls import MeteredLlmCallsRepository
 from ai_trainer.application.ports.clock import ClockPort
+from ai_trainer.application.ports.metrics import NO_METRICS, MetricsPort
 from ai_trainer.application.reply import ReplyServices
 from ai_trainer.domain.chat import ChatMessage, ChatRole
 from ai_trainer.domain.conversation import INTENT_KINDS
@@ -62,6 +68,7 @@ from ai_trainer.llm.router_fast import JevFastRouter, RouterFastThresholds
 from ai_trainer.llm.safety_screen import JevSafetyScreen
 from ai_trainer.settings import Settings
 from ai_trainer.web.chat import build_chat_router
+from ai_trainer.web.request_log import log_every_request
 from ai_trainer.web.templating import build_templates
 from tests.chat_support import FROZEN_NOW, FixedClock, sign_in_as, sports_with_rowing
 
@@ -311,6 +318,7 @@ def _app(
     decision_timeout: float = 30.0,
     router_timeout: float | None = None,
     clock: ClockPort | None = None,
+    metrics: MetricsPort = NO_METRICS,
 ) -> tuple[FastAPI, tuple[OpenRouterGateway, OpenRouterDecisionGateway]]:
     clock = clock or FixedClock()
     settings = Settings(
@@ -321,7 +329,9 @@ def _app(
         llm_call_timeout_seconds=timeout,
         decision_call_timeout_seconds=decision_timeout,
     )
-    llm_calls = _OneWriteAtATime(SqlAlchemyLlmCallsRepository(factory))
+    llm_calls = MeteredLlmCallsRepository(
+        _OneWriteAtATime(SqlAlchemyLlmCallsRepository(factory)), metrics
+    )
     gateway = OpenRouterGateway(settings, llm_calls)
     decisions = OpenRouterDecisionGateway(
         settings,
@@ -363,6 +373,7 @@ def _app(
         merge_window=timedelta(minutes=settings.session_merge_window_min),
         max_clarification_options=settings.max_clarification_options,
         recent_sessions=settings.extract_recent_sessions,
+        metrics=metrics,
     )
     app = FastAPI()
     app.include_router(
@@ -375,6 +386,7 @@ def _app(
         )
     )
     sign_in_as(app, user)
+    log_every_request(app, metrics)
     return app, (gateway, decisions)
 
 
@@ -408,6 +420,7 @@ async def _send_and_stream(
     router: Callable[[list[ModelMessage], AgentInfo], Any] = _router,
     router_timeout: float | None = None,
     clock: ClockPort | None = None,
+    metrics: MetricsPort = NO_METRICS,
 ) -> tuple[list[str], str]:
     """Sends `text`, reads its reply stream `streams` times (a retry after the first) and
     reloads the page."""
@@ -418,6 +431,7 @@ async def _send_and_stream(
         decision_timeout=decision_timeout,
         router_timeout=router_timeout,
         clock=clock,
+        metrics=metrics,
     )
     model = FunctionModel(router, stream_function=chitchat)
     app.add_middleware(_ModelOverride, gateways=gateways, model=model, jev=jev)
@@ -1033,3 +1047,169 @@ async def test_a_log_at_the_merge_window_is_offered_and_one_second_later_is_not(
     assert ("data-adds-to-session" in page) is offered
     # Past the window, on the same day, the card asks instead (ticket #166).
     assert ("Was this part of your earlier session?" in page) is not offered
+
+
+def _metered() -> tuple[OtelMetrics, InMemoryMetricReader]:
+    reader = InMemoryMetricReader()
+    return OtelMetrics(MeterProvider(metric_readers=[reader]).get_meter("ai_trainer")), reader
+
+
+def _metric_points(reader: InMemoryMetricReader) -> dict[str, list[Any]]:
+    data = reader.get_metrics_data()
+    assert data is not None
+    points: dict[str, list[Any]] = {}
+    for resource in data.resource_metrics:
+        for scope in resource.scope_metrics:
+            for metric in scope.metrics:
+                points.setdefault(metric.name, []).extend(metric.data.data_points)
+    return points
+
+
+def _counts(points: list[Any], *labels: str) -> dict[tuple[object, ...], int]:
+    counts: dict[tuple[object, ...], int] = {}
+    for point in points:
+        assert isinstance(point, HistogramDataPoint)
+        assert point.attributes is not None
+        key = tuple(point.attributes[label] for label in labels)
+        counts[key] = counts.get(key, 0) + point.count
+    return counts
+
+
+async def test_a_log_turn_records_each_request_once_a_point_per_model_call_and_one_turn(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    """#275 AC1: the reply read twice (the second a replay) and a reload still make one log
+    turn; each model call is one point, matching its `llm_calls` row."""
+    user = await _user(db_session_factory, "metrics-log-turn")
+    clock = _SteppingClock()
+    metrics, reader = _metered()
+
+    class _Later:
+        """The reply's clock, 3.5 s after the message was sent."""
+
+        def now(self) -> datetime:
+            return clock.current + timedelta(seconds=3.5)
+
+    app, gateways = _app(db_session_factory, user, clock=clock, metrics=metrics)
+    app.add_middleware(
+        _ModelOverride,
+        gateways=gateways,
+        model=FunctionModel(_router, stream_function=ScriptedChitchat()),
+    )
+    client = TestClient(app)
+    thread = await _thread(db_session_factory, user.id)
+    client.post(
+        "/messages", data={"message": _CLIMB, "conversation_id": str(thread)}, headers=_HTMX
+    )
+    [asked] = await _history(db_session_factory, user.id, 1)
+    clock.current = _Later().now()
+    first = client.get(f"/messages/{asked.id}/reply").text
+    client.get(f"/messages/{asked.id}/reply")
+    client.get("/")
+
+    assert 'aria-label="Draft session"' in first
+    points = _metric_points(reader)
+    assert _counts(points["http.server.request.duration"], "http.request.method", "http.route") == {
+        ("POST", "/messages"): 1,
+        ("GET", "/messages/{message_id}/reply"): 2,
+        ("GET", "/"): 1,
+    }
+    calls = await SqlAlchemyLlmCallsRepository(db_session_factory).list_for_user(user.id)
+    rows: dict[tuple[object, ...], int] = {}
+    for call in calls:
+        key = (call.template_id, call.outcome.value)
+        rows[key] = rows.get(key, 0) + 1
+    assert _counts(points["ai_trainer.llm.call.duration"], "template_id", "outcome") == rows
+    assert sum(rows.values()) == len(calls) == 4
+    [turn] = points["ai_trainer.log_turn.duration"]
+    assert isinstance(turn, HistogramDataPoint)
+    assert (turn.count, turn.sum) == (1, 3.5)
+
+
+async def test_a_model_timeout_records_outcome_timeout_with_its_latency(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    """#275 AC2."""
+    user = await _user(db_session_factory, "metrics-timeout")
+    metrics, reader = _metered()
+
+    await _send_and_stream(
+        db_session_factory,
+        user,
+        "hi!",
+        ScriptedChitchat(),
+        router=_stuck_router,
+        router_timeout=0.2,
+        metrics=metrics,
+    )
+
+    [router] = [
+        point
+        for point in _metric_points(reader)["ai_trainer.llm.call.duration"]
+        if point.attributes["template_id"] == "router"
+    ]
+    calls = await SqlAlchemyLlmCallsRepository(db_session_factory).list_for_user(user.id)
+    [row] = [call for call in calls if call.template_id == "router"]
+    assert router.attributes["outcome"] == "timeout"
+    assert router.count == 1
+    assert router.sum == pytest.approx(row.latency_ms / 1000)
+    assert 0.2 <= router.sum < 5
+    assert "ai_trainer.log_turn.duration" not in _metric_points(reader)
+
+
+_METRIC_LABELS = {
+    "http.request.method",
+    "http.route",
+    "http.response.status_class",
+    "template_id",
+    "template_version",
+    "model",
+    "outcome",
+    "limit_kind",
+}
+_UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{32}")
+
+
+async def test_no_metric_carries_a_user_id_a_request_id_or_a_raw_path(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    """#275 AC4, over every point a log turn, a reload and a 404 make."""
+    user = await _user(db_session_factory, "metrics-privacy")
+    metrics, reader = _metered()
+    app, gateways = _app(db_session_factory, user, metrics=metrics)
+    app.add_middleware(
+        _ModelOverride,
+        gateways=gateways,
+        model=FunctionModel(_router, stream_function=ScriptedChitchat()),
+    )
+    client = TestClient(app)
+    thread = await _thread(db_session_factory, user.id)
+    request_id = "req-metrics-privacy-1"
+    sent = client.post(
+        "/messages",
+        data={"message": _CLIMB, "conversation_id": str(thread)},
+        headers={**_HTMX, "X-Request-ID": request_id},
+    )
+    [asked] = await _history(db_session_factory, user.id, 1)
+    reply = client.get(f"/messages/{asked.id}/reply?ref={user.email}")
+    client.get(f"/c/{thread}")
+    client.get(f"/c/{uuid4()}")
+
+    request_ids = {request_id, reply.headers["X-Request-ID"], sent.headers["X-Request-ID"]}
+    labels = [
+        (key, str(value))
+        for points in _metric_points(reader).values()
+        for point in points
+        for key, value in point.attributes.items()
+    ]
+    assert labels
+    assert {key for key, _ in labels} <= _METRIC_LABELS
+    for key, value in labels:
+        assert str(user.id) not in value
+        assert str(asked.id) not in value
+        assert str(thread) not in value
+        assert user.email not in value
+        assert value not in request_ids
+        assert not _UUID.search(value), (key, value)
+    routes = {value for key, value in labels if key == "http.route"}
+    assert routes == {"/messages", "/messages/{message_id}/reply", "/c/{conversation_id}"}
