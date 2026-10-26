@@ -242,6 +242,11 @@ curl -sS -H 'Content-Type: application/json' localhost:3100/loki/api/v1/push --d
 
 That fires "Scheduled job failed" within about a minute. `docker rm -f smoke-probe` stops the probe.
 
+**The dashboard in the smoke run.** [`deploy/grafana/dashboards/overview.json`](deploy/grafana/dashboards/overview.json) is the owner's overview page (ADR-0030, RUNBOOK section 11.9).
+- **Import it:** at http://localhost:3000 → *Dashboards → New → Import*, upload the file, choose the `ai-trainer` folder, and *Import*, or *Import (Overwrite)* after a change. It picks otel-lgtm's `Prometheus`, `Loki` and `Tempo` by name, as it picks Grafana Cloud's `grafanacloud-…` ones.
+- **Model-call panels:** a log shows there about a minute after it's sent, once the app has exported its metrics.
+- **Backup row:** the smoke run never backs up. Push the outcome line of `make backup-check` the way Alloy ships it, with the `curl` above, using `backup: result=ok kind=nightly` as the line.
+
 ## Production host
 
 The owner provisions the Hetzner host by following [deploy/RUNBOOK.md](deploy/RUNBOOK.md): stock and price check, Cloud Firewall, the server from [deploy/cloud-init.yaml](deploy/cloud-init.yaml), Cloudflare (Full strict, Origin CA, zone-level AOP) and the server's env files (ADR-0023). Agents never reach the host. `make cloud-init-check` validates the user data before it's used.

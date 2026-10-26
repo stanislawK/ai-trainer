@@ -6,49 +6,37 @@ PUT, which `deploy/grafana/import-alerts.sh` sends with the stack's own datasour
 `smoke-probe.alloy` its stand-in on the smoke run, where no Synthetic Monitoring exists.
 
 A rule that queries a series nothing sends never fires, and nothing says so. So every metric,
-label, label value and line filter a rule names is checked against what the stack emits: the
-app's instruments, Alloy's keep list, the probe and the jobs' outcome lines."""
+label, label value and line filter a rule names is checked against what the stack emits
+(`grafana_catalogue`): the app's instruments, Alloy's keep list, the probe and the jobs' outcome
+lines."""
 
 import json
 import re
 import subprocess
 import threading
 from collections.abc import Iterator
-from dataclasses import dataclass, field
-from decimal import Decimal
+from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
 from typing import Any
-from uuid import uuid4
 
 import pytest
 import yaml
-from opentelemetry.sdk.metrics import MeterProvider
-from opentelemetry.sdk.metrics.export import Histogram as HistogramData
-from opentelemetry.sdk.metrics.export import InMemoryMetricReader
 
-from ai_trainer.adapters.metrics import OtelMetrics
-from ai_trainer.domain.llm_calls import LlmCallOutcome, NewLlmCall
-from ai_trainer.settings import Settings
+from tests.unit.grafana_catalogue import (
+    CHECK,
+    GRAFANA,
+    alloy_string,
+    check_loki_query,
+    check_prometheus_query,
+)
 
-ROOT = Path(__file__).resolve().parents[2]
-GRAFANA = ROOT / "deploy/grafana"
 GROUP: dict[str, Any] = json.loads((GRAFANA / "alerts.json").read_text())
 RULES: dict[str, dict[str, Any]] = {rule["uid"]: rule for rule in GROUP["rules"]}
-CHECK: dict[str, Any] = json.loads((GRAFANA / "synthetic-health.json").read_text())
 PROBE = (GRAFANA / "smoke-probe.alloy").read_text()
-ALLOY = (ROOT / "deploy/alloy/config.alloy").read_text()
 IMPORT = GRAFANA / "import-alerts.sh"
 
 PROMETHEUS_UID = "__PROMETHEUS_UID__"
 LOKI_UID = "__LOKI_UID__"
-
-
-def _alloy_string(name: str, text: str) -> list[str]:
-    """Every `<name> = "<value>"` in an Alloy file, decoded like an Alloy (Go) string literal."""
-    return [
-        json.loads(literal) for literal in re.findall(rf'\b{name}\s*=\s*("(?:[^"\\]|\\.)*")', text)
-    ]
 
 
 def _queries(rule: dict[str, Any]) -> list[tuple[str, str]]:
@@ -58,232 +46,6 @@ def _queries(rule: dict[str, Any]) -> list[tuple[str, str]]:
         for query in rule["data"]
         if query["datasourceUid"] != "__expr__"
     ]
-
-
-# ---------------------------------------------------------------------------------------------
-# What the stack emits. A label maps to its possible values, or None where any value can occur
-# (a route template, a model ID).
-
-type Labels = dict[str, frozenset[str] | None]
-
-
-def _prometheus_names(name: str, unit: str, histogram: bool) -> dict[str, bool]:
-    """The series an OTLP instrument becomes in Prometheus, and whether each carries `le`.
-
-    Both Grafana Cloud's OTLP gateway and otel-lgtm translate with underscores and suffixes:
-    dots become underscores, the unit is appended (`s` as `seconds`, an annotation such as
-    `{refusal}` not at all), and a counter ends in `_total`."""
-    base = name.replace(".", "_")
-    if unit and not unit.startswith("{"):
-        base += "_" + {"s": "seconds"}.get(unit, unit)
-    if histogram:
-        return {f"{base}_bucket": True, f"{base}_count": False, f"{base}_sum": False}
-    return {f"{base}_total": False}
-
-
-def _app_series() -> dict[str, Labels]:
-    """Each instrument of `OtelMetrics`, recorded once, with the labels it records under."""
-    reader = InMemoryMetricReader()
-    metrics = OtelMetrics(MeterProvider(metric_readers=[reader]).get_meter("ai_trainer"))
-    metrics.request(method="GET", route="/chat", status=200, seconds=0.1)
-    metrics.model_call(
-        NewLlmCall(
-            user_id=uuid4(),
-            template_id="router",
-            template_version=1,
-            model="z-ai/glm-5.3-flash",
-            input_tokens=1,
-            output_tokens=1,
-            cost=Decimal("0.0001"),
-            latency_ms=100,
-            outcome=LlmCallOutcome.SUCCESS,
-        )
-    )
-    metrics.refusal("session")
-    metrics.log_turn(3)
-    data = reader.get_metrics_data()
-    assert data is not None
-    # The resource's `service.name` is the series' `job` (OTEL_SERVICE_NAME in production).
-    resource: Labels = {"job": frozenset({Settings.model_fields["otel_service_name"].default})}
-    resource["instance"] = None
-    values: dict[str, frozenset[str]] = {
-        "http_response_status_class": frozenset(f"{n}xx" for n in range(1, 6)),
-        # A refused call writes no row, so it is never recorded as a model call (ADR-0029).
-        "outcome": frozenset(o.value for o in LlmCallOutcome) - {LlmCallOutcome.RATE_LIMITED},
-    }
-    series: dict[str, Labels] = {}
-    for metric in (m for r in data.resource_metrics for s in r.scope_metrics for m in s.metrics):
-        keys = {k.replace(".", "_") for p in metric.data.data_points for k in p.attributes or {}}
-        labels: Labels = {**resource, **{key: values.get(key) for key in keys}}
-        histogram = isinstance(metric.data, HistogramData)
-        for name, bucket in _prometheus_names(metric.name, metric.unit or "", histogram).items():
-            series[name] = {**labels, "le": None} if bucket else labels
-    assert len(series) == 11, sorted(series)
-    return series
-
-
-def _alloy_series() -> dict[str, Labels]:
-    """Host, Caddy and Postgres series: the names Alloy's keep list lets out, under the fixed
-    `instance` it sets and each exporter's own labels."""
-    keep = next(r for r in _alloy_string("regex", ALLOY) if r.startswith("node_("))
-    instance = frozenset({_alloy_string("replacement", ALLOY.split('"kept"', 1)[1])[-1]})
-    families: dict[str, Labels] = {
-        "node_filesystem_": {
-            "job": frozenset({"integrations/unix"}),
-            # The exporter reads the root filesystem only (`mount_points_exclude`).
-            "mountpoint": frozenset({"/"}),
-            "device": None,
-            "fstype": None,
-        },
-        "node_": {
-            "job": frozenset({"integrations/unix"}),
-            "cpu": None,
-            "mode": None,
-            "device": None,
-        },
-        "caddy_": {"job": frozenset({"integrations/caddy"}), "server": frozenset({"public"})},
-        "pg_": {"job": frozenset({"integrations/postgres"}), "datname": frozenset({"ai_trainer"})},
-    }
-
-    class Kept(dict[str, Labels]):
-        def __missing__(self, name: str) -> Labels:
-            if not re.fullmatch(keep, name):
-                raise KeyError(name)
-            family = next(labels for prefix, labels in families.items() if name.startswith(prefix))
-            return {**family, "instance": instance}
-
-        def __contains__(self, name: object) -> bool:
-            return isinstance(name, str) and re.fullmatch(keep, name) is not None
-
-    return Kept()
-
-
-def _probe_series() -> dict[str, Labels]:
-    """Synthetic Monitoring's `probe_success`: `job` and `instance` are the check's job and
-    target, `probe` the location that ran it."""
-    return {
-        "probe_success": {
-            "job": frozenset({CHECK["job"]}),
-            "instance": frozenset({CHECK["target"]}),
-            "probe": None,
-            "config_version": None,
-            "check_name": frozenset({"http"}),
-        }
-    }
-
-
-class Emitted(dict[str, Labels]):
-    def __init__(self, *parts: dict[str, Labels]) -> None:
-        super().__init__()
-        self.parts = parts
-
-    def __contains__(self, name: object) -> bool:
-        return any(name in part for part in self.parts)
-
-    def __getitem__(self, name: str) -> Labels:
-        for part in self.parts:
-            if name in part:
-                return part[name]
-        raise KeyError(name)
-
-
-PROMETHEUS = Emitted(_app_series(), _alloy_series(), _probe_series())
-
-# Loki has two kinds of stream, and no stream carries both labels: container lines by compose
-# service (`service`), and the jobs' journal lines by `job` (ADR-0030, #274).
-COMPOSE: dict[str, Any] = yaml.safe_load((ROOT / "compose.prod.yaml").read_text())
-_JOBS = next(r for r in _alloy_string("regex", ALLOY) if r.startswith("ai-trainer-("))
-STREAMS: list[Labels] = [
-    {"service": frozenset(COMPOSE["services"])},
-    {"job": frozenset(re.fullmatch(r"ai-trainer-\((.+)\)", _JOBS)[1].split("|"))},  # type: ignore[index]
-]
-EMITTERS = {
-    "backup": ["deploy/backup.sh", "deploy/systemd/ai-trainer-backup.service"],
-    "purge": ["src/ai_trainer/cli.py", "deploy/systemd/ai-trainer-purge.service"],
-    "deploy": ["deploy/deploy.sh"],
-}
-
-
-def _outcome_lines(job: str) -> dict[str, list[str]]:
-    """The outcome lines a job prints, by outcome: the text of each `echo` or `write`, with its
-    variables left in. Comments describe the lines too, so they don't count. deploy.sh prints
-    `result=$1` for both outcomes."""
-    printed = "\n".join((ROOT / path).read_text() for path in EMITTERS[job])
-    lines: dict[str, list[str]] = {"ok": [], "failed": []}
-    for line in re.findall(rf'(?:echo |write\(f)"({job}: result=[^"]*)"', printed):
-        for outcome in (
-            ("ok", "failed") if "result=$1" in line else (line.split("result=")[1].split()[0],)
-        ):
-            lines[outcome].append(line.replace("result=$1", f"result={outcome}"))
-    assert lines["ok"], job
-    assert lines["failed"], job
-    return lines
-
-
-# ---------------------------------------------------------------------------------------------
-# A small reading of PromQL and LogQL: enough for the shapes these rules use, and strict about
-# anything else, so a query the reader can't follow fails instead of passing unchecked.
-
-_STRING = r'"(?:[^"\\]|\\.)*"'
-_SELECTOR = re.compile(r"([A-Za-z_:][\w:]*)?\{([^}]*)\}")
-_MATCHER = re.compile(rf"^\s*(\w+)\s*(=~|!~|!=|=)\s*({_STRING})\s*$")
-_GROUPING = re.compile(r"\b(?:by|without|on|ignoring)\s*\(([^)]*)\)")
-_FUNCTIONS = {
-    "sum", "max", "min", "avg", "count", "rate", "increase", "histogram_quantile",
-    "count_over_time", "absent_over_time", "by", "without", "on", "ignoring", "and", "or",
-    "unless", "bool",
-}  # fmt: skip
-
-
-@dataclass
-class Query:
-    selectors: list[tuple[str | None, list[tuple[str, str, str]]]] = field(default_factory=list)
-    grouping: set[str] = field(default_factory=set)
-    line_filters: list[str] = field(default_factory=list)
-
-
-def _parse(expr: str) -> Query:
-    query = Query()
-    for name, body in _SELECTOR.findall(expr):
-        matchers = []
-        for part in filter(str.strip, re.split(rf",(?=(?:[^\"]|{_STRING})*$)", body)):
-            match = _MATCHER.match(part)
-            assert match, f"unreadable matcher {part!r} in {expr!r}"
-            matchers.append((match[1], match[2], json.loads(match[3])))
-        query.selectors.append((name or None, matchers))
-    for labels in _GROUPING.findall(expr):
-        query.grouping |= {label.strip() for label in labels.split(",") if label.strip()}
-    query.line_filters = [json.loads(s) for s in re.findall(rf"\|=\s*({_STRING})", expr)]
-    rest = re.sub(_STRING, "", _GROUPING.sub("", _SELECTOR.sub("", expr)))
-    rest = re.sub(r"\[\w+\]", "", rest)
-    words = set(re.findall(r"[A-Za-z_][\w:]*", rest))
-    assert words <= _FUNCTIONS, f"{words - _FUNCTIONS} in {expr!r}: a bare metric or a new function"
-    assert not re.search(r"\|[~!]|!=|\|\s*(json|logfmt|line_format)", rest), "only |= filters"
-    return query
-
-
-def _values(op: str, value: str) -> set[str] | None:
-    """The values a matcher names: one for `=`/`!=`, each alternative of a plain `a|b` regex,
-    or None for a regex that names no value (`.+`)."""
-    if op in ("=", "!="):
-        return {value}
-    if re.fullmatch(r"[\w./-]+(\|[\w./-]+)*", value):
-        return set(value.split("|"))
-    assert value == ".+", f"regex {value!r} is neither a list of values nor .+"
-    return None
-
-
-def _check_matchers(matchers: list[tuple[str, str, str]], labels: Labels, where: str) -> None:
-    for label, op, value in matchers:
-        assert label in labels, f"{where}: no series carries {label!r}"
-        allowed, named = labels[label], _values(op, value)
-        if named is None:
-            assert op == "=~", f"{where}: {label} {op} {value!r} excludes every value"
-        elif allowed is not None:
-            # An exclusion that names no real value silently excludes nothing, so it counts too.
-            assert named <= allowed, f"{where}: {label} {op} {value!r}; emitted: {sorted(allowed)}"
-            if op in ("!=", "!~"):
-                assert allowed - named, f"{where}: {label} {op} {value!r} excludes every value"
 
 
 PROMETHEUS_QUERIES = [
@@ -301,48 +63,15 @@ LOKI_QUERIES = [
 def test_each_prometheus_query_names_only_emitted_series_labels_and_values(
     uid: str, expr: str
 ) -> None:
-    query = _parse(expr)
-    assert query.selectors
-    assert not query.line_filters
-    grouped: Labels = {}
-    for name, matchers in query.selectors:
-        assert name is not None, f"{uid}: a selector without a metric name"
-        assert name in PROMETHEUS, f"{uid}: nothing emits {name}"
-        _check_matchers(matchers, PROMETHEUS[name], f"{uid} {name}")
-        grouped |= PROMETHEUS[name]
-    assert query.grouping <= set(grouped), f"{uid}: groups by {query.grouping - set(grouped)}"
+    check_prometheus_query(uid, expr)
 
 
 @pytest.mark.parametrize(("uid", "expr"), LOKI_QUERIES)
 def test_each_loki_query_selects_shipped_streams_and_filters_on_printed_lines(
     uid: str, expr: str
 ) -> None:
-    query = _parse(expr)
-    assert len(query.selectors) == 1, f"{uid}: one stream selector"
-    name, matchers = query.selectors[0]
-    assert name is None
-    selected = {label for label, _, _ in matchers}
-    streams = [stream for stream in STREAMS if selected <= set(stream)]
-    assert streams, f"{uid}: no stream carries all of {sorted(selected)}"
-    _check_matchers(matchers, streams[0], uid)
-    assert query.grouping <= selected, f"{uid}: groups by a label it doesn't select on"
-    jobs = {v for label, op, value in matchers if label == "job" for v in _values(op, value) or ()}
-    assert not query.line_filters or jobs, f"{uid}: a line filter on lines of no known job"
-    # A filter picks one outcome: every line of it that each job prints, and none of the other.
-    for text in query.line_filters:
-        picked = set()
-        for job in sorted(jobs):
-            lines = _outcome_lines(job)
-            matched = {
-                outcome for outcome, printed in lines.items() for line in printed if text in line
-            }
-            assert matched, f"{uid}: no {job} line contains {text!r}"
-            assert len(matched) == 1, f"{uid}: {text!r} matches both ok and failed {job} lines"
-            [outcome] = matched
-            missed = [line for line in lines[outcome] if text not in line]
-            assert not missed, f"{uid}: {text!r} misses {missed}"
-            picked.add(outcome)
-        assert len(picked) == 1, f"{uid}: {text!r} picks {sorted(picked)} across jobs"
+    """A filter picks one outcome: every line of it that each job prints, and none of the other."""
+    check_loki_query(uid, expr, one_outcome=True)
 
 
 _COUNT = "ai_trainer_llm_call_duration_seconds_count"
@@ -506,7 +235,7 @@ def test_the_check_probes_health_through_cloudflare_and_needs_the_database_ok() 
 
 
 def test_the_smoke_probe_asks_what_the_check_asks_and_labels_it_alike() -> None:
-    modules = yaml.safe_load(_alloy_string("config", PROBE)[0])["modules"]
+    modules = yaml.safe_load(alloy_string("config", PROBE)[0])["modules"]
     http = modules["health"]["http"]
     assert modules["health"]["prober"] == "http"
     assert http["fail_if_body_not_matches_regexp"] == HEALTH_REGEX
@@ -517,11 +246,11 @@ def test_the_smoke_probe_asks_what_the_check_asks_and_labels_it_alike() -> None:
     assert http["tls_config"]["cert_file"] == "/smoke/client.pem"
     assert http["tls_config"]["ca_file"] == "/smoke/origin-ca.pem"
     assert http["headers"]["Host"] == http["tls_config"]["server_name"] == "localhost"
-    assert _alloy_string("address", PROBE) == ["https://host.docker.internal/health"]
-    replacements = _alloy_string("replacement", PROBE)
+    assert alloy_string("address", PROBE) == ["https://host.docker.internal/health"]
+    replacements = alloy_string("replacement", PROBE)
     assert CHECK["job"] in replacements
     assert "https://localhost/health" in replacements
-    assert _alloy_string("url", PROBE) == ["http://host.docker.internal:9090/api/v1/write"]
+    assert alloy_string("url", PROBE) == ["http://host.docker.internal:9090/api/v1/write"]
 
 
 # ---------------------------------------------------------------------------------------------
