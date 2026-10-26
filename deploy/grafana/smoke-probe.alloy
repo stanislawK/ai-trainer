@@ -1,0 +1,45 @@
+// The smoke run's stand-in for the Synthetic Monitoring check in synthetic-health.json
+// (ADR-0030, ticket #277): the same request to /health, judged the same way, written to the local
+// otel-lgtm as `probe_success` under the check's `job` and `instance`, so the site-down rule in
+// alerts.json fires on the smoke stack as it does in Grafana Cloud. Never part of production:
+// `make smoke-probe` runs it in its own container, outside the compose project, beside the stack.
+
+// Through Caddy's 443 on the host, as Cloudflare comes in: with the smoke run's AOP client
+// certificate, for the site `localhost`.
+prometheus.exporter.blackbox "health" {
+	config = "{ modules: { health: { prober: http, timeout: 10s, http: { valid_status_codes: [200], fail_if_not_ssl: true, no_follow_redirects: true, fail_if_body_not_matches_regexp: ['\"database\":\"ok\"'], headers: { Host: localhost }, tls_config: { server_name: localhost, ca_file: /smoke/origin-ca.pem, cert_file: /smoke/client.pem, key_file: /smoke/client-key.pem } } } } }"
+
+	target {
+		name    = "health"
+		address = "https://host.docker.internal/health"
+		module  = "health"
+	}
+}
+
+// Synthetic Monitoring's labels: the check's job, and its target as the instance.
+discovery.relabel "health" {
+	targets = prometheus.exporter.blackbox.health.targets
+
+	rule {
+		target_label = "job"
+		replacement  = "ai-trainer-health"
+	}
+
+	rule {
+		target_label = "instance"
+		replacement  = "https://localhost/health"
+	}
+}
+
+prometheus.scrape "health" {
+	targets         = discovery.relabel.health.output
+	scrape_interval = "60s"
+	honor_labels    = true
+	forward_to      = [prometheus.remote_write.lgtm.receiver]
+}
+
+prometheus.remote_write "lgtm" {
+	endpoint {
+		url = "http://host.docker.internal:9090/api/v1/write"
+	}
+}

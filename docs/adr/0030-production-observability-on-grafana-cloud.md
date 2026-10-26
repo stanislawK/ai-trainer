@@ -77,7 +77,7 @@ The owner's `solid` project already ships to Grafana Cloud through Grafana Alloy
   - a model-call error rate
   - no backup success line in 26 h (G13)
   - disk above 80%
-  - no log line received from the host in 15 min, so a dead Alloy is itself an alert
+  - no telemetry received from the host in 15 min, so a dead Alloy is itself an alert (amended 2026-10-26, #277; see Consequences)
 
 ### Invariants
 
@@ -152,5 +152,22 @@ The owner's `solid` project already ships to Grafana Cloud through Grafana Alloy
     - Caddy's request histograms are dropped: the app's `http.server.request.duration` already covers latency.
     - The Postgres exporter runs only its database-wide collectors (`database`, `locks`, `stat_database`). The rows of `template0`, `template1` and `postgres` are dropped.
   - **`make alloy-check`** mounts the Docker VM's `/proc`, `/sys` and `/` the way compose does, because `prometheus.exporter.unix` opens them when it is built.
+- **Found in the alerts ticket (#277):**
+  - **The rules.** `deploy/grafana/alerts.json` is one Grafana-managed rule group, written as the body of the provisioning API's `PUT /api/v1/provisioning/folder/<uid>/rule-groups/<group>`.
+    - Grafana Cloud has no file provisioning, so `deploy/grafana/import-alerts.sh` sends that same body both to Grafana Cloud (the owner, with a service-account token) and to the local otel-lgtm (`make alerts-import`). Grafana's docs mark the endpoint deprecated in favour of the App Platform alerting APIs; when it goes, the script moves and the file stays.
+    - The datasource UIDs are placeholders, `__PROMETHEUS_UID__` and `__LOKI_UID__`, which the script fills from its arguments. otel-lgtm's UIDs (`prometheus`, `loki`) aren't Grafana Cloud's.
+  - **A failed line alerts on its own.** A rule for "no `result=ok` in 26 h" can't fire on a `result=failed` line that follows a good backup within that window. So a second rule, *Scheduled job failed*, fires on any `backup`, `purge` or `deploy` `result=failed` line in the last hour, one alert per `job`.
+  - **The probe.** The app keeps `/health` out of its request metric and its access log, so only the Synthetic Monitoring probe sees the site go down.
+    - `/health` answers `200` even when the database is down (`{"database":"unavailable"}`), so the check's body regex is what fails.
+    - The rule takes `max` over the probe locations, so it fires only when every location fails.
+    - otel-lgtm has no Synthetic Monitoring. On the smoke run, `deploy/grafana/smoke-probe.alloy` runs the same request as a blackbox module: the AOP client certificate, through Caddy's 443. It writes `probe_success` under the check's `job` and `instance`, in its own container outside the compose project, so Alloy never ships its lines. A unit test pins it to `synthetic-health.json`.
+  - **No traffic is no data, not NaN.** The 5xx, model-error and log-turn rules divide or take a quantile over a window that can be empty. Their denominator carries `> 0`, so an idle window returns no series, and `noDataState: OK` keeps it quiet. Site down uses `noDataState: Alerting` instead, because there, silence is the failure; *No telemetry in 15 min* gets the same effect from `absent_over_time`.
+  - **What a rule may name.** `tests/unit/test_grafana_alerts.py` builds what the stack emits from `OtelMetrics` (named as OTLP becomes Prometheus: `http_server_request_duration_seconds_count`, `job` from `service.name`), Alloy's keep list and fixed `instance`, the probe's labels, the `service` and `job` stream labels, and the scripts that print each job's outcome lines. Every metric, label, label value and line filter in a rule must be in that set.
+  - **Amended 2026-10-26, at the owner's direction (#277): the dead-Alloy alert is on metrics, not logs.**
+    - The Decision first said "no log line received from the host in 15 min". On the idle smoke stack, Loki then received no line at all for 80 minutes while Alloy was healthy. The app drops `/health` lines, Caddy has no access log, and an idle deploy poll prints nothing. So that rule would page on most quiet nights.
+    - The rule is now *No telemetry in 15 min*: `absent_over_time(node_load1{instance="ai-trainer-prod", job="integrations/unix"}[15m])`. Alloy writes host metrics every 60 s whatever the traffic, and one token covers logs, metrics and traces, so a dead Alloy, an expired token or a dead host fires it.
+    - A break that stops only logs, such as a wrong Loki URL, shows up as *No backup in 26 h*, because the backup's outcome is itself a log line.
+    - That takes up to 26 hours, and until then *Scheduled job failed* is blind. A break in the app's OTLP export alone, such as a wrong OTLP URL or a token without the traces or metrics scope, alerts nothing: the app-metric rules treat no data as OK. RUNBOOK 11.4 checks both paths at setup, and the owner checks them again after changing `alloy.env`.
+  - Probe IDs belong to the stack, so `synthetic-health.json` leaves `probes` empty and its target as `https://__SITE_HOST__/health`. The owner fills both in, or creates the check in the UI from the same values (RUNBOOK 11.7).
 - **Flagged, to resolve in the tickets:**
   - Grafana Cloud free-tier quotas (active series, log GB, retention, Synthetic Monitoring executions) were not checked here. The owner checks them on the stack page before the dashboard and alert tickets, and the sampling ratio and drop rules are tuned to fit.

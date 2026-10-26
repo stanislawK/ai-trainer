@@ -1,0 +1,19 @@
+{
+  "job": "ai-trainer-health",
+  "target": "https://__SITE_HOST__/health",
+  "enabled": true,
+  "frequency": 60000,
+  "timeout": 10000,
+  "probes": [],
+  "labels": [],
+  "basicMetricsOnly": true,
+  "alertSensitivity": "none",
+  "settings": {
+    "http": {
+      "validStatusCodes": [200],
+      "failIfNotSSL": true,
+      "noFollowRedirects": true,
+      "failIfBodyNotMatchesRegexp": ["\"database\":\"ok\""]
+    }
+  }
+}

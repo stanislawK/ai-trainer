@@ -1,0 +1,545 @@
+{
+  "title": "ai-trainer",
+  "folderUid": "ai-trainer",
+  "interval": 60,
+  "rules": [
+    {
+      "uid": "ai-trainer-site-down",
+      "title": "Site down",
+      "folderUID": "ai-trainer",
+      "ruleGroup": "ai-trainer",
+      "orgID": 1,
+      "condition": "B",
+      "data": [
+        {
+          "refId": "A",
+          "queryType": "",
+          "relativeTimeRange": {
+            "from": 300,
+            "to": 0
+          },
+          "datasourceUid": "__PROMETHEUS_UID__",
+          "model": {
+            "refId": "A",
+            "expr": "max(probe_success{job=\"ai-trainer-health\"})",
+            "instant": true,
+            "range": false,
+            "intervalMs": 60000,
+            "maxDataPoints": 43200
+          }
+        },
+        {
+          "refId": "B",
+          "queryType": "",
+          "relativeTimeRange": {
+            "from": 0,
+            "to": 0
+          },
+          "datasourceUid": "__expr__",
+          "model": {
+            "refId": "B",
+            "type": "threshold",
+            "expression": "A",
+            "datasource": {
+              "type": "__expr__",
+              "uid": "__expr__"
+            },
+            "conditions": [
+              {
+                "evaluator": {
+                  "type": "lt",
+                  "params": [
+                    1
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "noDataState": "Alerting",
+      "execErrState": "Error",
+      "for": "2m",
+      "annotations": {
+        "summary": "The site is down",
+        "description": "No Synthetic Monitoring probe has reached /health with \"database\":\"ok\" for 2 minutes, or the check stopped reporting. Check Cloudflare, Caddy, the app and the database (RUNBOOK 11.7).",
+        "runbook_url": "https://github.com/stanislawK/ai-trainer/blob/main/deploy/RUNBOOK.md#117-alerts"
+      },
+      "labels": {
+        "service": "ai-trainer"
+      },
+      "isPaused": false
+    },
+    {
+      "uid": "ai-trainer-http-5xx",
+      "title": "5xx above 5%",
+      "folderUID": "ai-trainer",
+      "ruleGroup": "ai-trainer",
+      "orgID": 1,
+      "condition": "B",
+      "data": [
+        {
+          "refId": "A",
+          "queryType": "",
+          "relativeTimeRange": {
+            "from": 600,
+            "to": 0
+          },
+          "datasourceUid": "__PROMETHEUS_UID__",
+          "model": {
+            "refId": "A",
+            "expr": "sum(rate(http_server_request_duration_seconds_count{job=\"ai-trainer\", http_response_status_class=\"5xx\"}[10m])) / (sum(rate(http_server_request_duration_seconds_count{job=\"ai-trainer\"}[10m])) > 0)",
+            "instant": true,
+            "range": false,
+            "intervalMs": 60000,
+            "maxDataPoints": 43200
+          }
+        },
+        {
+          "refId": "B",
+          "queryType": "",
+          "relativeTimeRange": {
+            "from": 0,
+            "to": 0
+          },
+          "datasourceUid": "__expr__",
+          "model": {
+            "refId": "B",
+            "type": "threshold",
+            "expression": "A",
+            "datasource": {
+              "type": "__expr__",
+              "uid": "__expr__"
+            },
+            "conditions": [
+              {
+                "evaluator": {
+                  "type": "gt",
+                  "params": [
+                    0.05
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "noDataState": "OK",
+      "execErrState": "Error",
+      "for": "0s",
+      "annotations": {
+        "summary": "More than 5% of requests failed with a 5xx",
+        "description": "Over the last 10 minutes more than 5% of the app's requests answered 5xx. The app's JSON lines carry the request_id and trace_id of each.",
+        "runbook_url": "https://github.com/stanislawK/ai-trainer/blob/main/deploy/RUNBOOK.md#117-alerts"
+      },
+      "labels": {
+        "service": "ai-trainer"
+      },
+      "isPaused": false
+    },
+    {
+      "uid": "ai-trainer-log-turn-p95",
+      "title": "Log turn p95 above 10 s",
+      "folderUID": "ai-trainer",
+      "ruleGroup": "ai-trainer",
+      "orgID": 1,
+      "condition": "B",
+      "data": [
+        {
+          "refId": "A",
+          "queryType": "",
+          "relativeTimeRange": {
+            "from": 1800,
+            "to": 0
+          },
+          "datasourceUid": "__PROMETHEUS_UID__",
+          "model": {
+            "refId": "A",
+            "expr": "histogram_quantile(0.95, sum by (le) (rate(ai_trainer_log_turn_duration_seconds_bucket{job=\"ai-trainer\"}[30m]))) and on () (sum(rate(ai_trainer_log_turn_duration_seconds_count{job=\"ai-trainer\"}[30m])) > 0)",
+            "instant": true,
+            "range": false,
+            "intervalMs": 60000,
+            "maxDataPoints": 43200
+          }
+        },
+        {
+          "refId": "B",
+          "queryType": "",
+          "relativeTimeRange": {
+            "from": 0,
+            "to": 0
+          },
+          "datasourceUid": "__expr__",
+          "model": {
+            "refId": "B",
+            "type": "threshold",
+            "expression": "A",
+            "datasource": {
+              "type": "__expr__",
+              "uid": "__expr__"
+            },
+            "conditions": [
+              {
+                "evaluator": {
+                  "type": "gt",
+                  "params": [
+                    10
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "noDataState": "OK",
+      "execErrState": "Error",
+      "for": "0s",
+      "annotations": {
+        "summary": "Logging is slow: p95 above 10 s (G14)",
+        "description": "Over the last 30 minutes the 95th percentile from sending a log to its draft card was above 10 s (PRD 0008 G14). Compare ai_trainer_llm_call_duration_seconds by template and model, and the upstream's latency on OpenRouter.",
+        "runbook_url": "https://github.com/stanislawK/ai-trainer/blob/main/deploy/RUNBOOK.md#117-alerts"
+      },
+      "labels": {
+        "service": "ai-trainer"
+      },
+      "isPaused": false
+    },
+    {
+      "uid": "ai-trainer-model-call-errors",
+      "title": "Model-call errors above 20%",
+      "folderUID": "ai-trainer",
+      "ruleGroup": "ai-trainer",
+      "orgID": 1,
+      "condition": "B",
+      "data": [
+        {
+          "refId": "A",
+          "queryType": "",
+          "relativeTimeRange": {
+            "from": 900,
+            "to": 0
+          },
+          "datasourceUid": "__PROMETHEUS_UID__",
+          "model": {
+            "refId": "A",
+            "expr": "sum(rate(ai_trainer_llm_call_duration_seconds_count{job=\"ai-trainer\", outcome=~\"error|timeout\"}[15m])) / (sum(rate(ai_trainer_llm_call_duration_seconds_count{job=\"ai-trainer\", outcome!=\"cancelled\"}[15m])) > 0)",
+            "instant": true,
+            "range": false,
+            "intervalMs": 60000,
+            "maxDataPoints": 43200
+          }
+        },
+        {
+          "refId": "B",
+          "queryType": "",
+          "relativeTimeRange": {
+            "from": 0,
+            "to": 0
+          },
+          "datasourceUid": "__expr__",
+          "model": {
+            "refId": "B",
+            "type": "threshold",
+            "expression": "A",
+            "datasource": {
+              "type": "__expr__",
+              "uid": "__expr__"
+            },
+            "conditions": [
+              {
+                "evaluator": {
+                  "type": "gt",
+                  "params": [
+                    0.2
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "noDataState": "OK",
+      "execErrState": "Error",
+      "for": "0s",
+      "annotations": {
+        "summary": "More than 20% of model calls failed",
+        "description": "Over the last 15 minutes more than 20% of model calls ended in error or timeout (cancelled calls are left out). Check the llm_calls rows and OpenRouter's status for the models involved.",
+        "runbook_url": "https://github.com/stanislawK/ai-trainer/blob/main/deploy/RUNBOOK.md#117-alerts"
+      },
+      "labels": {
+        "service": "ai-trainer"
+      },
+      "isPaused": false
+    },
+    {
+      "uid": "ai-trainer-backup-missing",
+      "title": "No backup in 26 h",
+      "folderUID": "ai-trainer",
+      "ruleGroup": "ai-trainer",
+      "orgID": 1,
+      "condition": "B",
+      "data": [
+        {
+          "refId": "A",
+          "queryType": "instant",
+          "relativeTimeRange": {
+            "from": 93600,
+            "to": 0
+          },
+          "datasourceUid": "__LOKI_UID__",
+          "model": {
+            "refId": "A",
+            "expr": "absent_over_time({job=\"backup\"} |= \"backup: result=ok\" [26h])",
+            "instant": true,
+            "range": false,
+            "intervalMs": 60000,
+            "maxDataPoints": 43200,
+            "queryType": "instant"
+          }
+        },
+        {
+          "refId": "B",
+          "queryType": "",
+          "relativeTimeRange": {
+            "from": 0,
+            "to": 0
+          },
+          "datasourceUid": "__expr__",
+          "model": {
+            "refId": "B",
+            "type": "threshold",
+            "expression": "A",
+            "datasource": {
+              "type": "__expr__",
+              "uid": "__expr__"
+            },
+            "conditions": [
+              {
+                "evaluator": {
+                  "type": "gt",
+                  "params": [
+                    0
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "noDataState": "OK",
+      "execErrState": "Error",
+      "for": "0s",
+      "annotations": {
+        "summary": "No successful backup in 26 hours (G13)",
+        "description": "No backup: result=ok line arrived in 26 hours (PRD 0008 G13). Check journalctl -u ai-trainer-backup.service on the server (RUNBOOK 8).",
+        "runbook_url": "https://github.com/stanislawK/ai-trainer/blob/main/deploy/RUNBOOK.md#117-alerts"
+      },
+      "labels": {
+        "service": "ai-trainer"
+      },
+      "isPaused": false
+    },
+    {
+      "uid": "ai-trainer-job-failed",
+      "title": "Scheduled job failed",
+      "folderUID": "ai-trainer",
+      "ruleGroup": "ai-trainer",
+      "orgID": 1,
+      "condition": "B",
+      "data": [
+        {
+          "refId": "A",
+          "queryType": "instant",
+          "relativeTimeRange": {
+            "from": 3600,
+            "to": 0
+          },
+          "datasourceUid": "__LOKI_UID__",
+          "model": {
+            "refId": "A",
+            "expr": "sum by (job) (count_over_time({job=~\"backup|purge|deploy\"} |= \"result=failed\" [1h]))",
+            "instant": true,
+            "range": false,
+            "intervalMs": 60000,
+            "maxDataPoints": 43200,
+            "queryType": "instant"
+          }
+        },
+        {
+          "refId": "B",
+          "queryType": "",
+          "relativeTimeRange": {
+            "from": 0,
+            "to": 0
+          },
+          "datasourceUid": "__expr__",
+          "model": {
+            "refId": "B",
+            "type": "threshold",
+            "expression": "A",
+            "datasource": {
+              "type": "__expr__",
+              "uid": "__expr__"
+            },
+            "conditions": [
+              {
+                "evaluator": {
+                  "type": "gt",
+                  "params": [
+                    0
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "noDataState": "OK",
+      "execErrState": "Error",
+      "for": "0s",
+      "annotations": {
+        "summary": "The {{ $labels.job }} job failed",
+        "description": "A {{ $labels.job }}: result=failed line arrived in the last hour. Its reason is on that line; journalctl -u ai-trainer-{{ $labels.job }}.service has the run. The alert clears an hour after the last failed line.",
+        "runbook_url": "https://github.com/stanislawK/ai-trainer/blob/main/deploy/RUNBOOK.md#117-alerts"
+      },
+      "labels": {
+        "service": "ai-trainer"
+      },
+      "isPaused": false
+    },
+    {
+      "uid": "ai-trainer-disk",
+      "title": "Disk above 80%",
+      "folderUID": "ai-trainer",
+      "ruleGroup": "ai-trainer",
+      "orgID": 1,
+      "condition": "B",
+      "data": [
+        {
+          "refId": "A",
+          "queryType": "",
+          "relativeTimeRange": {
+            "from": 600,
+            "to": 0
+          },
+          "datasourceUid": "__PROMETHEUS_UID__",
+          "model": {
+            "refId": "A",
+            "expr": "1 - node_filesystem_avail_bytes{instance=\"ai-trainer-prod\", mountpoint=\"/\"} / node_filesystem_size_bytes{instance=\"ai-trainer-prod\", mountpoint=\"/\"}",
+            "instant": true,
+            "range": false,
+            "intervalMs": 60000,
+            "maxDataPoints": 43200
+          }
+        },
+        {
+          "refId": "B",
+          "queryType": "",
+          "relativeTimeRange": {
+            "from": 0,
+            "to": 0
+          },
+          "datasourceUid": "__expr__",
+          "model": {
+            "refId": "B",
+            "type": "threshold",
+            "expression": "A",
+            "datasource": {
+              "type": "__expr__",
+              "uid": "__expr__"
+            },
+            "conditions": [
+              {
+                "evaluator": {
+                  "type": "gt",
+                  "params": [
+                    0.8
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "noDataState": "OK",
+      "execErrState": "Error",
+      "for": "10m",
+      "annotations": {
+        "summary": "The server's disk is more than 80% full",
+        "description": "The root filesystem has been more than 80% full for 10 minutes. docker system df and journalctl --disk-usage show the usual suspects.",
+        "runbook_url": "https://github.com/stanislawK/ai-trainer/blob/main/deploy/RUNBOOK.md#117-alerts"
+      },
+      "labels": {
+        "service": "ai-trainer"
+      },
+      "isPaused": false
+    },
+    {
+      "uid": "ai-trainer-no-telemetry",
+      "title": "No telemetry in 15 min",
+      "folderUID": "ai-trainer",
+      "ruleGroup": "ai-trainer",
+      "orgID": 1,
+      "condition": "B",
+      "data": [
+        {
+          "refId": "A",
+          "queryType": "",
+          "relativeTimeRange": {
+            "from": 900,
+            "to": 0
+          },
+          "datasourceUid": "__PROMETHEUS_UID__",
+          "model": {
+            "refId": "A",
+            "expr": "absent_over_time(node_load1{instance=\"ai-trainer-prod\", job=\"integrations/unix\"}[15m])",
+            "instant": true,
+            "range": false,
+            "intervalMs": 60000,
+            "maxDataPoints": 43200
+          }
+        },
+        {
+          "refId": "B",
+          "queryType": "",
+          "relativeTimeRange": {
+            "from": 0,
+            "to": 0
+          },
+          "datasourceUid": "__expr__",
+          "model": {
+            "refId": "B",
+            "type": "threshold",
+            "expression": "A",
+            "datasource": {
+              "type": "__expr__",
+              "uid": "__expr__"
+            },
+            "conditions": [
+              {
+                "evaluator": {
+                  "type": "gt",
+                  "params": [
+                    0
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "noDataState": "OK",
+      "execErrState": "Error",
+      "for": "0s",
+      "annotations": {
+        "summary": "No telemetry from the server in 15 minutes",
+        "description": "No host metric reached Grafana Cloud for 15 minutes. Alloy writes them every 60 s whatever the traffic, so Alloy is down, its token expired, or the host is. On the server: docker ps and docker logs ai-trainer-prod-alloy-1 (RUNBOOK 11.4).",
+        "runbook_url": "https://github.com/stanislawK/ai-trainer/blob/main/deploy/RUNBOOK.md#117-alerts"
+      },
+      "labels": {
+        "service": "ai-trainer"
+      },
+      "isPaused": false
+    }
+  ]
+}
