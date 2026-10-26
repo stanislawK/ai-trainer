@@ -39,6 +39,7 @@ The owner's `solid` project already ships to Grafana Cloud through Grafana Alloy
 - Alloy publishes no port.
 - Alloy does **not** join `edge`. ADR-0023 trusts `X-Forwarded-*` from that whole subnet because Caddy is its only other member there.
 - A new `internal: true` `telemetry` network joins only `app` and `alloy`.
+- A second `internal: true` network, `metrics`, joins only `caddy` and `alloy`, for Caddy's metrics (#273).
 - Alloy joins `backend` for Postgres, and its own `egress` network for Grafana Cloud.
 
 **Secrets.**
@@ -131,6 +132,25 @@ The owner's `solid` project already ships to Grafana Cloud through Grafana Alloy
   - The budget's refusals are split into `model_calls_per_hour` and `model_calls_in_flight`, and the request caps into `sign_in` and `session`.
   - The log-turn duration runs from the athlete message's `created_at` to the first fresh reply that carries a draft. A replayed reply records nothing. A log whose draft follows a choice card isn't timed yet.
   - Histogram buckets are in seconds, given as advisories. The log turn's are dense around G14's 5 s and 10 s. Metrics export every 60 s, because Grafana Cloud bills active series per minute.
+- **Found in the host, Caddy and Postgres metrics ticket (#273):**
+  - **Caddy's metrics have their own network.** They are served by a dedicated site block, `http://10.222.0.10:9180`, bound to Caddy's fixed address on `metrics`. The admin API stays on `localhost:2019`.
+    - Caddy is not put on `telemetry`. It would then share two networks with the app, and Docker's DNS could answer `app` with the app's `telemetry` address. Uvicorn doesn't trust `X-Forwarded-*` from that address (ADR-0023).
+    - The `:443` site has no `metrics` directive, so `/metrics` there reaches the app, whose sign-in gate answers 401.
+    - `internal: true` alone didn't isolate the listener. Under OrbStack, a container on `edge` reached `10.222.0.10:9180` through the host's routing, arriving from the bridge's gateway, `10.222.0.1`. So Alloy has a fixed address too, `10.222.0.20`, and the site serves metrics only to that `remote_ip`; anyone else gets 403.
+    - The two servers are named `public` (443) and `metrics`, so the `server` label doesn't depend on the order of the sites. Alloy drops `server="metrics"`, its own scrapes.
+  - **The monitor role.** `ai_trainer_monitor` is created by an expand-only migration (`e8b1f4c7a2d9`) with `LOGIN` and `pg_monitor`, and no password, since no secret is in the repo.
+    - `deploy/monitor-password.sh` sets the password. It reads only the `POSTGRES_MONITOR_PASSWORD` line of `alloy.env`, never the Grafana keys. The deploy poller runs it after `migrate`, where a failure only warns, and so does `make smoke-up`.
+    - The password goes to `psql` on stdin, in a session with statement logging off: Postgres logs a failed statement's text by default, and Alloy ships the db's logs.
+    - The password is 24 or more letters and digits, so it needs no escaping in the exporter's DSN.
+    - A role belongs to the cluster, so the migration keeps one that already exists, but resets its attributes (`NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS`).
+    - Residual: through `pg_read_all_stats`, the role can read every session's `pg_stat_activity.query`. SQLAlchemy binds values as parameters, so the text holds `$1` placeholders rather than athlete data. The collectors Alloy runs don't read it at all.
+  - **Host metrics.** Mounting the host's `/proc` exposes the host's PID namespace, so `/host/proc/1/mounts` is the host's mount table without `pid: host`.
+    - The network collectors stay off: `/proc/self/net` is still Alloy's own network namespace.
+    - Only the root filesystem is read (`mount_points_exclude = "^/.+"`). The mount table also holds every container's rootfs, which would start new series at every deploy.
+    - `overlay` is allowed, because a VM's root can be one. The smoke run's is, under OrbStack.
+  - **What leaves the host.** One keep list on `__name__` and one fixed `instance` label send about thirty names, each with bounded labels (`mountpoint="/"`, `datname`, Caddy's `server`, `cpu`/`mode`, `device`).
+    - Caddy's request histograms are dropped: the app's `http.server.request.duration` already covers latency.
+    - The Postgres exporter runs only its database-wide collectors (`database`, `locks`, `stat_database`). The rows of `template0`, `template1` and `postgres` are dropped.
+  - **`make alloy-check`** mounts the Docker VM's `/proc`, `/sys` and `/` the way compose does, because `prometheus.exporter.unix` opens them when it is built.
 - **Flagged, to resolve in the tickets:**
-  - Caddy's admin endpoint listens on `localhost:2019` by default. Exposing metrics only on `telemetry` needs either an admin or metrics listener bound there, or a dedicated site block.
   - Grafana Cloud free-tier quotas (active series, log GB, retention, Synthetic Monitoring executions) were not checked here. The owner checks them on the stack page before the dashboard and alert tickets, and the sampling ratio and drop rules are tuned to fit.

@@ -76,7 +76,8 @@ health: ## Curl the running app's health endpoint
 
 # The production stack run locally (#221): a locally built image instead of a registry digest,
 # localhost as the site, and .smoke/ (from `make smoke-setup`) as the config directory.
-SMOKE_COMPOSE = APP_IMAGE=ai-trainer:smoke SITE_HOST=localhost CONFIG_DIR=.smoke docker compose -f compose.prod.yaml
+# `env` makes it one command, so deploy/monitor-password.sh can take it as its arguments.
+SMOKE_COMPOSE = env APP_IMAGE=ai-trainer:smoke SITE_HOST=localhost CONFIG_DIR=.smoke docker compose -f compose.prod.yaml
 
 smoke-setup: ## Write .smoke/: test certificates, a database password and an app .env from yours (#221)
 	./deploy/smoke-setup.sh
@@ -84,6 +85,7 @@ smoke-setup: ## Write .smoke/: test certificates, a database password and an app
 smoke-up: ## Build the image and run compose.prod.yaml locally behind Caddy on https://localhost (#221; needs `make smoke-setup`)
 	docker build -t ai-trainer:smoke .
 	$(SMOKE_COMPOSE) up -d --wait
+	./deploy/monitor-password.sh .smoke/alloy.env $(SMOKE_COMPOSE)
 
 smoke-down: ## Stop the smoke stack (keeps its volumes; add `-v` by hand to drop them)
 	$(SMOKE_COMPOSE) down
@@ -93,14 +95,19 @@ config ?= deploy/alloy/config.alloy
 
 # Placeholders for the load step: no network, so nothing is ever sent.
 ALLOY_CHECK_ENV = -e GRAFANA_CLOUD_OTLP_URL=http://127.0.0.1:1 -e GRAFANA_CLOUD_OTLP_USER=check \
+	-e GRAFANA_CLOUD_METRICS_URL=http://127.0.0.1:1/api/v1/write -e GRAFANA_CLOUD_METRICS_USER=check \
+	-e POSTGRES_MONITOR_PASSWORD=check0123456789abcdef0123 \
 	-e GRAFANA_CLOUD_LOGS_URL=http://127.0.0.1:1/loki/api/v1/push -e GRAFANA_CLOUD_LOGS_USER=check \
 	-e GRAFANA_CLOUD_TOKEN=check
+# prometheus.exporter.unix opens the host's /proc and /sys when it is built, as compose.prod.yaml
+# mounts them (#273); here they are the Docker VM's.
+ALLOY_CHECK_MOUNTS = -v /proc:/host/proc:ro -v /sys:/host/sys:ro -v /:/host/root:ro
 
 alloy-check: ## Format-check, validate and load the Alloy config with the image compose.prod.yaml runs (ADR-0030, #272); `config=<file>` checks another
 	docker run --rm -v "$(abspath $(config)):/check/config.alloy:ro" $(ALLOY_IMAGE) fmt --test /check/config.alloy
-	docker run --rm -v "$(abspath $(config)):/check/config.alloy:ro" $(ALLOY_IMAGE) validate /check/config.alloy
+	docker run --rm $(ALLOY_CHECK_MOUNTS) -v "$(abspath $(config)):/check/config.alloy:ro" $(ALLOY_IMAGE) validate /check/config.alloy
 	@# `validate` skips what fails only when components are built, like a regex RE2 rejects.
-	@cid=$$(docker run -d --network none $(ALLOY_CHECK_ENV) -v "$(abspath $(config)):/check/config.alloy:ro" \
+	@cid=$$(docker run -d --network none $(ALLOY_CHECK_ENV) $(ALLOY_CHECK_MOUNTS) -v "$(abspath $(config)):/check/config.alloy:ro" \
 		$(ALLOY_IMAGE) run --storage.path=/tmp/alloy /check/config.alloy) && sleep 6; \
 	running=$$(docker inspect -f '{{.State.Running}}' $$cid); \
 	[ "$$running" = true ] || docker logs $$cid 2>&1 | grep -E '^Error'; \

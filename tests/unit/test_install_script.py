@@ -17,6 +17,7 @@ HOST_FILES = (
     "deploy/alloy/config.alloy",
     "deploy/deploy.sh",
     "deploy/backup.sh",
+    "deploy/monitor-password.sh",
     "deploy/systemd/ai-trainer-deploy.service",
     "deploy/systemd/ai-trainer-deploy.timer",
     "deploy/systemd/ai-trainer-backup.service",

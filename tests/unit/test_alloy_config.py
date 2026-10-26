@@ -145,7 +145,7 @@ def _shipped(identifier: str) -> str | None:
 
     Alloy's relabel regex is anchored at both ends, and `$1` in `replacement` is its first group.
     """
-    (keep, label) = CONFIG.split('loki.relabel "jobs"', 1)[1].split("rule {")[1:]
+    (keep, label) = JOURNAL.split("rule {")[1:]
     regexes = {_alloy_string("regex", rule)[0] for rule in (keep, label)}
     assert len(regexes) == 1, "the keep rule and the job label must select the same identifiers"
     match = re.fullmatch(regexes.pop(), identifier)
@@ -205,3 +205,194 @@ def test_the_outcome_lines_start_with_the_job_label() -> None:
         ("purge", "src/ai_trainer/cli.py"),
     ):
         assert f"{job}: result=ok" in (ROOT / script).read_text()
+
+
+# ADR-0030 (#273): host, Caddy and Postgres metrics, through one keep list, to remote_write.
+
+METRICS = CONFIG.partition('prometheus.exporter.unix "host"')[2]
+# The three series ticket #273's acceptance looks for on the smoke stack.
+ACCEPTANCE_SERIES = (
+    "node_filesystem_avail_bytes",
+    "caddy_http_requests_total",
+    "pg_stat_database_numbackends",
+)
+
+
+def _block(kind: str, label: str) -> str:
+    """The body of `<kind> "<label>" { … }`, nested blocks included."""
+    start = CONFIG.index(f'{kind} "{label}" {{')
+    depth = 0
+    for index in range(start, len(CONFIG)):
+        if CONFIG[index] == "{":
+            depth += 1
+        elif CONFIG[index] == "}":
+            depth -= 1
+            if depth == 0:
+                return CONFIG[start:index]
+    raise AssertionError(f"{kind} {label} is not closed")
+
+
+def _kept() -> re.Pattern[str]:
+    keep = _block("prometheus.relabel", "kept")
+    (rule,) = [r for r in keep.split("rule {")[1:] if _alloy_string("action", r) == ["keep"]]
+    (source,) = re.findall(r"source_labels\s*=\s*\[([^\]]*)\]", rule)
+    assert json.loads(f"[{source}]") == ["__name__"]
+    (regex,) = _alloy_string("regex", rule)
+    # Alloy's relabel regex is anchored at both ends.
+    return re.compile(f"^(?:{regex})$")
+
+
+def test_the_host_exporter_reads_the_hosts_proc_sys_and_root(compose: dict[str, Any]) -> None:
+    """Without them it reports the Alloy container, not the VPS (ADR-0030, the `solid` gotcha)."""
+    unix = _block("prometheus.exporter.unix", "host")
+    volumes = compose["services"]["alloy"]["volumes"]
+    for argument, host in (("procfs_path", "/proc"), ("sysfs_path", "/sys"), ("rootfs_path", "/")):
+        (path,) = _alloy_string(argument, unix)
+        mounts = [v for v in volumes if v.split(":")[:2] == [host, path]]
+        assert len(mounts) == 1, (argument, volumes)
+        assert mounts[0].split(":")[2].split(",")[0] == "ro"
+
+
+def test_every_scrape_goes_through_the_keep_list() -> None:
+    scrapes = re.findall(r'prometheus\.scrape "([a-z_]+)"', CONFIG)
+    assert sorted(scrapes) == ["caddy", "host", "postgres"]
+    for name in scrapes:
+        scrape = _block("prometheus.scrape", name)
+        assert re.search(r"forward_to\s*=\s*\[prometheus\.relabel\.kept\.receiver\]", scrape)
+        # Grafana Cloud bills active series per minute; the app exports every 60 s too (#275).
+        assert _alloy_string("scrape_interval", scrape) == ["60s"]
+    kept = _block("prometheus.relabel", "kept")
+    remote = r"forward_to\s*=\s*\[prometheus\.remote_write\.grafana_cloud\.receiver\]"
+    assert re.search(remote, kept)
+    assert CONFIG.count("prometheus.remote_write.grafana_cloud.receiver") == 1
+
+
+@pytest.mark.parametrize("series", ACCEPTANCE_SERIES)
+def test_the_acceptance_series_are_kept(series: str) -> None:
+    assert _kept().match(series)
+
+
+@pytest.mark.parametrize(
+    "series",
+    [
+        "node_network_receive_bytes_total",
+        "node_scrape_collector_duration_seconds",
+        "caddy_http_request_duration_seconds_bucket",
+        "caddy_admin_http_requests_total",
+        "go_goroutines",
+        "process_resident_memory_bytes",
+        "pg_stat_user_tables_n_live_tup",
+        "pg_exporter_last_scrape_duration_seconds",
+        "up",
+    ],
+)
+def test_series_outside_the_keep_list_are_dropped(series: str) -> None:
+    assert not _kept().match(series)
+
+
+def test_every_target_gets_one_fixed_instance_label() -> None:
+    """A container hostname as `instance` would start new series at every recreate."""
+    kept = _block("prometheus.relabel", "kept")
+    labels = _alloy_string("target_label", kept)
+    assert labels == ["instance"]
+    for unbounded in ("user_id", "request_id"):
+        assert unbounded not in METRICS
+
+
+def test_metrics_are_written_with_the_metrics_credentials() -> None:
+    remote = _block("prometheus.remote_write", "grafana_cloud")
+    used = re.findall(r'sys\.env\("([A-Z0-9_]+)"\)', remote)
+    assert used == [
+        "GRAFANA_CLOUD_METRICS_URL",
+        "GRAFANA_CLOUD_METRICS_USER",
+        "GRAFANA_CLOUD_TOKEN",
+    ]
+
+
+def test_postgres_is_read_as_the_monitor_role_on_the_backend_network(
+    compose: dict[str, Any],
+) -> None:
+    postgres = _block("prometheus.exporter.postgres", "app")
+    assert re.search(
+        r'"postgresql://ai_trainer_monitor:"\s*\+\s*sys\.env\("POSTGRES_MONITOR_PASSWORD"\)'
+        r'\s*\+\s*"@db:5432/ai_trainer\?sslmode=disable"',
+        postgres,
+    ), postgres
+    assert "backend" in compose["services"]["alloy"]["networks"]
+    # Rows of user tables are never queried: the per-table collectors stay off.
+    assert "stat_user_tables" not in postgres
+    assert "statio_user_tables" not in postgres
+
+
+def test_caddy_is_scraped_on_its_metrics_listener(compose: dict[str, Any]) -> None:
+    caddy = compose["services"]["caddy"]["networks"]["metrics"]["ipv4_address"]
+    scrape = _block("prometheus.scrape", "caddy")
+    (address,) = re.findall(r'"__address__"\s*=\s*"([^"]+)"', scrape)
+    assert address == f"{caddy}:9180"
+
+
+def test_every_key_alloy_reads_is_given_by_alloy_check_and_the_smoke_setup() -> None:
+    """A key `alloy-check` lacks fails it; one smoke-setup lacks leaves the smoke stack dark."""
+    used = set(re.findall(r'sys\.env\("([A-Z0-9_]+)"\)', CONFIG))
+    makefile = (ROOT / "Makefile").read_text()
+    check_env = makefile.split("\nALLOY_CHECK_ENV = ", 1)[1].split("\n\n", 1)[0]
+    assert set(re.findall(r"-e ([A-Z0-9_]+)=", check_env)) == used
+    smoke = (ROOT / "deploy/smoke-setup.sh").read_text().split("<<'ALLOY'", 1)[1]
+    smoke = smoke.split("\nALLOY\n", 1)[0]
+    assert set(re.findall(r"^([A-Z0-9_]+)=", smoke, re.MULTILINE)) == used - {
+        "POSTGRES_MONITOR_PASSWORD"
+    }
+    # The smoke password is random, written apart from the heredoc.
+    assert "POSTGRES_MONITOR_PASSWORD=" in (ROOT / "deploy/smoke-setup.sh").read_text()
+
+
+def test_only_the_host_root_filesystem_is_read() -> None:
+    """The disk alert's filesystem (#277). The host's mount table also holds every container's
+    rootfs, which would start new series at every deploy."""
+    filesystem = _block("prometheus.exporter.unix", "host").split("filesystem {", 1)[1]
+    (exclude,) = _alloy_string("mount_points_exclude", filesystem)
+    pattern = re.compile(exclude)
+    assert not pattern.search("/")
+    for mount in (
+        "/boot/efi",
+        "/var/lib/docker/overlay2/0123abcd/merged",
+        "/run/containerd/io.containerd.runtime.v2.task/moby/0123abcd/rootfs",
+        "/opt/ai-trainer",
+    ):
+        assert pattern.search(mount), mount
+
+
+@pytest.mark.parametrize(
+    ("labels", "kept"),
+    [
+        ({"__name__": "caddy_http_requests_total", "server": "public"}, True),
+        ({"__name__": "caddy_http_requests_total", "server": "metrics"}, False),
+        ({"__name__": "pg_stat_database_numbackends", "datname": "ai_trainer"}, True),
+        ({"__name__": "pg_stat_database_numbackends", "datname": "template0"}, False),
+        ({"__name__": "pg_stat_database_numbackends", "datname": "template1"}, False),
+        ({"__name__": "pg_stat_database_numbackends", "datname": "postgres"}, False),
+        ({"__name__": "pg_up"}, True),
+        ({"__name__": "node_load1"}, True),
+    ],
+)
+def test_alloys_own_scrapes_and_the_template_databases_are_dropped(
+    labels: dict[str, str], kept: bool
+) -> None:
+    """The `drop` rules as Alloy documents them: anchored regex on the joined source labels,
+    an absent label read as empty."""
+    relabel = _block("prometheus.relabel", "kept")
+    survives = bool(_kept().match(labels["__name__"]))
+    for rule in relabel.split("rule {")[1:]:
+        if _alloy_string("action", rule) != ["drop"]:
+            continue
+        (source,) = re.findall(r"source_labels\s*=\s*\[([^\]]*)\]", rule)
+        (name,) = json.loads(f"[{source}]")
+        (regex,) = _alloy_string("regex", rule)
+        if re.fullmatch(regex, labels.get(name, "")):
+            survives = False
+    assert survives is kept
+
+
+def test_caddys_metrics_server_name_is_the_one_alloy_drops() -> None:
+    caddyfile = (ROOT / "deploy/Caddyfile").read_text()
+    assert re.search(r"servers \S+:9180 \{\s*name metrics\b", caddyfile)

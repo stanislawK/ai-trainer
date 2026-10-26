@@ -366,15 +366,19 @@ A failing attestation (AC 2) and a failing health check (AC 4) can't be staged s
 
 ## 11. Telemetry to Grafana Cloud
 
-Source: ADR-0030 *Pipeline*, *Secrets*, invariants 1, 2, 5 and 6; PRD 0008 G12. Ticket #272.
+Source: ADR-0030 *Pipeline*, *Secrets*, invariants 1, 2, 5 and 6; PRD 0008 G12. Tickets #272, #273.
 
-The `alloy` service relays two things to one Grafana Cloud stack:
+The `alloy` service relays these to one Grafana Cloud stack:
 
 - **The app's traces**: OTLP over the internal `telemetry` network to `alloy:4318`.
 - **This project's container logs**: read through the Docker socket and labelled by compose service (`app`, `caddy`, `db`, `alloy`), with email-shaped values masked.
 - **The scheduled jobs' outcomes** (ticket #274): the host's journal, mounted read-only with `/etc/machine-id`, keeping only the `ai-trainer-backup`, `ai-trainer-purge` and `ai-trainer-deploy` syslog identifiers. Each line is labelled `job` (`backup`, `purge`, `deploy`). A run ends on `<job>: result=ok …` or `<job>: result=failed …`, with no secret and no row data; an idle deploy poll prints nothing. Every other unit's lines stay on the host.
+- **Host, Caddy and Postgres metrics** (ticket #273), every 60 s, through one keep list. Series outside it are dropped on the host.
+  - **Host:** CPU, load, memory, pressure and disk I/O, plus the root filesystem's size and free space. They come from the host's `/proc`, `/sys` and `/`, mounted read-only.
+  - **Caddy:** requests, errors and upstream health, under `server="public"`. Caddy serves them only at `10.222.0.10:9180` on the internal `metrics` network, and only to Alloy's fixed address there, `10.222.0.20`. Anyone else gets 403, and nothing goes through 443.
+  - **Postgres:** `pg_up`, connections per database, commits, rollbacks, deadlocks, locks and database size. They are read as `ai_trainer_monitor`, a login role with `pg_monitor` only, which can read no app table, over `backend`.
 
-Alloy publishes no port and is never on `edge`. Only it reads `/opt/ai-trainer/alloy.env`, the one place a Grafana Cloud credential lives: never the app's `.env`, the repo, the image or CI. Without that file Alloy can't build its exporters and restarts in a loop, shipping nothing. Nothing depends on it, so no request, deploy, backup or purge fails over it.
+Alloy publishes no port and is never on `edge`. Only it reads the Grafana Cloud keys in `/opt/ai-trainer/alloy.env`, the one place a Grafana Cloud credential lives: never the app's `.env`, the repo, the image or CI. Without that file Alloy can't build its exporters and restarts in a loop, shipping nothing. Nothing depends on it, so no request, deploy, backup or purge fails over it.
 
 `migrate` runs for a few seconds, usually too short for Alloy to tail. Its output is in the deploy unit's journal (`journalctl -u ai-trainer-deploy.service`), which Alloy ships under `job="deploy"`.
 
@@ -385,10 +389,11 @@ Agents never sign in to Grafana Cloud or call its API. Every step here is yours.
 1. Create the stack, or pick the existing one, in the region nearest the host (EU).
 2. On the stack's **OpenTelemetry** *Details* page, note the **OTLP endpoint** and the **instance ID**.
 3. On the stack's **Loki** *Details* page, note the **URL**, ending in `/loki/api/v1/push`, and the **user**, a number.
-4. **Access Policies** → *Create access policy*:
+4. On the stack's **Prometheus** *Details* page, note the **Remote Write Endpoint**, ending in `/api/prom/push`, and the **user**, a number.
+5. **Access Policies** → *Create access policy*:
    - **Realm:** this stack.
    - **Scopes:** `traces:write`, `logs:write` and `metrics:write`, and nothing else. `metrics:write` is for the metrics tickets (#273, #275).
-5. *Add token* on that policy and copy it once. Set its expiry, and a calendar reminder a week before. An expired token stops all shipping, which the "no log line in 15 min" alert (#277) reports.
+6. *Add token* on that policy and copy it once. Set its expiry, and a calendar reminder a week before. An expired token stops all shipping, which the "no log line in 15 min" alert (#277) reports.
 
 ### 11.2 Install on the server
 
@@ -396,7 +401,7 @@ Agents never sign in to Grafana Cloud or call its API. Every step here is yours.
 
 ```sh
 umask 077
-cat > /opt/ai-trainer/alloy.env   # paste the five lines below with your values, Enter, then Ctrl-D
+cat > /opt/ai-trainer/alloy.env   # paste the eight lines below with your values, Enter, then Ctrl-D
 ls -l /opt/ai-trainer/alloy.env   # -rw------- deploy deploy
 cd /opt/ai-trainer && set -a && . ./deploy.env && set +a && export APP_IMAGE=$(cat app-image)
 docker compose -f compose.prod.yaml config --quiet && echo ok   # must print ok; see below
@@ -408,10 +413,21 @@ GRAFANA_CLOUD_OTLP_URL=<OTLP endpoint>
 GRAFANA_CLOUD_OTLP_USER=<instance ID>
 GRAFANA_CLOUD_LOGS_URL=<Loki URL>/loki/api/v1/push
 GRAFANA_CLOUD_LOGS_USER=<Loki user>
+GRAFANA_CLOUD_METRICS_URL=<Remote Write Endpoint>
+GRAFANA_CLOUD_METRICS_USER=<Prometheus user>
 GRAFANA_CLOUD_TOKEN=<token>
+POSTGRES_MONITOR_PASSWORD=<output of: openssl rand -hex 24>
 ```
 
 [`alloy.env.example`](alloy.env.example) lists the same keys. Alloy reads the file only when its container is created, so recreate it after every change, as above. Before the first deploy there is no `app-image` yet, so skip the last command: the first deploy starts Alloy with the file in place.
+
+`POSTGRES_MONITOR_PASSWORD` is the one key Alloy doesn't send anywhere: it is the password of the database role `ai_trainer_monitor`. A migration creates the role without a password, since no secret is in the repo. [`monitor-password.sh`](monitor-password.sh) sets the password from this file, reading only that line. It needs 24 or more letters and digits; anything else is refused and nothing is set.
+
+Every deploy runs it after `migrate`. A failure there only warns (`the monitor password was not set; Postgres metrics are off until it is`) and the release still ships. After changing the password, set it yourself, then recreate Alloy as above:
+
+```sh
+deploy/monitor-password.sh /opt/ai-trainer/alloy.env docker compose -f compose.prod.yaml   # monitor-password: result=ok role=ai_trainer_monitor
+```
 
 A missing `alloy.env` is fine, but a broken one is not. A stray line (`key cannot contain a space`), a mode the `deploy` user can't read, or a directory at that path fails *every* compose command on this file. That would make the next deploy fail before `db` starts. `config --quiet` catches all three, so don't skip it after editing the file.
 
@@ -448,6 +464,18 @@ Run on the server (`ssh deploy@<ip>`) unless noted.
 | 2 | Outcome lines arrive | start `ai-trainer-backup.service` and `ai-trainer-purge.service` with `sudo systemctl start`, then laptop, Grafana Cloud → Explore → Loki: `{job=~"backup\|purge\|deploy"}` | `backup: result=ok kind=nightly` under `job="backup"` and `purge: result=ok deleted=<n>` under `job="purge"` within a minute |
 | 3 | Nothing else is shipped | Explore → Loki: the label browser for `job` | only `backup`, `purge` and `deploy`; no `sshd`, `sudo` or other unit's lines |
 | 4 | A failure arrives | before go-live only: `docker stop ai-trainer-prod-app-1`, `sudo systemctl start ai-trainer-purge.service`, `docker start ai-trainer-prod-app-1`, then Explore → Loki: `{job="purge"} \|= "result=failed"` | one `purge: result=failed` line; run `sudo systemctl reset-failed ai-trainer-purge.service` afterwards |
+
+### 11.6 Checks (ticket #273 acceptance)
+
+| # | Check | Command | Expected |
+|---|---|---|---|
+| 1 | Password set | `journalctl -u ai-trainer-deploy.service --no-pager \| grep -c 'monitor password was not set'` after the first deploy with this ticket | `0` |
+| 2 | Metrics arrive | laptop, Grafana Cloud → Explore → Prometheus: `node_filesystem_avail_bytes{mountpoint="/"}`, `caddy_http_requests_total`, `pg_stat_database_numbackends{datname="ai_trainer"}` | one recent series each for the root filesystem and the database, all with `instance="ai-trainer-prod"`; Caddy's under `server="public"` |
+| 3 | The VPS, not the container | Explore → Prometheus: `node_filesystem_size_bytes{mountpoint="/"}` and `node_memory_MemTotal_bytes` | about the CX23's 40 GB disk and 4 GB memory, not Alloy's 256 MiB limit |
+| 4 | Nothing on 443 | laptop: `curl -s https://<domain>/metrics \| grep -c '^caddy_'` | `0` |
+| 4a | Not from the app either | `docker exec ai-trainer-prod-app-1 python -c "import urllib.request as u; print(u.urlopen('http://10.222.0.10:9180/metrics', timeout=5).status)"` | an error: `HTTP Error 403`, or no route at all; never `200` |
+| 5 | The role reads no app table | `docker exec ai-trainer-prod-db-1 psql -U ai_trainer -d ai_trainer -c "SET ROLE ai_trainer_monitor; SELECT 1 FROM users LIMIT 1"` | `ERROR:  permission denied for table users` |
+| 6 | Only the kept series | Explore → Prometheus: `count by (__name__) ({instance="ai-trainer-prod", job=~"integrations/.+"})` | about thirty names, all `node_`, `caddy_` or `pg_` |
 
 ## Provisioning record
 

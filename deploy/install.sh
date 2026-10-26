@@ -36,6 +36,7 @@ files=(
   "deploy/alloy/config.alloy|/opt/ai-trainer/deploy/alloy/config.alloy|0644|deploy"
   "deploy/deploy.sh|/opt/ai-trainer/deploy/deploy.sh|0755|deploy"
   "deploy/backup.sh|/opt/ai-trainer/deploy/backup.sh|0755|deploy"
+  "deploy/monitor-password.sh|/opt/ai-trainer/deploy/monitor-password.sh|0755|deploy"
   "deploy/systemd/ai-trainer-deploy.service|/etc/systemd/system/ai-trainer-deploy.service|0644|root"
   "deploy/systemd/ai-trainer-deploy.timer|/etc/systemd/system/ai-trainer-deploy.timer|0644|root"
   "deploy/systemd/ai-trainer-backup.service|/etc/systemd/system/ai-trainer-backup.service|0644|root"
