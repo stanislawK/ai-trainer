@@ -167,6 +167,12 @@ services:
     volumes:
       - ./deploy/alloy/config.alloy:/etc/alloy/config.alloy:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      # The host journal for the scheduled jobs' outcome lines (ADR-0030, #274): persistent
+      # storage under /var/log/journal, the volatile one under /run/log/journal, and the machine
+      # ID the journal files are named by.
+      - /var/log/journal:/var/log/journal:ro
+      - /run/log/journal:/run/log/journal:ro
+      - /etc/machine-id:/etc/machine-id:ro
       - alloy_data:/data
     networks:
       - telemetry

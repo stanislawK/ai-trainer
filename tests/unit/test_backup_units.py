@@ -3,6 +3,9 @@ oneshot service as `deploy` reading its R2 credentials from a 0600 env file, and
 catches up on a missed night."""
 
 import configparser
+import os
+import shlex
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -94,3 +97,35 @@ def test_backup_env_example_lists_every_setting_with_no_real_value() -> None:
     assert settings["RCLONE_CONFIG_R2_NO_CHECK_BUCKET"] == "true"
     assert settings["RCLONE_CONFIG_R2_ACCESS_KEY_ID"] == ""
     assert settings["RCLONE_CONFIG_R2_SECRET_ACCESS_KEY"] == ""
+
+
+def test_service_logs_under_the_identifier_alloy_keeps(service: configparser.ConfigParser) -> None:
+    # Without it the journal labels the lines `backup.sh` and Alloy ships none (ADR-0030, #274).
+    assert service["Service"]["SyslogIdentifier"] == "ai-trainer-backup"
+
+
+@pytest.mark.parametrize(
+    ("result", "printed"),
+    [
+        ("timeout", "backup: result=failed reason=killed\n"),
+        ("signal", "backup: result=failed reason=killed\n"),
+        # backup.sh printed its own line in these; a second would make two.
+        ("success", ""),
+        ("exit-code", ""),
+    ],
+)
+def test_a_killed_run_gets_its_failed_outcome_line_from_the_unit(
+    service: configparser.ConfigParser, result: str, printed: str
+) -> None:
+    """KillSignal=SIGKILL leaves backup.sh no chance to print one (ADR-0030, #274)."""
+    command = service["Service"]["ExecStopPost"].replace("$$", "$")
+
+    run = subprocess.run(
+        shlex.split(command),
+        env={"SERVICE_RESULT": result, "PATH": os.environ["PATH"]},
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+    assert run.stdout == printed

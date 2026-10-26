@@ -16,6 +16,12 @@ import yaml
 ROOT = Path(__file__).resolve().parents[2]
 CONFIG = (ROOT / "deploy/alloy/config.alloy").read_text()
 ENV_EXAMPLE = ROOT / "deploy/alloy.env.example"
+# The container-log pipeline and the journal pipeline (#274) are checked apart: each has its own
+# bounded label.
+CONTAINER_LOGS, JOURNAL = (
+    CONFIG.split('loki.relabel "jobs"', 1)[0],
+    CONFIG.split('loki.relabel "jobs"', 1)[1].split('loki.process "scrub"', 1)[0],
+)
 
 
 def _alloy_string(name: str, text: str = CONFIG) -> list[str]:
@@ -38,8 +44,8 @@ def test_reads_only_this_stacks_containers(compose: dict[str, Any]) -> None:
 
 def test_logs_are_labelled_by_compose_service_and_nothing_else() -> None:
     """ADR-0030 invariant 4: bounded labels only; request and user IDs stay in the line."""
-    assert _alloy_string("target_label") == ["service"]
-    (source,) = re.findall(r"source_labels\s*=\s*\[([^\]]*)\]", CONFIG)
+    assert _alloy_string("target_label", CONTAINER_LOGS) == ["service"]
+    (source,) = re.findall(r"source_labels\s*=\s*\[([^\]]*)\]", CONTAINER_LOGS)
     assert json.loads(f"[{source}]") == ["__meta_docker_container_label_com_docker_compose_service"]
     for unbounded in ("request_id", "user_id", "trace_id", "span_id"):
         assert unbounded not in CONFIG
@@ -111,3 +117,91 @@ def test_alloy_check_uses_the_image_compose_runs(compose: dict[str, Any]) -> Non
     assert target.count("$(ALLOY_IMAGE)") == 3
     assert "fmt --test" in target
     assert "validate" in target
+
+
+# ADR-0030 (#274): only the three scheduled jobs' lines leave the host's journal.
+
+JOB_IDENTIFIERS = ["ai-trainer-backup", "ai-trainer-purge", "ai-trainer-deploy"]
+# What the host journal holds, by SYSLOG_IDENTIFIER: the three jobs, and everything else that
+# could look like them.
+FIXTURE_JOURNAL = [
+    ("ai-trainer-backup", "backup: result=ok kind=nightly", "backup"),
+    ("ai-trainer-purge", "purge: result=ok deleted=0", "purge"),
+    ("ai-trainer-deploy", "deploy: result=failed deployment=7 image=sha256:aaaaaaaaaaaa", "deploy"),
+    ("sshd", "Accepted publickey for deploy from 203.0.113.9", None),
+    ("sudo", "deploy : COMMAND=/usr/bin/docker ps", None),
+    ("dockerd", 'level=info msg="Container start"', None),
+    ("systemd", "Started ai-trainer-backup.service.", None),
+    ("ai-trainer-backup-extra", "backup: result=ok", None),
+    ("my-ai-trainer-purge", "purge: result=ok deleted=0", None),
+    ("ai-trainer-restore-drill", "drill: result=ok", None),
+    ("", "a line with no identifier", None),
+]
+
+
+def _shipped(identifier: str) -> str | None:
+    """The `job` label a journal entry gets, or None when the `keep` rule drops it. This pins the
+    relabel semantics as Alloy documents them; the host check in RUNBOOK 11.5 is the proof.
+
+    Alloy's relabel regex is anchored at both ends, and `$1` in `replacement` is its first group.
+    """
+    (keep, label) = CONFIG.split('loki.relabel "jobs"', 1)[1].split("rule {")[1:]
+    regexes = {_alloy_string("regex", rule)[0] for rule in (keep, label)}
+    assert len(regexes) == 1, "the keep rule and the job label must select the same identifiers"
+    match = re.fullmatch(regexes.pop(), identifier)
+    if match is None:
+        return None
+    assert _alloy_string("action", keep) == ["keep"]
+    assert _alloy_string("replacement", label) == ["$1"]
+    return match.group(1)
+
+
+@pytest.mark.parametrize(("identifier", "line", "job"), FIXTURE_JOURNAL)
+def test_only_the_three_jobs_journal_lines_are_shipped(
+    identifier: str, line: str, job: str | None
+) -> None:
+    assert _shipped(identifier) == job
+
+
+def test_the_journal_rules_read_the_syslog_identifier_the_units_set() -> None:
+    sources = re.findall(r"source_labels\s*=\s*\[([^\]]*)\]", JOURNAL)
+    assert {json.loads(f"[{source}]")[0] for source in sources} == {"__journal_syslog_identifier"}
+    for name in JOB_IDENTIFIERS:
+        unit = (ROOT / f"deploy/systemd/{name}.service").read_text()
+        assert f"SyslogIdentifier={name}\n" in unit
+        assert _shipped(name) is not None
+
+
+def test_the_journal_is_labelled_by_job_and_nothing_else() -> None:
+    assert _alloy_string("target_label", JOURNAL) == ["job"]
+    # No fixed `labels = {…}` on the source either: `job` is the only label a line gets.
+    assert not re.search(r"^\s*labels\s*=", JOURNAL, re.MULTILINE)
+
+
+def test_the_relabel_rules_are_attached_to_the_journal_source() -> None:
+    """Without this line every entry on the host, sshd and sudo included, would be shipped."""
+    source = JOURNAL.split('loki.source.journal "jobs"', 1)[1]
+    assert re.search(r"relabel_rules\s*=\s*loki\.relabel\.jobs\.rules", source)
+
+
+def test_the_journal_lines_pass_the_email_scrub() -> None:
+    source = JOURNAL.split('loki.source.journal "jobs"', 1)[1]
+    assert re.search(r"forward_to\s*=\s*\[loki\.process\.scrub\.receiver\]", source)
+
+
+def test_alloy_reads_the_host_journal_mounted_read_only(compose: dict[str, Any]) -> None:
+    volumes = compose["services"]["alloy"]["volumes"]
+    for path in ("/var/log/journal", "/run/log/journal", "/etc/machine-id"):
+        assert f"{path}:{path}:ro" in volumes
+    # No `path`: Alloy then reads both mounted directories.
+    assert _alloy_string("path", JOURNAL) == []
+
+
+def test_the_outcome_lines_start_with_the_job_label() -> None:
+    """Dashboards and alerts (G13) match `<job>: result=` under the `job` label."""
+    for job, script in (
+        ("backup", "deploy/backup.sh"),
+        ("deploy", "deploy/deploy.sh"),
+        ("purge", "src/ai_trainer/cli.py"),
+    ):
+        assert f"{job}: result=ok" in (ROOT / script).read_text()

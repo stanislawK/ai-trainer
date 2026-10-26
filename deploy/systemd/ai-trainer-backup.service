@@ -15,6 +15,12 @@ ExecStart=/opt/ai-trainer/deploy/backup.sh nightly
 # A oneshot has no start timeout by default; a hung rclone would stay activating and
 # systemd would skip later nights.
 TimeoutStartSec=30min
+# The journal identifier Alloy keeps (ADR-0030, #274); without it the journal says `backup.sh`.
+SyslogIdentifier=ai-trainer-backup
+# backup.sh prints its own outcome line, but KillSignal=SIGKILL on a timeout gives it no chance
+# to. This prints the failed line then, and only then, so a run never has two (ADR-0030, #274).
+# `$$` is systemd's escape for a literal `$`.
+ExecStopPost=/bin/sh -c 'case "$$SERVICE_RESULT" in timeout|signal|watchdog) echo "backup: result=failed reason=killed";; esac'
 # SIGTERM can kill backup.sh first. That closes the pipe, rclone sees end-of-input, and a
 # truncated object is stored under the bucket lock. SIGKILL stops rclone before it can finish.
 # The deploy unit keeps SIGTERM: deploy.sh traps it so a timed-out deploy still rolls back.

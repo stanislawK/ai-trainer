@@ -5,8 +5,10 @@
 
 `purge-conversations` hard-deletes every conversation last active more than
 `CONVERSATION_RETENTION_DAYS` ago, across users, with its messages by cascade. It prints the
-number deleted and nothing else, so no chat content reaches a log (PRD-0004 B26). Production
-runs it daily from the host scheduler (ADR-0023).
+one outcome line, `purge: result=ok deleted=<n>`, and nothing else, so no chat content reaches a
+log (PRD-0004 B26). Production runs it daily from the host scheduler (ADR-0023); the unit's
+`ExecStopPost=` prints `purge: result=failed` when the run fails, a stopped container included,
+and Alloy ships both lines to Grafana Cloud (ADR-0030, #274).
 
 `llm-debug-report` summarizes `LLM_DEBUG_LOG_DIR` per template and model (#179) and exits 1 when
 there is nothing to summarize. It never opens the database. A `--since` without a timezone is
@@ -46,7 +48,7 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser(
         PURGE_CONVERSATIONS,
-        help="Delete conversations past CONVERSATION_RETENTION_DAYS and print how many.",
+        help="Delete conversations past CONVERSATION_RETENTION_DAYS and print the outcome line.",
     )
     debug_report = commands.add_parser(
         LLM_DEBUG_REPORT,
@@ -70,7 +72,7 @@ async def purge_conversations(
     deleted = await purge_expired_conversations(
         clock=clock, conversations=conversations, retention_days=retention_days
     )
-    output.write(f"{deleted}\n")
+    output.write(f"purge: result=ok deleted={deleted}\n")
 
 
 async def run(argv: Sequence[str], *, output: TextIO = sys.stdout) -> int:

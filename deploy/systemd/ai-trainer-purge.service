@@ -15,6 +15,10 @@ Group=deploy
 ExecStart=/usr/bin/docker exec ai-trainer-prod-app-1 ai-trainer purge-conversations
 # A oneshot has no start timeout by default; a stuck run would never show as failed.
 TimeoutStartSec=15min
+# The CLI prints `purge: result=ok deleted=<n>` itself. A run that fails, including a stopped
+# container where the CLI never starts, ends on this line instead (ADR-0030, #274). `$$` is
+# systemd's escape for a literal `$`; SERVICE_RESULT is `success` only for a clean exit.
+ExecStopPost=/bin/sh -c 'test "$$SERVICE_RESULT" = success || echo "purge: result=failed"'
 SyslogIdentifier=ai-trainer-purge
 NoNewPrivileges=yes
 PrivateTmp=yes

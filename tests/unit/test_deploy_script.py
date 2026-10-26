@@ -89,6 +89,9 @@ while rest:
 statuses = json.loads((state / "statuses.json").read_text())
 prefix = "repos/stanislawK/ai-trainer/deployments"
 if method == "POST":
+    if os.environ.get("FAKE_GH_POST_FAIL") == fields.get("state"):
+        sys.stderr.write("gh: HTTP 502\\n")
+        sys.exit(1)
     deployment_id = path.removeprefix(prefix + "/").removesuffix("/statuses")
     status = {**fields, "creator": {"login": "stanislawK", "type": "User"}}
     statuses.setdefault(deployment_id, []).insert(0, status)
@@ -844,3 +847,124 @@ def test_an_alloy_that_fails_to_start_never_fails_the_deploy(server: Server) -> 
     assert server.posted()[-1]["state"] == "success"
     assert server.serving() == f"{IMAGE}@{NEW}"
     assert "alloy" in result.stderr
+
+
+# ADR-0030 (#274): the last line of a run that did something is its outcome, shipped to Grafana
+# Cloud from the journal. An idle poll prints nothing.
+
+
+def _last(text: str) -> str:
+    return text.rstrip("\n").splitlines()[-1]
+
+
+def test_a_deployed_release_ends_with_the_ok_outcome_line(server: Server) -> None:
+    result = server.run()
+
+    assert result.returncode == 0, result.stderr
+    assert _last(result.stdout) == f"deploy: result=ok deployment=7 image={NEW[:19]}"
+
+
+@pytest.mark.parametrize(
+    "failure",
+    ["FAKE_PULL_FAIL", "FAKE_MIGRATE_FAIL", "FAKE_UNHEALTHY", "FAKE_ATTEST_FAIL"],
+)
+def test_a_forced_failure_ends_with_the_failed_outcome_line_and_a_non_zero_exit(
+    server: Server, failure: str
+) -> None:
+    server.env[failure] = f"{IMAGE}@{NEW}" if failure == "FAKE_UNHEALTHY" else "1"
+    if failure == "FAKE_ATTEST_FAIL":
+        server.env["FAKE_ATTEST_FAIL_TIMES"] = "9"
+
+    result = server.run()
+
+    assert result.returncode == 1
+    assert _last(result.stderr) == f"deploy: result=failed deployment=7 image={NEW[:19]}"
+    assert "result=ok" not in result.stdout
+
+
+def test_a_run_stopped_by_its_timeout_ends_with_the_failed_outcome_line(server: Server) -> None:
+    server.env["FAKE_HANG"] = "pull"
+    process = subprocess.Popen(
+        [str(server.script)],
+        env=server.env,
+        cwd=server.root,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+    )
+    try:
+        deadline = time.monotonic() + 20
+        while not (server.state / "hanging").exists():
+            assert time.monotonic() < deadline, "no step hung"
+            time.sleep(0.05)
+        os.killpg(process.pid, signal.SIGTERM)
+        _, stderr = process.communicate(timeout=20)
+    finally:
+        if process.poll() is None:
+            os.killpg(process.pid, signal.SIGKILL)
+            process.wait()
+
+    assert _last(stderr) == f"deploy: result=failed deployment=7 image={NEW[:19]}"
+
+
+def test_a_refused_start_ends_with_the_failed_outcome_line(server: Server) -> None:
+    del server.env["SITE_HOST"]
+
+    result = server.run()
+
+    assert result.returncode == 2
+    assert _last(result.stderr) == "deploy: result=failed reason=config exit=2"
+
+
+def test_a_failed_read_of_the_deployments_ends_with_the_failed_outcome_line(
+    server: Server,
+) -> None:
+    (server.state / "deployments.json").write_text("not json")
+
+    result = server.run()
+
+    assert result.returncode != 0
+    assert _last(result.stderr).startswith("deploy: result=failed reason=poll exit=")
+
+
+def test_an_idle_poll_prints_no_outcome_line(server: Server) -> None:
+    server.publish([_deployment(7)], {"7": ["success"]})
+
+    result = server.run()
+
+    assert result.returncode == 0
+    assert "result=" not in result.stdout + result.stderr
+
+
+def test_the_outcome_line_carries_no_token(server: Server) -> None:
+    server.env["FAKE_PULL_FAIL"] = "1"
+
+    result = server.run()
+
+    assert TOKEN not in _last(result.stderr)
+
+
+@pytest.mark.parametrize("failure", ["FAKE_PULL_FAIL", "FAKE_UNHEALTHY"])
+def test_a_status_github_refuses_does_not_hide_the_failed_outcome_line(
+    server: Server, failure: str
+) -> None:
+    """A failing network is a likely cause of the failed deploy, and of the failed report too."""
+    server.env[failure] = f"{IMAGE}@{NEW}" if failure == "FAKE_UNHEALTHY" else "1"
+    server.env["FAKE_GH_POST_FAIL"] = "failure"
+
+    result = server.run()
+
+    assert result.returncode == 1
+    assert _last(result.stderr) == f"deploy: result=failed deployment=7 image={NEW[:19]}"
+
+
+def test_a_success_github_cannot_be_told_of_still_ends_with_the_ok_outcome_line(
+    server: Server,
+) -> None:
+    server.env["FAKE_GH_POST_FAIL"] = "success"
+
+    result = server.run()
+
+    assert result.returncode == 0
+    assert _last(result.stdout) == f"deploy: result=ok deployment=7 image={NEW[:19]}"
