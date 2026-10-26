@@ -77,6 +77,7 @@ make cloud-init-check             # validate deploy/cloud-init.yaml with Debian 
 make alloy-check                 # alloy fmt --test + validate on deploy/alloy/config.alloy with the pinned image; config=<file> checks another (ADR-0030)
 make backup-check                # round-trip deploy/backup.sh and the restore drill against the `make start` database with a throwaway age key (ADR-0023, #223, #224)
 make smoke-setup && make smoke-up   # compose.prod.yaml locally behind Caddy with test certificates (README "Production smoke run"); `make smoke-down` stops it
+make alerts-import && make smoke-probe   # deploy/grafana/alerts.json into the local otel-lgtm, plus the health-check stand-in (#277); never against Grafana Cloud (ADR-0030)
 git tag v0.1.0 && git push origin v0.1.0   # release, owner only (ADR-0023): starts release.yml; agents never tag (README "Releasing")
 gh run watch                     # release, owner only: the run waits at `release`; approve in Actions → Review deployments → production
 gh api repos/stanislawK/ai-trainer/deployments   # release, owner only: the approved run's deployment, payload = digest, status queued

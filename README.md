@@ -222,6 +222,26 @@ Then open http://localhost:3000 → Explore:
 
 Alloy reads only this Compose project's containers, labels them by `service` alone, and masks email-shaped values. A container that lives only a few seconds, like `migrate`, can exit before Alloy tails it; in production its output reaches the deploy unit's journal (ADR-0030). Without otel-lgtm the stack runs just the same, and Alloy retries in the background.
 
+**Alerts in the smoke run.** [`deploy/grafana/alerts.json`](deploy/grafana/alerts.json) holds the owner's alert rules (ADR-0030, RUNBOOK section 11.7). To try them against the smoke stack and otel-lgtm:
+
+```bash
+make alerts-import   # the rules, into http://localhost:3000 with otel-lgtm's own datasources
+make smoke-probe     # a stand-in for the Synthetic Monitoring check: probes https://localhost/health every minute
+```
+
+- The rules are at http://localhost:3000/alerting/list, in the `ai-trainer` folder.
+- "No backup in 26 h" fires straight away, because the smoke run never backs up.
+- `docker stop ai-trainer-prod-db-1` fires "Site down" within about 4 minutes.
+- `docker stop ai-trainer-prod-alloy-1` fires "No telemetry in 15 min" after about 16 minutes.
+- A failed backup is one line pushed to Loki the way Alloy ships it:
+
+```bash
+curl -sS -H 'Content-Type: application/json' localhost:3100/loki/api/v1/push --data \
+  "{\"streams\":[{\"stream\":{\"job\":\"backup\"},\"values\":[[\"$(date +%s)000000000\",\"backup: result=failed kind=nightly reason=dump exit=1\"]]}]}"
+```
+
+That fires "Scheduled job failed" within about a minute. `docker rm -f smoke-probe` stops the probe.
+
 ## Production host
 
 The owner provisions the Hetzner host by following [deploy/RUNBOOK.md](deploy/RUNBOOK.md): stock and price check, Cloud Firewall, the server from [deploy/cloud-init.yaml](deploy/cloud-init.yaml), Cloudflare (Full strict, Origin CA, zone-level AOP) and the server's env files (ADR-0023). Agents never reach the host. `make cloud-init-check` validates the user data before it's used.

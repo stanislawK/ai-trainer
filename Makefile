@@ -90,6 +90,16 @@ smoke-up: ## Build the image and run compose.prod.yaml locally behind Caddy on h
 smoke-down: ## Stop the smoke stack (keeps its volumes; add `-v` by hand to drop them)
 	$(SMOKE_COMPOSE) down
 
+# The Synthetic Monitoring check's stand-in (#277): its own container, outside the compose
+# project, so Alloy's Docker discovery never ships its lines. `docker rm -f smoke-probe` stops it.
+smoke-probe: ## Probe https://localhost/health every minute as Synthetic Monitoring would, into the local otel-lgtm (#277; needs `make smoke-up`)
+	docker rm -f smoke-probe >/dev/null 2>&1 || true
+	docker run -d --name smoke-probe -v "$(abspath deploy/grafana/smoke-probe.alloy):/etc/alloy/config.alloy:ro" \
+		-v "$(abspath .smoke):/smoke:ro" $(ALLOY_IMAGE) run --storage.path=/tmp/alloy /etc/alloy/config.alloy
+
+alerts-import: ## Import deploy/grafana/alerts.json into the local otel-lgtm Grafana at http://localhost:3000 (#277)
+	./deploy/grafana/import-alerts.sh http://localhost:3000 prometheus loki
+
 ALLOY_IMAGE = grafana/alloy:v1.20.1@sha256:2aa2099af76c0098d4af7a4d6e48f86cb66dc1a000222ad927a1c67c6542d13f
 config ?= deploy/alloy/config.alloy
 

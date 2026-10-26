@@ -366,7 +366,7 @@ A failing attestation (AC 2) and a failing health check (AC 4) can't be staged s
 
 ## 11. Telemetry to Grafana Cloud
 
-Source: ADR-0030 *Pipeline*, *Secrets*, invariants 1, 2, 5 and 6; PRD 0008 G12. Tickets #272, #273.
+Source: ADR-0030 *Pipeline*, *Secrets*, invariants 1, 2, 5 and 6; PRD 0008 G12. Tickets #272, #273, #277.
 
 The `alloy` service relays these to one Grafana Cloud stack:
 
@@ -393,7 +393,7 @@ Agents never sign in to Grafana Cloud or call its API. Every step here is yours.
 5. **Access Policies** → *Create access policy*:
    - **Realm:** this stack.
    - **Scopes:** `traces:write`, `logs:write` and `metrics:write`, and nothing else. `metrics:write` is for the metrics tickets (#273, #275).
-6. *Add token* on that policy and copy it once. Set its expiry, and a calendar reminder a week before. An expired token stops all shipping, which the "no log line in 15 min" alert (#277) reports.
+6. *Add token* on that policy and copy it once. Set its expiry, and a calendar reminder a week before. An expired token stops all shipping, which the "No telemetry in 15 min" alert (#277) reports.
 
 ### 11.2 Install on the server
 
@@ -476,6 +476,73 @@ Run on the server (`ssh deploy@<ip>`) unless noted.
 | 4a | Not from the app either | `docker exec ai-trainer-prod-app-1 python -c "import urllib.request as u; print(u.urlopen('http://10.222.0.10:9180/metrics', timeout=5).status)"` | an error: `HTTP Error 403`, or no route at all; never `200` |
 | 5 | The role reads no app table | `docker exec ai-trainer-prod-db-1 psql -U ai_trainer -d ai_trainer -c "SET ROLE ai_trainer_monitor; SELECT 1 FROM users LIMIT 1"` | `ERROR:  permission denied for table users` |
 | 6 | Only the kept series | Explore → Prometheus: `count by (__name__) ({instance="ai-trainer-prod", job=~"integrations/.+"})` | about thirty names, all `node_`, `caddy_` or `pg_` |
+
+### 11.7 Alerts
+
+Source: ADR-0030 *Dashboards and alerts are code*; PRD 0008 G12, G13, G14. Ticket #277.
+
+[`grafana/alerts.json`](grafana/alerts.json) is one rule group, `ai-trainer`, in a folder of the same name. Every rule's description says where to look first.
+
+| Rule | Fires when | Waits |
+|---|---|---|
+| Site down | no Synthetic Monitoring probe gets `"database":"ok"` from `/health`, or the check stops reporting | 2 min |
+| 5xx above 5% | more than 5% of the app's requests answer 5xx over 10 min | — |
+| Log turn p95 above 10 s | send-to-draft p95 over 30 min is above 10 s (G14) | — |
+| Model-call errors above 20% | more than 20% of model calls end in `error` or `timeout` over 15 min; `cancelled` is left out | — |
+| No backup in 26 h | no `backup: result=ok` line in 26 h (G13) | — |
+| Scheduled job failed | a `backup`, `purge` or `deploy` `result=failed` line in the last hour, one alert per job; it clears an hour after the last one | — |
+| Disk above 80% | the root filesystem is more than 80% full | 10 min |
+| No telemetry in 15 min | no host metric from the server in 15 min. Alloy writes one every 60 s whatever the traffic, so Alloy is down, its token expired (11.1 step 6), or the host is. A quiet night sends no log lines, so logs can't serve as the heartbeat; a break that stops only logs shows up as "No backup in 26 h" | — |
+
+With no traffic, the three ratio rules have no data and stay quiet. "No backup in 26 h" fires 26 hours after go-live if the first backup never ran.
+
+1. **Contact point.** Grafana Cloud → *Alerting → Contact points → + Add contact point*: name `owner-email`, integration **Email**, your address. **Test** it, and check the email arrives. Then go to *Alerting → Notification policies*, open **Default policy** → *Edit*, and set its contact point to `owner-email`. Every rule here goes through the default policy.
+2. **The health check.** Grafana Cloud → *Testing & synthetics → Synthetics → Checks → + Create new check → API Endpoint*, request type **HTTP**. Take the values from [`grafana/synthetic-health.json`](grafana/synthetic-health.json):
+   - **Job name:** `ai-trainer-health`. The site-down rule selects on it.
+   - **Request target:** `https://<domain>/health`.
+   - **Uptime:** valid status `200`; *fail if not SSL*; no redirects; *Body* must match `"database":"ok"`.
+   - **Frequency** 1 min, **timeout** 10 s.
+   - **Probes:** at least two in Europe, e.g. Frankfurt and Amsterdam. The rule fires only when *every* probe fails, so one location's network trouble can't page you.
+   - **Alerting:** leave the check's own alerts off. The site-down rule replaces them.
+   - **Optional, the API instead of the UI:**
+     - Take an access token from *Synthetics → Config*, and the probe IDs from `GET /api/v1/probe`.
+     - Put the IDs into the file's `probes` and `<domain>` into its `target`.
+     - `POST` the file to `/api/v1/check/validate`, then to `/api/v1/check`, on the API URL shown on that page.
+3. **Cloudflare leaves `/health` unchallenged.** Synthetic Monitoring's probes are bots, so a challenge page would look like an outage.
+   - In the Cloudflare dashboard, keep *Security → Bots → Bot Fight Mode* **off**: the Free plan can't exempt a path from it.
+   - Under *Security → WAF → Custom rules → Create rule*, add a rule named `health unchallenged` with the expression `(http.request.uri.path eq "/health")`. Its action is **Skip**: all remaining custom rules, and under *More components to skip*, **Security Level** and **Browser Integrity Check**. Deploy it.
+   - The check itself confirms this. A challenge is a `403` HTML page, not `"database":"ok"`, so the check fails and the site-down rule fires.
+4. **Import the rules** from your laptop:
+   - Grafana Cloud → *Administration → Users and access → Service accounts → Add service account*: name `alerts-import`, role **Editor**.
+   - *Add service account token*, with a short expiry.
+   - Note the UIDs of the stack's Prometheus and Loki datasources (*Connections → Data sources*; the UID is the last part of each one's URL, usually `grafanacloud-prom` and `grafanacloud-logs`).
+   - Then run:
+
+   ```sh
+   GRAFANA_TOKEN=<token> deploy/grafana/import-alerts.sh https://<stack>.grafana.net <prometheus uid> <loki uid>
+   #   import-alerts: result=ok imported 8 rules
+   ```
+
+   - Each run replaces the whole group, so re-run it after any change to `alerts.json`.
+   - Rules imported this way are marked *Provisioned* and are read-only in the UI. Change them in the file, not in Grafana.
+   - Delete the token when you're done.
+   - After the import, *Alerting → Alert rules* shows the eight rules under `ai-trainer`, each **Normal** or **Pending**, never **Error**. "No backup in 26 h" is **Firing** until the first nightly backup has run.
+
+**Test-fire.** At go-live, prove that an alert actually reaches you:
+
+1. On the server: `systemd-cat -t ai-trainer-backup echo "backup: result=failed kind=test reason=test exit=1"`. Within about 2 minutes you get *The backup job failed*. It resolves an hour later. The line travels the same path as a real failure: the journal, Alloy's `job="backup"` label, then Loki.
+2. Before go-live only: `docker stop ai-trainer-prod-db-1`. Within about 4 minutes you get *The site is down*. `/health` still answers `200`, but its body says `"database":"unavailable"`. Then run `docker start ai-trainer-prod-db-1`.
+3. Before go-live only: `docker stop ai-trainer-prod-alloy-1`. In 16 to 17 minutes you get *No telemetry from the server in 15 minutes*. Then run `docker start ai-trainer-prod-alloy-1`.
+
+### 11.8 Checks (ticket #277 acceptance)
+
+| # | Check | Command | Expected |
+|---|---|---|---|
+| 1 | Rules imported | Grafana Cloud → *Alerting → Alert rules* → folder `ai-trainer` | eight rules, none in **Error** |
+| 2 | Health check green | *Synthetics → Checks → ai-trainer-health* | reachability 100% from every probe |
+| 3 | `/health` unchallenged | laptop: `curl -sS -A "synthetic-monitoring-agent" https://<domain>/health` | `{"database":"ok"}`, not an HTML page |
+| 4 | A job failure emails you | test-fire step 1 | the email within about 2 minutes |
+| 5 | An outage emails you | test-fire steps 2 and 3, before go-live | both emails |
 
 ## Provisioning record
 
