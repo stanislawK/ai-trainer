@@ -117,3 +117,99 @@ loki.write "grafana_cloud" {
 		}
 	}
 }
+
+// Host, Caddy and Postgres metrics (ADR-0030, ticket #273), scraped every 60 s like the app's
+// export (#275), since Grafana Cloud bills active series per minute.
+
+// The VPS through its own /proc, /sys and / (compose.prod.yaml mounts them read-only); without
+// them the exporter reports this container. The host's /proc is the host's PID namespace, so
+// /host/proc/1/mounts is the host's own mount table. The network collectors stay off: Alloy has
+// its own network namespace, so they would report its interfaces, not the host's.
+prometheus.exporter.unix "host" {
+	procfs_path    = "/host/proc"
+	sysfs_path     = "/host/sys"
+	rootfs_path    = "/host/root"
+	udev_data_path = "/host/root/run/udev/data"
+	set_collectors = ["cpu", "diskstats", "filesystem", "loadavg", "meminfo", "pressure"]
+
+	// The root filesystem only: the disk alert's (#277). Every other mount point, each
+	// container's rootfs among them, is never even read. `overlay` is allowed, because a VM's
+	// root can be one (the smoke run's, under OrbStack); a container's never sits at /.
+	filesystem {
+		mount_points_exclude = "^/.+"
+		fs_types_exclude     = "^(autofs|binfmt_misc|bpf|cgroup2?|configfs|debugfs|devpts|devtmpfs|tmpfs|fusectl|hugetlbfs|iso9660|mqueue|nsfs|proc|procfs|pstore|rpc_pipefs|securityfs|selinuxfs|squashfs|sysfs|tracefs)$"
+		mount_timeout        = "5s"
+	}
+}
+
+prometheus.scrape "host" {
+	targets         = prometheus.exporter.unix.host.targets
+	scrape_interval = "60s"
+	forward_to      = [prometheus.relabel.kept.receiver]
+}
+
+// Caddy's metrics listener on the internal `metrics` network (deploy/Caddyfile), never 443.
+prometheus.scrape "caddy" {
+	targets = [{
+		"__address__" = "10.222.0.10:9180",
+		"job"         = "integrations/caddy",
+	}]
+	scrape_interval = "60s"
+	forward_to      = [prometheus.relabel.kept.receiver]
+}
+
+// As `ai_trainer_monitor`, which holds pg_monitor alone and reads no app table. The migration
+// creates it; deploy/monitor-password.sh sets this password on it. Only the database-wide
+// collectors run, never the per-table ones.
+prometheus.exporter.postgres "app" {
+	data_source_names  = ["postgresql://ai_trainer_monitor:" + sys.env("POSTGRES_MONITOR_PASSWORD") + "@db:5432/ai_trainer?sslmode=disable"]
+	enabled_collectors = ["database", "locks", "stat_database"]
+}
+
+prometheus.scrape "postgres" {
+	targets         = prometheus.exporter.postgres.app.targets
+	scrape_interval = "60s"
+	forward_to      = [prometheus.relabel.kept.receiver]
+}
+
+// Only the series the dashboard and alerts use leave the host (#276, #277); everything else is
+// dropped here. `instance` is one fixed value, so a recreated container starts no new series.
+prometheus.relabel "kept" {
+	rule {
+		source_labels = ["__name__"]
+		regex         = "node_(cpu_seconds_total|load(1|5|15)|memory_(MemAvailable|MemTotal)_bytes|filesystem_(avail|size)_bytes|disk_(read|written)_bytes_total|disk_io_time_seconds_total|pressure_(cpu|memory|io)_waiting_seconds_total)|caddy_http_(requests_total|request_errors_total|requests_in_flight)|caddy_reverse_proxy_upstreams_healthy|pg_(up|stat_database_(numbackends|deadlocks|xact_commit|xact_rollback)|settings_max_connections|database_size_bytes|locks_count)"
+		action        = "keep"
+	}
+
+	// Alloy's own scrapes of Caddy's metrics listener, and Postgres' template and maintenance
+	// databases: no request or athlete is behind either.
+	rule {
+		source_labels = ["server"]
+		regex         = "metrics"
+		action        = "drop"
+	}
+
+	rule {
+		source_labels = ["datname"]
+		regex         = "template0|template1|postgres"
+		action        = "drop"
+	}
+
+	rule {
+		target_label = "instance"
+		replacement  = "ai-trainer-prod"
+	}
+
+	forward_to = [prometheus.remote_write.grafana_cloud.receiver]
+}
+
+prometheus.remote_write "grafana_cloud" {
+	endpoint {
+		url = sys.env("GRAFANA_CLOUD_METRICS_URL")
+
+		basic_auth {
+			username = sys.env("GRAFANA_CLOUD_METRICS_USER")
+			password = sys.env("GRAFANA_CLOUD_TOKEN")
+		}
+	}
+}

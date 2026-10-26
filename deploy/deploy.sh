@@ -8,7 +8,8 @@
 #   1. verify the image's provenance against release.yml (a failure stops here: nothing pulled);
 #   2. mark it `in_progress` and pull the image by digest;
 #   3. take a pre-migration backup (backup.sh predeploy, ADR-0023 invariant 5);
-#   4. run `migrate`, then start the app and Caddy on the new image;
+#   4. run `migrate`, set the monitor role's password, then start the app and Caddy on the new
+#      image;
 #   5. poll /health through Cloudflare and Caddy;
 #   6. report `success`, or restore the previous app image and report `failure`.
 # The database is never rolled back: migrations are expand-only (ADR-0024 invariant 4), so the
@@ -174,6 +175,12 @@ APP_IMAGE=$image compose up -d --wait --wait-timeout "$WAIT_TIMEOUT" db ||
   fail "the database did not start; nothing migrated"
 "$(dirname "$0")/backup.sh" predeploy || fail "the pre-deploy backup failed; nothing migrated"
 APP_IMAGE=$image compose run --rm migrate || fail "the migration failed; the app is unchanged"
+# The monitor role's password, for Alloy's Postgres exporter (ADR-0030, #273). Like Alloy itself,
+# it never holds up a deploy: without it only the Postgres metrics are missing. Its own outcome
+# line is dropped, so this unit's journal holds only `deploy: result=` lines.
+APP_IMAGE=$image "$(dirname "$0")/monitor-password.sh" "$root/alloy.env" \
+  docker compose --project-directory "$root" -f "$root/compose.prod.yaml" >/dev/null ||
+  echo "deploy: the monitor password was not set; Postgres metrics are off until it is" >&2
 
 healthy() {
   local poll

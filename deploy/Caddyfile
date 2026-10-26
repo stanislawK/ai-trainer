@@ -6,9 +6,20 @@
 	# Certificates are files, never ACME; there is no port 80 to redirect from.
 	auto_https off
 	# compose.prod.yaml publishes 443/tcp only, so don't advertise HTTP/3 (alt-svc: h3) over UDP.
-	servers {
+	# Each server is named, so its metrics carry a fixed `server` label instead of Caddy's
+	# generated srv0/srv1, whose order follows the sites': `public` is 443, `metrics` the
+	# listener at the end of this file, whose own series Alloy drops (#273).
+	servers :443 {
+		name public
 		protocols h1 h2
 	}
+	servers 10.222.0.10:9180 {
+		name metrics
+		protocols h1 h2
+	}
+	# Prometheus metrics for Alloy (ADR-0030, #273), served only by the site at the end of this
+	# file. No `per_host`: one site, and fewer series.
+	metrics
 }
 
 https://{$SITE_HOST} {
@@ -29,4 +40,21 @@ https://{$SITE_HOST} {
 
 	# Passes the original Host on, which TrustedHostMiddleware checks against PUBLIC_BASE_URL.
 	reverse_proxy app:8000
+}
+
+# Caddy's metrics, only on the internal `metrics` network that Alloy alone shares
+# (compose.prod.yaml gives Caddy and Alloy fixed addresses there). Never through 443: that site
+# has no `metrics` directive, so /metrics there goes to the app, whose sign-in gate answers 401.
+# The admin API keeps its own /metrics on localhost:2019, inside this container.
+# Only Alloy's address is served. A host can route another network's traffic into an internal
+# bridge (OrbStack does, from `edge`), and that traffic arrives from the bridge's gateway.
+http://10.222.0.10:9180 {
+	bind 10.222.0.10
+	@alloy remote_ip 10.222.0.20
+	handle @alloy {
+		metrics
+	}
+	handle {
+		respond 403
+	}
 }

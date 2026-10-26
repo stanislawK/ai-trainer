@@ -131,7 +131,9 @@ def test_app_trusts_proxy_headers_only_from_the_edge_subnet(compose: dict[str, A
     allowed = compose["services"]["app"]["environment"]["FORWARDED_ALLOW_IPS"]
     assert allowed == subnet
     assert ipaddress.ip_network(subnet).is_private
-    assert sorted(compose["services"]["caddy"]["networks"]) == ["edge"]
+    # `metrics` is shared with Alloy only, so Docker's DNS can't hand Caddy the app's address on
+    # another network, from which Uvicorn would not trust X-Forwarded-* (#273).
+    assert sorted(compose["services"]["caddy"]["networks"]) == ["edge", "metrics"]
 
 
 def test_caddy_mounts_the_caddyfile_and_the_certificates(services: dict[str, Any]) -> None:
@@ -160,7 +162,7 @@ def test_alloy_is_never_on_edge_and_publishes_nothing(compose: dict[str, Any]) -
     """ADR-0030 invariant 2: the edge subnet is trusted for X-Forwarded-*, because Caddy is its
     only other member, and Alloy listens for the app only."""
     alloy = compose["services"]["alloy"]
-    assert sorted(alloy["networks"]) == ["egress", "telemetry"]
+    assert sorted(alloy["networks"]) == ["backend", "egress", "metrics", "telemetry"]
     assert "ports" not in alloy
     assert "expose" not in alloy
     assert "network_mode" not in alloy
@@ -220,3 +222,89 @@ def test_nothing_waits_for_alloy(services: dict[str, Any]) -> None:
     """An Alloy that fails to start never holds up the database, a migration or the app."""
     for svc in services.values():
         assert "alloy" not in svc.get("depends_on", {})
+
+
+# ADR-0030 (#273): Caddy's metrics only on the `metrics` network, never through 443.
+
+
+def test_only_caddy_and_alloy_share_the_internal_metrics_network(compose: dict[str, Any]) -> None:
+    assert compose["networks"]["metrics"]["internal"] is True
+    members = sorted(
+        name for name, svc in compose["services"].items() if "metrics" in svc["networks"]
+    )
+    assert members == ["alloy", "caddy"]
+    subnet = ipaddress.ip_network(compose["networks"]["metrics"]["ipam"]["config"][0]["subnet"])
+    edge = ipaddress.ip_network(compose["networks"]["edge"]["ipam"]["config"][0]["subnet"])
+    assert subnet.is_private
+    assert not subnet.overlaps(edge)
+    for name in ("caddy", "alloy"):
+        address = compose["services"][name]["networks"]["metrics"]["ipv4_address"]
+        assert ipaddress.ip_address(address) in subnet
+        # Not the bridge's gateway, which routed traffic from other networks arrives from.
+        assert ipaddress.ip_address(address) != subnet.network_address + 1
+
+
+def _caddy_sites() -> dict[str, str]:
+    """Each top-level site block of the Caddyfile, by its address."""
+    text = (ROOT / "deploy" / "Caddyfile").read_text()
+    lines = [line for line in text.splitlines() if not line.lstrip().startswith("#")]
+    sites: dict[str, str] = {}
+    address: str | None = None
+    body: list[str] = []
+    for line in lines:
+        if address is None and line.endswith("{") and not line.startswith(("\t", " ")):
+            address, body = line[:-1].strip(), []
+        elif address is not None and line == "}":
+            sites[address] = "\n".join(body)
+            address = None
+        elif address is not None:
+            body.append(line)
+    return sites
+
+
+def test_metrics_are_served_only_on_caddys_metrics_address(compose: dict[str, Any]) -> None:
+    caddy = compose["services"]["caddy"]["networks"]["metrics"]["ipv4_address"]
+    sites = _caddy_sites()
+    metrics_site = f"http://{caddy}:9180"
+    assert sorted(sites) == sorted(["", "https://{$SITE_HOST}", metrics_site])
+    alloy = compose["services"]["alloy"]["networks"]["metrics"]["ipv4_address"]
+    # Alloy's address alone gets the metrics; anyone else a host routes in gets 403.
+    assert sites[metrics_site].split() == [
+        "bind",
+        caddy,
+        "@alloy",
+        "remote_ip",
+        alloy,
+        "handle",
+        "@alloy",
+        "{",
+        "metrics",
+        "}",
+        "handle",
+        "{",
+        "respond",
+        "403",
+        "}",
+    ]
+    assert "metrics" not in sites["https://{$SITE_HOST}"]
+    # Global options: metrics collection on. The admin API stays on its default, localhost.
+    global_options = sites[""]
+    assert "\n\tmetrics" in global_options
+    assert "admin" not in global_options
+    # Fixed server names, so the `server` label never depends on the order of the sites.
+    assert re.search(r"servers :443 \{\s*name public\b", global_options)
+    assert re.search(rf"servers {re.escape(caddy)}:9180 \{{\s*name metrics\b", global_options)
+    assert global_options.count("protocols h1 h2") == 2
+
+
+def test_caddys_metrics_port_is_not_published(services: dict[str, Any]) -> None:
+    assert all("9180" not in port for port in services["caddy"]["ports"])
+    assert "expose" not in services["caddy"]
+
+
+def test_alloy_mounts_the_host_read_only_for_its_metrics(services: dict[str, Any]) -> None:
+    volumes = services["alloy"]["volumes"]
+    host = [v for v in volumes if v.split(":")[0] in ("/proc", "/sys", "/")]
+    assert len(host) == 3
+    for volume in host:
+        assert volume.split(":")[2].split(",")[0] == "ro", volume

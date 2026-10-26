@@ -207,12 +207,18 @@ cd .. && make smoke-down
 **Telemetry in the smoke run.** `make smoke-setup` also writes `.smoke/alloy.env`, which points Alloy at a local [`grafana/otel-lgtm`](https://github.com/grafana/docker-otel-lgtm) on the host instead of Grafana Cloud. Start it before `make smoke-up`:
 
 ```bash
-docker run --rm -d --name lgtm -p 3000:3000 -p 3100:3100 -p 4317:4317 -p 4318:4318 grafana/otel-lgtm:0.36.0
+docker run --rm -d --name lgtm -p 3000:3000 -p 3100:3100 -p 4317:4317 -p 4318:4318 -p 9090:9090 grafana/otel-lgtm:0.36.0
 ```
 
 Then open http://localhost:3000 → Explore:
 - **Loki** with `{service="app"}` (or `caddy`, `db`, `alloy`) shows that container's lines.
 - **Tempo** with a `trace_id` from an app line shows that request's trace.
+- **Prometheus** shows the host's, Caddy's and Postgres' metrics, about a minute after `make smoke-up`. Alloy remote-writes them to port 9090:
+  - `node_filesystem_avail_bytes{mountpoint="/"}`: free space on the Docker VM's root filesystem.
+  - `caddy_http_requests_total`: requests per Caddy server.
+  - `pg_stat_database_numbackends{datname="ai_trainer"}`: open connections.
+
+`make smoke-up` also sets the password of the database role the Postgres exporter connects as, `ai_trainer_monitor`, from `.smoke/alloy.env` (`deploy/monitor-password.sh`). The role reads statistics and no app table. Caddy serves its metrics only on the internal `metrics` network that it shares with Alloy alone, so `https://localhost/metrics` reaches the app and returns no metrics.
 
 Alloy reads only this Compose project's containers, labels them by `service` alone, and masks email-shaped values. A container that lives only a few seconds, like `migrate`, can exit before Alloy tails it; in production its output reaches the deploy unit's journal (ADR-0030). Without otel-lgtm the stack runs just the same, and Alloy retries in the background.
 

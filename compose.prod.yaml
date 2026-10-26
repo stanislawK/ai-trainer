@@ -136,14 +136,21 @@ services:
     depends_on:
       app:
         condition: service_healthy
+    # `edge` for the app. `metrics` for Alloy alone: Caddy serves its Prometheus metrics only on
+    # this fixed address (deploy/Caddyfile), never through 443. A network of its own, not
+    # `telemetry`: sharing two networks with the app, Docker's DNS could answer `app` with its
+    # telemetry address, from which Uvicorn doesn't trust X-Forwarded-* (ADR-0030, #273).
     networks:
-      - edge
+      edge: {}
+      metrics:
+        ipv4_address: 10.222.0.10
     deploy:
       resources:
         limits:
           memory: 256m
 
-  # Relays the app's OTLP and this project's container logs to Grafana Cloud (ADR-0030). It
+  # Relays the app's OTLP, this project's container logs and the host's, Caddy's and Postgres'
+  # metrics to Grafana Cloud (ADR-0030). It
   # publishes no port and is never on `edge`, whose subnet the app trusts for X-Forwarded-*.
   # Nothing depends on it, and its env file is optional: without credentials Alloy can't build
   # its exporters and restarts in a loop, shipping nothing, but the rest of the stack starts and
@@ -173,10 +180,22 @@ services:
       - /var/log/journal:/var/log/journal:ro
       - /run/log/journal:/run/log/journal:ro
       - /etc/machine-id:/etc/machine-id:ro
+      # The host's own /proc, /sys and root filesystem for prometheus.exporter.unix (#273):
+      # without them it reports this container rather than the VPS. `rslave` lets mounts made on
+      # the host after start show up here.
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/host/root:ro,rslave
       - alloy_data:/data
+    # `telemetry` for the app's OTLP, `backend` for Postgres' statistics (as the pg_monitor role
+    # only), `metrics` for Caddy's, and `egress` to Grafana Cloud. Its fixed address on `metrics`
+    # is the only one Caddy serves its metrics to (deploy/Caddyfile).
     networks:
-      - telemetry
-      - egress
+      telemetry: {}
+      backend: {}
+      metrics:
+        ipv4_address: 10.222.0.20
+      egress: {}
     deploy:
       resources:
         limits:
@@ -187,12 +206,18 @@ networks:
     ipam:
       config:
         - subnet: 10.221.0.0/24
-  # No route out: Postgres talks only to `migrate` and `app`.
+  # No route out: Postgres talks only to `migrate`, `app` and Alloy's exporter.
   backend:
     internal: true
   # No route out: the app reaches Alloy here and nothing else.
   telemetry:
     internal: true
+  # No route out: Alloy scrapes Caddy's metrics here and nothing else (#273).
+  metrics:
+    internal: true
+    ipam:
+      config:
+        - subnet: 10.222.0.0/24
   # Alloy's own way out, to Grafana Cloud.
   egress:
     driver: bridge

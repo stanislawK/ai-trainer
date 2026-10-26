@@ -28,6 +28,7 @@ IMAGE = "ghcr.io/stanislawk/ai-trainer"
 NEW = "sha256:" + "a" * 64
 OLD = "sha256:" + "b" * 64
 TOKEN = "github_pat_do-not-log-this-token"
+MONITOR_PASSWORD = "0123456789abcdef0123456789abcdef"
 SITE_HOST = "trainer.example.com"
 BOT = {"login": "github-actions[bot]", "type": "Bot"}
 OWNER = {"login": "stanislawK", "type": "User"}
@@ -135,6 +136,12 @@ if "run" in args and "migrate" in args:
     if os.environ.get("FAKE_MIGRATE_FAIL"):
         sys.stderr.write("alembic: FAILED: relation already exists\\n")
         sys.exit(1)
+if "exec" in args and "psql" in args:
+    with open(state / "psql-stdin", "a") as f:
+        f.write(sys.stdin.read())
+    if os.environ.get("FAKE_MONITOR_FAIL"):
+        sys.stderr.write('ERROR:  role "ai_trainer_monitor" does not exist\\n')
+        sys.exit(3)
 if "up" in args and "alloy" in args and os.environ.get("FAKE_ALLOY_FAIL"):
     sys.stderr.write("Error response from daemon: alloy failed to start\\n")
     sys.exit(1)
@@ -222,6 +229,7 @@ class Server:
         for directory in (scripts, bin_dir, creds, self.state):
             directory.mkdir(parents=True)
         shutil.copy(SCRIPT, scripts / "deploy.sh")
+        shutil.copy(ROOT / "deploy/monitor-password.sh", scripts / "monitor-password.sh")
         self.script = scripts / "deploy.sh"
         _stub(scripts, "backup.sh", FAKE_BACKUP)
         for name, body in (
@@ -235,6 +243,7 @@ class Server:
             _stub(bin_dir, "flock", FAKE_FLOCK)
         (creds / "github-token").write_text(TOKEN + "\n")
         (self.root / "app-image").write_text(f"{IMAGE}@{OLD}\n")
+        (self.root / "alloy.env").write_text(f"POSTGRES_MONITOR_PASSWORD={MONITOR_PASSWORD}\n")
         self.env = {
             "PATH": f"{bin_dir}:{os.environ['PATH']}",
             "HOME": str(tmp_path),
@@ -300,6 +309,8 @@ class Server:
                     names.append("pull")
                 elif "migrate" in args:
                     names.append("migrate")
+                elif "exec" in args and "psql" in args:
+                    names.append("monitor-password")
                 elif "up" in args:
                     names.append(
                         "up:" + "+".join(a for a in ("db", "app", "caddy", "alloy") if a in args)
@@ -348,6 +359,7 @@ def test_steps_run_in_the_adr_order(server: Server) -> None:
         "up:db",
         "backup.sh",
         "migrate",
+        "monitor-password",
         "up:app+caddy",
         "curl",
         "status:success",
@@ -967,4 +979,44 @@ def test_a_success_github_cannot_be_told_of_still_ends_with_the_ok_outcome_line(
     result = server.run()
 
     assert result.returncode == 0
+    assert _last(result.stdout) == f"deploy: result=ok deployment=7 image={NEW[:19]}"
+
+
+# ADR-0030 (#273): the monitor role the migration creates gets its password from alloy.env.
+
+
+def test_the_monitor_password_is_set_after_migrate_in_the_db_container(server: Server) -> None:
+    result = server.run()
+
+    assert result.returncode == 0, result.stderr
+    (call,) = [c for c in server.calls("docker") if "psql" in c["args"]]
+    assert call["args"][: call["args"].index("exec")] == [
+        "compose",
+        "--project-directory",
+        str(server.root),
+        "-f",
+        f"{server.root}/compose.prod.yaml",
+    ]
+    assert call["app_image"] == f"{IMAGE}@{NEW}"
+    assert f"PASSWORD '{MONITOR_PASSWORD}'" in (server.state / "psql-stdin").read_text()
+    assert MONITOR_PASSWORD not in result.stdout + result.stderr
+    # This unit's journal is shipped as `job="deploy"`: only `deploy: result=` lines end a run.
+    assert "monitor-password: result=" not in result.stdout
+
+
+@pytest.mark.parametrize("failure", ["psql", "no alloy.env"])
+def test_a_monitor_password_that_cannot_be_set_never_fails_the_deploy(
+    server: Server, failure: str
+) -> None:
+    """ADR-0030 invariant 5: Postgres metrics stay off until it is set, and the release ships."""
+    if failure == "psql":
+        server.env["FAKE_MONITOR_FAIL"] = "1"
+    else:
+        (server.root / "alloy.env").unlink()
+
+    result = server.run()
+
+    assert result.returncode == 0, result.stderr
+    assert server.posted()[-1]["state"] == "success"
+    assert "Postgres metrics are off" in result.stderr
     assert _last(result.stdout) == f"deploy: result=ok deployment=7 image={NEW[:19]}"

@@ -59,7 +59,11 @@ GRAFANA_CLOUD_OTLP_URL=http://host.docker.internal:4318
 GRAFANA_CLOUD_OTLP_USER=local
 GRAFANA_CLOUD_LOGS_URL=http://host.docker.internal:3100/loki/api/v1/push
 GRAFANA_CLOUD_LOGS_USER=local
+GRAFANA_CLOUD_METRICS_URL=http://host.docker.internal:9090/api/v1/write
+GRAFANA_CLOUD_METRICS_USER=local
 GRAFANA_CLOUD_TOKEN=local
 ALLOY
+# The monitor role's password; `make smoke-up` sets it in the database (#273).
+printf 'POSTGRES_MONITOR_PASSWORD=%s\n' "$(openssl rand -hex 24)" >> alloy.env
 
 echo "smoke-setup: wrote $SMOKE/ (certs/, .env, db.env, alloy.env, client.pem, rogue-client.pem, origin-ca.pem)"
