@@ -2,6 +2,7 @@
 
 import time
 
+import pytest
 from fastapi.testclient import TestClient
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
@@ -9,7 +10,14 @@ from pydantic import PostgresDsn, SecretStr
 from pydantic_ai import Agent, InstrumentationSettings
 from pydantic_ai.models.test import TestModel
 
-from ai_trainer.main import _OTLP_EXPORT_TIMEOUT_SECONDS, _build_tracer_provider, create_app
+from ai_trainer import main
+from ai_trainer.main import (
+    _OTLP_EXPORT_TIMEOUT_SECONDS,
+    _build_meter_provider,
+    _build_resource,
+    _build_tracer_provider,
+    create_app,
+)
 from ai_trainer.settings import Settings
 
 DATABASE_URL = "postgresql+psycopg://ai_trainer:secret@localhost:5432/ai_trainer"
@@ -62,3 +70,37 @@ def test_an_unreachable_otlp_endpoint_neither_fails_nor_slows_a_traced_request()
     provider = trace.get_tracer_provider()
     assert isinstance(provider, TracerProvider)
     provider.force_flush(timeout_millis=6000)
+
+
+def test_an_unreachable_otlp_endpoint_neither_fails_nor_slows_a_metered_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#275 AC5 with the real OTLP metric exporter: it exports every 50 ms to the closed port
+    while the requests run, and each export fails on its own thread."""
+    monkeypatch.setattr(main, "_METRIC_EXPORT_INTERVAL_MS", 50)
+    client = TestClient(
+        create_app(_settings(otel_enabled=True, otel_exporter_otlp_endpoint=UNREACHABLE_ENDPOINT))
+    )
+
+    started = time.perf_counter()
+    statuses = []
+    for _ in range(5):
+        statuses.append(client.get("/", follow_redirects=False).status_code)
+        time.sleep(0.06)
+    elapsed = time.perf_counter() - started
+
+    assert statuses == [303] * 5
+    assert elapsed < _OTLP_EXPORT_TIMEOUT_SECONDS / 2
+
+
+def test_a_failed_metric_export_is_bounded_and_never_raises() -> None:
+    settings = _settings(otel_enabled=True, otel_exporter_otlp_endpoint=UNREACHABLE_ENDPOINT)
+    provider = _build_meter_provider(settings, _build_resource(settings))
+    assert provider is not None
+    provider.get_meter("ai_trainer").create_counter("probe").add(1)
+
+    started = time.perf_counter()
+    provider.force_flush(timeout_millis=10_000)
+    provider.shutdown(timeout_millis=10_000)
+
+    assert time.perf_counter() - started < 2 * _OTLP_EXPORT_TIMEOUT_SECONDS + 1

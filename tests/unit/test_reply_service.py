@@ -5,12 +5,14 @@ the "not yet" reply, and nothing saved unless the whole reply came through."""
 import asyncio
 from collections.abc import AsyncGenerator
 from contextlib import aclosing
+from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from uuid import UUID, uuid4
 
 import pytest
 
 from ai_trainer.application.ports.conversation import ReplyContext, Routing
+from ai_trainer.application.ports.metrics import LimitKind
 from ai_trainer.application.reply import (
     PART_BREAK,
     MessageNotFoundError,
@@ -27,8 +29,9 @@ from ai_trainer.application.reply import (
 from ai_trainer.domain.chat import ChatMessage, ChatRole
 from ai_trainer.domain.conversation import Intent
 from ai_trainer.domain.goals import Goal
-from ai_trainer.domain.llm_calls import LlmCallOutcome
+from ai_trainer.domain.llm_calls import LlmCallOutcome, NewLlmCall
 from ai_trainer.domain.sports.climbing.extraction import ClimbingExtraction
+from ai_trainer.domain.sports.registry import SportRegistry, default_sport_registry
 from ai_trainer.domain.training import SessionDraft, SessionSpan
 from tests.chat_support import (
     DRAFT_READY_TEXT,
@@ -1198,3 +1201,67 @@ async def test_routing_by_the_conversation_carries_jevs_plausible_sports() -> No
         outcome=LlmCallOutcome.SUCCESS,
         plausible_sports=("climbing", "gym"),
     )
+
+
+class _Turns:
+    """Implements `MetricsPort`'s log-turn timing; ignores the rest."""
+
+    def __init__(self) -> None:
+        self.seconds: list[float] = []
+
+    def request(self, *, method: str, route: str, status: int, seconds: float) -> None:
+        pass
+
+    def model_call(self, call: NewLlmCall) -> None:
+        pass
+
+    def refusal(self, kind: LimitKind) -> None:
+        pass
+
+    def log_turn(self, seconds: float) -> None:
+        self.seconds.append(seconds)
+
+
+async def test_a_fresh_log_turn_is_timed_once_and_its_replay_and_a_greeting_are_not() -> None:
+    """#275: from the message's `created_at` to the draft card, on the reply's clock."""
+    chat, user_id = InMemoryChatRepository(), uuid4()
+    turns = _Turns()
+    later = FROZEN_NOW + timedelta(seconds=4)
+
+    class _Later:
+        def now(self) -> datetime:
+            return later
+
+    services = replace(
+        reply_services(chat, conversation=ScriptedConversation(intents=[_CLIMB_INTENTS, _HI])),
+        metrics=turns,
+        clock=_Later(),
+    )
+    logged = await _asked(chat, user_id, _CLIMB)
+    for _ in range(2):
+        events = await start_reply(user_id, logged.id, timezone="Europe/Warsaw", services=services)
+        assert _done([event async for event in events]).drafts
+    greeted = await _asked(chat, user_id)
+    events = await start_reply(user_id, greeted.id, timezone="Europe/Warsaw", services=services)
+    assert not _done([event async for event in events]).drafts
+
+    assert turns.seconds == [4.0]
+
+
+async def test_a_plugin_that_reads_no_recent_sessions_extracts_with_none() -> None:
+    chat, user_id = InMemoryChatRepository(), uuid4()
+    conversation = ScriptedConversation(intents=[_CLIMB_INTENTS])
+    climbing = default_sport_registry().get("climbing")
+    assert climbing.extraction is not None
+    plain = climbing.model_copy(
+        update={"extraction": climbing.extraction.model_copy(update={"recent": None})}
+    )
+    services = replace(
+        reply_services(chat, conversation=conversation), sports=SportRegistry([plain])
+    )
+    asked = await _asked(chat, user_id, _CLIMB)
+
+    events = await start_reply(user_id, asked.id, timezone="Europe/Warsaw", services=services)
+
+    assert _done([event async for event in events]).drafts
+    assert [recent for recent, _, _ in conversation.extract_options] == [()]

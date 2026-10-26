@@ -11,10 +11,13 @@ from authlib.integrations.starlette_client import OAuth
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from opentelemetry import trace
+from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from opentelemetry.instrumentation.httpx import HTTPX2ClientInstrumentor
 from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
+from opentelemetry.sdk.metrics import MeterProvider
+from opentelemetry.sdk.metrics.export import MetricReader, PeriodicExportingMetricReader
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor, SpanExporter
@@ -34,6 +37,7 @@ from ai_trainer.adapters.google_oauth import AuthlibGoogleOAuthClient
 from ai_trainer.adapters.health import PsycopgDatabaseHealth
 from ai_trainer.adapters.llm_calls_repository import SqlAlchemyLlmCallsRepository
 from ai_trainer.adapters.log_records import configure_logging
+from ai_trainer.adapters.metrics import OtelMetrics
 from ai_trainer.adapters.onboarding_repository import SqlAlchemyOnboardingRepository
 from ai_trainer.adapters.session_draft_repository import SqlAlchemySessionDraftRepository
 from ai_trainer.adapters.sessions_repository import SqlAlchemySessionsRepository
@@ -43,9 +47,11 @@ from ai_trainer.adapters.user_status_changer import SqlAlchemyUserStatusChanger
 from ai_trainer.adapters.users_repository import SqlAlchemyUsersRepository
 from ai_trainer.application.background_reads import BackgroundReads
 from ai_trainer.application.budgeted_gateways import BudgetedDecisionGateway, BudgetedLlmGateway
+from ai_trainer.application.metered_calls import MeteredLlmCallsRepository
 from ai_trainer.application.model_budget import ModelCallBudget
 from ai_trainer.application.ports.clock import ClockPort
 from ai_trainer.application.ports.llm_gateway import LlmGatewayPort
+from ai_trainer.application.ports.metrics import NO_METRICS, MetricsPort
 from ai_trainer.application.reply import ReplyServices
 from ai_trainer.domain.sports.registry import SportRegistry, default_sport_registry
 from ai_trainer.llm.conversation import LlmConversation, build_prompt_registry
@@ -75,6 +81,9 @@ _PROMPTS_ROOT = Path(__file__).resolve().parent / "llm" / "prompts"
 # Bounds a single export attempt (including its retries) so a request that later flushes or
 # shuts down the provider is never stalled for long by an unreachable collector (ADR-0018).
 _OTLP_EXPORT_TIMEOUT_SECONDS = 5.0
+
+# Grafana Cloud bills active series per minute; a shorter interval only adds data points.
+_METRIC_EXPORT_INTERVAL_MS = 60_000
 
 # Regexes searched in each request's URL without its query (ADR-0030).
 _UNTRACED_URLS = r"^https?://[^/]+/health/?$"
@@ -124,9 +133,22 @@ def build_onboarding_reader(
     )
 
 
-def create_app(settings: Settings, *, span_exporter: SpanExporter | None = None) -> FastAPI:
-    """`span_exporter` lets tests keep spans in memory; production always exports over OTLP."""
+def create_app(
+    settings: Settings,
+    *,
+    span_exporter: SpanExporter | None = None,
+    metric_reader: MetricReader | None = None,
+) -> FastAPI:
+    """`span_exporter` and `metric_reader` let tests keep spans and metrics in memory;
+    production always exports both over OTLP."""
     engine = build_engine(str(settings.database_url))
+    resource = _build_resource(settings)
+    meter_provider = _build_meter_provider(settings, resource, metric_reader)
+    metrics: MetricsPort = (
+        NO_METRICS
+        if meter_provider is None
+        else OtelMetrics(meter_provider.get_meter("ai_trainer", settings.app_version))
+    )
 
     # The onboarding's background reads, held so none is collected mid-read (ADR-0028).
     reads = BackgroundReads()
@@ -185,13 +207,14 @@ def create_app(settings: Settings, *, span_exporter: SpanExporter | None = None)
     health_port = PsycopgDatabaseHealth(str(settings.database_url))
     app.include_router(build_health_router(health_port))
     sport_registry = app.state.sport_registry
-    llm_calls = SqlAlchemyLlmCallsRepository(session_factory)
+    llm_calls = MeteredLlmCallsRepository(SqlAlchemyLlmCallsRepository(session_factory), metrics)
     debug_log = build_debug_log(settings, clock)
     # One budget for text calls and decision calls (ADR-0029). Evals build their own gateways.
     budget = ModelCallBudget(
         clock,
         per_hour=settings.llm_calls_per_user_per_hour,
         in_flight=settings.llm_calls_in_flight_per_user,
+        metrics=metrics,
     )
     gateway = BudgetedLlmGateway(
         OpenRouterGateway(settings, llm_calls, debug_log=debug_log), budget
@@ -231,6 +254,7 @@ def create_app(settings: Settings, *, span_exporter: SpanExporter | None = None)
         merge_window=timedelta(minutes=settings.session_merge_window_min),
         max_clarification_options=settings.max_clarification_options,
         recent_sessions=settings.extract_recent_sessions,
+        metrics=metrics,
     )
     app.include_router(
         build_chat_router(
@@ -292,6 +316,7 @@ def create_app(settings: Settings, *, span_exporter: SpanExporter | None = None)
         templates=templates,
         auth_per_minute=settings.auth_requests_per_minute,
         session_per_minute=settings.session_requests_per_minute,
+        metrics=metrics,
     )
     # A request whose Host is not the public origin's is refused with 400 before the session,
     # CSRF or sign-in gate sees it (ADR-0023). The port is not compared, so the host alone is
@@ -301,9 +326,9 @@ def create_app(settings: Settings, *, span_exporter: SpanExporter | None = None)
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=[public_host])
     # Around Starlette's error middleware too, so a refused or failed request also gets a
     # `request_id` and an access line (ADR-0030).
-    log_every_request(app)
+    log_every_request(app, metrics)
 
-    tracer_provider = _build_tracer_provider(settings, span_exporter)
+    tracer_provider = _build_tracer_provider(settings, span_exporter, resource)
     if tracer_provider is not None:
         _trace_every_request(app, engine, tracer_provider)
 
@@ -320,8 +345,21 @@ def app_factory() -> FastAPI:
     return create_app(settings)
 
 
+def _build_resource(settings: Settings) -> Resource:
+    """What every span and metric says it came from (ADR-0030)."""
+    return Resource.create(
+        {
+            "service.name": settings.otel_service_name,
+            "service.version": settings.app_version,
+            "deployment.environment": settings.deployment_environment,
+        }
+    )
+
+
 def _build_tracer_provider(
-    settings: Settings, span_exporter: SpanExporter | None = None
+    settings: Settings,
+    span_exporter: SpanExporter | None = None,
+    resource: Resource | None = None,
 ) -> TracerProvider | None:
     """Builds the OTLP tracer provider from `Settings`, off by default (ADR-0018).
 
@@ -335,20 +373,38 @@ def _build_tracer_provider(
     """
     if not settings.otel_enabled:
         return None
-    resource = Resource.create(
-        {
-            "service.name": settings.otel_service_name,
-            "service.version": settings.app_version,
-            "deployment.environment": settings.deployment_environment,
-        }
-    )
     provider = TracerProvider(
-        resource=resource,
+        resource=resource or _build_resource(settings),
         sampler=ParentBased(TraceIdRatioBased(settings.otel_traces_sampler_ratio)),
     )
     exporter = span_exporter if span_exporter is not None else _build_otlp_span_exporter(settings)
     provider.add_span_processor(BatchSpanProcessor(ScrubbingSpanExporter(exporter)))
     return provider
+
+
+def _build_meter_provider(
+    settings: Settings, resource: Resource, metric_reader: MetricReader | None = None
+) -> MeterProvider | None:
+    """The app's own metrics over OTLP, off with tracing (ADR-0030 invariant 5).
+
+    It is not made global, so the FastAPI, httpx and SQLAlchemy instrumentors record no
+    metrics of their own: theirs can carry a raw path or a host, and these are the only series
+    the dashboard reads (invariant 4). The periodic reader exports on its own thread and logs a
+    failed export, so neither an unreachable Alloy nor a failing exporter reaches a request.
+    """
+    if not settings.otel_enabled:
+        return None
+    reader = metric_reader or PeriodicExportingMetricReader(
+        OTLPMetricExporter(
+            endpoint=_metrics_endpoint(settings.otel_exporter_otlp_endpoint),
+            headers=dict(
+                parse_env_headers(settings.otel_exporter_otlp_headers or "", liberal=True)
+            ),
+            timeout=_OTLP_EXPORT_TIMEOUT_SECONDS,
+        ),
+        export_interval_millis=_METRIC_EXPORT_INTERVAL_MS,
+    )
+    return MeterProvider(resource=resource, metric_readers=[reader])
 
 
 def _trace_every_request(app: FastAPI, engine: AsyncEngine, provider: TracerProvider) -> None:
@@ -381,18 +437,29 @@ def _build_otlp_span_exporter(settings: Settings) -> OTLPSpanExporter:
     )
 
 
-def _traces_endpoint(base_endpoint: str | None) -> str | None:
-    """Appends the OTLP HTTP traces path to a configured base endpoint.
+_METRICS_EXPORT_PATH = "v1/metrics"
 
-    `OTLPSpanExporter` only appends this itself when it falls back to reading
+
+def _metrics_endpoint(base_endpoint: str | None) -> str | None:
+    return _signal_endpoint(base_endpoint, _METRICS_EXPORT_PATH)
+
+
+def _traces_endpoint(base_endpoint: str | None) -> str | None:
+    return _signal_endpoint(base_endpoint, _TRACES_EXPORT_PATH)
+
+
+def _signal_endpoint(base_endpoint: str | None, path: str) -> str | None:
+    """Appends a signal's OTLP HTTP path to a configured base endpoint.
+
+    The OTLP exporters only append it themselves when they fall back to reading
     `OTEL_EXPORTER_OTLP_ENDPOINT` from the environment directly; passing `endpoint=`
     explicitly — required to source it from `Settings` rather than read the environment
     outside it — bypasses that. Without this, a bare Grafana Cloud host as documented in
-    `.env.example` would get spans POSTed to the wrong path, failing silently since
-    `BatchSpanProcessor` swallows export errors (ADR-0018).
+    `.env.example` would get spans and metrics POSTed to the wrong path, failing silently since
+    both exporters' background threads swallow export errors (ADR-0018).
     """
     if not base_endpoint:
         return None
-    if base_endpoint.rstrip("/").endswith(_TRACES_EXPORT_PATH):
+    if base_endpoint.rstrip("/").endswith(path):
         return base_endpoint
-    return f"{base_endpoint.rstrip('/')}/{_TRACES_EXPORT_PATH}"
+    return f"{base_endpoint.rstrip('/')}/{path}"
