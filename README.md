@@ -212,7 +212,7 @@ docker run --rm -d --name lgtm -p 3000:3000 -p 3100:3100 -p 4317:4317 -p 4318:43
 
 Then open http://localhost:3000 → Explore:
 - **Loki** with `{service="app"}` (or `caddy`, `db`, `alloy`) shows that container's lines.
-- **Tempo** with a `trace_id` from an app line shows that request's trace.
+- **Tempo** with a `trace_id` from an app line shows that request's trace. Its resource carries `deployment.environment=production` and `service.version`: `unknown`, or the tag you pass as `RELEASE_TAG=v0.0.0-smoke make smoke-up`, as `deploy.sh` passes the release tag in production (#293).
 - **Prometheus** shows the host's, Caddy's and Postgres' metrics, about a minute after `make smoke-up`. Alloy remote-writes them to port 9090:
   - `node_filesystem_avail_bytes{mountpoint="/"}`: free space on the Docker VM's root filesystem.
   - `caddy_http_requests_total`: requests per Caddy server.

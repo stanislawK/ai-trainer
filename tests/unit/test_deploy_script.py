@@ -46,6 +46,7 @@ def log_call(tool):
         "tool": tool,
         "args": sys.argv[1:],
         "app_image": env.get("APP_IMAGE"),
+        "release_tag": env.get("RELEASE_TAG"),
         "gh_token_is_the_token": gh_token == os.environ["FAKE_TOKEN"],
         "token_elsewhere": any(os.environ["FAKE_TOKEN"] in v for k, v in env.items()
                                if k != "FAKE_TOKEN"),
@@ -243,6 +244,7 @@ class Server:
             _stub(bin_dir, "flock", FAKE_FLOCK)
         (creds / "github-token").write_text(TOKEN + "\n")
         (self.root / "app-image").write_text(f"{IMAGE}@{OLD}\n")
+        (self.root / "app-version").write_text("v0.1.0\n")
         (self.root / "alloy.env").write_text(f"POSTGRES_MONITOR_PASSWORD={MONITOR_PASSWORD}\n")
         self.env = {
             "PATH": f"{bin_dir}:{os.environ['PATH']}",
@@ -324,6 +326,13 @@ class Server:
 
     def recorded_image(self) -> str:
         return (self.root / "app-image").read_text().strip()
+
+    def recorded_version(self) -> str:
+        return (self.root / "app-version").read_text().strip()
+
+    def app_starts(self) -> list[dict[str, Any]]:
+        """Each `compose up` of the app, in order."""
+        return [c for c in self.calls("docker") if "up" in c["args"] and "app" in c["args"]]
 
 
 @pytest.fixture
@@ -657,6 +666,7 @@ def test_a_rollback_that_is_unhealthy_too_says_so(server: Server) -> None:
 
 def test_a_failing_first_deploy_has_nothing_to_roll_back_to(server: Server) -> None:
     (server.root / "app-image").unlink()
+    (server.root / "app-version").unlink()
     server.env["FAKE_UNHEALTHY"] = f"{IMAGE}@{NEW}"
 
     result = server.run()
@@ -664,6 +674,39 @@ def test_a_failing_first_deploy_has_nothing_to_roll_back_to(server: Server) -> N
     assert result.returncode != 0
     assert "no previous release" in server.posted()[-1]["description"]
     assert not (server.root / "app-image").exists()
+    assert not (server.root / "app-version").exists()
+
+
+# #293: the app reports the release tag as `service.version` (ADR-0030).
+
+
+def test_the_app_starts_with_the_release_tag_and_records_it(server: Server) -> None:
+    result = server.run()
+
+    assert result.returncode == 0, result.stderr
+    assert [c["release_tag"] for c in server.app_starts()] == ["v0.2.0"]
+    assert server.recorded_version() == "v0.2.0"
+
+
+def test_a_rollback_runs_with_the_previous_releases_tag(server: Server) -> None:
+    server.env["FAKE_UNHEALTHY"] = f"{IMAGE}@{NEW}"
+
+    server.run()
+
+    assert [(c["app_image"], c["release_tag"]) for c in server.app_starts()] == [
+        (f"{IMAGE}@{NEW}", "v0.2.0"),
+        (f"{IMAGE}@{OLD}", "v0.1.0"),
+    ]
+    assert server.recorded_version() == "v0.1.0"
+
+
+def test_a_rollback_to_a_release_without_a_recorded_tag_reports_unknown(server: Server) -> None:
+    (server.root / "app-version").unlink()
+    server.env["FAKE_UNHEALTHY"] = f"{IMAGE}@{NEW}"
+
+    server.run()
+
+    assert server.app_starts()[-1]["release_tag"] == "unknown"
 
 
 def test_a_failed_pull_changes_nothing(server: Server) -> None:
@@ -726,6 +769,8 @@ def test_a_run_stopped_once_the_new_app_started_rolls_back(server: Server) -> No
     assert [p["state"] for p in server.posted()] == ["in_progress", "failure"]
     assert "rolled back" in server.posted()[-1]["description"]
     assert server.recorded_image() == f"{IMAGE}@{OLD}"
+    assert server.app_starts()[-1]["release_tag"] == "v0.1.0"
+    assert server.recorded_version() == "v0.1.0"
 
 
 def test_a_failed_read_of_the_deployments_fails_the_unit(server: Server) -> None:
