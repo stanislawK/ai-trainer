@@ -37,6 +37,7 @@ filling those in: its OTLP endpoint speaks OTLP/HTTP with basic auth (account ID
 supplied through the standard `OTEL_EXPORTER_OTLP_*` variables
 ([Grafana Cloud, *Send data to the OTLP endpoint*](https://grafana.com/docs/grafana-cloud/send-data/otlp/send-data-otlp/)).
 Adopting it is a `.env` change, not a code change, and M0 ships without an account.
+*Production part superseded by [ADR-0030](0030-production-observability-on-grafana-cloud.md) (amended 2026-10-26, see Consequences): production's app exports to Alloy, which holds the only Grafana Cloud credentials. The settings stay configuration, but they are for local use.*
 
 **Content stays out of telemetry.** `InstrumentationSettings.include_content` defaults to `True` and
 is set to `False`: prompts, completions and tool arguments are the athlete's own words and belong in
@@ -115,3 +116,4 @@ the database, not in a third-party trace store.
   - A provider error mid-stream reaches the line as `CancelledError`: Pydantic AI surfaces the stream's failure to the consumer and cancels the request's wrapper, so the original exception's name never reaches the hook.
   - `Settings` refuses the flag unless `PUBLIC_BASE_URL`'s host is exactly `localhost` or `127.0.0.1` (#278), so a production `.env` can't turn it on; the error names both settings and prints no setting's value (`hide_input_in_errors`).
   - `ai-trainer llm-debug-report` (#179) attributes input size in characters by the two headings every template renders its context under: `## Recent messages` counts as history and `## Latest message` as the message. A template that renames or drops them shows that text under instructions. Its `timeouts` column counts `CancelledError` lines, closed streams included.
+- Owner-directed amendment, 2026-10-26 (with #293, which makes `compose.prod.yaml` match it): the Decision's "Grafana Cloud … is reached by filling those in … a `.env` change" no longer describes production. [ADR-0030](0030-production-observability-on-grafana-cloud.md) invariant 1 puts the only Grafana Cloud credentials in Alloy's `${CONFIG_DIR}/alloy.env`, and the app's `.env` never holds them. Production's app sends OTLP to `http://alloy:4318` without credentials: `compose.prod.yaml` sets the endpoint and blanks `OTEL_EXPORTER_OTLP_HEADERS` and the per-signal `…_TRACES_/METRICS_/LOGS_HEADERS`, which the OTel SDK reads itself, so a header left in `.env` never reaches the process. The OTLP settings keep their meaning here and stay configuration, for a local collector such as otel-lgtm (README). Invariants 1–6 are unchanged.
