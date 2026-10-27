@@ -99,6 +99,8 @@ ssh deploy@<ip> 'sudo install -o root -g root -m 0600 /tmp/origin.pem /tmp/origi
 
 The app's `.env` comes from `.env.example`, filled with the production values: the production Google OAuth client, `PUBLIC_BASE_URL=https://<domain>`, and `DATABASE_URL` with a fresh random password. The database password goes to `db.env` as well, which `compose.prod.yaml` reads for the `db` container.
 
+Leave every `OTEL_*` key, `APP_VERSION` and `DEPLOYMENT_ENVIRONMENT` out of the production `.env`. `compose.prod.yaml` sets what the app needs, and the rest keep their defaults: the app sends to Alloy, which holds the only Grafana Cloud credentials ([section 11](#11-telemetry-to-grafana-cloud), ADR-0030 invariant 1), and `deploy.sh` passes the release tag. The one exception is `OTEL_TRACES_SAMPLER_RATIO`, which you may set to fit the free tier (section 11.1).
+
 On the production OpenRouter key, set a credit limit in the OpenRouter dashboard (ADR-0029). The app caps model calls per user and cannot see that limit. It is the backstop if the app's cap is wrong. The key's secret stays in `.env` only.
 
 Log in with `ssh deploy@<ip>`, then on the server:
@@ -301,7 +303,7 @@ The server pulls approved releases, so GitHub holds no credential to it. Every t
 3. It starts `db`, then runs `backup.sh predeploy`: uploaded to `predeploy/` in R2, and the same encrypted file kept in `/opt/ai-trainer/backups/predeploy/` (the newest three).
 4. It runs `migrate`, then starts `app` and `caddy` on the new image. Right after the pull it starts `alloy` ([section 11](#11-telemetry-to-grafana-cloud)) without waiting for it; a failure there only prints a warning.
 5. It polls `https://<domain>/health` through Cloudflare and Caddy for up to 90 seconds.
-6. It reports `success` and records the digest in `/opt/ai-trainer/app-image`. Otherwise it starts the previous digest from that file again and reports `failure` with the reason. The database is never rolled back: migrations are expand-only (ADR-0024 invariant 4).
+6. It reports `success` and records the digest in `/opt/ai-trainer/app-image` and the release tag in `/opt/ai-trainer/app-version`. Compose passes that tag (`RELEASE_TAG`) to the app as `APP_VERSION`, its traces' `service.version` (ADR-0030). Otherwise it starts the previous digest from that file again, with the previous tag, and reports `failure` with the reason. The database is never rolled back: migrations are expand-only (ADR-0024 invariant 4).
 
 What it ignores:
 
@@ -403,7 +405,7 @@ Agents never sign in to Grafana Cloud or call its API. Every step here is yours.
 umask 077
 cat > /opt/ai-trainer/alloy.env   # paste the eight lines below with your values, Enter, then Ctrl-D
 ls -l /opt/ai-trainer/alloy.env   # -rw------- deploy deploy
-cd /opt/ai-trainer && set -a && . ./deploy.env && set +a && export APP_IMAGE=$(cat app-image)
+cd /opt/ai-trainer && set -a && . ./deploy.env && set +a && export APP_IMAGE=$(cat app-image) RELEASE_TAG=$(cat app-version)
 docker compose -f compose.prod.yaml config --quiet && echo ok   # must print ok; see below
 docker compose -f compose.prod.yaml up -d --no-deps --force-recreate alloy
 ```

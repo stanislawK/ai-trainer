@@ -70,6 +70,12 @@ services:
     restart: "no"
     env_file:
       - ${CONFIG_DIR:-.}/.env
+    environment:
+      # As for `app` below: a Grafana credential left in .env never reaches the process.
+      OTEL_EXPORTER_OTLP_HEADERS: ""
+      OTEL_EXPORTER_OTLP_TRACES_HEADERS: ""
+      OTEL_EXPORTER_OTLP_METRICS_HEADERS: ""
+      OTEL_EXPORTER_OTLP_LOGS_HEADERS: ""
     command:
       - alembic
       - upgrade
@@ -99,6 +105,18 @@ services:
       # Traces go to Alloy on `telemetry`; an unreachable Alloy never fails a request.
       OTEL_ENABLED: "true"
       OTEL_EXPORTER_OTLP_ENDPOINT: http://alloy:4318
+      # Alloy alone holds the Grafana Cloud credentials (ADR-0030 invariant 1): these override
+      # any header left in .env, so it never reaches the process. The OTel SDK reads the
+      # per-signal ones itself, whatever headers the app passes.
+      OTEL_EXPORTER_OTLP_HEADERS: ""
+      OTEL_EXPORTER_OTLP_TRACES_HEADERS: ""
+      OTEL_EXPORTER_OTLP_METRICS_HEADERS: ""
+      OTEL_EXPORTER_OTLP_LOGS_HEADERS: ""
+      # Each span's `service.version` and `deployment.environment` (#293). deploy.sh passes the
+      # release tag as RELEASE_TAG; any other `up` reports `unknown`. Not APP_VERSION: Compose
+      # also interpolates from the project directory's .env, the app's own, where it reads `dev`.
+      APP_VERSION: ${RELEASE_TAG:-unknown}
+      DEPLOYMENT_ENVIRONMENT: production
     depends_on:
       db:
         condition: service_healthy

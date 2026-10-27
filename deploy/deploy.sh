@@ -11,7 +11,10 @@
 #   4. run `migrate`, set the monitor role's password, then start the app and Caddy on the new
 #      image;
 #   5. poll /health through Cloudflare and Caddy;
-#   6. report `success`, or restore the previous app image and report `failure`.
+#   6. report `success` and record the image in app-image and its tag in app-version, or restore
+#      the previous app image with its tag and report `failure`.
+# Compose gives the app the release tag (RELEASE_TAG) as APP_VERSION, its spans'
+# `service.version` (#293).
 # The database is never rolled back: migrations are expand-only (ADR-0024 invariant 4), so the
 # previous release runs on the new schema. Older deployments are never deployed, so an old
 # approval can't take production back to an older release.
@@ -131,7 +134,7 @@ previous_short=
 stopped() {
   local why="deploy.sh stopped before it finished"
   if [[ -n $switched && -n $previous ]]; then
-    APP_IMAGE=$previous compose up -d --wait --wait-timeout "$WAIT_TIMEOUT" --no-deps app || true
+    APP_IMAGE=$previous RELEASE_TAG=$previous_version compose up -d --wait --wait-timeout "$WAIT_TIMEOUT" --no-deps app || true
     why="$why; rolled back to ${previous_short}"
   fi
   report failure "$why" || echo "deploy: could not report the failure to GitHub" >&2
@@ -150,6 +153,10 @@ short=${digest:0:19}
 previous=$(cat "$root/app-image" 2>/dev/null || true)
 previous_short=${previous#"$IMAGE@"}
 previous_short=${previous_short:0:19}
+previous_version=$(cat "$root/app-version" 2>/dev/null || true)
+previous_version=${previous_version:-unknown}
+# Every compose call from here on runs the new release, unless it sets its own.
+export RELEASE_TAG=$ref
 
 # A failed status is final, so a network blip gets two more tries before it ends the release.
 for ((try = 1; ; try++)); do
@@ -199,6 +206,7 @@ switched=1
 if APP_IMAGE=$image compose up -d --wait --wait-timeout "$WAIT_TIMEOUT" --no-deps app caddy &&
   healthy; then
   echo "$image" >"$root/app-image"
+  echo "$ref" >"$root/app-version"
   finished=1
   # The release is live either way: say so, even if GitHub can't be told.
   report success "deployed $short" || echo "deploy: could not report the success to GitHub" >&2
@@ -210,7 +218,8 @@ fi
 # The previous image's alembic doesn't know the new head, so --no-deps keeps `migrate` out of
 # the rollback. The schema stays as migrated.
 [[ -n $previous ]] || fail "health check failed for $short; no previous release to roll back to"
-if APP_IMAGE=$previous compose up -d --wait --wait-timeout "$WAIT_TIMEOUT" --no-deps app &&
+if APP_IMAGE=$previous RELEASE_TAG=$previous_version compose up -d --wait \
+  --wait-timeout "$WAIT_TIMEOUT" --no-deps app &&
   healthy; then
   fail "health check failed for $short; rolled back to $previous_short"
 fi

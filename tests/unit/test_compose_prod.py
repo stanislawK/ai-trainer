@@ -218,6 +218,40 @@ def test_the_app_exports_its_telemetry_to_alloy(services: dict[str, Any]) -> Non
     assert environment["OTEL_EXPORTER_OTLP_ENDPOINT"] == "http://alloy:4318"
 
 
+def test_the_app_reports_production_and_the_release_tag(services: dict[str, Any]) -> None:
+    """#293: `deployment.environment` and `service.version` on every span (ADR-0030). Set here,
+    not in `.env`, so `.env.example`'s development values can't leak into production. The tag
+    comes from RELEASE_TAG, not APP_VERSION: Compose interpolates from the project directory's
+    `.env`, which is the app's own and may hold `APP_VERSION=dev`."""
+    environment = services["app"]["environment"]
+    assert environment["DEPLOYMENT_ENVIRONMENT"] == "production"
+    assert environment["APP_VERSION"] == "${RELEASE_TAG:-unknown}"
+
+
+def test_the_release_tag_is_never_a_settings_key() -> None:
+    """Were it one, the app's `.env` could supply the tag through Compose's interpolation."""
+    assert "RELEASE_TAG" not in (ROOT / ".env.example").read_text()
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        "OTEL_EXPORTER_OTLP_HEADERS",
+        "OTEL_EXPORTER_OTLP_TRACES_HEADERS",
+        "OTEL_EXPORTER_OTLP_METRICS_HEADERS",
+        "OTEL_EXPORTER_OTLP_LOGS_HEADERS",
+    ],
+)
+@pytest.mark.parametrize("name", ["migrate", "app"])
+def test_no_otlp_header_from_env_reaches_the_app(
+    services: dict[str, Any], name: str, key: str
+) -> None:
+    """ADR-0030 invariant 1: `environment` overrides `env_file`, so a Grafana credential left in
+    `.env` never reaches either process that reads it. The OTel SDK reads the per-signal
+    variables itself, whatever headers the app passes."""
+    assert services[name]["environment"][key] == ""
+
+
 def test_nothing_waits_for_alloy(services: dict[str, Any]) -> None:
     """An Alloy that fails to start never holds up the database, a migration or the app."""
     for svc in services.values():
