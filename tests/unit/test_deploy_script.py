@@ -2,10 +2,11 @@
 deploy on the server", invariants 2, 3 and 5; ADR-0024 invariant 4).
 
 The script runs against stand-ins on PATH: `gh` (the deployments API and `gh attestation
-verify`), `docker` (pull and compose), `curl` (the health check through Cloudflare and Caddy) and
-`sleep`, plus a stand-in `backup.sh` beside it. Every stand-in appends one JSON line per call to
-a shared log, so the tests can check the order of the steps and what each one was given. The
-real run is the owner's, on the host (deploy/RUNBOOK.md, section 10)."""
+verify`), `docker` (pull, compose, and the health check from the Caddy container), `curl`
+(which must never be called: the check stays off Cloudflare) and `sleep`, plus a stand-in
+`backup.sh` beside it. Every stand-in appends one JSON line per call to a shared log, so the
+tests can check the order of the steps and what each one was given. The real run is the
+owner's, on the host (deploy/RUNBOOK.md, section 10)."""
 
 import fcntl
 import json
@@ -117,6 +118,10 @@ sys.stdout.write(out if out.endswith("\\n") or not out else out + "\\n")
 
 # `docker pull` and `docker compose`. `up` records the image the app serves; `up --wait` fails
 # for an image listed in FAKE_UNHEALTHY, as a failing container healthcheck would.
+# `exec caddy wget` is the health check. Like busybox wget, it fails while the app serves an
+# image listed in FAKE_UNHEALTHY or FAKE_HEALTH_UNHEALTHY (unhealthy only to the poll). For one
+# listed in FAKE_DB_UNAVAILABLE it answers 200 with the body /health gives when Postgres is
+# unreachable.
 FAKE_DOCKER = (
     "#!/usr/bin/env python3"
     + LOG_CALL
@@ -143,6 +148,14 @@ if "exec" in args and "psql" in args:
     if os.environ.get("FAKE_MONITOR_FAIL"):
         sys.stderr.write('ERROR:  role "ai_trainer_monitor" does not exist\\n')
         sys.exit(3)
+if "exec" in args and "wget" in args:
+    serving = (state / "serving").read_text() if (state / "serving").exists() else ""
+    bad = unhealthy + os.environ.get("FAKE_HEALTH_UNHEALTHY", "").split(",")
+    if serving in bad:
+        sys.stderr.write("wget: server returned error: HTTP/1.1 503 Service Unavailable\\n")
+        sys.exit(1)
+    no_db = serving in os.environ.get("FAKE_DB_UNAVAILABLE", "").split(",")
+    print(json.dumps({"database": "unavailable" if no_db else "ok"}, separators=(",", ":")))
 if "up" in args and "alloy" in args and os.environ.get("FAKE_ALLOY_FAIL"):
     sys.stderr.write("Error response from daemon: alloy failed to start\\n")
     sys.exit(1)
@@ -156,21 +169,13 @@ if "up" in args and "app" in args:
 """
 )
 
-# The health check. It fails while the app serves an image listed in FAKE_UNHEALTHY or
-# FAKE_CURL_UNHEALTHY (unhealthy only as seen through Cloudflare and Caddy). For one listed in
-# FAKE_DB_UNAVAILABLE it answers 200 with the body /health gives when Postgres is unreachable.
+# Logs only: the health check never goes through Cloudflare (ADR-0023, amended 2026-10-28).
 FAKE_CURL = (
     "#!/usr/bin/env python3"
     + LOG_CALL
     + """
 log_call("curl")
-serving = (state / "serving").read_text() if (state / "serving").exists() else ""
-bad = os.environ.get("FAKE_UNHEALTHY", "").split(",") + os.environ.get(
-    "FAKE_CURL_UNHEALTHY", "").split(",")
-if serving in bad:
-    sys.exit(22)
-no_db = serving in os.environ.get("FAKE_DB_UNAVAILABLE", "").split(",")
-print(json.dumps({"database": "unavailable" if no_db else "ok"}, separators=(",", ":")))
+sys.exit(7)
 """
 )
 
@@ -313,6 +318,8 @@ class Server:
                     names.append("migrate")
                 elif "exec" in args and "psql" in args:
                     names.append("monitor-password")
+                elif "exec" in args and "wget" in args:
+                    names.append("health")
                 elif "up" in args:
                     names.append(
                         "up:" + "+".join(a for a in ("db", "app", "caddy", "alloy") if a in args)
@@ -370,7 +377,7 @@ def test_steps_run_in_the_adr_order(server: Server) -> None:
         "migrate",
         "monitor-password",
         "up:app+caddy",
-        "curl",
+        "health",
         "status:success",
     ]
 
@@ -455,12 +462,51 @@ def test_every_wait_is_bounded(server: Server) -> None:
         assert args[args.index("--wait-timeout") + 1] == "120"
 
 
-def test_health_is_polled_through_cloudflare_and_caddy(server: Server) -> None:
+def test_a_healthy_release_never_goes_through_cloudflare(server: Server) -> None:
+    """Bot Fight Mode challenges the host's own requests to the site (ADR-0023, amended
+    2026-10-28), so the check never leaves the stack."""
+    result = server.run()
+
+    assert result.returncode == 0, result.stderr
+    assert server.posted()[-1]["state"] == "success"
+    assert server.calls("curl") == []
+    for call in server.calls():
+        assert not any("https://" in arg for arg in call["args"]), call
+
+
+def test_health_is_polled_from_the_caddy_container(server: Server) -> None:
     assert server.run().returncode == 0
 
-    (curl,) = server.calls("curl")
-    assert curl["args"][-1] == f"https://{SITE_HOST}/health"
-    assert "-f" in curl["args"][0] or "--fail" in curl["args"]
+    (poll,) = [c for c in server.calls("docker") if "exec" in c["args"] and "wget" in c["args"]]
+    assert poll["args"][:5] == [
+        "compose",
+        "--project-directory",
+        str(server.root),
+        "-f",
+        str(server.root / "compose.prod.yaml"),
+    ]
+    assert poll["args"][5:] == [
+        "exec",
+        "-T",
+        "caddy",
+        "wget",
+        "-qO-",
+        "-T",
+        "10",
+        "--header",
+        f"Host: {SITE_HOST}",
+        "http://app:8000/health",
+    ]
+
+
+def test_each_poll_names_the_image_being_checked(server: Server) -> None:
+    """compose.prod.yaml requires APP_IMAGE for every command, `exec` included."""
+    server.env["FAKE_HEALTH_UNHEALTHY"] = f"{IMAGE}@{NEW}"
+
+    server.run()
+
+    polls = [c for c in server.calls("docker") if "exec" in c["args"] and "wget" in c["args"]]
+    assert [c["app_image"] for c in polls] == [f"{IMAGE}@{NEW}"] * 30 + [f"{IMAGE}@{OLD}"]
 
 
 def test_an_answer_without_the_database_counts_as_unhealthy(server: Server) -> None:
@@ -475,13 +521,13 @@ def test_an_answer_without_the_database_counts_as_unhealthy(server: Server) -> N
 
 
 def test_a_slow_start_is_polled_until_healthy(server: Server) -> None:
-    # Unhealthy through curl for the new image: every poll fails, so the run must poll more
+    # Unhealthy to the poll for the new image: every poll fails, so the run must poll more
     # than once before giving up.
-    server.env["FAKE_CURL_UNHEALTHY"] = f"{IMAGE}@{NEW}"
+    server.env["FAKE_HEALTH_UNHEALTHY"] = f"{IMAGE}@{NEW}"
 
     server.run()
 
-    new_image_polls = server.steps()[: server.steps().index("status:failure")].count("curl")
+    new_image_polls = server.steps()[: server.steps().index("status:failure")].count("health")
     assert new_image_polls >= 30
 
 
@@ -618,7 +664,7 @@ def test_nothing_happens_without_any_deployment(server: Server) -> None:
 # AC 4: when /health fails, the previous digest serves again.
 
 
-@pytest.mark.parametrize("seen_by", ["FAKE_UNHEALTHY", "FAKE_CURL_UNHEALTHY"])
+@pytest.mark.parametrize("seen_by", ["FAKE_UNHEALTHY", "FAKE_HEALTH_UNHEALTHY"])
 def test_a_failing_health_check_restores_the_previous_digest(server: Server, seen_by: str) -> None:
     server.env[seen_by] = f"{IMAGE}@{NEW}"
 
@@ -664,10 +710,11 @@ def test_a_rollback_that_is_unhealthy_too_says_so(server: Server) -> None:
     assert server.recorded_image() == f"{IMAGE}@{OLD}"
 
 
-def test_a_failing_first_deploy_has_nothing_to_roll_back_to(server: Server) -> None:
+@pytest.mark.parametrize("seen_by", ["FAKE_UNHEALTHY", "FAKE_HEALTH_UNHEALTHY"])
+def test_a_failing_first_deploy_has_nothing_to_roll_back_to(server: Server, seen_by: str) -> None:
     (server.root / "app-image").unlink()
     (server.root / "app-version").unlink()
-    server.env["FAKE_UNHEALTHY"] = f"{IMAGE}@{NEW}"
+    server.env[seen_by] = f"{IMAGE}@{NEW}"
 
     result = server.run()
 

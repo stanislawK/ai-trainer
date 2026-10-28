@@ -10,7 +10,7 @@
 #   3. take a pre-migration backup (backup.sh predeploy, ADR-0023 invariant 5);
 #   4. run `migrate`, set the monitor role's password, then start the app and Caddy on the new
 #      image;
-#   5. poll /health through Cloudflare and Caddy;
+#   5. poll the app's /health from the Caddy container, never through Cloudflare;
 #   6. report `success` and record the image in app-image and its tag in app-version, or restore
 #      the previous app image with its tag and report `failure`.
 # Compose gives the app the release tag (RELEASE_TAG) as APP_VERSION, its spans'
@@ -20,7 +20,8 @@
 # approval can't take production back to an older release.
 #
 # Settings:
-#   SITE_HOST               the host of PUBLIC_BASE_URL (/opt/ai-trainer/deploy.env)
+#   SITE_HOST               the host of PUBLIC_BASE_URL (/opt/ai-trainer/deploy.env); the health
+#                           check's Host header
 #   BACKUP_*, RCLONE_*      backup.sh's settings (/opt/ai-trainer/backup.env)
 #   CREDENTIALS_DIRECTORY   set by systemd's LoadCredential=; holds `github-token`, a
 #                           fine-grained token for this repository only (Deployments read and
@@ -77,7 +78,7 @@ fi
 
 export GH_PROMPT_DISABLED=1 GH_NO_UPDATE_NOTIFIER=1
 # The token is read for each call and given to that gh process only: it's never exported, so
-# docker, curl and backup.sh never see it, and nothing here prints it. GH_DEBUG is blanked, so a
+# docker and backup.sh never see it, and nothing here prints it. GH_DEBUG is blanked, so a
 # debug setting left in an env file can't put gh's HTTP log in the journal.
 gh_() {
   GH_DEBUG='' GH_TOKEN=$(<"$token_file") gh "$@"
@@ -189,11 +190,15 @@ APP_IMAGE=$image "$(dirname "$0")/monitor-password.sh" "$root/alloy.env" \
   docker compose --project-directory "$root" -f "$root/compose.prod.yaml" >/dev/null ||
   echo "deploy: the monitor password was not set; Postgres metrics are off until it is" >&2
 
+# Polls the app serving image $1. compose.prod.yaml requires APP_IMAGE even for `exec`.
 healthy() {
   local poll
   for ((poll = 1; poll <= HEALTH_POLLS; poll++)); do
+    # From inside the stack: through Cloudflare, Bot Fight Mode challenges the host's own
+    # requests (ADR-0023, amended 2026-10-28). The Host header gets past TrustedHostMiddleware.
     # /health answers 200 even when Postgres is unreachable, with "database":"unavailable".
-    [[ $(curl -fsS --max-time 10 "https://$SITE_HOST/health") == *'"database":"ok"'* ]] && return 0
+    [[ $(APP_IMAGE=$1 compose exec -T caddy wget -qO- -T 10 --header "Host: $SITE_HOST" \
+      http://app:8000/health) == *'"database":"ok"'* ]] && return 0
     sleep "$HEALTH_INTERVAL"
   done
   return 1
@@ -204,7 +209,7 @@ healthy() {
 # would wait for it until the unit's timeout.
 switched=1
 if APP_IMAGE=$image compose up -d --wait --wait-timeout "$WAIT_TIMEOUT" --no-deps app caddy &&
-  healthy; then
+  healthy "$image"; then
   echo "$image" >"$root/app-image"
   echo "$ref" >"$root/app-version"
   finished=1
@@ -220,7 +225,7 @@ fi
 [[ -n $previous ]] || fail "health check failed for $short; no previous release to roll back to"
 if APP_IMAGE=$previous RELEASE_TAG=$previous_version compose up -d --wait \
   --wait-timeout "$WAIT_TIMEOUT" --no-deps app &&
-  healthy; then
+  healthy "$previous"; then
   fail "health check failed for $short; rolled back to $previous_short"
 fi
 fail "health check failed for $short; rolled back to $previous_short, unhealthy too"
