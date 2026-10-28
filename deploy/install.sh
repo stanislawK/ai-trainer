@@ -52,7 +52,8 @@ cleanup_stage() {
 }
 trap cleanup_stage EXIT
 
-stage=$(ssh "deploy@${host}" 'mktemp -d -m 0700 /tmp/ai-trainer-install.XXXXXXXX' | tail -n 1)
+# GNU mktemp has no -m; -d always creates the directory 0700, whatever the umask (#227).
+stage=$(ssh "deploy@${host}" 'mktemp -d /tmp/ai-trainer-install.XXXXXXXX' | tail -n 1)
 if [[ $stage != /tmp/ai-trainer-install.* ]]; then
   stage=
   die "the remote staging directory was not created"
@@ -105,7 +106,8 @@ if [[ -f /opt/ai-trainer/deploy.env && \${#recreate[@]} -gt 0 ]]; then
     echo "install: SITE_HOST is unset; \${recreate[*]} not recreated" >&2
     exit 1
   }
-  # Compose interpolates the whole file. migrate and app require APP_IMAGE even for `up caddy`.
+  # Compose interpolates the whole file. migrate and app require APP_IMAGE even for "up caddy".
+  # (No backticks in this heredoc: it is unquoted, so the laptop would run them, #227.)
   # set +a is already in effect, so the assignment has to be exported.
   if ! app_image=\$(cat /opt/ai-trainer/app-image); then
     echo "install: could not read app-image; \${recreate[*]} not recreated" >&2

@@ -89,12 +89,16 @@ def test_backup_env_example_lists_every_setting_with_no_real_value() -> None:
             "RCLONE_CONFIG_R2_ACCESS_KEY_ID",
             "RCLONE_CONFIG_R2_SECRET_ACCESS_KEY",
             "RCLONE_CONFIG_R2_NO_CHECK_BUCKET",
+            "RCLONE_CONFIG_R2_NO_HEAD",
         ]
     )
     assert settings["RCLONE_CONFIG_R2_TYPE"] == "s3"
     assert settings["RCLONE_CONFIG_R2_PROVIDER"] == "Cloudflare"
     # The token can write objects but not create buckets, so rclone mustn't try.
     assert settings["RCLONE_CONFIG_R2_NO_CHECK_BUCKET"] == "true"
+    # #227: the locked bucket versions objects, and R2 answers rclone's post-upload
+    # HEAD ?versionId= with 501, failing an upload that succeeded.
+    assert settings["RCLONE_CONFIG_R2_NO_HEAD"] == "true"
     assert settings["RCLONE_CONFIG_R2_ACCESS_KEY_ID"] == ""
     assert settings["RCLONE_CONFIG_R2_SECRET_ACCESS_KEY"] == ""
 
