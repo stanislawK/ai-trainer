@@ -63,6 +63,23 @@ If key login fails, nothing else gets in: `deploy` has no password and sshd admi
 
 Expect `status: done`, `Docker Compose version 2.26.1-4` (or newer), `drwxr-x--- deploy deploy /opt/ai-trainer` and `drwx------ root root /opt/ai-trainer/certs`.
 
+### 4.1 Sections 1–4 in the Cloud Console instead (#227)
+
+The production host was made this way. The wizard's defaults silently override what the CLI states explicitly, and cloud-init reads its settings only at first boot, so a wrong field means deleting the server and starting again. Three of the first four attempts failed that way: the Cloud config field left empty, the default Ubuntu image (whose missing `docker-compose` package fails the whole package step), and twice an empty `authorized_keys` for `deploy` with root's absent too, so Hetzner had passed no key at all.
+
+1. **Price (§1):** *Add server* shows each type's price per location; close it without buying.
+2. **Key (§2):** *Security → SSH keys → Add SSH key* with `~/.ssh/id_ed25519.pub`. Don't rely on ticking it in the wizard: write the key into the cloud config too, on the laptop. The copy is never committed, and a public key isn't secret:
+
+   ```sh
+   key=$(cat ~/.ssh/id_ed25519.pub)
+   sed "/^  sudo: /a\\  ssh_authorized_keys: [\"$key\"]" deploy/cloud-init.yaml > /tmp/cloud-init-with-key.yaml
+   ```
+
+3. **Firewall (§3):** *Firewalls → Create Firewall*. Inbound exactly two rules: TCP 22 from `<my-ip>/32`, and TCP 443 from every line of `curl -s https://www.cloudflare.com/ips-v4; curl -s https://www.cloudflare.com/ips-v6`. Delete the pre-filled ICMP rule and any `0.0.0.0/0` or `::/0`. No outbound rules. Attach it to the server afterwards if the wizard didn't (*Resources → Apply to resources*); until then every port is open.
+4. **Server (§4):** *Add server*. **Image: Debian 13, not the default Ubuntu.** CX23, IPv4 and IPv6, the SSH key ticked, the firewall ticked, Backups on, **Cloud config:** the whole of `/tmp/cloud-init-with-key.yaml`, **Name:** `ai-trainer`, not the generated one. Check the summary says Debian 13 and CX23 before *Create & Buy now*.
+5. **When key login fails:** *Rescue → Reset root password*, then log in as root through the console (`>_`), and read `/home/deploy/.ssh/authorized_keys`, `/root/.ssh/` and `cloud-init status --long`. The console's paste drops Shift, so `^ | ' _ :` arrive wrong: paste commands without them, and screenshot the output. Lock root again with `passwd -l root`, or delete the server.
+6. **IPv6 (§7, 4b and 5b):** the server's *Overview* shows its IPv6 address.
+
 ## 5. Cloudflare
 
 All in the Cloudflare dashboard for the zone.
@@ -114,7 +131,7 @@ chmod 0600 /opt/ai-trainer/.env /opt/ai-trainer/db.env
 ls -l /opt/ai-trainer                    # -rw------- deploy deploy .env and db.env
 ```
 
-The deploy poller ([section 10](#10-deploy-poller)) starts the stack with the first release, which waits for M1a and M1 (ADR-0023).
+The deploy poller ([section 10](#10-deploy-poller)) starts the stack with the first release, which waits for M1a, M1 and M1o (ADR-0023, PRD 0008).
 
 ## 7. Checks (ticket #222 acceptance)
 
@@ -179,6 +196,10 @@ npx wrangler r2 bucket lifecycle list $b
 ```
 
 Expect the three lock rules and the three lifecycle rules listed with those ages. The bucket's default lifecycle rule (abort incomplete multipart uploads after 7 days) may be listed too; leave it.
+
+The dashboard does the same without Wrangler (#227): *R2 → Create bucket* (location hint Western Europe, storage class Standard), then the bucket's *Settings → Bucket lock rules* and *Object lifecycle rules*, one rule per prefix as above. Keep Standard: R2's free tier doesn't cover Infrequent Access, which also bills each object for 30 days. An upload's `X-Amz-Expiration` header shows the expiry R2 applied; check it matches the rule.
+
+The locks make R2 version every object, and R2 answers a `HEAD` with `?versionId=` with `501 Not Implemented`. rclone 1.60 sends one after each upload to check it, so every upload reported failure although it had landed. `RCLONE_CONFIG_R2_NO_HEAD=true` in `backup.env` skips that check (#227).
 
 ### 8.3 The server's token (dashboard)
 
@@ -351,7 +372,7 @@ sudo systemctl enable --now ai-trainer-deploy.timer
 
 ### 10.3 Checks (ticket #225 acceptance)
 
-Run on the server (`ssh deploy@<ip>`) unless noted. Checks 3–5 make a real release, so they wait for go-live (M1a and M1, ADR-0023).
+Run on the server (`ssh deploy@<ip>`) unless noted. Checks 3–5 make a real release, so they wait for go-live (M1a, M1 and M1o; ADR-0023, PRD 0008).
 
 | # | Check | Command | Expected |
 |---|---|---|---|
@@ -388,7 +409,7 @@ Agents never sign in to Grafana Cloud or call its API. Every step here is yours.
 
 ### 11.1 Stack, policy and token (laptop, Grafana Cloud portal)
 
-1. Create the stack, or pick the existing one, in the region nearest the host (EU).
+1. Create the stack, or pick the existing one, in the region nearest the host (EU). The free plan allows one stack. Its settings are in the Cloud Portal (`https://grafana.com/profile/org`), not in the stack's own `https://<stack>.grafana.net`; the region is in the endpoint hostnames, e.g. `…-prod-eu-west-2…`.
 2. On the stack's **OpenTelemetry** *Details* page, note the **OTLP endpoint** and the **instance ID**.
 3. On the stack's **Loki** *Details* page, note the **URL**, ending in `/loki/api/v1/push`, and the **user**, a number.
 4. On the stack's **Prometheus** *Details* page, note the **Remote Write Endpoint**, ending in `/api/prom/push`, and the **user**, a number.
@@ -514,7 +535,7 @@ With no traffic, the three ratio rules have no data and stay quiet. "No backup i
    - In the Cloudflare dashboard, keep *Security → Bots → Bot Fight Mode* **off**: the Free plan can't exempt a path from it.
    - Under *Security → WAF → Custom rules → Create rule*, add a rule named `health unchallenged` with the expression `(http.request.uri.path eq "/health")`. Its action is **Skip**: all remaining custom rules, and under *More components to skip*, **Security Level** and **Browser Integrity Check**. Deploy it.
    - The check itself confirms this. A challenge is a `403` HTML page, not `"database":"ok"`, so the check fails and the site-down rule fires.
-4. **Import the rules** from your laptop:
+4. **Import the rules** from your laptop. At go-live, import them and create the health check (step 2) right after the first deploy succeeds, not before the tag: until the site and Alloy run, "Site down", "No telemetry in 15 min" and "No backup in 26 h" fire and email you. Do it before inviting anyone (#227).
    - Grafana Cloud → *Administration → Users and access → Service accounts → Add service account*: name `alerts-import`, role **Editor**.
    - *Add service account token*, with a short expiry.
    - Note the UIDs of the stack's Prometheus and Loki datasources (*Connections → Data sources*; the UID is the last part of each one's URL, usually `grafanacloud-prom` and `grafanacloud-logs`).
