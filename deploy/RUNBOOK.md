@@ -2,7 +2,7 @@
 
 Source: ADR-0023 (*Host*, *Ingress and TLS*, ⚠ *Verify at provisioning*), ADR-0024 invariant 5, PRD 0005 G12. Ticket #222.
 
-Agents never reach the host: the `guard_release.py` hook denies `ssh`, `scp` and `deploy/install.sh`, and ADR-0024 invariant 5 forbids it. The owner runs every step here from their laptop. The only file the server needs from this repo up front is [`cloud-init.yaml`](cloud-init.yaml), which `make cloud-init-check` validates. Host files after that — `compose.prod.yaml`, the Caddyfile, `deploy.sh`, `backup.sh` and the six systemd units — go over with [`install.sh`](install.sh).
+Agents never reach the host: the `guard_release.py` hook denies `ssh`, `scp` and `deploy/install.sh`, and ADR-0024 invariant 5 forbids it. The owner runs every step here from their laptop. The only file the server needs from this repo up front is [`cloud-init.yaml`](cloud-init.yaml), which `make cloud-init-check` validates. Host files after that — `compose.prod.yaml`, the Caddyfile, `deploy.sh`, `backup.sh`, the [`compose.sh`](compose.sh) wrapper and the six systemd units — go over with [`install.sh`](install.sh).
 
 Placeholders used below: `<domain>` is the host of `PUBLIC_BASE_URL` (e.g. `trainer.example.com`), `<ip>` the server's public IPv4, `<my-ip>` your own public address (`curl -4 https://ifconfig.me`).
 
@@ -213,7 +213,7 @@ Copy the **Access Key ID**, the **Secret Access Key** (shown once) and the S3 en
 
 ### 8.4 Install on the server
 
-From your laptop, in this repo, copy the host files. This also installs the purge and deploy units; their timers are enabled in [section 9](#9-conversation-purge) and [section 10](#10-deploy-poller), after their own settings exist. Run it again whenever `compose.prod.yaml`, the Caddyfile, `deploy.sh`, `backup.sh` or a unit file changes, and do that before the release that needs the new files. The script waits for the deploy poller's lock, so it does not replace files during a deploy. If Caddy is already running, the script recreates it and passes `APP_IMAGE` from `/opt/ai-trainer/app-image`: Compose requires that variable for the whole file, not only for the app service. The Caddyfile is mounted as one file, so replacing it does not change what the running container has open. A failed run removes its staging directory under `/tmp`; run the script again to finish a copy that stopped halfway.
+From your laptop, in this repo, copy the host files. This also installs the purge and deploy units; their timers are enabled in [section 9](#9-conversation-purge) and [section 10](#10-deploy-poller), after their own settings exist. Run it again whenever `compose.prod.yaml`, the Caddyfile, `deploy.sh`, `backup.sh`, `compose.sh` or a unit file changes, and do that before the release that needs the new files. The script waits for the deploy poller's lock, so it does not replace files during a deploy. If Caddy is already running, the script recreates it and passes `APP_IMAGE` from `/opt/ai-trainer/app-image`: Compose requires that variable for the whole file, not only for the app service. The Caddyfile is mounted as one file, so replacing it does not change what the running container has open. A failed run removes its staging directory under `/tmp`; run the script again to finish a copy that stopped halfway.
 
 ```sh
 deploy/install.sh <ip>
@@ -341,7 +341,7 @@ The health check never leaves the host, so Bot Fight Mode stays on.
 
 A failed release is fixed forward with a new tag. A broken database is restored from a backup; the restore drill ([section 8.6](#86-restore-drill-laptop)) proves the latest one restores. After an incident, pass that drill a path from before the incident rather than taking the newest stamp.
 
-The poller changes only the app image. When `compose.prod.yaml`, `deploy/Caddyfile`, `deploy/alloy/config.alloy`, `deploy.sh`, `backup.sh` or a unit file changes, run [`install.sh`](install.sh) ([section 8.4](#84-install-on-the-server)) before the release that needs them. Approving first can start the new image against the old files. Do not copy those files out of the pulled image.
+The poller changes only the app image. When `compose.prod.yaml`, `deploy/Caddyfile`, `deploy/alloy/config.alloy`, `deploy.sh`, `backup.sh`, `compose.sh` or a unit file changes, run [`install.sh`](install.sh) ([section 8.4](#84-install-on-the-server)) before the release that needs them. Approving first can start the new image against the old files. Do not copy those files out of the pulled image.
 
 ### 10.1 The GitHub token (laptop)
 
@@ -426,9 +426,8 @@ Agents never sign in to Grafana Cloud or call its API. Every step here is yours.
 umask 077
 cat > /opt/ai-trainer/alloy.env   # paste the eight lines below with your values, Enter, then Ctrl-D
 ls -l /opt/ai-trainer/alloy.env   # -rw------- deploy deploy
-cd /opt/ai-trainer && set -a && . ./deploy.env && set +a && export APP_IMAGE=$(cat app-image) RELEASE_TAG=$(cat app-version)
-docker compose -f compose.prod.yaml config --quiet && echo ok   # must print ok; see below
-docker compose -f compose.prod.yaml up -d --no-deps --force-recreate alloy
+/opt/ai-trainer/compose.sh config --quiet && echo ok   # must print ok; see below
+/opt/ai-trainer/compose.sh up -d --no-deps --force-recreate alloy
 ```
 
 ```
@@ -442,14 +441,14 @@ GRAFANA_CLOUD_TOKEN=<token>
 POSTGRES_MONITOR_PASSWORD=<output of: openssl rand -hex 24>
 ```
 
-[`alloy.env.example`](alloy.env.example) lists the same keys. Alloy reads the file only when its container is created, so recreate it after every change, as above. Before the first deploy there is no `app-image` yet, so skip the last command: the first deploy starts Alloy with the file in place.
+[`alloy.env.example`](alloy.env.example) lists the same keys. Alloy reads the file only when its container is created, so recreate it after every change, as above. Before the first deploy there is no `app-image` yet, and `compose.sh` stops with `no app-image` ([section 12](#12-reading-logs-and-other-compose-commands)). Check with `APP_IMAGE=unused /opt/ai-trainer/compose.sh config --quiet && echo ok` instead, and skip the last command: the first deploy starts Alloy with the file in place.
 
 `POSTGRES_MONITOR_PASSWORD` is the one key Alloy doesn't send anywhere: it is the password of the database role `ai_trainer_monitor`. A migration creates the role without a password, since no secret is in the repo. [`monitor-password.sh`](monitor-password.sh) sets the password from this file, reading only that line. It needs 24 or more letters and digits; anything else is refused and nothing is set.
 
 Every deploy runs it after `migrate`. A failure there only warns (`the monitor password was not set; Postgres metrics are off until it is`) and the release still ships. After changing the password, set it yourself, then recreate Alloy as above:
 
 ```sh
-deploy/monitor-password.sh /opt/ai-trainer/alloy.env docker compose -f compose.prod.yaml   # monitor-password: result=ok role=ai_trainer_monitor
+/opt/ai-trainer/deploy/monitor-password.sh /opt/ai-trainer/alloy.env /opt/ai-trainer/compose.sh   # monitor-password: result=ok role=ai_trainer_monitor
 ```
 
 A missing `alloy.env` is fine, but a broken one is not. A stray line (`key cannot contain a space`), a mode the `deploy` user can't read, or a directory at that path fails *every* compose command on this file. That would make the next deploy fail before `db` starts. `config --quiet` catches all three, so don't skip it after editing the file.
@@ -586,6 +585,24 @@ Source: ADR-0030 *Dashboards and alerts are code*; PRD 0008 G12, G13, G14. Ticke
 | 1 | Imported | open *Dashboards → ai-trainer → ai-trainer overview* | every panel without a red error corner; *Settings → Variables* shows `prometheus`, `loki` and `tempo` set to the stack's `grafanacloud-…` datasources |
 | 2 | Data after a release | after the first deploy, a backup and a few log turns, last 24 h | a value or line in every panel; `backup: result=ok kind=nightly` at the top of *Scheduled job outcomes* |
 | 3 | Trace link | *App errors*: click a `trace_id`, then *Open trace* | Explore → Tempo opens that request's trace |
+
+## 12. Reading logs and other compose commands
+
+Compose interpolates the whole of `compose.prod.yaml` before any command, so a bare `docker compose -f compose.prod.yaml logs caddy` fails with `required variable APP_IMAGE is missing a value` (#303). Run Compose through [`compose.sh`](compose.sh) instead, which [`install.sh`](install.sh) puts at `/opt/ai-trainer/compose.sh`. It reads `SITE_HOST` from `deploy.env`, `APP_IMAGE` from `app-image` and `RELEASE_TAG` from `app-version`, then runs `docker compose` on the production file with the arguments you give it. A value already set in the shell wins, so `APP_IMAGE=<digest> compose.sh …` still picks an image by hand. A host that has never been deployed has no `app-image`, and the wrapper stops instead of guessing. On the server:
+
+```sh
+/opt/ai-trainer/compose.sh ps                                  # every service, its image and health
+/opt/ai-trainer/compose.sh logs app --since 1h | tail -50      # app: one JSON line per request and log record
+/opt/ai-trainer/compose.sh logs app --since 1h | grep -E '/auth/|sign-in failed'
+/opt/ai-trainer/compose.sh logs -f caddy                       # follow; Ctrl-C stops
+/opt/ai-trainer/compose.sh logs db alloy --since 30m
+journalctl -u ai-trainer-deploy.service --since today          # the poller; also ai-trainer-backup and ai-trainer-purge
+```
+
+- Compose writes its own errors to stderr, so a `| grep` after a failed command prints nothing, as if the logs were empty. When a filtered command prints nothing, run it again without the filter, or put `2>&1` before the pipe.
+- The app's access line has the route template (`/auth/callback`), the method, the status and the duration. It never has the query, the client's address or a user (ADR-0030 invariant 3). Use a line's `request_id` to find that request's other lines.
+- `docker logs ai-trainer-prod-<service>-1` reads the same logs and needs no variables, if the wrapper isn't installed yet.
+- The same logs reach Grafana Cloud through Alloy ([section 11](#11-telemetry-to-grafana-cloud)). Use them there for anything older than the containers, since a recreated container starts with an empty `docker logs`.
 
 ## Provisioning record
 

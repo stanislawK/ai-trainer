@@ -255,6 +255,8 @@ The host backs up the database every night: [deploy/backup.sh](deploy/backup.sh)
 
 Every day at 02:00 UTC, before the backup, a systemd timer runs `ai-trainer purge-conversations` in the app container. It deletes conversations past `CONVERSATION_RETENTION_DAYS` and logs only `purge: result=ok deleted=<count>`, or `purge: result=failed` when the run fails (ADR-0021, ADR-0030, RUNBOOK section 9).
 
+On the host, Compose commands such as reading logs go through [deploy/compose.sh](deploy/compose.sh), installed as `/opt/ai-trainer/compose.sh`: it supplies the deployed `APP_IMAGE`, which `compose.prod.yaml` requires for every command (RUNBOOK section 12).
+
 ## Releasing
 
 Only the owner releases (ADR-0023). Agents cannot tag: `.claude/hooks/guard_release.py` blocks it. A `v*` tag runs [`.github/workflows/release.yml`](.github/workflows/release.yml). Its `build` job pushes `ghcr.io/stanislawk/ai-trainer:<tag>`, fails the run if the image holds an env file or a private key, then attests the image's provenance. The image digest is the job's `digest` output and appears in the run log.

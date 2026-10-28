@@ -18,6 +18,7 @@ HOST_FILES = (
     "deploy/deploy.sh",
     "deploy/backup.sh",
     "deploy/monitor-password.sh",
+    "deploy/compose.sh",
     "deploy/systemd/ai-trainer-deploy.service",
     "deploy/systemd/ai-trainer-deploy.timer",
     "deploy/systemd/ai-trainer-backup.service",
