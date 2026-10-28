@@ -323,7 +323,7 @@ The server pulls approved releases, so GitHub holds no credential to it. Every t
 2. It reports `in_progress` and pulls the image by digest.
 3. It starts `db`, then runs `backup.sh predeploy`: uploaded to `predeploy/` in R2, and the same encrypted file kept in `/opt/ai-trainer/backups/predeploy/` (the newest three).
 4. It runs `migrate`, then starts `app` and `caddy` on the new image. Right after the pull it starts `alloy` ([section 11](#11-telemetry-to-grafana-cloud)) without waiting for it; a failure there only prints a warning.
-5. It polls `https://<domain>/health` through Cloudflare and Caddy for up to 90 seconds.
+5. It polls the app's `/health` from inside the Caddy container, never through Cloudflare, for up to 90 seconds (ADR-0023, amended 2026-10-28).
 6. It reports `success` and records the digest in `/opt/ai-trainer/app-image` and the release tag in `/opt/ai-trainer/app-version`. Compose passes that tag (`RELEASE_TAG`) to the app as `APP_VERSION`, its traces' `service.version` (ADR-0030). Otherwise it starts the previous digest from that file again, with the previous tag, and reports `failure` with the reason. The database is never rolled back: migrations are expand-only (ADR-0024 invariant 4).
 
 What it ignores:
@@ -335,7 +335,7 @@ What it ignores:
 
 The first release has no previous digest. If its health check fails, the new app keeps running, the status says there was nothing to roll back to, and you fix it forward.
 
-The health check comes from the server, through Cloudflare, with curl's user agent. Keep Bot Fight Mode and any WAF challenge off for `/health`, or every deploy rolls back.
+The health check never leaves the host, so Bot Fight Mode stays on.
 
 `/health` answers HTTP 200 when Postgres is down, with `"database":"unavailable"`. An external check, if you add one, has to require `"database":"ok"` in the body. A check that only looks at the status stays green while the database is down. Backup and purge failures stay in the journal; this check is the outage signal they don't send.
 
@@ -508,7 +508,7 @@ Source: ADR-0030 *Dashboards and alerts are code*; PRD 0008 G12, G13, G14. Ticke
 
 | Rule | Fires when | Waits |
 |---|---|---|
-| Site down | no Synthetic Monitoring probe gets `"database":"ok"` from `/health`, or the check stops reporting | 2 min |
+| Site down | deferred: pause it after import (step 4). Without the check it would fire on no data | 2 min |
 | 5xx above 5% | more than 5% of the app's requests answer 5xx over 10 min | — |
 | Log turn p95 above 10 s | send-to-draft p95 over 30 min is above 10 s (G14) | — |
 | Model-call errors above 20% | more than 20% of model calls end in `error` or `timeout` over 15 min; `cancelled` is left out | — |
@@ -520,22 +520,9 @@ Source: ADR-0030 *Dashboards and alerts are code*; PRD 0008 G12, G13, G14. Ticke
 With no traffic, the three ratio rules have no data and stay quiet. "No backup in 26 h" fires 26 hours after go-live if the first backup never ran.
 
 1. **Contact point.** Grafana Cloud → *Alerting → Contact points → + Add contact point*: name `owner-email`, integration **Email**, your address. **Test** it, and check the email arrives. Then go to *Alerting → Notification policies*, open **Default policy** → *Edit*, and set its contact point to `owner-email`. Every rule here goes through the default policy.
-2. **The health check.** Grafana Cloud → *Testing & synthetics → Synthetics → Checks → + Create new check → API Endpoint*, request type **HTTP**. Take the values from [`grafana/synthetic-health.json`](grafana/synthetic-health.json):
-   - **Job name:** `ai-trainer-health`. The site-down rule selects on it.
-   - **Request target:** `https://<domain>/health`.
-   - **Uptime:** valid status `200`; *fail if not SSL*; no redirects; *Body* must match `"database":"ok"`.
-   - **Frequency** 1 min, **timeout** 10 s.
-   - **Probes:** at least two in Europe, e.g. Frankfurt and Amsterdam. The rule fires only when *every* probe fails, so one location's network trouble can't page you.
-   - **Alerting:** leave the check's own alerts off. The site-down rule replaces them.
-   - **Optional, the API instead of the UI:**
-     - Take an access token from *Synthetics → Config*, and the probe IDs from `GET /api/v1/probe`.
-     - Put the IDs into the file's `probes` and `<domain>` into its `target`.
-     - `POST` the file to `/api/v1/check/validate`, then to `/api/v1/check`, on the API URL shown on that page.
-3. **Cloudflare leaves `/health` unchallenged.** Synthetic Monitoring's probes are bots, so a challenge page would look like an outage.
-   - In the Cloudflare dashboard, keep *Security → Bots → Bot Fight Mode* **off**: the Free plan can't exempt a path from it.
-   - Under *Security → WAF → Custom rules → Create rule*, add a rule named `health unchallenged` with the expression `(http.request.uri.path eq "/health")`. Its action is **Skip**: all remaining custom rules, and under *More components to skip*, **Security Level** and **Browser Integrity Check**. Deploy it.
-   - The check itself confirms this. A challenge is a `403` HTML page, not `"database":"ok"`, so the check fails and the site-down rule fires.
-4. **Import the rules** from your laptop. At go-live, import them and create the health check (step 2) right after the first deploy succeeds, not before the tag: until the site and Alloy run, "Site down", "No telemetry in 15 min" and "No backup in 26 h" fire and email you. Do it before inviting anyone (#227).
+2. **The health check: deferred** (ADR-0030, amended 2026-10-28). Synthetic Monitoring's probes reach `/health` through Cloudflare, Bot Fight Mode challenges them, and it stays on. Don't create the check. A follow-up ticket replaces this step.
+3. **Cloudflare: nothing to change.** Bot Fight Mode stays **on**. A WAF custom rule can't skip it, so a `/health` skip rule does nothing for it. You can delete one if you made it.
+4. **Import the rules** from your laptop. At go-live, import them right after the first deploy succeeds, not before the tag: until the site and Alloy run, "No telemetry in 15 min" and "No backup in 26 h" fire and email you. Do it before inviting anyone (#227).
    - Grafana Cloud → *Administration → Users and access → Service accounts → Add service account*: name `alerts-import`, role **Editor**.
    - *Add service account token*, with a short expiry.
    - Note the UIDs of the stack's Prometheus and Loki datasources (*Connections → Data sources*; the UID is the last part of each one's URL, usually `grafanacloud-prom` and `grafanacloud-logs`).
@@ -550,22 +537,23 @@ With no traffic, the three ratio rules have no data and stay quiet. "No backup i
    - Rules imported this way are marked *Provisioned* and are read-only in the UI. Change them in the file, not in Grafana.
    - Delete the token when you're done.
    - After the import, *Alerting → Alert rules* shows the eight rules under `ai-trainer`, each **Normal** or **Pending**, never **Error**. "No backup in 26 h" is **Firing** until the first nightly backup has run.
+   - Open **Site down** → *More → Pause evaluation*. With no health check it has no data, and it would fire. A re-import may resume it, so pause it again after each one.
 
 **Test-fire.** At go-live, prove that an alert actually reaches you:
 
 1. On the server: `systemd-cat -t ai-trainer-backup echo "backup: result=failed kind=test reason=test exit=1"`. Within about 2 minutes you get *The backup job failed*. It resolves an hour later. The line travels the same path as a real failure: the journal, Alloy's `job="backup"` label, then Loki.
-2. Before go-live only: `docker stop ai-trainer-prod-db-1`. Within about 4 minutes you get *The site is down*. `/health` still answers `200`, but its body says `"database":"unavailable"`. Then run `docker start ai-trainer-prod-db-1`.
+2. ~~Before go-live only: `docker stop ai-trainer-prod-db-1`; *The site is down* within about 4 minutes.~~ Deferred with the health check (step 2).
 3. Before go-live only: `docker stop ai-trainer-prod-alloy-1`. In 16 to 17 minutes you get *No telemetry from the server in 15 minutes*. Then run `docker start ai-trainer-prod-alloy-1`.
 
 ### 11.8 Checks (ticket #277 acceptance)
 
 | # | Check | Command | Expected |
 |---|---|---|---|
-| 1 | Rules imported | Grafana Cloud → *Alerting → Alert rules* → folder `ai-trainer` | eight rules, none in **Error** |
-| 2 | Health check green | *Synthetics → Checks → ai-trainer-health* | reachability 100% from every probe |
-| 3 | `/health` unchallenged | laptop: `curl -sS -A "synthetic-monitoring-agent" https://<domain>/health` | `{"database":"ok"}`, not an HTML page |
+| 1 | Rules imported | Grafana Cloud → *Alerting → Alert rules* → folder `ai-trainer` | eight rules, none in **Error**, **Site down** paused |
+| 2 | ~~Health check green~~ | deferred (11.7 step 2) | — |
+| 3 | ~~`/health` unchallenged~~ | deferred (11.7 step 2) | — |
 | 4 | A job failure emails you | test-fire step 1 | the email within about 2 minutes |
-| 5 | An outage emails you | test-fire steps 2 and 3, before go-live | both emails |
+| 5 | An outage emails you | test-fire step 3, before go-live | the email |
 
 ### 11.9 Dashboard
 
