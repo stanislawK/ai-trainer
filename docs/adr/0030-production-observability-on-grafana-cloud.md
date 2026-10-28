@@ -68,10 +68,10 @@ The owner's `solid` project already ships to Grafana Cloud through Grafana Alloy
 - Caddy keeps access logging off. The app's request line is the access log, so client IPs never leave the host.
 
 **Dashboards and alerts are code; Grafana Cloud is configured by the owner.**
-- `deploy/grafana/` holds the dashboard JSON, the alert-rule export and the Synthetic Monitoring check definition. The check is an HTTP probe of `/health` through Cloudflare that requires `"database":"ok"` in the body (ADR-0023).
+- `deploy/grafana/` holds the dashboard JSON, the alert-rule export and the Synthetic Monitoring check definition. The check is an HTTP probe of `/health` through Cloudflare that requires `"database":"ok"` in the body (ADR-0023). It is deferred, and go-live doesn't need it (amended 2026-10-28, see *External check deferred* in Consequences).
 - `deploy/RUNBOOK.md` gives the owner's steps to create the stack and token, import the files, set the email contact point and test-fire an alert.
 - Alerts cover:
-  - the site down for 2 minutes
+  - the site down for 2 minutes (deferred with the check, amended 2026-10-28)
   - a 5xx rate above 5%
   - log-turn p95 above 10 s (G14)
   - a model-call error rate
@@ -177,5 +177,9 @@ The owner's `solid` project already ships to Grafana Cloud through Grafana Alloy
   - **A series' first export is invisible to `increase` and `rate`.** The app exports cumulative counters every 60 s, and its `instance` label is a new `service.instance.id` at every start, so every deploy starts new series. A new series' first sample already holds whatever came before it, and Prometheus takes that sample as the baseline. On the smoke run, `increase` read about half the calls `llm_calls` holds, and 0 of a 10-refusal burst. The per-day panels count each counter as `(increase(x[1d]) and x offset 1d) or last_over_time(x[1d])`: a series new within the day counts by its last value, since it started at 0. That matched `llm_calls` row for row, and all 10 refusals. The `rate`-based panels and the 5xx and model-error alert ratios still miss up to the first minute after each deploy.
   - **Zero, not no data.** A counter nothing has incremented has no series. The 5xx ratio's numerator, the model errors and the refusals each fall back to `vector(0)`, or to the calls' own series times 0, and refusals label that zero `limit_kind="none"`.
   - **The shared catalogue.** `tests/unit/grafana_catalogue.py` holds what the stack emits, as built for #277, plus the app's JSON log fields, taken from `JsonFormatter` itself. Both `test_grafana_alerts.py` and `test_grafana_dashboard.py` check every query against it. Its reader also follows `| json` label filters, with `or` and numeric comparisons, and Grafana's `$__rate_interval`/`$__range`.
+- **External check deferred,** amended 2026-10-28 at the owner's direction, during the first release (#227):
+  - **Why.** Synthetic Monitoring's public probes reach `/health` through Cloudflare as bots, so Bot Fight Mode challenges them. The owner keeps Bot Fight Mode on, and the Free plan can't exempt a path from it (ADR-0023 *Health check inside the stack*). Allowing the probes' addresses isn't an option either: every Grafana Cloud customer shares them, and they change ([Grafana community](https://community.grafana.com/t/synthetic-monitoring-blocked-by-cloudflare-bot-protection/61982)).
+  - **What changes.** Go-live needs no external `/health` check and no *Site down* rule. The owner accepted the gap: nothing alerts on "the host is up but the site is unreachable through Cloudflare". *No telemetry in 15 min* still fires when the host or Alloy is down.
+  - **Until a follow-up ticket.** `synthetic-health.json`, `smoke-probe.alloy` and the *Site down* rule stay in `deploy/grafana/`. That rule has `noDataState: Alerting`, so without the check it fires once imported. The owner pauses it after each import (RUNBOOK 11.7). The follow-up removes it or replaces it with a probe that Bot Fight Mode doesn't see.
 - **Flagged, to resolve in the tickets:**
   - Grafana Cloud free-tier quotas (active series, log GB, retention, Synthetic Monitoring executions) were not checked here. The owner checks them on the stack page before the dashboard and alert tickets, and the sampling ratio and drop rules are tuned to fit.
