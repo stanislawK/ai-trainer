@@ -173,7 +173,12 @@ def test_status_card_variants_are_lg_not_btn() -> None:
 def test_settings_cards_are_the_content_material() -> None:
     elements = _Elements(_render("partials/settings/index.html"))
 
-    assert len(elements.with_class("mat-content")) == 2
+    cards = elements.with_class("mat-content")
+    # Appearance and the danger zone, plus one card per Add to home screen state (#307), of
+    # which `install.js` shows one.
+    install = [card for card in cards if "data-install-state" in card.attrs]
+    assert len(cards) - len(install) == 2
+    assert len(install) == 9
 
 
 def test_theme_toggle_is_the_lgs_segmented_control() -> None:
