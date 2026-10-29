@@ -63,7 +63,7 @@ requires-dist = [
     { name = "opentelemetry-instrumentation-sqlalchemy", specifier = ">=0.66b1" },
     { name = "opentelemetry-sdk", specifier = ">=1.44.0" },
     { name = "pgvector", specifier = ">=0.5.1" },
-    { name = "psycopg", extras = ["binary"], specifier = ">=3.2" },
+    { name = "psycopg", extras = ["binary"], specifier = ">=3.3.6" },
     { name = "pydantic", specifier = ">=2.12" },
     { name = "pydantic-ai-slim", extras = ["openai", "spec", "typesafe"], specifier = ">=2.55.0" },
     { name = "pydantic-evals", specifier = ">=2.57.0" },
