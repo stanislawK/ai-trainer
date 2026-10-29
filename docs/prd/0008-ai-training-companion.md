@@ -4,7 +4,7 @@
 |---|---|
 | Product | ai-trainer |
 | Version | 0.9 |
-| Status | Approved |
+| Status | Superseded by [PRD 0009](0009-ai-training-companion.md), which keeps all of v0.9 |
 | Date | 2026-10-25 |
 | Related | ADR-0001 … ADR-0028 ([index](../adr/README.md)); supersedes [PRD 0007](0007-ai-training-companion.md) v0.8 — Europe first: metric units and European grade scales are the bar, imperial units and American grades are best effort (G15, owner-directed 2026-10-25). Keeps v0.8's AI onboarding (B33–B36, F20, F21) and v0.7's gyms and location check (B27–B32, F18, F19) |
 
