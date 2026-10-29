@@ -25,7 +25,11 @@
     {% with message = history[-1] %}{% include "partials/chat/reply.html" %}{% endwith %}
     {%- endif %}
   </div>
-  {% with streaming_id = history[-1].id if history and history[-1].role == "user" else None %}{% include "partials/chat/composer.html" %}{% endwith %}
+  {#- The install card (#307) rides with the composer, which swaps its own outerHTML on a send. #}
+  <div class="sticky bottom-0 flex flex-col">
+    {% include "partials/chat/install_card.html" %}
+    {% with streaming_id = history[-1].id if history and history[-1].role == "user" else None %}{% include "partials/chat/composer.html" %}{% endwith %}
+  </div>
 </div>
 <!-- /chat-content -->
 {%- if list_oob %}

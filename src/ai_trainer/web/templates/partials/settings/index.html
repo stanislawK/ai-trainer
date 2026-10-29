@@ -23,6 +23,64 @@
       </div>
     </div>
   </section>
+  {#- Add to home screen (PRD 0009 F22, #307, the "Add to home screen" mock): every state rendered
+  hidden, per device where the mock differs; `static/js/install.js` shows the section and the one
+  card that fits the browser. #}
+  <section class="flex flex-col gap-2" aria-label="Add to home screen" data-install-settings hidden>
+    <h2 class="text-[13px] font-medium text-base-content/70 px-1">Add to home screen</h2>
+    <div class="mat-content rounded-box p-4 flex flex-col gap-3" data-install-state="prompt" data-install-on="android ios" hidden>
+      <div class="flex items-start gap-3">
+        {{ icon("smartphone", "size-5 mt-px shrink-0 lbl-2") }}
+        <p class="text-[15px] leading-[22px]"><span class="font-medium">Use it like an app.</span> <span class="lbl-2">Add AI Trainer to your home screen and open it full screen, one tap away.</span></p>
+      </div>
+      <button type="button" class="lg lg-tinted self-start ml-8" data-install-action>{{ icon("download", "size-4") }}Install</button>
+    </div>
+    <div class="mat-content rounded-box p-4 flex items-center gap-3" data-install-state="prompt" data-install-on="desktop" hidden>
+      {{ icon("monitor-down", "size-5 shrink-0 lbl-2") }}
+      <p class="flex-1 text-[15px] leading-[22px]"><span class="font-medium">Use it like an app.</span> <span class="lbl-2">Install AI Trainer with its own window and icon.</span></p>
+      <button type="button" class="lg lg-tinted" data-install-action>{{ icon("download", "size-4") }}Install</button>
+    </div>
+    <div class="mat-content rounded-box p-4 flex flex-col gap-3" data-install-state="ios-safari" hidden>
+      <div class="flex items-start gap-3">
+        {{ icon("smartphone", "size-5 mt-px shrink-0 lbl-2") }}
+        <p class="text-[15px] leading-[22px]"><span class="font-medium">Use it like an app.</span> <span class="lbl-2">In Safari it takes two taps.</span></p>
+      </div>
+      <ol class="flex flex-col gap-2 ml-8 text-[15px] leading-[22px]">
+            <li class="flex items-center gap-2.5"><span class="size-6 shrink-0 rounded-full bg-base-content/10 grid place-items-center text-[13px] font-semibold tabular-nums">1</span><span class="flex-1 min-w-0">Tap <b class="font-semibold whitespace-nowrap">Share {{ icon("share", "size-4 inline-block align-[-2px]") }}</b> in the toolbar below</span>{{ icon("arrow-down", "size-4 shrink-0 text-primary") }}</li>
+            <li class="flex items-center gap-2.5"><span class="size-6 shrink-0 rounded-full bg-base-content/10 grid place-items-center text-[13px] font-semibold tabular-nums">2</span><span class="flex-1 min-w-0">Choose <b class="font-semibold whitespace-nowrap">Add to Home Screen {{ icon("square-plus", "size-4 inline-block align-[-2px]") }}</b></span></li>
+      </ol>
+    </div>
+    <div class="mat-content rounded-box p-4 flex flex-col gap-3" data-install-state="ios-chrome" hidden>
+      <div class="flex items-start gap-3">
+        {{ icon("smartphone", "size-5 mt-px shrink-0 lbl-2") }}
+        <p class="text-[15px] leading-[22px]"><span class="font-medium">Use it like an app.</span> <span class="lbl-2">In Chrome it takes two taps.</span></p>
+      </div>
+      <ol class="flex flex-col gap-2 ml-8 text-[15px] leading-[22px]">
+            <li class="flex items-center gap-2.5"><span class="size-6 shrink-0 rounded-full bg-base-content/10 grid place-items-center text-[13px] font-semibold tabular-nums">1</span><span class="flex-1 min-w-0">Tap <b class="font-semibold whitespace-nowrap">Share {{ icon("share", "size-4 inline-block align-[-2px]") }}</b> in the address bar above</span>{{ icon("arrow-up", "size-4 shrink-0 text-primary") }}</li>
+            <li class="flex items-center gap-2.5"><span class="size-6 shrink-0 rounded-full bg-base-content/10 grid place-items-center text-[13px] font-semibold tabular-nums">2</span><span class="flex-1 min-w-0">Choose <b class="font-semibold whitespace-nowrap">Add to Home Screen {{ icon("square-plus", "size-4 inline-block align-[-2px]") }}</b></span></li>
+      </ol>
+    </div>
+    <div class="mat-content rounded-box p-4 flex items-start gap-3" data-install-state="installed" data-install-on="android ios" hidden>
+      {{ icon("circle-check", "size-5 mt-px shrink-0 text-success") }}
+      <p class="text-[15px] leading-[22px]"><span class="font-medium">Installed.</span> <span class="lbl-2">You're using AI Trainer from your home screen.</span></p>
+    </div>
+    <div class="mat-content rounded-box p-4 flex items-start gap-3" data-install-state="installed" data-install-on="desktop" hidden>
+      {{ icon("circle-check", "size-5 mt-px shrink-0 text-success") }}
+      <p class="text-[15px] leading-[22px]"><span class="font-medium">Installed.</span> <span class="lbl-2">You're using AI Trainer as an installed app.</span></p>
+    </div>
+    <div class="mat-content rounded-box p-4 flex items-start gap-3" data-install-state="unsupported" data-install-on="android" hidden>
+      {{ icon("info", "size-5 mt-px shrink-0 text-info") }}
+      <p class="text-[15px] leading-[22px]"><span class="font-medium">This browser can't add apps to the home screen.</span> <span class="lbl-2">Open AI Trainer in Chrome to install it.</span></p>
+    </div>
+    <div class="mat-content rounded-box p-4 flex items-start gap-3" data-install-state="unsupported" data-install-on="ios" hidden>
+      {{ icon("info", "size-5 mt-px shrink-0 text-info") }}
+      <p class="text-[15px] leading-[22px]"><span class="font-medium">This browser can't add apps to the home screen.</span> <span class="lbl-2">Open AI Trainer in Safari to install it.</span></p>
+    </div>
+    <div class="mat-content rounded-box p-4 flex items-start gap-3" data-install-state="unsupported" data-install-on="desktop" hidden>
+      {{ icon("info", "size-5 mt-px shrink-0 text-info") }}
+      <p class="text-[15px] leading-[22px]"><span class="font-medium">Firefox can't install apps.</span> <span class="lbl-2">Open AI Trainer in Chrome or Edge to install it.</span></p>
+    </div>
+  </section>
   <section class="flex flex-col gap-2" aria-label="Danger zone">
     <h2 class="text-[13px] font-medium text-error px-1">Danger zone</h2>
     <div class="mat-content rounded-box p-4 flex flex-col gap-3">

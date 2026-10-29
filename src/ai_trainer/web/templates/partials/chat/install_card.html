@@ -1,0 +1,29 @@
+{#- Add to home screen (PRD 0009 F22, #307, the "Add to home screen" mock): phone-only, right above
+the composer. Rendered hidden with every variant; `static/js/install.js` shows the card and the one
+variant that fits the browser, or leaves it hidden (desktop, the installed app, dismissed). #}
+{% from "components/icon.html" import icon %}
+{% macro share_steps(where, arrow) -%}
+<ol class="flex flex-col gap-2 mt-2.5 text-[15px] leading-[22px]">
+  <li class="flex items-center gap-2.5"><span class="size-6 shrink-0 rounded-full bg-base-content/10 grid place-items-center text-[13px] font-semibold tabular-nums">1</span><span class="flex-1 min-w-0">Tap <b class="font-semibold whitespace-nowrap">Share {{ icon("share", "size-4 inline-block align-[-2px]") }}</b> in the {{ where }}</span>{{ icon(arrow, "size-4 shrink-0 text-primary") }}</li>
+  <li class="flex items-center gap-2.5"><span class="size-6 shrink-0 rounded-full bg-base-content/10 grid place-items-center text-[13px] font-semibold tabular-nums">2</span><span class="flex-1 min-w-0">Choose <b class="font-semibold whitespace-nowrap">Add to Home Screen {{ icon("square-plus", "size-4 inline-block align-[-2px]") }}</b></span></li>
+</ol>
+{%- endmacro %}
+<aside class="mat-content rounded-box p-4 mb-1 flex items-start gap-3 lg:hidden" aria-label="Add to home screen" data-install-card hidden>
+  <span class="lg lg-clear lg-mark [--m:40px] shrink-0 text-primary" aria-hidden="true">{{ icon("trending-up", "size-5") }}</span>
+  <div class="flex flex-col flex-1 min-w-0 gap-0.5 pt-0.5">
+    <p class="text-[16px] leading-[22px] font-semibold lbl-1">Add AI Trainer to your home screen</p>
+    <div class="flex flex-col gap-0.5" data-install-variant="prompt" hidden>
+      <p class="text-[14px] leading-5 lbl-2">Open it like an app, one tap away.</p>
+      <button type="button" class="lg lg-tinted self-start mt-2.5" data-install-action>{{ icon("download", "size-4") }}Install</button>
+    </div>
+    <div class="flex flex-col gap-0.5" data-install-variant="ios-safari" hidden>
+      <p class="text-[14px] leading-5 lbl-2">Two taps, then it opens like an app.</p>
+      {{ share_steps("toolbar below", "arrow-down") }}
+    </div>
+    <div class="flex flex-col gap-0.5" data-install-variant="ios-chrome" hidden>
+      <p class="text-[14px] leading-5 lbl-2">Two taps, then it opens like an app.</p>
+      {{ share_steps("address bar above", "arrow-up") }}
+    </div>
+  </div>
+  <button type="button" class="lg lg-ghost lg-icon shrink-0 -mt-2 -mr-2" aria-label="Dismiss" data-install-dismiss>{{ icon("x", "size-5") }}</button>
+</aside>
