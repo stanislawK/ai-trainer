@@ -1,6 +1,7 @@
 import unicodedata
 from collections.abc import Sequence
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from ai_trainer.application.ports.chat import ChatRepositoryPort, ConversationRepositoryPort
 from ai_trainer.application.ports.clock import ClockPort
@@ -40,12 +41,23 @@ async def open_conversation(
 
 
 async def latest_conversation(
-    user_id: UUID, *, conversations: ConversationRepositoryPort
+    user_id: UUID,
+    *,
+    conversations: ConversationRepositoryPort,
+    clock: ClockPort,
+    timezone: str,
 ) -> Conversation | None:
-    """The conversation the athlete was last active in, which `/` opens; `None` before their
-    first message (ADR-0021)."""
+    """The conversation `/` opens: the one the athlete was last active in, but only when that
+    activity falls on today's date in their `timezone`, today read from the `Clock` port. An
+    earlier day, or no conversation yet, is `None` and `/` shows an empty chat (ADR-0021,
+    ADR-0014)."""
     recent = await conversations.list_recent(user_id, 1)
-    return recent[0] if recent else None
+    if not recent:
+        return None
+    zone = ZoneInfo(timezone)
+    if recent[0].last_message_at.astimezone(zone).date() != clock.now().astimezone(zone).date():
+        return None
+    return recent[0]
 
 
 async def list_conversations(

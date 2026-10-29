@@ -8,7 +8,6 @@ import pytest
 
 from ai_trainer.application.chat import (
     ConversationNotFoundError,
-    latest_conversation,
     open_conversation,
     send_message,
 )
@@ -27,19 +26,17 @@ class _Later:
         return FROZEN_NOW + timedelta(days=_RETENTION_DAYS, seconds=1)
 
 
-async def test_a_conversation_exactly_at_the_retention_age_still_opens_and_is_the_latest() -> None:
+async def test_a_conversation_exactly_at_the_retention_age_still_opens_and_is_listed() -> None:
     chat, user_id = InMemoryChatRepository(), uuid4()
     started = await chat.conversations.create(
         user_id, "kept", FROZEN_NOW - timedelta(days=_RETENTION_DAYS)
     )
 
     assert await open_conversation(user_id, started.id, conversations=chat.conversations) == started
-    assert await latest_conversation(user_id, conversations=chat.conversations) == started
+    assert await chat.conversations.list_recent(user_id, 1) == [started]
 
 
-async def test_a_conversation_a_second_past_the_retention_age_is_not_found_and_not_the_latest() -> (
-    None
-):
+async def test_a_conversation_a_second_past_the_retention_age_is_not_found_and_not_listed() -> None:
     chat, user_id = InMemoryChatRepository(), uuid4()
     expired = await chat.conversations.create(
         user_id, "expired", FROZEN_NOW - timedelta(days=_RETENTION_DAYS, seconds=1)
@@ -47,7 +44,7 @@ async def test_a_conversation_a_second_past_the_retention_age_is_not_found_and_n
 
     with pytest.raises(ConversationNotFoundError):
         await open_conversation(user_id, expired.id, conversations=chat.conversations)
-    assert await latest_conversation(user_id, conversations=chat.conversations) is None
+    assert await chat.conversations.list_recent(user_id, 1) == []
 
 
 async def test_sending_to_an_expired_conversation_is_not_found_and_stores_nothing() -> None:

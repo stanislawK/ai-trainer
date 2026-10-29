@@ -197,15 +197,12 @@ async def test_the_latest_conversation_is_the_one_with_the_latest_message() -> N
     user_id = uuid4()
     older = await _send(repository, user_id, "older")
     await _send(repository, user_id, "newer", clock=FakeClock(FROZEN_NOW + timedelta(days=1)))
-    await _send(
-        repository,
-        user_id,
-        "continued",
-        older.conversation_id,
-        FakeClock(FROZEN_NOW + timedelta(days=2)),
-    )
+    continued_at = FakeClock(FROZEN_NOW + timedelta(days=2))
+    await _send(repository, user_id, "continued", older.conversation_id, continued_at)
 
-    latest = await latest_conversation(user_id, conversations=repository.conversations)
+    latest = await latest_conversation(
+        user_id, conversations=repository.conversations, clock=continued_at, timezone="UTC"
+    )
 
     assert latest is not None
     assert latest.id == older.conversation_id
@@ -215,7 +212,92 @@ async def test_there_is_no_latest_conversation_before_the_first_message() -> Non
     repository = InMemoryChatRepository()
     await _send(repository, uuid4(), "someone else's")
 
-    assert await latest_conversation(uuid4(), conversations=repository.conversations) is None
+    assert (
+        await latest_conversation(
+            uuid4(), conversations=repository.conversations, clock=FakeClock(), timezone="UTC"
+        )
+        is None
+    )
+
+
+async def test_a_conversation_from_an_earlier_local_day_is_not_the_latest() -> None:
+    repository = InMemoryChatRepository()
+    user_id = uuid4()
+    await _send(repository, user_id, "yesterday")
+
+    latest = await latest_conversation(
+        user_id,
+        conversations=repository.conversations,
+        clock=FakeClock(FROZEN_NOW + timedelta(days=1)),
+        timezone="UTC",
+    )
+
+    assert latest is None
+
+
+async def test_the_local_day_ends_at_local_midnight_not_utc_midnight() -> None:
+    """Europe/Warsaw is UTC+2 in October 2026: 21:59 UTC is 23:59 local, 22:01 UTC is 00:01."""
+    repository = InMemoryChatRepository()
+    user_id = uuid4()
+    sent_at = datetime(2026, 10, 2, 21, 59, tzinfo=UTC)
+    message = await _send(repository, user_id, "late", clock=FakeClock(sent_at))
+
+    async def latest_at(load: datetime) -> UUID | None:
+        found = await latest_conversation(
+            user_id,
+            conversations=repository.conversations,
+            clock=FakeClock(load),
+            timezone="Europe/Warsaw",
+        )
+        return found.id if found else None
+
+    assert await latest_at(sent_at) == message.conversation_id
+    assert await latest_at(datetime(2026, 10, 2, 21, 59, 59, tzinfo=UTC)) == message.conversation_id
+    assert await latest_at(datetime(2026, 10, 2, 22, 1, tzinfo=UTC)) is None
+
+
+async def test_a_message_after_utc_but_before_local_midnight_is_the_same_local_day() -> None:
+    """22:30 UTC on 2 Oct is 00:30 on 3 Oct in Warsaw: a load at 23:00 UTC is the same local
+    day even though the UTC date is the same too, and a load a local day later is not."""
+    repository = InMemoryChatRepository()
+    user_id = uuid4()
+    sent = await _send(
+        repository,
+        user_id,
+        "after midnight",
+        clock=FakeClock(datetime(2026, 10, 2, 22, 30, tzinfo=UTC)),
+    )
+
+    async def latest_at(load: datetime) -> UUID | None:
+        found = await latest_conversation(
+            user_id,
+            conversations=repository.conversations,
+            clock=FakeClock(load),
+            timezone="Europe/Warsaw",
+        )
+        return found.id if found else None
+
+    assert await latest_at(datetime(2026, 10, 3, 1, 0, tzinfo=UTC)) == sent.conversation_id
+    assert await latest_at(datetime(2026, 10, 3, 22, 30, tzinfo=UTC)) is None
+
+
+async def test_another_users_newer_conversation_does_not_replace_the_users_own() -> None:
+    repository = InMemoryChatRepository()
+    user_id = uuid4()
+    mine = await _send(repository, user_id, "mine")
+    await _send(
+        repository, uuid4(), "theirs, later", clock=FakeClock(FROZEN_NOW + timedelta(hours=1))
+    )
+
+    latest = await latest_conversation(
+        user_id,
+        conversations=repository.conversations,
+        clock=FakeClock(FROZEN_NOW + timedelta(hours=2)),
+        timezone="UTC",
+    )
+
+    assert latest is not None
+    assert latest.id == mine.conversation_id
 
 
 async def test_open_conversation_finds_only_the_owners_conversation() -> None:

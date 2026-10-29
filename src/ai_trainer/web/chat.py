@@ -273,10 +273,13 @@ def build_chat_router(
 
     @router.get("/", response_class=HTMLResponse)
     async def index(request: Request) -> HTMLResponse:
-        """The conversation the athlete was last active in, or an empty chat (ADR-0021)."""
+        """The conversation the athlete was last active in today, or an empty chat (ADR-0021)."""
         user: User = request.state.user
         return await chat_page(
-            request, await latest_conversation(user.id, conversations=conversations)
+            request,
+            await latest_conversation(
+                user.id, conversations=conversations, clock=clock, timezone=user.timezone
+            ),
         )
 
     @router.get("/c/new", response_class=HTMLResponse)

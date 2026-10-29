@@ -21,7 +21,7 @@ from ai_trainer.adapters.chat_repository import SqlAlchemyChatRepository
 from ai_trainer.adapters.conversation_repository import SqlAlchemyConversationRepository
 from ai_trainer.adapters.db import build_engine, build_session_factory
 from ai_trainer.adapters.health import to_psycopg_dsn
-from ai_trainer.application.chat import HISTORY_LIMIT, latest_conversation, list_history
+from ai_trainer.application.chat import HISTORY_LIMIT, list_history
 from ai_trainer.domain.chat import conversation_title
 from ai_trainer.settings import Settings
 from tests.chat_support import FixedClock
@@ -223,13 +223,9 @@ async def _shown_at_root(athlete: UUID) -> list[UUID]:
     engine = build_engine(str(Settings().database_url))
     try:
         factory = build_session_factory(engine)
-        latest = await latest_conversation(
-            athlete,
-            conversations=SqlAlchemyConversationRepository(
-                factory, clock=FixedClock(), retention_days=14
-            ),
-        )
-        assert latest is not None
+        [latest] = await SqlAlchemyConversationRepository(
+            factory, clock=FixedClock(), retention_days=14
+        ).list_recent(athlete, 1)
         history = await list_history(
             athlete, latest.id, repository=SqlAlchemyChatRepository(factory)
         )

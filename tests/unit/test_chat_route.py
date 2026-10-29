@@ -471,6 +471,91 @@ async def test_new_conversation_is_an_empty_chat_with_chips_and_a_composer_that_
     assert _hidden_conversation("") in text
 
 
+async def test_root_shows_the_latest_conversation_when_it_was_active_today() -> None:
+    client, user, repository = _client()
+    today = await repository.start(user.id, "today")
+    await repository.add(user.id, today, ChatRole.USER, "in today", FROZEN_NOW)
+
+    text = client.get("/").text
+
+    assert "in today" in text
+    assert _hidden_conversation(today) in text
+
+
+async def test_root_is_the_empty_chat_when_the_latest_conversation_is_from_an_earlier_day() -> None:
+    client, user, repository = _client()
+    earlier = await repository.conversations.create(
+        user.id, "yesterday", FROZEN_NOW - timedelta(days=1)
+    )
+    await repository.add(
+        user.id, earlier.id, ChatRole.USER, "in yesterday", FROZEN_NOW - timedelta(days=1)
+    )
+
+    text = client.get("/").text
+
+    assert "in yesterday" not in text
+    assert 'class="chat-message' not in text
+    assert "data-chat-chips" in text
+    assert _hidden_conversation("") in text
+    assert len(await repository.conversations.list_recent(user.id, 10)) == 1
+
+
+async def test_the_day_boundary_follows_the_athletes_timezone() -> None:
+    """FROZEN_NOW is 09:30 UTC on 2 Oct. Activity at 21:00 UTC on 1 Oct is the same UTC-day
+    neighbour, but in Pacific/Kiritimati (UTC+14) it is 11:00 on 2 Oct, today; in UTC it is
+    yesterday."""
+    activity = datetime(2026, 10, 1, 21, 0, tzinfo=UTC)
+    for zone, shown in (("Pacific/Kiritimati", True), ("UTC", False)):
+        client, user, repository = _client(_user(timezone=zone))
+        thread = await repository.conversations.create(user.id, "t", activity)
+        await repository.add(user.id, thread.id, ChatRole.USER, "in thread", activity)
+
+        assert ("in thread" in client.get("/").text) is shown
+
+
+async def test_an_earlier_days_conversation_stays_listed_and_opens_with_its_messages() -> None:
+    client, user, repository = _client()
+    yesterday = FROZEN_NOW - timedelta(days=1)
+    earlier = await repository.conversations.create(user.id, "Yesterday's ride", yesterday)
+    await repository.add(user.id, earlier.id, ChatRole.USER, "in yesterday", yesterday)
+
+    listed = client.get("/").text
+    opened = client.get(f"/c/{earlier.id}")
+
+    assert f'href="/c/{earlier.id}"' in listed
+    assert opened.status_code == 200
+    assert "in yesterday" in opened.text
+
+
+async def test_the_first_message_from_the_empty_chat_starts_a_new_conversation() -> None:
+    client, user, repository = _client()
+    yesterday = FROZEN_NOW - timedelta(days=1)
+    earlier = await repository.conversations.create(user.id, "yesterday", yesterday)
+    await repository.add(user.id, earlier.id, ChatRole.USER, "old turn", yesterday)
+    assert "old turn" not in client.get("/").text
+
+    client.post("/messages", data={"message": "fresh", "conversation_id": ""}, headers=_HTMX)
+
+    listed = await repository.conversations.list_recent(user.id, 10)
+    [new] = [c for c in listed if c.id != earlier.id]
+    sent = [m for m in repository.all_of(user.id) if m.conversation_id == new.id]
+    assert [m.text for m in sent if m.role is ChatRole.USER] == ["fresh"]
+    assert all(m.conversation_id != earlier.id for m in sent)
+
+
+async def test_another_users_conversation_today_does_not_open_at_root() -> None:
+    client, user, repository = _client()
+    other = uuid4()
+    theirs = await repository.start(other, "theirs")
+    await repository.add(other, theirs, ChatRole.USER, "their secret", FROZEN_NOW)
+
+    text = client.get("/").text
+
+    assert "their secret" not in text
+    assert "data-chat-chips" in text
+    assert await repository.conversations.list_recent(user.id, 10) == []
+
+
 def test_new_conversation_with_hx_request_returns_the_chat_partial() -> None:
     client, _, _ = _client()
 
