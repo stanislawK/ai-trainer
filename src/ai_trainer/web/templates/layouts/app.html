@@ -102,7 +102,7 @@
     <ul
       id="sections-menu"
       popover
-      class="hidden! [&:popover-open]:flex! lgs lgs-thick absolute top-16 left-4 w-64 rounded-[20px] p-2 flex-col gap-0.5"
+      class="hidden! [&:popover-open]:flex! lgs lgs-thick fixed top-[max(4rem,calc(env(safe-area-inset-top)+0.5rem))] left-4 w-64 max-h-[calc(100dvh-max(4rem,calc(env(safe-area-inset-top)+0.5rem))-1rem-env(safe-area-inset-bottom))] overflow-y-auto rounded-[20px] p-2 flex-col gap-0.5"
       aria-label="Sections"
     >
       {% for section in nav_sections %}
