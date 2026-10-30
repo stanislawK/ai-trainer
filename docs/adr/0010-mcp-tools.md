@@ -38,3 +38,7 @@ Specialist agents need data: training history, load, knowledge, plans. The proje
 - ⚠ The first MCP ticket proves with a test that `process_tool_call` meta reaches a FastMCP 3 tool in-process.
 - ⚠ Practitioner experience shows agent tool selection degrades past roughly 10–20 simultaneously active tools, well under the protocol's limit — keep this server in the 5–15 range. It starts at 6 tools (9 from M5); if later growth threatens that ceiling, split by domain or lean harder on ADR-0008's per-specialist toolsets before adding more tools here.
 - The `/add-mcp-tool` skill implements these invariants.
+- Hot path and tools, approved in the gym-exercises plan on 2026-10-30 ([ADR-0031](0031-exercise-catalogue-and-name-resolution.md)):
+  - The logging hot path calls its use cases in code, such as resolving exercise names against the athlete's history (B37). A model's tool-call round trip there would break G14.
+  - MCP tools wrap the same use cases for specialists and external clients. M1g adds `find_exercise` and `exercise_history`, and makes `draft_session` the first write tool. M3 adds `search_knowledge` ([ADR-0033](0033-knowledge-ingestion-and-admin-upload.md)).
+  - Before the first tool, a research ticket updates `/add-mcp-tool` and adds `.claude/rules/mcp.md`, from FastMCP 3 and Pydantic AI `MCPToolset` docs (context7) and the MCP tool-design guidance.

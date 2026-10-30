@@ -7,12 +7,12 @@ Skills are step-by-step checklists for complex, recurring tasks. Invoke with `/s
 | [update-docs](update-docs/SKILL.md) | Add or revise PRDs and ADRs | Writing product or architecture docs; need to supersede old docs | `/update-docs [prd\|adr] [title]` |
 | [create-tickets](create-tickets/SKILL.md) | Scaffold GitHub issues from a template | Planning work for a milestone (e.g., M0, M1) | `/create-tickets <scope>` |
 | [apply-ticket](apply-ticket/SKILL.md) | Implement a single GitHub issue end-to-end | Delivering a ticket; includes plan, acceptance and review gates, and ends by suggesting the next ticket | `/apply-ticket <issue#>` |
-| [tune-prompt](tune-prompt/SKILL.md) | Eval-driven change to a prompt, model or router | Changing LLM behavior; includes baseline comparison and human gate | `/tune-prompt <template-id>` |
+| [tune-prompt](tune-prompt/SKILL.md) | Smoke-checked change to a prompt, decision set, threshold, model or router (ADR-0034) | Changing LLM behavior; smoke set from real chats, full runs only on demand | `/tune-prompt <template-id>` |
 | [implement-design](implement-design/SKILL.md) | Turn a Claude Design mock into daisyUI/Jinja and prove parity with Playwright | Any web ticket that builds or changes a designed screen (ADR-0019) | `/implement-design <screen>` |
 | [add-endpoint](add-endpoint/SKILL.md) | Checklist for adding or changing a web route | Adding a page, form, API endpoint, or SSE stream | `/add-endpoint` |
 | [add-mcp-tool](add-mcp-tool/SKILL.md) | Add a tool or resource to the MCP server | Exposing app behavior to Claude or other agents | `/add-mcp-tool <tool-name>` |
 | [add-decision](add-decision/SKILL.md) | Add a Jev decision set (classify, route, gate, score, closed-set draft field) | A step only picks a label, a yes/no, a level or a draft field's value from a fixed set, and Jev is faster or cheaper than an LLM call (ADR-0020) | `/add-decision <decision-id>` |
-| [add-sport](add-sport/SKILL.md) | Add a new sport as a plugin | Extending training domain without touching core (ADR-0006) | `/add-sport <sport-key>` |
+| [add-sport](add-sport/SKILL.md) | Add a new sport as a plugin | Extending training domain with the sport's own tables, without touching core (ADR-0006, ADR-0032) | `/add-sport <sport-key>` |
 | [coverage](coverage/SKILL.md) | Raise line coverage to 100% in touched modules | After tests pass, before committing | `/coverage` |
 | [run-tdd](run-tdd/SKILL.md) | Test-first development loop | When coding features with TDD (red → green → refactor) | `/run-tdd` |
 
@@ -30,7 +30,7 @@ Skills are step-by-step checklists for complex, recurring tasks. Invoke with `/s
 
 ## Multi-agent patterns
 
-Several skills above use named orchestration patterns from `kb/12-workflows/README.md` — Fan Out & Synthesize (`add-sport`), Adversarial Verification (`apply-ticket`), Generate & Filter (`tune-prompt`). Reuse these terms rather than reinventing a shape when editing a skill.
+Several skills above use named orchestration patterns from `kb/12-workflows/README.md` — Fan Out & Synthesize (`add-sport`), Adversarial Verification (`apply-ticket`). Reuse these terms rather than reinventing a shape when editing a skill.
 
 ## Adding a new skill
 

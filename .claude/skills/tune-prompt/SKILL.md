@@ -1,21 +1,47 @@
 ---
 name: tune-prompt
-description: Eval-driven change to a prompt template, a Jev decision set or its thresholds, a model ID or the router — add cases first, write a new template version, compare against the committed baseline, then promote after a human gate.
+description: Change a prompt template, a Jev decision set or its thresholds, a model ID, provider routing or the router — update the smoke set from real chats, make the change, pass the smoke set, and show the run at the review gate. Full eval runs only on demand.
 argument-hint: "[template-id]"
 disable-model-invocation: true
 ---
 
-# Tune prompt: $ARGUMENTS (ADR-0008, ADR-0009, ADR-0020)
+# Tune prompt: $ARGUMENTS (ADR-0008, ADR-0020, ADR-0034)
 
-Evals call real models through OpenRouter and cost money. Say so before the first run.
+Smoke runs call real models through OpenRouter. They cost cents, but say so before the first run.
 
-The same loop covers a **Jev decision set** (`src/ai_trainer/llm/decisions/<id>/v<N>.en.yaml`). In step 1, cases carry expected labels. In step 3, the change is a new `v<N+1>.en.yaml`, a `DECISION_MODEL` change or a threshold change in `Settings`. In step 4, compare accuracy and fallback rate per threshold, and look at the per-case probabilities, which sit close to thresholds and jitter between calls. The baseline records the thresholds.
+The same loop covers a **Jev decision set** (`src/ai_trainer/llm/decisions/<id>/v<N>.en.yaml`):
+- Its cases carry expected labels.
+- The change is a new `v<N+1>.en.yaml`, a `DECISION_MODEL` change or a threshold change in `Settings`.
+- A new set starts at a conservative threshold. A threshold moves on feedback (`uv run ai-trainer feedback-report`), with the counts quoted in the PR.
 
-1. **Cases first.** Add or extend cases in `evals/datasets/<template-id>.yaml` for the behaviour you want: expected outputs for code-graded checks, rubrics for `LLMJudge`. Before finalizing, fan out: have several agents each propose a handful of edge cases from a different angle (ambiguous input, adversarial/safety, European unit and locale edge cases, multi-intent messages). Imperial units and V/YDS grades are best effort (PRD 0008 G15): don't fan out on them. Merge and dedupe the proposals, then keep the diverse subset that actually goes into the dataset.
-2. **Baseline.** Run `uv run ai-trainer-evals run <template-id>`: without `--version` it runs the version the app runs, and shows where it stands with the new cases. A run never writes the baseline; it prints the diff against the committed one.
-3. **Change.** Write the new version as `src/ai_trainer/llm/prompts/<template-id>/v<N+1>.en.md` (or change the model ID, provider routing or reasoning effort in settings). Never edit a version that has a committed baseline. For a model or routing change, shortlist candidates with the OpenRouter MCP first (`.claude/rules/openrouter-mcp.md`): stable/GA, the parameters the template needs, the `reasoning` block from `get-model`, and price and live latency from `list-model-endpoints`. Record why each candidate was picked or dropped (ADR-0026).
-4. **Compare.** Run the new version with `--version <N+1>` and compare against the baseline per grader and per case. Investigate every regression. Report regressions on imperial-unit or V/YDS cases on their own line. They are best effort (PRD 0008 G15), so the owner may promote past them at the gate. A change aimed at latency also reports p50 and p95 per call and USD per log turn from the latency scenario (ADR-0026 invariant 1).
-5. **HUMAN GATE.** Show the comparison, then `AskUserQuestion`: Approve / Request changes / Reject.
-6. **Promote** (after Approve): switch the active version in the registry, run `uv run ai-trainer-evals run <template-id> --promote` (now the new version by default) to write `evals/baselines/<template-id>.json`, keeping its committed thresholds, and commit it in the same change. A promote that regresses still writes, and prints the drop the owner approved.
+## Smoke loop (every change)
+
+1. **Cases from real chats.** Update `evals/smoke/<template-id>.yaml`, about 5–10 cases.
+   - Cut them from `evals/field/` transcripts first, keep the athlete's wording as typed, and set `metadata.field` to the transcript.
+   - Add a synthetic case only for a reported bug or a safety rule.
+   - Imperial units and V/YDS grades are best effort (G15): don't add cases for them.
+   - Cases can come with the change; they don't have to come first.
+2. **Change.** Write the new version as `src/ai_trainer/llm/prompts/<template-id>/v<N+1>.en.md`, or change the model ID, provider routing or reasoning effort in `Settings`.
+   - Never edit a version that has a committed baseline.
+   - For a model or routing change, shortlist candidates with the OpenRouter MCP first (`.claude/rules/openrouter-mcp.md`): stable/GA, the parameters the template needs, the `reasoning` block from `get-model`, and price and live latency from `list-model-endpoints`.
+   - Record why each candidate was picked or dropped (ADR-0026).
+3. **Run.** `uv run ai-trainer-evals smoke <template-id>` runs the app's version once per case, code-graded with no judge.
+   - Every case passes, or the case is listed under `known_gaps` with a ticket number.
+   - When the change touches routing, replies or safety, also run the safety set (`smoke safety`). It runs with its judge and must pass.
+4. **Show.** Paste the run's summary into the ticket's acceptance script and PR. The review gate is the approval; there is no separate promote gate.
+
+## Full run (on demand only)
+
+Run the full suite only for:
+- a model swap;
+- a release the owner wants checked;
+- when the owner asks.
+
+Steps:
+1. **Run.** `uv run ai-trainer-evals run <template-id> [--version N]` runs the existing datasets with repeats and `LLMJudge`, and diffs against the committed baseline.
+2. **Report.** Report regressions per grader and per case, with imperial and V/YDS regressions on their own line. A change aimed at latency also reports p50, p95 and USD per log turn from the latency scenario (ADR-0026).
+3. **Promote.** `--promote` writes `evals/baselines/<template-id>.json` as a reference point, never as a gate.
 
 The judge model is set explicitly with `set_default_judge_model(OpenRouterModel(settings.eval_judge_model))` and must differ from the model under test.
+
+Until the `smoke` command exists (M1e), a change runs `uv run ai-trainer-evals run <template-id>` on the existing dataset once and shows the result at the review gate, without a promote.
