@@ -38,5 +38,6 @@ ADRs own the *how*: stack, architecture, testing and agent workflow. The current
 | 0032 | [Per-sport activity tables](0032-per-sport-activity-tables.md) | Proposed | 2026-10-30 |
 | 0033 | [Knowledge ingestion and admin upload](0033-knowledge-ingestion-and-admin-upload.md) | Proposed | 2026-10-30 |
 | 0034 | [Lean evaluation](0034-lean-evaluation.md) | Proposed | 2026-10-30 |
+| 0035 | [Parallel agent delivery](0035-parallel-agent-delivery.md) | Proposed | 2026-10-30 |
 
 How to add an ADR: [docs/templates/README.md](../templates/README.md).
