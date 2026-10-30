@@ -133,7 +133,7 @@ def build_onboarding_reader(
     )
 
 
-def create_app(
+def create_app(  # noqa: PLR0915 -- composition root: objects are built only here (ADR-0003)
     settings: Settings,
     *,
     span_exporter: SpanExporter | None = None,

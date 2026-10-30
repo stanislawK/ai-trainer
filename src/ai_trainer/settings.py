@@ -18,7 +18,7 @@ from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 from ai_trainer.domain.llm_calls import ProviderPreferences, ReasoningEffort
 
 
-def _split_comma_separated(value: Any) -> Any:
+def _split_comma_separated(value: Any) -> Any:  # noqa: ANN401 -- raw env input of any type
     if isinstance(value, str):
         return [item.strip() for item in value.split(",") if item.strip()]
     return value
@@ -27,7 +27,7 @@ def _split_comma_separated(value: Any) -> Any:
 CommaSeparated = Annotated[list[str], NoDecode, BeforeValidator(_split_comma_separated)]
 
 
-def _json_object(value: Any) -> Any:
+def _json_object(value: Any) -> Any:  # noqa: ANN401 -- raw env input of any type
     # Decoded here, not by pydantic-settings, so a blank value copied from `.env.example` is
     # unset rather than invalid JSON; the object is then checked field by field.
     if isinstance(value, str):

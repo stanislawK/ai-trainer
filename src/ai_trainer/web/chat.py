@@ -112,7 +112,7 @@ def _part_of_day(hour: int) -> str:
     return "evening"
 
 
-def build_chat_router(
+def build_chat_router(  # noqa: C901, PLR0915 -- split in #330
     templates: Jinja2Templates,
     *,
     chat: ChatRepositoryPort,
@@ -126,7 +126,7 @@ def build_chat_router(
     clock = replies.clock
     conversations = replies.conversations
 
-    def render(template_name: str, **context: Any) -> str:
+    def render(template_name: str, **context: Any) -> str:  # noqa: ANN401 -- template context is any value
         return templates.get_template(template_name).render(**context)
 
     def local_today(user: User) -> date:

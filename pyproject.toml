@@ -59,7 +59,20 @@ line-length = 100
 
 [tool.ruff.lint]
 # No "TC": moving runtime-annotation imports under TYPE_CHECKING breaks PEP 649 (ADR-0002).
-select = ["E", "W", "F", "I", "B", "UP", "SIM", "RUF", "PT", "N"]
+# C90, PLR0912, PLR0915, PLR0917 and ANN401 cap function size and parameters (#325).
+select = [
+    "E", "W", "F", "I", "B", "UP", "SIM", "RUF", "PT", "N",
+    "C90", "PLR0912", "PLR0915", "PLR0917", "ANN401",
+]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
+
+[tool.ruff.lint.per-file-ignores]
+# Test helpers take `**overrides: Any` and build long fixtures by design; the caps are for src.
+"tests/**" = ["ANN401", "C901", "PLR0912", "PLR0915", "PLR0917"]
+# The release guard hook is one flat chain of independent checks, kept in one place on purpose.
+".claude/hooks/guard_release.py" = ["C901", "PLR0912"]
 
 [tool.ruff.lint.flake8-bugbear]
 # FastAPI's own idiom for a form field's default value (ticket #16); the call is evaluated once
