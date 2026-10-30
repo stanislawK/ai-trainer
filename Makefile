@@ -1,5 +1,5 @@
 .PHONY: install css test test-fast test-ops test-unit test-integration coverage lint format format-check \
-	typecheck import-lint squawk openapi openapi-check check up up-build start stop down logs ps \
+	typecheck import-lint squawk uv-pins-check openapi openapi-check check up up-build start stop down logs ps \
 	health smoke-setup smoke-up smoke-down alloy-check cloud-init-check backup-check migrate purge-conversations llm-report latency-scenario evals e2e-install e2e
 
 install: ## Install dependencies (uv sync)
@@ -44,13 +44,16 @@ import-lint: ## Check layer boundaries (import-linter, ADR-0003)
 squawk: ## Lint the SQL of migration revisions new since origin/main with squawk (ADR-0024). Usage: make squawk [base=origin/main]
 	uv run python scripts/squawk_migrations.py $(if $(base),--base $(base))
 
+uv-pins-check: ## Fail when the uv pins (Dockerfile, ci.yml, evals.yml) and the uv_build range in pyproject.toml differ (ADR-0002, #310)
+	uv run python scripts/check_uv_pins.py
+
 openapi: ## Regenerate the OpenAPI snapshot (docs/api/openapi.json)
 	uv run python scripts/generate_openapi.py
 
 openapi-check: openapi ## Fail if docs/api/openapi.json is out of date (CI drift check)
 	git diff --exit-code -- docs/api/openapi.json
 
-check: lint format-check typecheck import-lint squawk openapi-check cloud-init-check alloy-check test ## Everything CI runs
+check: lint format-check typecheck import-lint squawk uv-pins-check openapi-check cloud-init-check alloy-check test ## Everything CI runs
 
 up: ## Start app + postgres in the background
 	docker compose up -d
