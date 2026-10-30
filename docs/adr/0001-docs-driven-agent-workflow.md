@@ -74,7 +74,7 @@ Human gates use Claude Code's `AskUserQuestion` with exactly those options.
 ## Consequences
 
 - Implemented by `CLAUDE.md`, `.claude/rules/docs.md` and the skills `create-tickets`, `apply-ticket` and `update-docs`.
-- `CLAUDE.md` and rules are guidance, not enforcement. M0 adds hooks where a hard stop is worth it (e.g. no commits on `main`, formatting after edits).
+- `CLAUDE.md` and rules are guidance, not enforcement. M0 adds hooks where a hard stop is worth it (e.g. no commits on `main`, formatting after edits). Invariant 9 is enforced locally by `permissions.deny` in `.claude/settings.json` and by `.claude/hooks/guard_release.py`, which denies a push to `main`, a force push, `gh pr merge`, and a commit, merge, cherry-pick, revert or am while the hook input's `cwd` is on `main` (#350).
 - Amended 2026-09-22 at the project owner's direction: delivery moved from local merges into `main` to pull requests merged by a human; ticket branches renamed from `ticket/<n>-<slug>` to `<area>/<n>-<slug>`; `status:in-review` added.
 - Amended 2026-09-29 at the project owner's direction: a third human gate, the **acceptance gate**, sits between verify and review.
   - **Why.** The app now has a UI, and the owner wants every change tried by hand before its diff is read. The dev loop (#62–#64, `make start`) reloads code, templates, CSS and migrations, so re-trying a fix needs no rebuild.

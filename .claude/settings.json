@@ -22,6 +22,20 @@
       "Bash(gh label list:*)",
       "Bash(docker compose ps:*)",
       "Bash(docker compose logs:*)"
+    ],
+    "deny": [
+      "Bash(git push main)",
+      "Bash(git push * main)",
+      "Bash(git push * main *)",
+      "Bash(git push *:main)",
+      "Bash(git push *:main *)",
+      "Bash(git push *:refs/heads/main)",
+      "Bash(git push -f*)",
+      "Bash(git push * -f*)",
+      "Bash(git push --force*)",
+      "Bash(git push * --force*)",
+      "Bash(git push * +*)",
+      "Bash(gh pr merge *)"
     ]
   }
 }
