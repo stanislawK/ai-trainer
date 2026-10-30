@@ -969,6 +969,7 @@ async def test_three_climbing_logs_sent_close_together_end_as_one_session_with_t
     user = await _user(db_session_factory, "draft-continuity")
     logs = [_CLIMB] * 3
     clock = _SteppingClock()
+    page = ""
 
     for minutes, log in zip((0, 4, 9), logs, strict=True):
         clock.current = FROZEN_NOW + timedelta(minutes=minutes)

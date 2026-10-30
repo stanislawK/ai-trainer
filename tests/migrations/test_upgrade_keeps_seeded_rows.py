@@ -82,10 +82,7 @@ def test_upgrading_from_an_older_head_seeds_the_tables_it_adds() -> None:
 
 def test_contract_exemptions_are_named_columns() -> None:
     # Only columns a contract migration explicitly removes are exempt, each by table and name.
-    assert all(
-        isinstance(table, str) and isinstance(column, str)
-        for table, column in CONTRACT_EXEMPT_COLUMNS
-    )
+    assert all(table and column for table, column in CONTRACT_EXEMPT_COLUMNS)
 
 
 def _commit_all(repo: Path, message: str) -> None:

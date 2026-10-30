@@ -293,8 +293,11 @@ async def test_changing_the_sport_drops_the_question_that_no_longer_applies() ->
     assert isinstance(changed, StoredDraft)
     [dropped] = athlete.clarifications.all_of(athlete.user_id)
     assert dropped.status == "abandoned"
-    assert await confirm_draft(
-        athlete.user_id, draft.id, drafts=athlete.drafts, clock=athlete.services.clock
+    assert (
+        await confirm_draft(
+            athlete.user_id, draft.id, drafts=athlete.drafts, clock=athlete.services.clock
+        )
+        is not None
     )
 
 
@@ -384,6 +387,7 @@ class _NoSeparateQuestions(InMemoryClarificationRepository):
 @pytest.mark.parametrize("path", ["reply", "change_sport"])
 async def test_the_question_is_stored_with_its_draft_never_apart(path: str) -> None:
     athlete = _Athlete()
+    draft: StoredDraft | None = None
     if path == "change_sport":
         athlete.sessions.latest[(athlete.user_id, "gym")] = _MORNING.model_copy(
             update={"id": uuid4()}
@@ -406,6 +410,7 @@ async def test_the_question_is_stored_with_its_draft_never_apart(path: str) -> N
         [draft] = done.drafts
         [question] = done.clarifications
     else:
+        assert draft is not None
         await change_draft_sport(
             athlete.user_id, draft.id, "gym", timezone="Europe/Warsaw", services=athlete.services
         )

@@ -256,6 +256,8 @@ async def run_eval(
     # outputs as their union.
     readable = expected_output_types or template.output_type
     output_type = reduce(operator.or_, readable) if isinstance(readable, tuple) else readable
+    # `output_type` is built at runtime from the template's declared outputs, so mypy cannot
+    # accept it as a type argument (valid-type).
     dataset: Dataset[EvalCaseInputs, TemplateOutput, object] = Dataset[
         EvalCaseInputs, output_type, object  # type: ignore[valid-type]
     ].from_file(

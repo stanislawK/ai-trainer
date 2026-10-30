@@ -7,6 +7,7 @@ import re
 from collections.abc import Mapping
 from datetime import date
 from enum import StrEnum
+from typing import assert_never
 
 from pydantic import BaseModel, ConfigDict
 
@@ -80,6 +81,8 @@ def height_cm(value: float, unit: HeightUnit, *, inches: float | None = None) ->
             cm = value * 100
         case HeightUnit.FT_IN:
             cm = (value * 12 + (inches or 0)) * _CM_PER_INCH
+        case _:
+            assert_never(unit)
     whole = int(_round_half_up(cm))
     return whole if MIN_HEIGHT_CM <= whole <= MAX_HEIGHT_CM else None
 
@@ -92,6 +95,8 @@ def weight_kg(value: float, unit: WeightUnit) -> float | None:
             kg = _round_half_up(value, 1)
         case WeightUnit.LB:
             kg = _round_half_up(value * _KG_PER_LB)
+        case _:
+            assert_never(unit)
     return kg if MIN_WEIGHT_KG <= kg <= MAX_WEIGHT_KG else None
 
 

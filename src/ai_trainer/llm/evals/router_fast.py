@@ -144,6 +144,8 @@ async def run_router_fast_eval(
     agent: Agent[None, Any] = Agent(model)
 
     async def task(inputs: EvalCaseInputs) -> FastRouteEvalOutput:
+        # `deps` is the case's free-form dict that Pydantic Evals types as `object`, so
+        # mypy cannot see `.get` (attr-defined).
         sports = [str(sport) for sport in inputs.deps.get("athlete_sports", [])]  # type: ignore[attr-defined]
         decision_set = router_fast_set(sports, loader=loader, version=version)
         result = await agent.run(inputs.prompt, output_type=decision_set.output_type)

@@ -96,13 +96,14 @@ async def edit_draft(
         name: _blank_is_none(changes.get(name)) for name in _ENVELOPE_FIELDS if name in changes
     }
     edited_payload = stored.draft.payload if payload is None else payload.model_dump(mode="json")
+    draft: SessionDraft | None = None
     try:
         draft = SessionDraft.model_validate(
             {**stored.draft.model_dump(mode="json"), **envelope, "payload": edited_payload}
         )
     except ValidationError as error:
         invalid |= _fields(error)
-    if invalid:
+    if invalid or draft is None:
         raise DraftEditError(frozenset(invalid))
     if draft.occurred_on != stored.draft.occurred_on:
         draft = draft.model_copy(update={"date_source": "stated"})

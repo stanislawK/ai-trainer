@@ -7,6 +7,7 @@ paths:
 
 - **Layering (ADR-0003):** `domain` imports only the standard library and Pydantic. `application` depends on `domain` and on `typing.Protocol` ports. Concrete classes are wired only in the composition root.
 - **Typing (ADR-0002):** `mypy --strict` clean. No `Any` in public signatures. `# type: ignore[code]` only with a reason comment.
+- **Typing patterns (ADR-0002):** `Protocol` over ABC. `Literal` or `StrEnum` with `assert_never` in a `match` over a closed set. `Sequence`/`Mapping` in parameters, concrete types out. A Pydantic model or `TypedDict` over `dict[str, Any]`. `NewType` or a value object for IDs, grades and units. Stricter mypy codes (`possibly-undefined`, `unused-awaitable`, `exhaustive-match`, …) are on: fix the hit, don't ignore it.
 - **PEP 649 (ADR-0002):** never import a type used in a FastAPI or Pydantic runtime annotation only under `TYPE_CHECKING`.
 - **Validation:** Pydantic v2 models at every boundary — HTTP, LLM output, MCP, settings.
 - **Configuration:** only through the `Settings` class; never read `os.environ` directly.
