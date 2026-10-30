@@ -78,6 +78,8 @@ make squawk                      # squawk on the SQL of migration revisions new 
 uv run python scripts/generate_openapi.py   # regenerate docs/api/openapi.json (never hand-edit it)
 docker compose up -d             # app + postgres
 make start                       # dev loop: app + postgres with uvicorn --reload and a live Tailwind CSS rebuild over src/ (foreground)
+make worktree issue=<n>          # ticket <n> in ../ai-trainer-<n> on <area>/<n>-<slug> with its own migrated database ai_trainer_wt<n>, opened in VS Code (ADR-0035)
+make worktree-rm issue=<n>       # remove that worktree and drop its database; refuses on uncommitted changes, keeps the branch
 make cloud-init-check             # validate deploy/cloud-init.yaml with Debian 13's cloud-init (deploy/RUNBOOK.md provisions the host; owner only)
 make alloy-check                 # alloy fmt --test + validate on deploy/alloy/config.alloy with the pinned image; config=<file> checks another (ADR-0030)
 make backup-check                # round-trip deploy/backup.sh and the restore drill against the `make start` database with a throwaway age key (ADR-0023, #223, #224)

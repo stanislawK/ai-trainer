@@ -86,6 +86,7 @@ Run `make` targets from the repo root; see the [Makefile](Makefile) for the comp
 | `make e2e` | Run the pytest-playwright specs in `tests/e2e/` (needs `make up` first) |
 | `make coverage` | Line coverage on `src/ai_trainer` |
 | `make migrate` | Apply database migrations (Alembic) |
+| `make worktree issue=<n>` / `make worktree-rm issue=<n>` | Start a ticket in its own checkout and database, or remove them — see [One ticket per worktree](#one-ticket-per-worktree) |
 | `make lint` / `make format` / `make typecheck` | ruff / ruff format / mypy --strict |
 | `make import-lint` | Check layer boundaries (import-linter, ADR-0003) |
 | `make squawk` | Lint the SQL of migration revisions new since `origin/main` with squawk (ADR-0024); `base=<ref>` overrides the base |
@@ -125,6 +126,21 @@ It's foreground on purpose (`docker compose watch` can't run detached), so use a
 - `make start` first runs `migrate` once in the foreground, so its output — including a blank or missing `Settings` key such as `GOOGLE_CLIENT_ID must not be blank` — shows in your terminal and a failure stops `make start` before anything else starts (`docker compose watch` streams only `app`).
 - A one-shot `migrate` service (#64) runs `alembic upgrade head` against Postgres before `app` starts, on every `make start` — a fresh, empty volume reaches head, and a migration pulled since your last `make start` is applied on the next one; an up-to-date schema makes it a fast no-op. A failing migration keeps `app` from starting at all; its traceback shows in `make logs`.
 - `make up`, the production image and CI's e2e job never use `--reload`, the CSS watcher, the migrate service or `compose.dev.yaml` — this is purely a local dev loop.
+
+### One ticket per worktree
+
+Tickets run in parallel, each in its own checkout and database (ADR-0035). With Postgres up (`make start` or `make up`), from either checkout:
+
+```bash
+make worktree issue=351      # ../ai-trainer-351 on infra/351-<slug>, database ai_trainer_wt351 at head, opened in VS Code
+make worktree-rm issue=351   # removes ../ai-trainer-351 and drops ai_trainer_wt351; the branch stays
+```
+
+- `make worktree` branches from `origin/main` as `<area>/<n>-<slug>` (the issue's `area:` label; the title without its prefix and without a, an, the, at most five words, so `sign-in` stays one word), copies `.env` with only `DATABASE_URL`'s database changed, creates and migrates `ai_trainer_wt<n>`, runs `uv sync`, then `code ../ai-trainer-<n>`. It reads the issue with `gh`, so `gh` needs access to the repo (prefix `GH_TOKEN=…` if your active account has none).
+- It checks everything first: a missing `.env`, an existing folder (or one git still lists as a worktree), branch (local or on origin) or database, an unreachable Postgres or an issue without an `area:` label exits 1 with the reason and creates nothing. A step that fails later undoes the earlier ones.
+- `make worktree-rm` refuses while the worktree has uncommitted changes, and then keeps the database too.
+- Tests follow the checkout's `.env`, so `uv run pytest` runs in a worktree and the main checkout at the same time without sharing a database.
+- One `make start` serves one checkout at a time on :8000: `compose.yaml` pins the project name to `ai-trainer`, and the Makefile exports `APP_DB_NAME` (the database in the checkout's `.env`) for the `app` and `migrate` services. Stop it in one window before starting it in another. Google sign-in accepts only `http://localhost:8000/auth/callback`, so there is no second port.
 
 **Metrics and traces on `make start`.** Start a local [`grafana/otel-lgtm`](https://github.com/grafana/docker-otel-lgtm) (the `docker run` line under [Production smoke run](#production-smoke-run)), then set `OTEL_ENABLED=true` and `OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4318` in `.env` and restart `make start`. The app exports its metrics once a minute (ADR-0030). At http://localhost:3000 → Explore → **Prometheus**:
 - `sum by (template_id) (ai_trainer_llm_call_duration_seconds_count)` counts model calls by template.
