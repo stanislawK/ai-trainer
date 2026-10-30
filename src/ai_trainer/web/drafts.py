@@ -12,7 +12,7 @@ payload is read only through the plugin's model
 partials."""
 
 import logging
-from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
 from uuid import UUID
@@ -105,7 +105,7 @@ def open_questions(
     }
 
 
-def draft_cards(  # noqa: C901 -- split in #333
+def draft_cards(
     messages: Sequence[ChatMessage],
     drafts: Iterable[StoredDraft],
     *,
@@ -120,27 +120,44 @@ def draft_cards(  # noqa: C901 -- split in #333
     moved to a sport its log's reply never extracted goes under that reply's last extraction
     part (#163). `questions` are the conversation's, and a pending card shows its own open one
     (#166)."""
-    pending: dict[tuple[UUID, str], list[StoredDraft]] = {}
-    for draft in drafts:
-        pending.setdefault((draft.message_id, draft.sport_id), []).append(draft)
+    pending = _drafts_by_log(drafts)
     cards: dict[UUID, list[DraftCard]] = {}
     last_extraction: dict[UUID, UUID] = {}
     shown = list(questions)
     asking = open_questions(shown)
 
-    def place(message_id: UUID, found: Iterable[StoredDraft]) -> None:
-        for draft in found:
-            card = draft_card(
-                draft,
-                sports=sports,
-                today=today,
-                athlete_sports=athlete_sports,
-                question=asking.get(draft.id),
-                asking=asking_sports(shown, draft.message_id),
-            )
-            if card is not None:
-                cards.setdefault(message_id, []).append(card)
+    def card_for(draft: StoredDraft) -> DraftCard | None:
+        return draft_card(
+            draft,
+            sports=sports,
+            today=today,
+            athlete_sports=athlete_sports,
+            question=asking.get(draft.id),
+            asking=asking_sports(shown, draft.message_id),
+        )
 
+    for log, part_id, sport_id in _extraction_parts(messages, log_id, sports):
+        last_extraction[log] = part_id
+        _place(cards, part_id, pending.pop((log, sport_id), []), card_for)
+    for (log_of, _), moved in pending.items():
+        if log_of in last_extraction:
+            _place(cards, last_extraction[log_of], moved, card_for)
+    return cards
+
+
+def _drafts_by_log(drafts: Iterable[StoredDraft]) -> dict[tuple[UUID, str], list[StoredDraft]]:
+    """The drafts by the athlete's log they came from and their sport."""
+    grouped: dict[tuple[UUID, str], list[StoredDraft]] = {}
+    for draft in drafts:
+        grouped.setdefault((draft.message_id, draft.sport_id), []).append(draft)
+    return grouped
+
+
+def _extraction_parts(
+    messages: Sequence[ChatMessage], log_id: UUID | None, sports: SportRegistry
+) -> Iterator[tuple[UUID, UUID, str]]:
+    """Each extraction part as `(log, part, sport)`: the athlete's log it answers, its own ID
+    and its sport. Parts before any log, when `log_id` is `None`, have none to answer."""
     log = log_id
     for message in messages:
         if message.role is ChatRole.USER:
@@ -149,14 +166,21 @@ def draft_cards(  # noqa: C901 -- split in #333
         if log is None:
             continue
         for sport_id in message.sports:
-            if not _is_extraction(message, sport_id, sports):
-                continue
-            last_extraction[log] = message.id
-            place(message.id, pending.pop((log, sport_id), []))
-    for (log_of, _), moved in pending.items():
-        if log_of in last_extraction:
-            place(last_extraction[log_of], moved)
-    return cards
+            if _is_extraction(message, sport_id, sports):
+                yield log, message.id, sport_id
+
+
+def _place(
+    cards: dict[UUID, list[DraftCard]],
+    part_id: UUID,
+    drafts: Iterable[StoredDraft],
+    card_for: Callable[[StoredDraft], DraftCard | None],
+) -> None:
+    """Add the cards of `drafts` under `part_id`, skipping any that can't be shown."""
+    for draft in drafts:
+        card = card_for(draft)
+        if card is not None:
+            cards.setdefault(part_id, []).append(card)
 
 
 def _is_extraction(part: ChatMessage, sport_id: str, sports: SportRegistry) -> bool:
