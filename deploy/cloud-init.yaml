@@ -24,7 +24,7 @@ ssh_pwauth: false
 # deploy/deploy.sh needs `gh attestation verify` (gh 2.49 or later); trixie's gh is 2.46, so gh
 # comes from GitHub CLI's own signed repository (#225). The key is GitHub CLI's current signing
 # key, fingerprint 7F38 BBB5 9D06 4DBC B3D8  4D72 5612 B364 6231 3325, as published in cli/cli's
-# docs/install_linux.md; tests/unit/test_cloud_init.py checks it. cloud-init writes it to its
+# docs/install_linux.md; tests/ops/test_cloud_init.py checks it. cloud-init writes it to its
 # own keyring and puts that path in $KEY_FILE.
 apt:
   sources:

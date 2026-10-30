@@ -1,4 +1,4 @@
-.PHONY: install css test test-unit test-integration coverage lint format format-check \
+.PHONY: install css test test-fast test-ops test-unit test-integration coverage lint format format-check \
 	typecheck import-lint squawk openapi openapi-check check up up-build start stop down logs ps \
 	health smoke-setup smoke-up smoke-down alloy-check cloud-init-check backup-check migrate purge-conversations llm-report latency-scenario evals e2e-install e2e
 
@@ -10,6 +10,12 @@ css: ## Compile the Tailwind CSS v4 + daisyUI 5 stylesheet locally (no Node, ADR
 
 test: migrate ## Run the full test suite
 	uv run pytest
+
+test-fast: ## Agents' inner loop: unit + integration, no ops-script tests, stops at the first failure (needs `make up`)
+	uv run pytest tests/unit tests/integration -n auto --ff -x
+
+test-ops: ## Ops-script tests (deploy/, scripts/, compose*.yaml, Grafana JSON; no services needed)
+	uv run pytest tests/ops -n auto
 
 test-unit: ## Run unit tests only (no external services needed)
 	uv run pytest tests/unit

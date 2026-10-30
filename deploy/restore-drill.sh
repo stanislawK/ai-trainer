@@ -20,7 +20,7 @@
 set -euo pipefail
 umask 077
 
-# compose.prod.yaml's `db` image, by digest; tests/unit/test_restore_drill_script.py keeps
+# compose.prod.yaml's `db` image, by digest; tests/ops/test_restore_drill_script.py keeps
 # them the same.
 image=pgvector/pgvector:pg18-trixie@sha256:9d9c930220cb9bf2f956d10a8f909cf9973d9672ca0278aef2c1e6facccad2e0
 # backup.sh's count query, verbatim.

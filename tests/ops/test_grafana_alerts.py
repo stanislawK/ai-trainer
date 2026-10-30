@@ -22,7 +22,7 @@ from typing import Any
 import pytest
 import yaml
 
-from tests.unit.grafana_catalogue import (
+from tests.ops.grafana_catalogue import (
     CHECK,
     GRAFANA,
     alloy_string,

@@ -15,7 +15,7 @@ from typing import Any
 
 import pytest
 
-from tests.unit.grafana_catalogue import (
+from tests.ops.grafana_catalogue import (
     APP_LOG_FIELDS,
     GRAFANA,
     check_legend,

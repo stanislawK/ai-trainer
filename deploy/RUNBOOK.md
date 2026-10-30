@@ -385,7 +385,7 @@ Run on the server (`ssh deploy@<ip>`) unless noted. Checks 3–5 make a real rel
 | 7 | One run at a time (AC 6) | `flock /opt/ai-trainer/.deploy.lock sleep 60 & sleep 1; sudo systemctl start ai-trainer-deploy.service; journalctl -u ai-trainer-deploy.service -n 1 --no-pager` | `deploy: another deploy is running; nothing to do` |
 | 8 | No token in the journal (AC 6) | `journalctl -u ai-trainer-deploy.service --no-pager \| grep -c github_pat_` | `0` |
 
-A failing attestation (AC 2) and a failing health check (AC 4) can't be staged safely on the real host: only `release.yml` creates the deployments the poller acts on, and it attests every image it pushes. `tests/unit/test_deploy_script.py` covers both, and a real one shows as a `failure` status whose description says why.
+A failing attestation (AC 2) and a failing health check (AC 4) can't be staged safely on the real host: only `release.yml` creates the deployments the poller acts on, and it attests every image it pushes. `tests/ops/test_deploy_script.py` covers both, and a real one shows as a `failure` status whose description says why.
 
 ## 11. Telemetry to Grafana Cloud
 
