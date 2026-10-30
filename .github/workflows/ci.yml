@@ -38,10 +38,46 @@ env:
   PUBLIC_BASE_URL: http://localhost:8000
 
 
-# The check jobs start together, each on its own runner with its own database, and the `ci` job
-# at the end is the one check `main`'s ruleset requires (ADR-0013, "Parallel, path-aware CI").
+# `changes` decides which check jobs a pull request's paths need; those start together after it,
+# each on its own runner with its own database, and the `ci` job at the end is the one check
+# `main`'s ruleset requires (ADR-0013, "Parallel, path-aware CI").
 jobs:
+  changes:
+    # A job skipped by its own `if:` reports Success; a workflow-level `paths:` filter would leave
+    # the required check Pending instead (ADR-0013). A push to `main` runs every job (#357).
+    runs-on: ubuntu-latest
+    outputs:
+      static: ${{ steps.flags.outputs.static }}
+      test: ${{ steps.flags.outputs.test }}
+      ops: ${{ steps.flags.outputs.ops }}
+      e2e: ${{ steps.flags.outputs.e2e }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The script diffs against the pull request's base, origin/<base>.
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: "0.13.6"
+          enable-cache: true
+
+      # --no-project: the stdlib-only script needs .python-version's Python, not the project.
+      - name: Decide which jobs run
+        id: flags
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            uv run --no-project python scripts/ci_changes.py --base "origin/$GITHUB_BASE_REF" >> "$GITHUB_OUTPUT"
+          else
+            uv run --no-project python scripts/ci_changes.py --all >> "$GITHUB_OUTPUT"
+          fi
+          cat "$GITHUB_OUTPUT"
+
   static:
+    needs: changes
+    if: needs.changes.outputs.static == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -88,6 +124,8 @@ jobs:
         run: uv run python scripts/check_uv_pins.py
 
   test:
+    needs: changes
+    if: needs.changes.outputs.test == 'true'
     runs-on: ubuntu-latest
     services:
       # Same image and credentials as compose.yaml (ADR-0004); integration
@@ -130,6 +168,8 @@ jobs:
 
   ops:
     # No database: no test in tests/ops opens one.
+    needs: changes
+    if: needs.changes.outputs.ops == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -156,8 +196,11 @@ jobs:
         run: uv run pytest tests/ops
 
   e2e:
-    # No `needs:` (#356): it once waited for the other checks to dodge the #37 concurrent-write
-    # gotcha, which needs two suites on one database. Each job now has its own runner and database.
+    # Only `needs: changes` (#356, #357): it once waited for the other checks to dodge the #37
+    # concurrent-write gotcha, which needs two suites on one database. Each job now has its own
+    # runner and database.
+    needs: changes
+    if: needs.changes.outputs.e2e == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -224,8 +267,9 @@ jobs:
 
   ci:
     # The required check: fails when any job failed or was cancelled. A skipped job passes, so a
-    # job a pull request's paths don't need never blocks the merge (ADR-0013).
-    needs: [static, test, ops, e2e]
+    # job a pull request's paths don't need never blocks the merge (ADR-0013). `changes` is here
+    # too: when it fails, the check jobs are skipped and only its failure stops the merge.
+    needs: [changes, static, test, ops, e2e]
     if: always()
     runs-on: ubuntu-latest
     steps:

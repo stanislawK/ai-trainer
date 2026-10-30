@@ -13,7 +13,7 @@ For each AC:
 
 Then for the whole change:
 
-4. `make test-fast` — everything green (unit + integration, parallel, stops at the first failure). Also run `make test-ops` when `deploy/`, `scripts/` or `compose*.yaml` changed. CI runs everything in parallel jobs (`static`, `test`, `ops`, `e2e`) behind one required `ci` check.
+4. `make test-fast` — everything green (unit + integration, parallel, stops at the first failure). Also run `make test-ops` when `deploy/`, `scripts/` or `compose*.yaml` changed. CI runs parallel jobs (`static`, `test`, `ops`, `e2e`) behind one required `ci` check, skipping the ones a pull request's paths don't need (`scripts/ci_changes.py`, #357).
 5. `/coverage` — 100% line coverage on the touched modules.
 6. `uv run ruff check . && uv run ruff format --check .`
 7. `uv run mypy` — strict, clean.
