@@ -89,9 +89,10 @@ Run `make` targets from the repo root; see the [Makefile](Makefile) for the comp
 | `make lint` / `make format` / `make typecheck` | ruff / ruff format / mypy --strict |
 | `make import-lint` | Check layer boundaries (import-linter, ADR-0003) |
 | `make squawk` | Lint the SQL of migration revisions new since `origin/main` with squawk (ADR-0024); `base=<ref>` overrides the base |
+| `make uv-pins-check` | Fail when the uv pins (`Dockerfile`, `ci.yml`, `evals.yml`) and the `uv_build` range in `pyproject.toml` differ (ADR-0002, #310); CI runs it too |
 | `make openapi` | Regenerate the OpenAPI snapshot (`docs/api/openapi.json`) |
 | `make openapi-check` | Regenerate, then fail if the committed snapshot drifted (what CI runs) |
-| `make check` | Everything CI runs: lint, format check, typecheck, import-lint, squawk, openapi-check, cloud-init-check, alloy-check, tests |
+| `make check` | Everything CI runs: lint, format check, typecheck, import-lint, squawk, uv-pins-check, openapi-check, cloud-init-check, alloy-check, tests |
 | `make purge-conversations` | Hard-delete conversations (and their messages) last active more than `CONVERSATION_RETENTION_DAYS` ago and print how many (ADR-0021); safe to repeat |
 | `make llm-report [since=<ISO time>]` | Summarize the LLM debug log per template and model — see [Debugging LLM calls](#debugging-llm-calls) |
 | `make latency-scenario [url=<base URL>]` | Replay the latency scenario on the running app and print p50/p95 per log turn — calls real models, costs money; see [Debugging LLM calls](#debugging-llm-calls) |

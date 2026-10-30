@@ -14,7 +14,7 @@ RUN ./scripts/build_css.sh
 
 # ADR-0002: pin the uv binary, sync deps without the project, copy source, sync again.
 FROM python:3.14-slim-trixie
-COPY --from=ghcr.io/astral-sh/uv:0.11.28 /uv /uvx /bin/
+COPY --from=ghcr.io/astral-sh/uv:0.13.6 /uv /uvx /bin/
 
 # curl is only ever invoked by scripts/watch_css.sh (#63), and only when compose.dev.yaml's
 # dev_start.sh overrides the CMD below — `make up`/production never run it, but the tool
