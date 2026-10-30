@@ -124,3 +124,50 @@ def test_the_test_and_ops_jobs_together_run_every_testpath_once(
         for path in shlex.split(step["run"])[3:]
     ]
     assert sorted(ran) == sorted(testpaths)
+
+
+# The e2e image build (#358, ADR-0013 "Caches"): the GitHub Actions cache was measured slower than
+# compose's own build and dropped, so compose builds the commit's checkout on every run.
+SOURCE_CHECK = "Check the app runs this commit's src/"
+
+
+def _e2e_step_index(jobs: dict[str, dict[str, Any]], name: str) -> int:
+    [index] = [i for i, step in enumerate(jobs["e2e"]["steps"]) if step.get("name") == name]
+    return index
+
+
+def test_e2e_builds_the_commits_checkout_in_compose(jobs: dict[str, dict[str, Any]]) -> None:
+    """`--build` builds the image from this checkout, so e2e always runs the commit's own code."""
+    [up] = [s["run"] for s in jobs["e2e"]["steps"] if "docker compose up" in s.get("run", "")]
+    assert up == "docker compose up -d --build"
+
+
+def test_e2e_checks_the_app_runs_the_commits_source(jobs: dict[str, dict[str, Any]]) -> None:
+    """The running app's `src/` digest must equal the checkout's, before any spec runs."""
+    check = jobs["e2e"]["steps"][_e2e_step_index(jobs, SOURCE_CHECK)]["run"]
+    assert "docker compose exec -T app" in check
+    assert "find src" in check
+    assert 'test "$checkout" = "$app"' in check
+    assert (
+        _e2e_step_index(jobs, "Start the compose stack")
+        < _e2e_step_index(jobs, SOURCE_CHECK)
+        < _e2e_step_index(jobs, "Run e2e specs (pytest-playwright)")
+    )
+
+
+def test_playwright_browsers_are_not_cached(jobs: dict[str, dict[str, Any]]) -> None:
+    """Playwright advises against it: restoring takes about as long as downloading."""
+    steps = jobs["e2e"]["steps"]
+    assert not [s for s in steps if s.get("uses", "").startswith("actions/cache")]
+    assert "ms-playwright" not in yaml.safe_dump(steps)
+
+
+def test_the_dropped_e2e_cache_stays_dropped_as_adr_0013_records() -> None:
+    """Re-adding a build cache means measuring it again and changing ADR-0013 with this test."""
+    adr = (ROOT / "docs/adr/0013-testing-and-quality.md").read_text()
+    bullets = [line for line in adr.splitlines() if "**Caches:**" in line]
+    assert len(bullets) == 1, "ADR-0013 needs exactly one **Caches:** bullet"
+    assert "**Outcome: dropped.**" in bullets[0]
+    for path in (".github/workflows/ci.yml", "compose.yaml"):
+        assert "type=gha" not in (ROOT / path).read_text(), path
+    assert not list(ROOT.glob("docker-bake*"))
