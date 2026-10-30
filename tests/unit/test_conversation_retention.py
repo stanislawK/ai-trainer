@@ -71,7 +71,10 @@ async def test_a_message_of_an_expired_conversation_is_not_found_for_a_reply() -
     asked = await chat.add(
         user_id, await chat.start(user_id), ChatRole.USER, "old question", FROZEN_NOW
     )
-    assert await find_message(user_id, asked.id, chat=chat, conversations=chat.conversations)
+    assert (
+        await find_message(user_id, asked.id, chat=chat, conversations=chat.conversations)
+        is not None
+    )
 
     chat.conversations.clock = _Later()
 

@@ -24,7 +24,7 @@ from ai_trainer.adapters.orm import (
 from ai_trainer.adapters.session_draft_repository import SqlAlchemySessionDraftRepository
 from ai_trainer.adapters.sessions_repository import SqlAlchemySessionsRepository
 from ai_trainer.adapters.users_repository import SqlAlchemyUsersRepository
-from ai_trainer.domain.chat import ChatRole
+from ai_trainer.domain.chat import ChatMessage, ChatRole, Conversation
 from ai_trainer.domain.llm_calls import LlmCallOutcome, NewLlmCall
 from ai_trainer.domain.sessions import NewSession
 from ai_trainer.domain.training import SessionDraft
@@ -185,9 +185,16 @@ async def test_no_user_owned_row_references_the_deleted_user_id(
         )
     )
     sent_at = datetime(2026, 10, 2, tzinfo=UTC)
-    for title in ("first", "second"):
-        gone = await conversations.create(admin.id, title, sent_at)
-        log = await chat.add(admin.id, gone.id, ChatRole.USER, "gone with the account", sent_at)
+
+    async def talk(title: str) -> tuple[Conversation, ChatMessage]:
+        conversation = await conversations.create(admin.id, title, sent_at)
+        message = await chat.add(
+            admin.id, conversation.id, ChatRole.USER, "gone with the account", sent_at
+        )
+        return conversation, message
+
+    await talk("first")
+    gone, log = await talk("second")
     # A row in each training-session table (ADR-0022): a saved session with its source, and a
     # pending draft with an open question in the last conversation.
     draft = await SqlAlchemySessionDraftRepository(db_session_factory).add(

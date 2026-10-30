@@ -83,6 +83,16 @@ extend-immutable-calls = ["fastapi.Form"]
 strict = true
 files = ["src", "tests", "scripts"]
 plugins = ["pydantic.mypy"]
+warn_unreachable = true
+enable_error_code = [
+    "ignore-without-code",
+    "redundant-expr",
+    "truthy-bool",
+    "possibly-undefined",
+    "unused-awaitable",
+    "deprecated",
+    "exhaustive-match",
+]
 
 [[tool.mypy.overrides]]
 # Authlib ships no py.typed marker and no stub package exists (ADR-0005).

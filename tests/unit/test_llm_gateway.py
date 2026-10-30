@@ -253,14 +253,18 @@ async def _scripted_stream(messages: list[ModelMessage], info: AgentInfo) -> Asy
         yield chunk
 
 
+_NO_CHUNKS: tuple[str, ...] = ()  # keeps the stubs below async generators that yield nothing
+
+
 async def _hanging_stream(messages: list[ModelMessage], info: AgentInfo) -> AsyncIterator[str]:
     await asyncio.sleep(10)
     yield "too late"
 
 
 async def _raising_stream(messages: list[ModelMessage], info: AgentInfo) -> AsyncIterator[str]:
+    for chunk in _NO_CHUNKS:
+        yield chunk
     raise RuntimeError("provider exploded")
-    yield "unreachable"
 
 
 async def _collect(
@@ -381,8 +385,8 @@ async def _fail_after_a_chunk(messages: list[ModelMessage], info: AgentInfo) -> 
 
 
 async def _empty_stream(messages: list[ModelMessage], info: AgentInfo) -> AsyncIterator[str]:
-    return
-    yield "unreachable"
+    for chunk in _NO_CHUNKS:
+        yield chunk
 
 
 def _stream(gateway: OpenRouterGateway, user_id: UUID) -> AsyncIterator[LlmStreamEvent]:

@@ -264,7 +264,7 @@ class Query:
     added: set[str] = field(default_factory=set)
     line_filters: list[str] = field(default_factory=list)
     json: bool = False
-    parsed: list[tuple[str, str, str]] = field(default_factory=list)
+    parsed: list[tuple[str, str, str | int | float]] = field(default_factory=list)
 
 
 def parse(expr: str) -> Query:
@@ -375,7 +375,7 @@ def check_loki_query(where: str, expr: str, *, one_outcome: bool) -> Query:
         numeric = [(label, op, v) for label, op, v in query.parsed if isinstance(v, int)]
         for label, _, _ in numeric:
             assert label in APP_LOG_FIELDS, f"{where} | json: no line carries {label!r}"
-        strings = [f for f in query.parsed if f not in numeric]
+        strings = [(label, op, v) for label, op, v in query.parsed if isinstance(v, str)]
         _check_matchers(strings, APP_LOG_FIELDS, f"{where} | json")
     jobs = {v for label, op, value in matchers if label == "job" for v in _values(op, value) or ()}
     assert not query.line_filters or jobs, f"{where}: a line filter on lines of no known job"
