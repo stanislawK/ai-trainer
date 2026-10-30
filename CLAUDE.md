@@ -64,6 +64,7 @@ Locked by the ADRs cited below; `docs/adr/README.md` carries each ADR's current 
 - A sport owns its activity tables (`gym_exercise_entries`, `gym_sets`, `athlete_bands`), written on confirm through the plugin's `ActivityStore`; drafts stay JSONB — ADR-0032 (Proposed)
 - Knowledge uploaded by admins at `/admin/knowledge` to a private R2 bucket behind `ObjectStoragePort`, ingested in-process; multilingual embeddings; hybrid `search_knowledge` with reciprocal rank fusion — ADR-0033 (Proposed)
 - Lean evals: per-change smoke sets from `evals/field/` transcripts, code-graded and run once; full runs on demand; safety always judged; content-free `feedback_events` — ADR-0034 (Proposed)
+- Parallel agent delivery: `model:`/`risk:` labels per ticket, a checklist plan critic (human plan gate only for `risk:high`), the acceptance gate for UI tickets only, draft PRs as the review gate, one worktree and database per ticket in its own VS Code window; the ADR-0001 gates apply until its rollout step 4 lands — ADR-0035 (Proposed)
 
 ## Commands (available once M0 lands)
 
