@@ -41,3 +41,4 @@ ADRs own the *how*: stack, architecture, testing and agent workflow. The current
 | 0035 | [Parallel agent delivery](0035-parallel-agent-delivery.md) | Accepted | 2026-10-30 |
 
 How to add an ADR: [docs/templates/README.md](../templates/README.md).
+
