@@ -108,7 +108,7 @@ warn_required_dynamic_aliases = true
 [tool.pytest.ini_options]
 # tests/e2e is deliberately excluded: it needs the running compose stack (ADR-0013) and is
 # run explicitly with `make e2e` / `uv run pytest tests/e2e`, never by a bare `pytest`.
-testpaths = ["tests/unit", "tests/integration", "tests/migrations"]
+testpaths = ["tests/unit", "tests/integration", "tests/migrations", "tests/ops"]
 pythonpath = ["."]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"

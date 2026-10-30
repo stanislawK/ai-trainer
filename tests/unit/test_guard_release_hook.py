@@ -191,7 +191,7 @@ def test_running_the_host_install_denied(command: str) -> None:
         "cd deploy && cd .. && ./install.sh",
         "cd deploy && bash -n ./install.sh",
         "cd deploy && /tmp/install.sh",
-        "uv run pytest tests/unit/test_deploy_script.py",
+        "uv run pytest tests/ops/test_deploy_script.py",
         "systemctl status ai-trainer-deploy.timer",
         "sudo systemctl restart docker",
         "git add deploy/deploy.sh deploy/systemd/ai-trainer-deploy.service",

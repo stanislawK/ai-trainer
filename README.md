@@ -79,6 +79,8 @@ Run `make` targets from the repo root; see the [Makefile](Makefile) for the comp
 | `make install` | `uv sync` — install dependencies locally |
 | `make css` | Compile the Tailwind CSS v4 + daisyUI 5 stylesheet (no Node) |
 | `make test` | Run the full test suite |
+| `make test-fast` | Fast inner loop: `tests/unit` + `tests/integration`, parallel, failed-first, stops at the first failure (about 20 s; needs `make up`) |
+| `make test-ops` | Ops-script tests in `tests/ops/` (`deploy/`, `scripts/`, `compose*.yaml`, Grafana JSON); run it when those changed. `make test` and CI run them too |
 | `make test-unit` / `make test-integration` | Run one test tier (integration needs `make up` first) |
 | `make e2e-install` | One-time Playwright Chromium browser download |
 | `make e2e` | Run the pytest-playwright specs in `tests/e2e/` (needs `make up` first) |
@@ -318,6 +320,7 @@ Integration tests need a real PostgreSQL with pgvector reachable at `DATABASE_UR
 ├── tests/
 │   ├── unit/                # domain + application, with fakes
 │   ├── integration/         # real PostgreSQL, adapters, routes, MCP
+│   ├── ops/                 # deploy/, scripts/, compose, Grafana JSON (not src/)
 │   └── e2e/                 # pytest-playwright against the running stack
 └── .claude/                 # agent rules and skills that automate the workflow above
 ```

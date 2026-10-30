@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.unit.test_backup_script import COUNT_SQL
+from tests.ops.test_backup_script import COUNT_SQL
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "deploy/restore-drill.sh"
