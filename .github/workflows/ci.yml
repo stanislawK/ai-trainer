@@ -200,6 +200,17 @@ jobs:
           docker compose logs
           exit 1
 
+      # The cache was measured slower and dropped (ADR-0013 "Caches", #358): compose builds this
+      # checkout. The running app's `src/` must still match it; app.css is built in the image.
+      - name: Check the app runs this commit's src/
+        run: |
+          digest='find src -type f ! -path "*/__pycache__/*" ! -name app.css -print0 | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum'
+          checkout=$(sh -c "$digest")
+          app=$(docker compose exec -T app sh -c "cd /app && $digest")
+          echo "checkout src/: $checkout"
+          echo "app src/:      $app"
+          test "$checkout" = "$app"
+
       - name: Run e2e specs (pytest-playwright)
         run: make e2e
 
