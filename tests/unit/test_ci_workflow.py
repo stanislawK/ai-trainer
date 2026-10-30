@@ -127,27 +127,12 @@ def test_the_test_and_ops_jobs_together_run_every_testpath_once(
     assert sorted(ran) == sorted(testpaths)
 
 
-# The e2e image build (#358, ADR-0013 "Caches"): Buildx builds the app image with Docker's GitHub
-# Actions cache, compose starts it without building, and a check proves the image holds the
-# commit's own `src/`.
-RELEASE_ACTIONS = ("docker/setup-buildx-action@", "docker/build-push-action@")
-SOURCE_CHECK = "Check the image holds this commit's src/"
-
-
-def _e2e_index(jobs: dict[str, dict[str, Any]], match: str) -> int:
-    [index] = [
-        i
-        for i, step in enumerate(jobs["e2e"]["steps"])
-        if step.get("uses", "").startswith(match) or step.get("name") == match
-    ]
-    return index
+# The e2e image build (#358, ADR-0013 "Caches"): the GitHub Actions cache was measured slower than
+# compose's own build and dropped, so compose builds the commit's checkout on every run.
 
 
 def _uses_gha_cache(jobs: dict[str, dict[str, Any]]) -> bool:
-    return any(
-        "type=gha" in str(step.get("with", {}).get("cache-from", ""))
-        for step in jobs["e2e"]["steps"]
-    )
+    return "type=gha" in yaml.safe_dump(jobs["e2e"]["steps"])
 
 
 def _caches_bullet() -> str:
@@ -156,53 +141,10 @@ def _caches_bullet() -> str:
     return bullet
 
 
-@pytest.mark.parametrize("action", RELEASE_ACTIONS)
-def test_e2e_uses_the_docker_actions_release_yml_pins(
-    jobs: dict[str, dict[str, Any]], action: str
-) -> None:
-    """No new third-party action: the same SHAs ADR-0023's release build already trusts."""
-    release = (ROOT / ".github/workflows/release.yml").read_text()
-    step = jobs["e2e"]["steps"][_e2e_index(jobs, action)]
-    assert step["uses"] in release
-
-
-def test_e2e_builds_the_app_image_with_the_gha_cache(jobs: dict[str, dict[str, Any]]) -> None:
-    build = jobs["e2e"]["steps"][_e2e_index(jobs, "docker/build-push-action@")]["with"]
-    assert build["context"] == "."
-    assert build["load"] is True
-    assert build["push"] is False
-    assert build["cache-from"] == "type=gha,scope=e2e"
-    assert build["cache-to"] == "type=gha,scope=e2e,mode=max"
-    assert _e2e_index(jobs, "docker/setup-buildx-action@") < _e2e_index(
-        jobs, "docker/build-push-action@"
-    )
-
-
-def test_the_built_tag_is_the_image_compose_runs(jobs: dict[str, dict[str, Any]]) -> None:
-    """Compose names a built service's image `<project>-<service>`; `--no-build` runs that tag."""
-    compose = yaml.safe_load((ROOT / "compose.yaml").read_text())
-    assert "image" not in compose["services"]["app"]
-    build = jobs["e2e"]["steps"][_e2e_index(jobs, "docker/build-push-action@")]["with"]
-    assert build["tags"] == f"{compose['name']}-app:latest"
-
-
-def test_e2e_starts_compose_without_building(jobs: dict[str, dict[str, Any]]) -> None:
+def test_e2e_builds_the_commits_checkout_in_compose(jobs: dict[str, dict[str, Any]]) -> None:
+    """`--build` builds the image from this checkout, so e2e always runs the commit's own code."""
     [up] = [s["run"] for s in jobs["e2e"]["steps"] if "docker compose up" in s.get("run", "")]
-    assert up == "docker compose up -d --no-build"
-    assert _e2e_index(jobs, "docker/build-push-action@") < _e2e_index(
-        jobs, "Start the compose stack"
-    )
-
-
-def test_e2e_checks_the_image_holds_the_commits_source(jobs: dict[str, dict[str, Any]]) -> None:
-    check = jobs["e2e"]["steps"][_e2e_index(jobs, SOURCE_CHECK)]["run"]
-    assert "ai-trainer-app:latest" in check
-    assert "find src" in check
-    assert (
-        _e2e_index(jobs, "docker/build-push-action@")
-        < _e2e_index(jobs, SOURCE_CHECK)
-        < _e2e_index(jobs, "Start the compose stack")
-    )
+    assert up == "docker compose up -d --build"
 
 
 def test_playwright_browsers_are_not_cached(jobs: dict[str, dict[str, Any]]) -> None:

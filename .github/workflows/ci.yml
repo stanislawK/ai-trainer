@@ -173,8 +173,7 @@ jobs:
         run: uv sync --locked
 
       # --with-deps also installs Ubuntu system packages and needs sudo (this runner has
-      # it); a dev machine's `make e2e-install` deliberately doesn't use this flag. The browsers
-      # aren't cached: Playwright advises against it, restoring takes as long as downloading.
+      # it); a dev machine's `make e2e-install` deliberately doesn't use this flag.
       - name: Install Playwright's Chromium
         run: uv run playwright install --with-deps chromium
 
@@ -188,36 +187,8 @@ jobs:
             sed -i "s#^${key}=.*#${key}=${!key}#" .env
           done
 
-      # The app image is built with Docker's GitHub Actions cache (ADR-0013 "Caches", #358), at
-      # the action SHAs release.yml pins. `type=gha` needs a Buildx builder, and `load` hands the
-      # image to the engine. Compose names it `<project>-<service>`, so `--no-build` below runs
-      # this tag and fails loudly, never rebuilds, if the two ever drift apart.
-      - name: Set up Buildx
-        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
-
-      - name: Build the app image
-        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
-        with:
-          context: .
-          load: true
-          push: false
-          tags: ai-trainer-app:latest
-          cache-from: type=gha,scope=e2e
-          cache-to: type=gha,scope=e2e,mode=max
-
-      # A cached layer must never hide the commit's own code from the specs: the digest of `src/`
-      # in the image has to equal the checkout's. app.css is built in the image, not checked in.
-      - name: Check the image holds this commit's src/
-        run: |
-          digest='find src -type f ! -path "*/__pycache__/*" ! -name app.css -print0 | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum'
-          checkout=$(sh -c "$digest")
-          image=$(docker run --rm --entrypoint sh ai-trainer-app:latest -c "cd /app && $digest")
-          echo "checkout src/: $checkout"
-          echo "image src/:    $image"
-          test "$checkout" = "$image"
-
       - name: Start the compose stack
-        run: docker compose up -d --no-build
+        run: docker compose up -d --build
 
       - name: Wait for the app to become healthy
         run: |
