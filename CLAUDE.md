@@ -25,7 +25,7 @@ Docs outrank chat. If a request contradicts an Accepted ADR or the Approved PRD,
   - the **review gate**: no commit, push or PR before Approve.
 - Every change goes on its own branch and reaches `main` only through a PR a human merges. Ticket branches are `<area>/<issue#>-<slug>`; doc-only work without an issue uses `docs/<slug>`. Never commit to, push to or merge into `main` (ADR-0001).
 - After opening a PR, the agent suggests the best next ticket without being asked (ready, unblocking, smallest); it never starts it.
-- Prompt, model or router changes go through `/tune-prompt <template-id>`.
+- Prompt, model, router or threshold changes go through `/tune-prompt <template-id>`: update the smoke set, pass it, show the run at the review gate (ADR-0034, Proposed).
 - Only a human sets a PRD to Approved or an ADR to Accepted.
 
 ## Stack
@@ -60,6 +60,10 @@ Locked by the ADRs cited below; `docs/adr/README.md` carries each ADR's current 
 - Athlete profile (`athlete_profiles`, `sport_profiles`) built by AI onboarding: one prompt template per step read in the background, durable `onboarding_answers`, a summary that catches up and is the only write — ADR-0028
 - In-process request and model-call limits: sign-in routes by `CF-Connecting-IP`, other requests by session cookie, text and decision calls sharing one per-user budget; no Redis — ADR-0029
 - Production telemetry through one pinned Grafana Alloy container to Grafana Cloud: app OTLP, container and journal logs, host, Caddy and Postgres metrics; JSON logs with trace and request IDs; dashboards and alerts as JSON in `deploy/grafana/`, imported by the owner — ADR-0030
+- Exercise catalogue (`exercises`, `exercise_texts`, `exercise_aliases`) imported from a pinned dataset commit; gym names resolved history first, then catalogue shortlist plus Jev, then the exercise card; media linked per catalogue exercise — ADR-0031 (Proposed)
+- A sport owns its activity tables (`gym_exercise_entries`, `gym_sets`, `athlete_bands`), written on confirm through the plugin's `ActivityStore`; drafts stay JSONB — ADR-0032 (Proposed)
+- Knowledge uploaded by admins at `/admin/knowledge` to a private R2 bucket behind `ObjectStoragePort`, ingested in-process; multilingual embeddings; hybrid `search_knowledge` with reciprocal rank fusion — ADR-0033 (Proposed)
+- Lean evals: per-change smoke sets from `evals/field/` transcripts, code-graded and run once; full runs on demand; safety always judged; content-free `feedback_events` — ADR-0034 (Proposed)
 
 ## Commands (available once M0 lands)
 
@@ -87,7 +91,8 @@ uv run ai-trainer llm-debug-report [--since <ISO time>]   # summarize LLM_DEBUG_
 make latency-scenario            # replay the latency scenario on `make start`, p50/p95 per log turn (ADR-0026; costs money)
 uv run playwright install chromium   # one-time browser download for e2e
 uv run pytest tests/e2e          # e2e specs (needs `docker compose up`; excluded from `uv run pytest`)
-uv run ai-trainer-evals run <template-id> [--version N] [--promote]   # evals at the app's version; only --promote writes the baseline (costs money — run on purpose)
+uv run ai-trainer-evals run <template-id> [--version N] [--promote]   # full eval run at the app's version; only --promote writes the baseline (costs money — run on purpose)
+uv run ai-trainer-evals smoke <template-id>|--all   # once ADR-0034 lands: the cheap per-change smoke set (still real models, costs cents)
 ```
 
 ## Non-negotiables
@@ -106,11 +111,11 @@ uv run ai-trainer-evals run <template-id> [--version N] [--promote]   # evals at
 - Look up library APIs with context7 (`.claude/rules/context7.md`) before using them. Several libraries here are newer than most training data: htmx 4, Pydantic AI v2, FastMCP 3.
 - Facts about OpenRouter models, upstreams, prices and live latency come from the OpenRouter MCP server (`.claude/rules/openrouter-mcp.md`), never from memory. Its paid tools run only when the owner asks, and never with athlete data.
 - Only stable/GA OpenRouter model IDs are used outside `/tune-prompt` experiments — no preview or beta models in default `Settings`.
-- Jev only picks, wherever that helps: it classifies, routes, gates, scores or fills a closed-set draft field the athlete confirms. It never writes text, open values or arithmetic. It runs through the decision gateway with a pinned version, question sets as files, thresholds from evals, and a fallback. Its state never carries user identity.
+- Jev only picks, wherever that helps: it classifies, routes, gates, scores or fills a closed-set draft field the athlete confirms. It never writes text, open values or arithmetic. It runs through the decision gateway with a pinned version, question sets as files, thresholds from evals and feedback (ADR-0034), and a fallback. Its state never carries user identity.
 - UI is built from its Claude Design mock with `/implement-design`; custom CSS lives only in the daisyUI theme and the glass utilities (ADR-0019).
 - Production data is never deleted by a change: migrations are expand/contract and forward-only, and a contract step is its own owner-approved ticket (ADR-0024).
 - Only the owner releases: agents never create or push tags, approve a deployment, call deployment APIs, or connect to the production host (ADR-0023).
 
 ## Status
 
-M0 is complete: #2–#17, the design foundation #36–#44 with its fixes #58–#59, and the `make start` dev loop #62–#64 are merged. PRD 0009 (v1.0: the install card in the chat and Add to home screen in Settings, F22, M1h) is Approved and supersedes PRD 0008 (v0.9: Europe first, metric units and European grades as the bar, G15), which superseded PRD 0007 (v0.8: AI onboarding and the onboarding part of the athlete profile, M1o), which superseded PRD 0006 (v0.7: gyms and the location check, never approved on its own) and PRD 0005 (v0.6: the logging response-time bound G14), which superseded PRD 0004 (v0.5: conversations, retention, a hosted POC), which superseded PRD 0003 (v0.4, sport inference and the sport glyph on replies), PRD 0002 and PRD 0001. Accepted: 0001–0009, 0012–0016, 0018–0028, 0030. 0010, 0011 and 0017 stay Proposed until their milestones. The Claude Design design system and screens exist ([docs/design/README.md](docs/design/README.md)). The M1 skeleton decisions are recorded in ADR-0005, ADR-0006 and ADR-0008. Next: M1a Conversations (from #146), M1 Log it, M1o Onboard me, M1h Home screen (after M1o) and M1z Ship it. The first production deploy comes after M1a, M1 and M1o; from then on, production data is never deleted (ADR-0024).
+M0 is complete: #2–#17, the design foundation #36–#44 with its fixes #58–#59, and the `make start` dev loop #62–#64 are merged. PRD 0009 (v1.0: the install card in the chat and Add to home screen in Settings, F22, M1h) is Approved and supersedes PRD 0008 (v0.9: Europe first, metric units and European grades as the bar, G15), which superseded PRD 0007 (v0.8: AI onboarding and the onboarding part of the athlete profile, M1o), which superseded PRD 0006 (v0.7: gyms and the location check, never approved on its own) and PRD 0005 (v0.6: the logging response-time bound G14), which superseded PRD 0004 (v0.5: conversations, retention, a hosted POC), which superseded PRD 0003 (v0.4, sport inference and the sport glyph on replies), PRD 0002 and PRD 0001. Accepted: 0001–0009, 0012–0016, 0018–0028, 0030. 0010, 0011 and 0017 stay Proposed until their milestones. The Claude Design design system and screens exist ([docs/design/README.md](docs/design/README.md)). The M1 skeleton decisions are recorded in ADR-0005, ADR-0006 and ADR-0008. Next: M1a Conversations (from #146), M1 Log it, M1o Onboard me, M1h Home screen (after M1o), then M1e Lean evals and MCP and M1g Gym exercises, and M1z Ship it. PRD 0010 (v1.1: gym exercises B37–B39, F23, F24; a sport's own tables, G4; lean evals, G6; admin knowledge upload, B7) is a Draft with ADR-0031–0034 Proposed; real chats are kept in `evals/field/`. The first production deploy comes after M1a, M1, M1o and M1g; from then on, production data is never deleted (ADR-0024).

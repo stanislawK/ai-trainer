@@ -34,5 +34,9 @@ ADRs own the *how*: stack, architecture, testing and agent workflow. The current
 | 0028 | [Athlete profile and AI onboarding](0028-athlete-profile-and-ai-onboarding.md) | Accepted | 2026-10-24 |
 | 0029 | [Request and model-call limits](0029-request-and-model-call-limits.md) | Proposed | 2026-10-25 |
 | 0030 | [Production observability on Grafana Cloud](0030-production-observability-on-grafana-cloud.md) | Accepted | 2026-10-25 |
+| 0031 | [Exercise catalogue, name resolution and media links](0031-exercise-catalogue-and-name-resolution.md) | Proposed | 2026-10-30 |
+| 0032 | [Per-sport activity tables](0032-per-sport-activity-tables.md) | Proposed | 2026-10-30 |
+| 0033 | [Knowledge ingestion and admin upload](0033-knowledge-ingestion-and-admin-upload.md) | Proposed | 2026-10-30 |
+| 0034 | [Lean evaluation](0034-lean-evaluation.md) | Proposed | 2026-10-30 |
 
 How to add an ADR: [docs/templates/README.md](../templates/README.md).
