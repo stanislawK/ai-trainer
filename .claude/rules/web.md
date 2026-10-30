@@ -16,7 +16,7 @@ paths:
   - Never glass on glass: `lg` sits on `mat-content` or the wallpaper only, never on a `glass-*` surface or inside another `lg`; the few surfaces that stay glass (dock, composer) use fills for what sits on them.
   - See what each class looks like in the screens project's [Conversation list v2](https://claude.ai/design/p/a68b0219-f02b-4a26-8f38-99410521ad2d?file=Conversation+list+v2.dc.html) sampler.
   - Don't add new `btn-primary` / `btn-ghost` controls or `glass-regular` cards; existing v1 elements change only in a roll-out ticket.
-- Build from the Claude Design mock named in the ticket, using `/implement-design`, and run its parity check; a human approves its screenshots at the acceptance gate, before the review gate (ADR-0001, ADR-0019).
+- Build from the Claude Design mock named in the ticket, using `/implement-design`, and run its parity check; a human approves its screenshots at the acceptance gate, before the draft PR opens (ADR-0001, ADR-0019, ADR-0035).
 - Mobile first: design at 390 px wide first, with no horizontal scroll, tap targets of at least 44 px, and safe-area insets. Honor `prefers-reduced-motion`, `prefers-reduced-transparency` and `prefers-contrast`.
 - `trainer-dark` is the default theme. The theme is applied in `<head>` before first paint from `localStorage["theme"]`; never store it server-side.
 - Icons come from the `icon()` macro (vendored Lucide), never inline copies. A sport's icon comes from `SportRegistry`, never a hard-coded name; an assistant reply shows the glyph of its one sport, or the app mark for several sports or none (F15). Client JS is small hand-written files in `static/js/`.

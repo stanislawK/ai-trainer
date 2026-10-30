@@ -1,6 +1,6 @@
 ---
 name: tune-prompt
-description: Change a prompt template, a Jev decision set or its thresholds, a model ID, provider routing or the router — update the smoke set from real chats, make the change, pass the smoke set, and show the run at the review gate. Full eval runs only on demand.
+description: Change a prompt template, a Jev decision set or its thresholds, a model ID, provider routing or the router — update the smoke set from real chats, make the change, pass the smoke set, and show the run in the draft PR. Full eval runs only on demand.
 argument-hint: "[template-id]"
 disable-model-invocation: true
 ---
@@ -28,7 +28,7 @@ The same loop covers a **Jev decision set** (`src/ai_trainer/llm/decisions/<id>/
 3. **Run.** `uv run ai-trainer-evals smoke <template-id>` runs the app's version once per case, code-graded with no judge.
    - Every case passes, or the case is listed under `known_gaps` with a ticket number.
    - When the change touches routing, replies or safety, also run the safety set (`smoke safety`). It runs with its judge and must pass.
-4. **Show.** Paste the run's summary into the ticket's acceptance script and PR. The review gate is the approval; there is no separate promote gate.
+4. **Show.** Paste the run's summary into the draft PR's Acceptance section. The owner's review of the draft PR is the approval (ADR-0035); there is no separate promote gate.
 
 ## Full run (on demand only)
 
@@ -44,4 +44,4 @@ Steps:
 
 The judge model is set explicitly with `set_default_judge_model(OpenRouterModel(settings.eval_judge_model))` and must differ from the model under test.
 
-Until the `smoke` command exists (M1e), a change runs `uv run ai-trainer-evals run <template-id>` on the existing dataset once and shows the result at the review gate, without a promote.
+Until the `smoke` command exists (M1e), a change runs `uv run ai-trainer-evals run <template-id>` on the existing dataset once and shows the result in the draft PR, without a promote.

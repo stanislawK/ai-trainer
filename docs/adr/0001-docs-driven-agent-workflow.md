@@ -84,3 +84,4 @@ Human gates use Claude Code's `AskUserQuestion` with exactly those options.
   - **Where it's carried.** `apply-ticket`, `create-tickets`, `implement-design`, `docs/templates/ticket.md`, `.claude/rules/web.md` and `CLAUDE.md` carry this.
 - Moving to Linear later means a new ADR superseding the tracker section, plus skill changes.
 - Amended 2026-10-11 at the project owner's direction: after opening the PR the agent suggests the best next ticket unasked, from the open `status:todo` issues and their blockers.
+- Superseded in part by [ADR-0035](0035-parallel-agent-delivery.md), 2026-10-30: invariants 4 and 10 and the three-gate loop. The plan gate becomes a critic check with a human gate only when risky, the acceptance gate applies to UI tickets only, and the review gate is the owner's review of a draft PR.

@@ -22,7 +22,7 @@ Runs inside a web ticket (`/apply-ticket`), between tests-first and the acceptan
    - Add the htmx 4 attributes (`.claude/rules/web.md`).
    - Drop editor-only attributes: `data-dc-*`, `data-screen-label`, `data-comment-anchor`, `{{ }}` DC holes, `sc-for` and `sc-if`. Keep the classes.
    - Replace inline SVGs with the `icon()` macro.
-4. **Build.** Confirm the human's `make start` stack is up (`make health`); if not, ask them to start it. It recompiles CSS and reloads templates live, so there is no `make css` or rebuild step. Seed a session for gated pages with `uv run python scripts/dev_session.py`.
+4. **Build.** Confirm the human's `make start` stack is up and serving this ticket's worktree (`make health`); if not, ask them to stop any other `make start` and run it in this worktree (ADR-0035). It recompiles CSS and reloads templates live, so there is no `make css` or rebuild step. Seed a session for gated pages with `uv run python scripts/dev_session.py`.
 5. **Parity check with Playwright MCP.** For each viewport (390×844, then 1440×900) and each theme (`trainer-dark`, `trainer-light`):
    - **Mock.** Get a fresh `serve_url` from `mcp__claude-design__render_preview` (it expires quickly, and must never appear in chat, commits or files). Then:
      - `mcp__playwright__browser_navigate` to it
@@ -37,7 +37,7 @@ Runs inside a web ticket (`/apply-ticket`), between tests-first and the acceptan
    - **Gate.** Check `browser_console_messages` and `browser_network_requests`: no errors, no 404s, and no request leaves localhost.
    - The screenshots are the ground truth, and the probes explain any difference. Fix what differs and repeat. After three rounds that don't converge on the same element, measure the element and its parent, state the root cause in one sentence, and make one decisive edit.
 6. **Hand off to the acceptance gate (parity).** This check is never self-certified (ADR-0019). Once every viewport/theme combination looks right, don't ask on your own. `/apply-ticket`'s acceptance gate lists every screenshot as a clickable link (mock | app per viewport and theme) with the probe table, and asks "Screenshots match the mock" (Approve / Request changes) alongside the click-through. Parity isn't settled until that answer is Approve; on Request changes, fix the difference, re-shoot, and run the gate again. Never delete the screenshots; they stay in `.acceptance/<n>/parity/` for the human to revisit.
-7. **Evidence.** For the review gate, reference the same screenshots (mock | app) per viewport and theme, the probe table, and any intended differences with their reasons (e.g. real data is longer than the sample), plus a note that the parity question passed at the acceptance gate. Don't commit the screenshots.
+7. **Evidence.** For the draft PR's body, reference the same screenshots (mock | app) per viewport and theme, the probe table, and any intended differences with their reasons (e.g. real data is longer than the sample), plus a note that the parity question passed at the acceptance gate. Don't commit the screenshots.
 8. **Behavior specs.** `tests/e2e/` is expensive and reserved for critical flows (ADR-0013) — only add or extend a pytest-playwright spec here when this screen's flow is one of those; otherwise the parity check above is the verification, and no new spec is needed.
 9. **Map.** Fill in the screen's row in `docs/design/README.md` (file, template, ticket) in the same change.
 
