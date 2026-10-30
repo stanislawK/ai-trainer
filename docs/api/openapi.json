@@ -94,7 +94,7 @@
   "paths": {
     "/": {
       "get": {
-        "description": "The conversation the athlete was last active in, or an empty chat (ADR-0021).",
+        "description": "The conversation the athlete was last active in today, or an empty chat (ADR-0021).",
         "operationId": "index__get",
         "responses": {
           "200": {
