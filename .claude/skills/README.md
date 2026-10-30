@@ -6,7 +6,7 @@ Skills are step-by-step checklists for complex, recurring tasks. Invoke with `/s
 |---|---|---|---|
 | [update-docs](update-docs/SKILL.md) | Add or revise PRDs and ADRs | Writing product or architecture docs; need to supersede old docs | `/update-docs [prd\|adr] [title]` |
 | [create-tickets](create-tickets/SKILL.md) | Scaffold GitHub issues from a template | Planning work for a milestone (e.g., M0, M1) | `/create-tickets <scope>` |
-| [apply-ticket](apply-ticket/SKILL.md) | Implement a single GitHub issue end-to-end | Delivering a ticket; includes plan, acceptance and review gates, and ends by suggesting the next ticket | `/apply-ticket <issue#>` |
+| [apply-ticket](apply-ticket/SKILL.md) | Implement a single GitHub issue end-to-end | Delivering a ticket in its own worktree; a plan critic (human plan gate when risky), the acceptance gate for UI tickets, automated review, a draft PR, then the parallel-safe next tickets; `--review` handles PR comments | `/apply-ticket <issue#> [--review]` |
 | [tune-prompt](tune-prompt/SKILL.md) | Smoke-checked change to a prompt, decision set, threshold, model or router (ADR-0034) | Changing LLM behavior; smoke set from real chats, full runs only on demand | `/tune-prompt <template-id>` |
 | [implement-design](implement-design/SKILL.md) | Turn a Claude Design mock into daisyUI/Jinja and prove parity with Playwright | Any web ticket that builds or changes a designed screen (ADR-0019) | `/implement-design <screen>` |
 | [add-endpoint](add-endpoint/SKILL.md) | Checklist for adding or changing a web route | Adding a page, form, API endpoint, or SSE stream | `/add-endpoint` |
@@ -24,13 +24,19 @@ Skills are step-by-step checklists for complex, recurring tasks. Invoke with `/s
 
 ## Execution gates
 
-- **Plan gate:** Use `EnterPlanMode` (via `/plan` or skill instructions) to design before coding. No product code without Approve.
-- **Acceptance gate:** Inside `/apply-ticket`, after verify. A human tries the change on the running `make start` stack, following the agent's step-by-step script, and approves any screenshots under `.acceptance/<issue#>/`. Pass / Fail / Blocked; never self-certified (ADR-0001).
-- **Review gate:** Run `/code-review` (or `/code-review ultra` for deeper multi-agent review) before merging. No commit without Approve.
+How `/apply-ticket` gates a ticket (ADR-0001 as amended by ADR-0035):
 
-## Multi-agent patterns
+- **Plan.** The `plan-critic` agent checks the plan against a closed checklist. A human plan gate (`AskUserQuestion`) is added for `risk:high`, a second failed check, a doc conflict, a migration contract step or an L size. The plan is always posted on the issue. No product code before it passes.
+- **Acceptance.** For UI tickets only: a human tries the change on `make start`, served from the ticket's worktree, following the agent's step-by-step script. They also approve any screenshots under `.acceptance/<issue#>/`. The answer is Pass / Fail / Blocked; the agent never self-certifies (ADR-0001). Other tickets put their commands and output in the PR's Acceptance section.
+- **Review.** First the `ac-skeptic` agent and `/code-review medium` run locally (never `--comment`). Then the agent opens a **draft** PR. The owner reviews it on GitHub, marks it ready and merges it. `/apply-ticket <n> --review` answers the review comments.
 
-Several skills above use named orchestration patterns from `kb/12-workflows/README.md` — Fan Out & Synthesize (`add-sport`), Adversarial Verification (`apply-ticket`). Reuse these terms rather than reinventing a shape when editing a skill.
+## Agents
+
+`.claude/agents/` holds the read-only subagents the delivery loop spawns:
+- `plan-critic`: a closed-checklist gate on the plan;
+- `ac-skeptic`: tries to disprove each AC from the diff alone.
+
+Two orchestration shapes recur in the skills: Fan Out & Synthesize (`add-sport`) and Adversarial Verification (`apply-ticket`'s skeptic). Reuse those terms rather than inventing a new shape when editing a skill.
 
 ## Adding a new skill
 

@@ -19,13 +19,14 @@ Docs outrank chat. If a request contradicts an Accepted ADR or the Approved PRD,
 ## How work happens
 
 - Tickets are GitHub Issues in `stanislawK/ai-trainer`. Create them with `/create-tickets <scope>`; implement one with `/apply-ticket <issue#>`.
-- Three human gates:
-  - the **plan gate**: no product code before Approve;
-  - the **acceptance gate**: a human tries the change on the running `make start` stack, following the agent's step-by-step script and opening any screenshots under `.acceptance/<issue#>/`, before the diff is reviewed;
-  - the **review gate**: no commit, push or PR before Approve.
+- One ticket per worktree (ADR-0035): `make worktree issue=<n>` creates `../ai-trainer-<n>` with its own database and opens it in a new VS Code window. Pick the model from the ticket's `model:` label there, then run `/apply-ticket <n>`. Tickets run in parallel, one window each; one ticket is never split across agents.
+- Gates (ADR-0001 as amended by ADR-0035):
+  - **Plan.** The plan is posted on the issue and checked by the `plan-critic` agent. A human plan gate is added for `risk:high`, a doc conflict, a migration contract step, or a second failed check. No product code before it passes.
+  - **Acceptance.** UI tickets only: a human tries the change on `make start` served from the ticket's worktree, following the agent's step-by-step script and opening any screenshots under `.acceptance/<issue#>/`, before the PR opens. Other tickets list their commands and output in the PR.
+  - **Review.** The `ac-skeptic` agent and a local `/code-review medium`, then a **draft** PR. The owner reviews, marks it ready and merges. `/apply-ticket <n> --review` answers review comments. After the first push the branch is updated by merge, never rebase or force push.
 - Every change goes on its own branch and reaches `main` only through a PR a human merges. Ticket branches are `<area>/<issue#>-<slug>`; doc-only work without an issue uses `docs/<slug>`. Never commit to, push to or merge into `main` (ADR-0001).
-- After opening a PR, the agent suggests the best next ticket without being asked (ready, unblocking, smallest); it never starts it.
-- Prompt, model, router or threshold changes go through `/tune-prompt <template-id>`: update the smoke set, pass it, show the run at the review gate (ADR-0034, Proposed).
+- After opening a PR, the agent suggests every ready ticket that can run in parallel with the work in flight, with its model, without being asked; it never starts one.
+- Prompt, model, router or threshold changes go through `/tune-prompt <template-id>`: update the smoke set, pass it, show the run in the draft PR (ADR-0034, Proposed).
 - Only a human sets a PRD to Approved or an ADR to Accepted.
 
 ## Stack
@@ -64,7 +65,7 @@ Locked by the ADRs cited below; `docs/adr/README.md` carries each ADR's current 
 - A sport owns its activity tables (`gym_exercise_entries`, `gym_sets`, `athlete_bands`), written on confirm through the plugin's `ActivityStore`; drafts stay JSONB — ADR-0032 (Proposed)
 - Knowledge uploaded by admins at `/admin/knowledge` to a private R2 bucket behind `ObjectStoragePort`, ingested in-process; multilingual embeddings; hybrid `search_knowledge` with reciprocal rank fusion — ADR-0033 (Proposed)
 - Lean evals: per-change smoke sets from `evals/field/` transcripts, code-graded and run once; full runs on demand; safety always judged; content-free `feedback_events` — ADR-0034 (Proposed)
-- Parallel agent delivery: `model:`/`risk:` labels per ticket, a checklist plan critic (human plan gate only for `risk:high`), the acceptance gate for UI tickets only, draft PRs as the review gate, one worktree and database per ticket in its own VS Code window; the ADR-0001 gates apply until its rollout step 4 lands — ADR-0035
+- Parallel agent delivery: `model:`/`risk:` labels per ticket, a checklist plan critic (human plan gate only for `risk:high`), the acceptance gate for UI tickets only, draft PRs as the review gate, one worktree and database per ticket in its own VS Code window — ADR-0035
 
 ## Commands (available once M0 lands)
 

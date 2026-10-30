@@ -12,6 +12,6 @@ This project is document-driven: docs are written and reviewed before code, and 
 
 ## Flow
 
-PRD (what) → ADR (how) → ticket (`/create-tickets`) → delivery loop (`/apply-ticket <issue#>`) with a plan gate, an acceptance gate and a review gate.
+PRD (what) → ADR (how) → ticket (`/create-tickets`) → delivery loop (`/apply-ticket <issue#>`) in its own worktree, with a checked plan, an acceptance gate for UI changes and a draft PR the owner reviews (ADR-0035).
 
 Decisions never live only in chat. If something is undecided or contradicts a doc, change the doc first (`/update-docs`).

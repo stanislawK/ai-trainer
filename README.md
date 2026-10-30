@@ -346,4 +346,4 @@ Integration tests need a real PostgreSQL with pgvector reachable at `DATABASE_UR
 
 ## How work happens
 
-Tickets are GitHub Issues, implemented one at a time through a plan gate, a hands-on acceptance gate on the `make start` stack and a review gate, on their own branch, merged to `main` only via a human-reviewed PR. See [CLAUDE.md](CLAUDE.md) for the full loop.
+Tickets are GitHub Issues, implemented in parallel, one worktree each, through a checked plan, a hands-on acceptance gate on the `make start` stack for UI changes, and a draft PR that a human reviews and merges into `main` (ADR-0035). See [CLAUDE.md](CLAUDE.md) for the full loop.
