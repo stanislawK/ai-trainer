@@ -135,14 +135,33 @@ include_external_packages = true
 
 [[tool.importlinter.contracts]]
 # ADR-0003 invariants 1-2: domain never imports up; application never imports
-# a concrete adapter. Siblings in the outer layer may import each other freely -
-# nothing in ADR-0003 forbids that.
+# a concrete adapter. The outer packages are independent siblings here; the
+# next contract keeps them off adapters.
 name = "Hexagonal layers (ADR-0003)"
 type = "layers"
 layers = [
     "ai_trainer.adapters : ai_trainer.llm : ai_trainer.mcp : ai_trainer.knowledge : ai_trainer.web",
     "ai_trainer.application",
     "ai_trainer.domain",
+]
+
+[[tool.importlinter.contracts]]
+# ADR-0003 invariant 3: concrete classes are created only in the composition
+# root (main.py, and cli.py as the other entry point).
+name = "Outer layers do not import concrete adapters (ADR-0003)"
+type = "forbidden"
+source_modules = [
+    "ai_trainer.web",
+    "ai_trainer.llm",
+    "ai_trainer.mcp",
+    "ai_trainer.knowledge",
+]
+forbidden_modules = ["ai_trainer.adapters"]
+# Allowed by name: both only bind the request and user IDs into the log record's
+# context variables - a stateless logging helper, not a port-worthy adapter.
+ignore_imports = [
+    "ai_trainer.web.active_user_gate -> ai_trainer.adapters.log_records",
+    "ai_trainer.web.request_log -> ai_trainer.adapters.log_records",
 ]
 
 [[tool.importlinter.contracts]]
