@@ -2,6 +2,7 @@
 ADR-0013 "Parallel, path-aware CI"): docs skip everything, `ops` and `e2e` run on their lists, and
 a path no rule names runs every job."""
 
+import re
 import subprocess
 from pathlib import Path
 
@@ -211,3 +212,76 @@ def test_rename_out_of_src_into_docs_still_runs(repo: Path) -> None:
 
     assert sorted(paths) == ["docs/app.py", "src/app.py"]
     assert cc.flags(paths)["e2e"]
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        # tests/ops imports these and reads cli.py and .env.example (#357 code review).
+        "src/ai_trainer/settings.py",
+        "src/ai_trainer/adapters/metrics.py",
+        "src/ai_trainer/adapters/log_records.py",
+        "src/ai_trainer/domain/llm_calls.py",
+        "src/ai_trainer/cli.py",
+        ".env.example",
+    ],
+)
+def test_src_files_the_ops_tests_read_run_ops(path: str) -> None:
+    assert cc.flags([path])["ops"]
+
+
+@pytest.mark.parametrize(
+    "path", ["scripts/build_css.sh", "scripts/css_versions.sh", "scripts/css_tools.sh"]
+)
+def test_css_scripts_the_image_builds_with_run_e2e(path: str) -> None:
+    assert cc.flags([path])["e2e"]
+
+
+ROOT = Path(__file__).resolve().parents[2]
+_IMPORT = re.compile(r"^\s*from ai_trainer((?:\.\w+)+) import", re.MULTILINE)
+_ROOT_READ = re.compile(r"ROOT / \"([^\"]+)\"")
+_SRC_LITERAL = re.compile(r"\"(src/[^\"]+)\"")
+
+
+def _covered(path: str, patterns: tuple[str, ...]) -> bool:
+    """A file, or a directory any of whose files the patterns match."""
+    return cc._matches(path, patterns) or cc._matches(f"{path}/x", patterns)
+
+
+def _ops_test_dependencies() -> set[str]:
+    found: set[str] = set()
+    for module in (ROOT / "tests/ops").glob("*.py"):
+        if module.name == "test_ci_changes.py":  # names paths as test data, not as reads
+            continue
+        text = module.read_text()
+        for dotted in _IMPORT.findall(text):
+            base = "src/ai_trainer" + dotted.replace(".", "/")
+            found.add(f"{base}.py" if (ROOT / f"{base}.py").exists() else base)
+        found.update(_ROOT_READ.findall(text))
+        found.update(_SRC_LITERAL.findall(text))
+    return found
+
+
+def test_every_file_the_ops_tests_read_or_import_runs_ops() -> None:
+    """A new `from ai_trainer…` import or `ROOT / "…"` read in tests/ops fails here until `_OPS`
+    names it, so a pull request touching it can't skip the tests that check it."""
+    dependencies = _ops_test_dependencies()
+    assert "src/ai_trainer/cli.py" in dependencies
+    assert [path for path in sorted(dependencies) if not _covered(path, cc._OPS)] == []
+
+
+def _dockerfile_copy_sources() -> set[str]:
+    sources: set[str] = set()
+    for line in (ROOT / "Dockerfile").read_text().splitlines():
+        words = line.split()
+        if not words or words[0] != "COPY" or any(w.startswith("--from") for w in words):
+            continue
+        sources.update(w for w in words[1:-1] if not w.startswith("--") and w != ".")
+    return sources
+
+
+def test_every_file_the_dockerfile_copies_runs_e2e() -> None:
+    """The image the e2e job builds starts from these files, so changing one runs `e2e`."""
+    sources = _dockerfile_copy_sources()
+    assert "scripts/build_css.sh" in sources
+    assert [path for path in sorted(sources) if not _covered(path, cc._E2E)] == []

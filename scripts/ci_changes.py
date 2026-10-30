@@ -34,6 +34,13 @@ _OPS = (
     "pyproject.toml",
     "uv.lock",
     ".github/workflows/**",
+    # Read or imported by tests in tests/ops; the guard in test_ci_changes.py keeps this current.
+    ".env.example",
+    "src/ai_trainer/cli.py",
+    "src/ai_trainer/settings.py",
+    "src/ai_trainer/adapters/log_records.py",
+    "src/ai_trainer/adapters/metrics.py",
+    "src/ai_trainer/domain/llm_calls.py",
 )
 _E2E = (
     "src/**",
@@ -47,11 +54,14 @@ _E2E = (
     "pyproject.toml",
     "uv.lock",
     ".github/workflows/**",
+    # The image's CSS stage copies and runs these; the guard in test_ci_changes.py keeps the
+    # Dockerfile's COPY sources covered.
+    "scripts/build_css.sh",
+    "scripts/css_versions.sh",
+    "scripts/css_tools.sh",
 )
-# Known to need only `static` and `test`, beyond what the `ops` and `e2e` lists name.
+# Known to need only `static` and `test`. A path the `ops` or `e2e` list names is known too.
 _STATIC_TEST_ONLY = (
-    "src/**",
-    "migrations/**",
     "tests/**",
     "evals/**",
     ".claude/hooks/**",
