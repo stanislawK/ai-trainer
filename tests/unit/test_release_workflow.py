@@ -152,9 +152,10 @@ def test_dockerignore_keeps_secrets_and_local_state_out_of_the_build_context(
     assert pattern in lines
 
 
-def test_ci_runs_on_branch_pushes_only_so_a_tag_starts_nothing_but_a_release() -> None:
+def test_ci_runs_on_main_pushes_only_so_a_tag_starts_nothing_but_a_release() -> None:
+    """A pull request runs CI once, on `pull_request`, and `main` again after the merge (#356)."""
     ci: dict[str | bool, Any] = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())
-    assert ci[True]["push"] == {"branches": ["**"]}
+    assert ci[True]["push"] == {"branches": ["main"]}
 
 
 def test_release_waits_for_the_build_and_the_production_environment(

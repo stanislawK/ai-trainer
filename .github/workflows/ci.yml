@@ -1,11 +1,11 @@
 name: CI
 
 on:
-  # Branches only: a tag starts nothing but release.yml, and a release tag points at a
-  # commit CI already tested on main (#219).
+  # `main` only: a pull request runs once, on `pull_request`, not twice (#356). A tag starts
+  # nothing but release.yml, and a release tag points at a commit CI already tested on main (#219).
   push:
     branches:
-      - "**"
+      - main
   pull_request:
 
 concurrency:
@@ -37,26 +37,12 @@ env:
   # trusted-host check admits only for this value.
   PUBLIC_BASE_URL: http://localhost:8000
 
+
+# The check jobs start together, each on its own runner with its own database, and the `ci` job
+# at the end is the one check `main`'s ruleset requires (ADR-0013, "Parallel, path-aware CI").
 jobs:
-  ci:
+  static:
     runs-on: ubuntu-latest
-    services:
-      # Same image and credentials as compose.yaml (ADR-0004); integration
-      # tests read DATABASE_URL from the environment exactly like locally.
-      db:
-        image: pgvector/pgvector:pg18-trixie
-        env:
-          POSTGRES_USER: ai_trainer
-          POSTGRES_PASSWORD: ai_trainer
-          POSTGRES_DB: ai_trainer
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U ai_trainer -d ai_trainer"
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 5
-          --shm-size 256mb
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -88,14 +74,6 @@ jobs:
       - name: Import boundaries (import-linter)
         run: uv run lint-imports
 
-      # The production host's user data (#222), checked by the cloud-init Debian 13 ships.
-      - name: Validate cloud-init (cloud-init schema)
-        run: make cloud-init-check
-
-      # The Alloy relay's config (#272), formatted and validated by the image compose runs.
-      - name: Validate Alloy config (alloy fmt + validate)
-        run: make alloy-check
-
       - name: OpenAPI snapshot drift check
         run: |
           uv run python scripts/generate_openapi.py
@@ -109,16 +87,77 @@ jobs:
       - name: Check uv pins agree
         run: uv run python scripts/check_uv_pins.py
 
+  test:
+    runs-on: ubuntu-latest
+    services:
+      # Same image and credentials as compose.yaml (ADR-0004); integration
+      # tests read DATABASE_URL from the environment exactly like locally.
+      db:
+        image: pgvector/pgvector:pg18-trixie
+        env:
+          POSTGRES_USER: ai_trainer
+          POSTGRES_PASSWORD: ai_trainer
+          POSTGRES_DB: ai_trainer
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ai_trainer -d ai_trainer"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 5
+          --shm-size 256mb
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The upgrade-with-data test upgrades from the head at the merge base with origin/main.
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: "0.13.6"
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --locked
+
       - name: Run database migrations (Alembic)
         run: uv run alembic upgrade head
 
       - name: Test (pytest)
-        run: uv run pytest
+        run: uv run pytest tests/unit tests/integration tests/migrations
+
+  ops:
+    # No database: no test in tests/ops opens one.
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: "0.13.6"
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --locked
+
+      # The production host's user data (#222), checked by the cloud-init Debian 13 ships.
+      - name: Validate cloud-init (cloud-init schema)
+        run: make cloud-init-check
+
+      # The Alloy relay's config (#272), formatted and validated by the image compose runs.
+      - name: Validate Alloy config (alloy fmt + validate)
+        run: make alloy-check
+
+      - name: Test ops scripts (pytest)
+        run: uv run pytest tests/ops
 
   e2e:
-    # Only after the fast gates above pass, to avoid building images and a browser for a
-    # commit that's already broken (ADR-0013: "E2E joins CI once the first spec exists").
-    needs: ci
+    # No `needs:` (#356): it once waited for the other checks to dodge the #37 concurrent-write
+    # gotcha, which needs two suites on one database. Each job now has its own runner and database.
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -171,3 +210,14 @@ jobs:
       - name: Stop the compose stack
         if: always()
         run: docker compose down
+
+  ci:
+    # The required check: fails when any job failed or was cancelled. A skipped job passes, so a
+    # job a pull request's paths don't need never blocks the merge (ADR-0013).
+    needs: [static, test, ops, e2e]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail if a job failed or was cancelled
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: exit 1

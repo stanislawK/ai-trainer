@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import pytest
+import yaml
 
 from scripts import check_uv_pins as pins
 
@@ -54,6 +55,20 @@ def test_matching_pins_pass(tmp_path: Path) -> None:
 
 def test_real_repo_pins_agree() -> None:
     assert pins.check(REPO_ROOT) == []
+
+
+def test_real_ci_workflow_pins_every_setup_uv_step() -> None:
+    """The check sees every job's `setup-uv` step in the parallel layout (#356), all pinned."""
+    workflow = REPO_ROOT / ".github/workflows/ci.yml"
+    steps = [
+        step
+        for job in yaml.safe_load(workflow.read_text())["jobs"].values()
+        for step in job["steps"]
+        if step.get("uses", "").startswith("astral-sh/setup-uv@")
+    ]
+    versions = pins._setup_uv_versions(pins._code(workflow))
+    assert len(versions) == len(steps)
+    assert None not in versions
 
 
 @pytest.mark.parametrize(
