@@ -56,6 +56,13 @@ def test_real_repo_pins_agree() -> None:
     assert pins.check(REPO_ROOT) == []
 
 
+def test_real_ci_workflow_pins_uv_in_each_check_job() -> None:
+    """`static`, `test`, `ops` and `e2e` each install uv (#356); the `ci` gate installs nothing."""
+    versions = pins._setup_uv_versions(pins._code(REPO_ROOT / ".github/workflows/ci.yml"))
+    assert len(versions) == 4
+    assert None not in versions
+
+
 @pytest.mark.parametrize(
     ("override", "file"),
     [
