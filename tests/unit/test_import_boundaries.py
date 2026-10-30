@@ -1,3 +1,4 @@
+import logging
 from collections.abc import Callable, Iterator
 from pathlib import Path
 
@@ -15,6 +16,17 @@ def _no_stray_fixture_files() -> None:
     SIGKILL)."""
     for stray in SRC_ROOT.glob(f"*/{FIXTURE_NAME}"):
         stray.unlink()
+
+
+@pytest.fixture(autouse=True)
+def _loggers_left_enabled() -> Iterator[None]:
+    """`lint_imports` configures logging with existing loggers disabled, which silenced them for
+    every later test in the same process; which tests share it varies under xdist (#328)."""
+    loggers = [logging.getLogger(name) for name in logging.root.manager.loggerDict]
+    enabled = [logger for logger in loggers if not logger.disabled]
+    yield
+    for logger in enabled:
+        logger.disabled = False
 
 
 @pytest.fixture

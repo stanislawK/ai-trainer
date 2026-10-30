@@ -377,7 +377,9 @@ async def test_another_users_conversation_is_not_found() -> None:
     assert "for a only" not in response.text
 
 
-@pytest.mark.parametrize("conversation_id", [str(uuid4()), "not-a-uuid"])
+@pytest.mark.parametrize(
+    "conversation_id", [str(uuid4()), "not-a-uuid"], ids=["unknown", "malformed"]
+)
 def test_an_unknown_conversation_is_not_found(conversation_id: str) -> None:
     client, _, _ = _client()
 

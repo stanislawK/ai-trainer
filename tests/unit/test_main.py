@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 from opentelemetry import trace
 from opentelemetry.instrumentation.httpx import HTTPX2ClientInstrumentor
 from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
+from opentelemetry.sdk.metrics.export import InMemoryMetricReader
 from opentelemetry.sdk.trace import Tracer, TracerProvider
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from opentelemetry.trace import (
@@ -393,6 +394,7 @@ def test_health_produces_no_span_while_other_requests_do() -> None:
     app = create_app(
         _settings(otel_enabled=True, otel_exporter_otlp_endpoint=UNREACHABLE_ENDPOINT),
         span_exporter=exporter,
+        metric_reader=InMemoryMetricReader(),
     )
     client = TestClient(app)
 
@@ -422,6 +424,7 @@ def test_a_user_id_in_a_request_path_reaches_no_span() -> None:
     app = create_app(
         _settings(otel_enabled=True, otel_exporter_otlp_endpoint=UNREACHABLE_ENDPOINT),
         span_exporter=exporter,
+        metric_reader=InMemoryMetricReader(),
     )
     user_id = "6f1c2a9e-0b5e-4c47-9d1a-2f3e4b5c6d7e"
 
@@ -440,6 +443,7 @@ def test_only_the_health_route_itself_goes_untraced() -> None:
         create_app(
             _settings(otel_enabled=True, otel_exporter_otlp_endpoint=UNREACHABLE_ENDPOINT),
             span_exporter=exporter,
+            metric_reader=InMemoryMetricReader(),
         )
     )
 

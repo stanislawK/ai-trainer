@@ -1,10 +1,12 @@
 """Real-socket telemetry behaviour (ADR-0018) — belongs in integration, not unit (ADR-0013)."""
 
 import time
+from collections.abc import Callable, Iterator
 
 import pytest
 from fastapi.testclient import TestClient
 from opentelemetry import trace
+from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.trace import TracerProvider
 from pydantic import PostgresDsn, SecretStr
 from pydantic_ai import Agent, InstrumentationSettings
@@ -15,7 +17,6 @@ from ai_trainer.main import (
     _OTLP_EXPORT_TIMEOUT_SECONDS,
     _build_meter_provider,
     _build_resource,
-    _build_tracer_provider,
     create_app,
 )
 from ai_trainer.settings import Settings
@@ -39,10 +40,34 @@ def _settings(**overrides: object) -> Settings:
     return Settings(**values)  # type: ignore[arg-type]
 
 
+@pytest.fixture(autouse=True)
+def _providers_shut_down(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """These tests keep the real OTLP exporters, so each provider they build is shut down when
+    the test ends; left alone, its exporter retried the closed port at interpreter exit (#328)."""
+    built: list[TracerProvider | MeterProvider] = []
+
+    def kept[**P, T: TracerProvider | MeterProvider | None](
+        build: Callable[P, T],
+    ) -> Callable[P, T]:
+        def _build(*args: P.args, **kwargs: P.kwargs) -> T:
+            provider = build(*args, **kwargs)
+            if provider is not None:
+                built.append(provider)
+            return provider
+
+        return _build
+
+    monkeypatch.setattr(main, "_build_tracer_provider", kept(main._build_tracer_provider))
+    monkeypatch.setattr(main, "_build_meter_provider", kept(main._build_meter_provider))
+    yield
+    for provider in built:
+        provider.shutdown()
+
+
 async def test_unreachable_otlp_endpoint_does_not_raise_into_the_caller() -> None:
     """AC4: flag on, endpoint unreachable — the agent run still succeeds and a later flush
     of the buffered span (a stand-in for the request's telemetry work) never raises."""
-    provider = _build_tracer_provider(
+    provider = main._build_tracer_provider(
         _settings(otel_enabled=True, otel_exporter_otlp_endpoint=UNREACHABLE_ENDPOINT)
     )
     assert provider is not None

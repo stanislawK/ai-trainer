@@ -14,6 +14,7 @@ import httpcore2
 import pytest
 from fastapi.testclient import TestClient
 from opentelemetry import trace
+from opentelemetry.sdk.metrics.export import InMemoryMetricReader
 from opentelemetry.sdk.trace import ReadableSpan, TracerProvider
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from opentelemetry.trace import SpanKind
@@ -92,7 +93,9 @@ async def athlete() -> AsyncIterator[tuple[User, str]]:
 
 def _traced_client(exporter: InMemorySpanExporter, session_id: str) -> TestClient:
     settings = Settings(otel_enabled=True, otel_exporter_otlp_endpoint=UNREACHABLE_ENDPOINT)
-    client = TestClient(create_app(settings, span_exporter=exporter))
+    client = TestClient(
+        create_app(settings, span_exporter=exporter, metric_reader=InMemoryMetricReader())
+    )
     client.cookies.set(SESSION_COOKIE_NAME, session_id)
     return client
 

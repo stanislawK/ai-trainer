@@ -151,4 +151,4 @@ e2e-install: ## One-time Playwright browser download for e2e specs (no --with-de
 	uv run playwright install chromium
 
 e2e: migrate ## Run pytest-playwright specs against the running compose stack (needs `make up` first)
-	uv run pytest tests/e2e
+	uv run pytest tests/e2e -n 0

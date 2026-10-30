@@ -48,6 +48,7 @@ dev = [
     "pytest-asyncio>=1.4.0",
     "pytest-cov>=7.1.0",
     "pytest-playwright>=0.9.0",
+    "pytest-xdist>=3.8.0",
     "ruff>=0.16.8",
     "squawk-cli==2.70.0",
     "types-pyyaml>=6.0.12.20260906",
@@ -111,7 +112,9 @@ testpaths = ["tests/unit", "tests/integration", "tests/migrations"]
 pythonpath = ["."]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
-addopts = ["--strict-markers", "--strict-config"]
+# Parallel by default (#328); `-n 0` runs serially. `loadgroup` keeps each `xdist_group`
+# on one worker (tests/conftest.py).
+addopts = ["--strict-markers", "--strict-config", "-n", "auto", "--dist", "loadgroup"]
 filterwarnings = [
     "error",
     # starlette 1.6.0's TestClient references the deprecated anyio.abc.BlockingPortal

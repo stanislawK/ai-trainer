@@ -226,27 +226,14 @@ def _deployment(
 class Server:
     """The host as the script sees it: /opt/ai-trainer, the credential, and the API's state."""
 
-    def __init__(self, tmp_path: Path) -> None:
+    def __init__(self, tmp_path: Path, tools: Path) -> None:
         self.root = tmp_path / "opt"
         self.state = tmp_path / "state"
-        scripts = self.root / "deploy"
-        bin_dir = tmp_path / "bin"
         creds = tmp_path / "creds"
-        for directory in (scripts, bin_dir, creds, self.state):
+        for directory in (self.root, creds, self.state):
             directory.mkdir(parents=True)
-        shutil.copy(SCRIPT, scripts / "deploy.sh")
-        shutil.copy(ROOT / "deploy/monitor-password.sh", scripts / "monitor-password.sh")
-        self.script = scripts / "deploy.sh"
-        _stub(scripts, "backup.sh", FAKE_BACKUP)
-        for name, body in (
-            ("gh", FAKE_GH),
-            ("docker", FAKE_DOCKER),
-            ("curl", FAKE_CURL),
-            ("sleep", FAKE_SLEEP),
-        ):
-            _stub(bin_dir, name, body)
-        if shutil.which("flock") is None:
-            _stub(bin_dir, "flock", FAKE_FLOCK)
+        self.script = tools / "deploy" / "deploy.sh"
+        bin_dir = tools / "bin"
         (creds / "github-token").write_text(TOKEN + "\n")
         (self.root / "app-image").write_text(f"{IMAGE}@{OLD}\n")
         (self.root / "app-version").write_text("v0.1.0\n")
@@ -342,9 +329,33 @@ class Server:
         return [c for c in self.calls("docker") if "up" in c["args"] and "app" in c["args"]]
 
 
+@pytest.fixture(scope="module")
+def tools(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """The script and its stand-ins, written once per module: macOS scans a new executable on
+    its first run, one at a time across processes, which made each test wait (#328)."""
+    tools = tmp_path_factory.mktemp("deploy-tools")
+    scripts = tools / "deploy"
+    bin_dir = tools / "bin"
+    for directory in (scripts, bin_dir):
+        directory.mkdir()
+    shutil.copy(SCRIPT, scripts / "deploy.sh")
+    shutil.copy(ROOT / "deploy/monitor-password.sh", scripts / "monitor-password.sh")
+    _stub(scripts, "backup.sh", FAKE_BACKUP)
+    for name, body in (
+        ("gh", FAKE_GH),
+        ("docker", FAKE_DOCKER),
+        ("curl", FAKE_CURL),
+        ("sleep", FAKE_SLEEP),
+    ):
+        _stub(bin_dir, name, body)
+    if shutil.which("flock") is None:
+        _stub(bin_dir, "flock", FAKE_FLOCK)
+    return tools
+
+
 @pytest.fixture
-def server(tmp_path: Path) -> Server:
-    return Server(tmp_path)
+def server(tmp_path: Path, tools: Path) -> Server:
+    return Server(tmp_path, tools)
 
 
 # AC 1: an approved release runs and shows `success`.

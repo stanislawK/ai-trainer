@@ -15,4 +15,5 @@ paths:
 - pytest-asyncio runs in `auto` mode, so async tests need no marker.
 - E2E specs assert behavior (theme persistence, navigation, no overflow at 390 px, served assets), never committed pixel snapshots. Reach signed-in pages through the seeded session from `scripts/dev_session.py` (ADR-0013, ADR-0019).
 - `tests/e2e/` is expensive (a real browser, the full compose stack) and reserved for critical, must-not-regress flows — not a default for every web ticket. For one-off verification (does this render, is this element present), drive the Playwright MCP tools directly against the running app instead of adding a spec; only add one when the flow is worth guarding forever (ADR-0013).
+- The suite runs in parallel (pytest-xdist, `-n auto --dist loadgroup`; `-n 0` for serial). A test that touches state outside its own transaction (creates tables or databases, commits real rows, writes into `src/`) joins an `xdist_group` in `tests/conftest.py`; a test on the shared database never assumes global row counts; parametrize values made at collection get fixed `ids=` (ADR-0013, #328).
 - Never weaken a test to make it pass. Evals (`evals/`, ADR-0009) are not tests.

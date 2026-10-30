@@ -143,10 +143,11 @@ def _put_backup(
         manifest.write_bytes(_encrypt(counts))
 
 
-@pytest.fixture
-def env(tmp_path: Path) -> dict[str, str]:
-    bin_dir = tmp_path / "bin"
-    bin_dir.mkdir()
+@pytest.fixture(scope="module")
+def bin_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """The stand-ins, written once per module: macOS scans a new executable on its first run,
+    one at a time across processes, which made each test wait (#328)."""
+    bin_dir = tmp_path_factory.mktemp("bin")
     for name, body in (
         ("rclone", FAKE_RCLONE),
         ("age", FAKE_AGE),
@@ -154,6 +155,11 @@ def env(tmp_path: Path) -> dict[str, str]:
         ("sleep", FAKE_SLEEP),
     ):
         _stub(bin_dir, name, body)
+    return bin_dir
+
+
+@pytest.fixture
+def env(tmp_path: Path, bin_dir: Path) -> dict[str, str]:
     for name in ("log", "bucket", "tmp", "work"):
         (tmp_path / name).mkdir()
     key = tmp_path / "ai-trainer-backup.key"

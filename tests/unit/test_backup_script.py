@@ -132,10 +132,11 @@ def _stub(directory: Path, name: str, body: str) -> None:
     path.chmod(path.stat().st_mode | stat.S_IXUSR)
 
 
-@pytest.fixture
-def env(tmp_path: Path) -> dict[str, str]:
-    bin_dir = tmp_path / "bin"
-    bin_dir.mkdir()
+@pytest.fixture(scope="module")
+def bin_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """The stand-ins, written once per module: macOS scans a new executable on its first run,
+    one at a time across processes, which made each test wait (#328)."""
+    bin_dir = tmp_path_factory.mktemp("bin")
     for name, body in (
         ("docker", FAKE_DOCKER),
         ("age", FAKE_AGE),
@@ -143,6 +144,11 @@ def env(tmp_path: Path) -> dict[str, str]:
         ("date", FAKE_DATE),
     ):
         _stub(bin_dir, name, body)
+    return bin_dir
+
+
+@pytest.fixture
+def env(tmp_path: Path, bin_dir: Path) -> dict[str, str]:
     for name in ("log", "bucket", "tmp", "work", "local"):
         (tmp_path / name).mkdir()
     return {

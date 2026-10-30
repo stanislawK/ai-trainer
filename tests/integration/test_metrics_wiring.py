@@ -6,6 +6,7 @@ import re
 
 from fastapi.testclient import TestClient
 from opentelemetry.sdk.metrics.export import InMemoryMetricReader, NumberDataPoint
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
 from ai_trainer.domain.users import User
 from ai_trainer.main import create_app
@@ -34,7 +35,9 @@ def test_a_reply_past_the_hourly_budget_counts_its_refused_model_calls(
         otel_exporter_otlp_endpoint=UNREACHABLE_ENDPOINT,
         llm_calls_per_user_per_hour=1,
     )
-    client = TestClient(create_app(settings, metric_reader=reader))
+    client = TestClient(
+        create_app(settings, metric_reader=reader, span_exporter=InMemorySpanExporter())
+    )
     client.cookies.set(SESSION_COOKIE_NAME, session_id)
     token = _CSRF_TOKEN_IN_HTML.search(client.get("/").text)
     assert token is not None
