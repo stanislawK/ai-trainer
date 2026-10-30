@@ -294,7 +294,7 @@ make css                  # compiles static/css/app.css — Docker does this at 
 uv run uvicorn ai_trainer.main:app_factory --factory --reload
 ```
 
-Integration tests need a real PostgreSQL with pgvector reachable at `DATABASE_URL` — the simplest way is `make up` (or just `docker compose up -d db`) and let the app connect to `localhost:5432`. Then `make migrate` (or `uv run alembic upgrade head`) before running integration tests directly with `uv run pytest`; `make test`/`make test-integration`/`make coverage` already do this for you.
+Integration tests need a real PostgreSQL with pgvector reachable at `DATABASE_URL` — the simplest way is `make up` (or just `docker compose up -d db`) and let the app connect to `localhost:5432`. Then `make migrate` (or `uv run alembic upgrade head`) before running integration tests directly with `uv run pytest`; `make test`/`make test-integration`/`make coverage` already do this for you. The suite runs in parallel, one pytest-xdist worker per core (`-n auto` in `pyproject.toml`); add `-n 0` for a serial run, e.g. to debug with `pdb`. Tests that share state run on one worker: read ADR-0013's #328 note before adding one that creates tables, commits real rows or writes into `src/`.
 
 ## Project structure
 

@@ -117,6 +117,9 @@ outcome() {
   echo "deploy: result=$1 deployment=$id image=$short"
 }
 fail() {
+  # A TERM to the whole unit can kill the failing step first: the trap's exit would then cut
+  # this short after `finished` is set, so neither path printed the outcome line (#328).
+  trap '' TERM
   echo "deploy: deployment $id: $1" >&2
   finished=1
   # A status that can't be posted (GitHub unreachable, token expired) must not hide the outcome.

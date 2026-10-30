@@ -21,6 +21,7 @@ from opentelemetry.sdk.metrics.export import (
     NumberDataPoint,
     PeriodicExportingMetricReader,
 )
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from pydantic import PostgresDsn, SecretStr
 
 from ai_trainer.adapters.metrics import OtelMetrics, status_class
@@ -439,6 +440,7 @@ def test_create_app_records_request_metrics_with_the_service_resource() -> None:
     app = create_app(
         _settings(otel_enabled=True, otel_exporter_otlp_endpoint="http://127.0.0.1:1"),
         metric_reader=reader,
+        span_exporter=InMemorySpanExporter(),
     )
 
     TestClient(app).get("/sign-in")
@@ -478,6 +480,7 @@ def test_create_app_counts_a_refused_sign_in_by_its_limit_kind() -> None:
             auth_requests_per_minute=1,
         ),
         metric_reader=reader,
+        span_exporter=InMemorySpanExporter(),
     )
     client = TestClient(app)
 

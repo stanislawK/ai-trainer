@@ -62,3 +62,42 @@ def _no_jev_model_left_configured() -> Iterator[None]:
     jev_check._configured = None
     yield
     jev_check._configured = None
+
+
+# Tests that touch what every xdist worker shares run one after another on one worker
+# (ADR-0013, #328).
+# - `db_schema`: migration tests share the `<db>_migrations` scratch database and copy
+#   `template1`, which refuses a second concurrent copy; the probe and vector tests create
+#   tables. The rest commit real users or conversations on their own engine (the scripts, the
+#   race tests, the `athlete` fixture of `test_request_tracing`), which `test_auth_route`'s
+#   user counts and the real-clock purge of `test_purge_conversations_cli` would see.
+# - `src_tree`: the import-boundary tests write a throwaway module into `src/ai_trainer`, which
+#   the wall-clock scan would list and then fail to read.
+_XDIST_GROUPS = {
+    "db_schema": (
+        "tests/integration/migrations/",
+        "tests/migrations/",
+        "tests/integration/test_db_session_isolation.py",
+        "tests/integration/test_vector_round_trip.py",
+        "tests/integration/test_dev_session_script.py",
+        "tests/integration/test_purge_conversations_cli.py",
+        "tests/integration/test_latency_scenario_script.py",
+        "tests/integration/test_clarification_repository.py",
+        "tests/integration/test_session_draft_repository.py",
+        "tests/integration/test_request_tracing.py",
+        "tests/integration/test_request_logs.py",
+        "tests/integration/test_metrics_wiring.py",
+        "tests/integration/test_auth_route.py",
+    ),
+    "src_tree": ("tests/unit/test_import_boundaries.py", "tests/unit/test_clock_usage.py"),
+}
+
+
+# First, so xdist's own hook, which turns the mark into the group, sees it.
+@pytest.hookimpl(tryfirst=True)
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    for item in items:
+        path = item.path.relative_to(config.rootpath).as_posix()
+        for group, prefixes in _XDIST_GROUPS.items():
+            if path.startswith(prefixes):
+                item.add_marker(pytest.mark.xdist_group(group))

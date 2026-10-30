@@ -18,6 +18,10 @@ from ai_trainer.domain.users import NewUser, UserStatus
 
 _START = datetime(2026, 10, 2, 9, 0, tzinfo=UTC)
 _RETENTION_DAYS = 14
+# The purge is global and runs inside the test's transaction, so the purge tests live long
+# before any row another test writes: it then matches and locks only their own rows, never one
+# that a parallel worker commits or deletes (#328).
+_PURGE_NOW = datetime(1990, 2, 1, 9, 0, tzinfo=UTC)
 _PROFILE_TABLES = ("users", "user_sports", "weekly_availability", "goals")
 
 
@@ -187,23 +191,19 @@ async def test_list_recent_skips_expired_conversations_but_keeps_the_live_ones(
     assert await repository.list_recent(user_id, 10) == [live]
 
 
-async def _count(factory: Callable[[], AsyncSession], table: str) -> int:
+async def _count(factory: Callable[[], AsyncSession], table: str, users: list[UUID]) -> int:
+    """Rows of `table` that belong to `users`: other workers commit rows of their own (#328)."""
+    column = "id" if table == "users" else "user_id"
     async with factory() as db:
-        return int(await db.scalar(text(f"SELECT count(*) FROM {table}")) or 0)
-
-
-async def _clear_expired(repository: SqlAlchemyConversationRepository, cutoff: datetime) -> None:
-    """The purge is global, so a test first removes whatever expired rows the database already
-    holds; the test's own transaction is rolled back, so nothing real is lost."""
-    await repository.purge_before(cutoff)
+        query = text(f"SELECT count(*) FROM {table} WHERE {column} = ANY(:users)")
+        return int(await db.scalar(query, {"users": users}) or 0)
 
 
 async def test_purge_deletes_only_expired_conversations_of_every_user_and_returns_the_count(
     db_session_factory: Callable[[], AsyncSession],
 ) -> None:
-    now = _START + timedelta(days=30)
+    now = _PURGE_NOW
     repository = _repository(db_session_factory, now)
-    await _clear_expired(repository, now - timedelta(days=_RETENTION_DAYS))
     chat = SqlAlchemyChatRepository(db_session_factory)
     first = await _user(db_session_factory, "ret-d")
     second = await _user(db_session_factory, "ret-e")
@@ -221,16 +221,15 @@ async def test_purge_deletes_only_expired_conversations_of_every_user_and_return
     assert {c.id for c in await repository.list_recent(first, 10)} == {boundary.id}
     assert await repository.list_recent(second, 10) == [live]
     assert await chat.list_recent(second, live.id, 50) == [kept_message]
-    assert await _count(db_session_factory, "chat_messages") == 1
+    assert await _count(db_session_factory, "chat_messages", [first, second]) == 1
 
 
 async def test_a_second_purge_deletes_nothing(
     db_session_factory: Callable[[], AsyncSession],
 ) -> None:
-    now = _START + timedelta(days=30)
+    now = _PURGE_NOW
     repository = _repository(db_session_factory, now)
     cutoff = now - timedelta(days=_RETENTION_DAYS)
-    await _clear_expired(repository, cutoff)
     user_id = await _user(db_session_factory, "ret-f")
     await repository.create(user_id, "old", now - timedelta(days=15))
 
@@ -241,7 +240,7 @@ async def test_a_second_purge_deletes_nothing(
 async def test_purge_leaves_goals_and_profile_rows_untouched(
     db_session_factory: Callable[[], AsyncSession],
 ) -> None:
-    now = _START + timedelta(days=30)
+    now = _PURGE_NOW
     repository = _repository(db_session_factory, now)
     onboarding = SqlAlchemyOnboardingRepository(db_session_factory)
     user_id = await _user(db_session_factory, "ret-g")
@@ -257,11 +256,13 @@ async def test_purge_leaves_goals_and_profile_rows_untouched(
     await onboarding.replace_goals(user_id, [Goal(text="Send 8a+ by spring")])
     await onboarding.set_onboarded_at(user_id, now)
     await repository.create(user_id, "old", now - timedelta(days=15))
-    before = [await _count(db_session_factory, table) for table in _PROFILE_TABLES]
+    before = [await _count(db_session_factory, table, [user_id]) for table in _PROFILE_TABLES]
 
     await repository.purge_before(now - timedelta(days=_RETENTION_DAYS))
 
-    assert [await _count(db_session_factory, table) for table in _PROFILE_TABLES] == before
+    assert [
+        await _count(db_session_factory, table, [user_id]) for table in _PROFILE_TABLES
+    ] == before
     assert all(count >= 1 for count in before)
     assert await onboarding.list_sports(user_id) == ["climbing"]
     assert await onboarding.list_goals(user_id) == [Goal(text="Send 8a+ by spring")]

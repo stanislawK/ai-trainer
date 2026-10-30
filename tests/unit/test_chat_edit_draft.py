@@ -313,7 +313,7 @@ async def test_another_users_draft_is_not_found_by_any_edit_route_and_is_unchang
     assert drafts.all_of(other) == [draft]
 
 
-@pytest.mark.parametrize("raw_id", ["not-a-uuid", str(uuid4())])
+@pytest.mark.parametrize("raw_id", ["not-a-uuid", str(uuid4())], ids=["malformed", "unknown"])
 def test_a_malformed_or_unknown_draft_id_is_not_found(raw_id: str) -> None:
     client, _, _, _ = _client()
 

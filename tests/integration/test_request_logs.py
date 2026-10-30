@@ -12,6 +12,7 @@ from collections.abc import Iterator
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from opentelemetry.sdk.metrics.export import InMemoryMetricReader
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from opentelemetry.trace import SpanKind
 from starlette.types import Message
@@ -117,6 +118,7 @@ def test_trace_ids_match_the_request_span_and_are_absent_untraced(
         create_app(
             Settings(otel_enabled=True, otel_exporter_otlp_endpoint=UNREACHABLE_ENDPOINT),
             span_exporter=exporter,
+            metric_reader=InMemoryMetricReader(),
         )
     )
 
@@ -152,7 +154,10 @@ async def test_a_signed_in_request_logs_the_user_id_but_no_email_message_or_clie
     user, session_id = athlete
     exporter = InMemorySpanExporter()
     settings = Settings(otel_enabled=True, otel_exporter_otlp_endpoint=UNREACHABLE_ENDPOINT)
-    client = TestClient(create_app(settings, span_exporter=exporter), client=(_CLIENT_IP, 50000))
+    client = TestClient(
+        create_app(settings, span_exporter=exporter, metric_reader=InMemoryMetricReader()),
+        client=(_CLIENT_IP, 50000),
+    )
     client.cookies.set(SESSION_COOKIE_NAME, session_id)
     client.headers["X-Forwarded-For"] = _FORWARDED_IP
 

@@ -16,13 +16,12 @@ import psycopg
 import pytest
 from alembic.config import Config
 from alembic.script import ScriptDirectory
-from psycopg import sql
 from sqlalchemy.engine import make_url
 
 from ai_trainer.adapters.health import to_psycopg_dsn
 from tests.migrations import seed as seed_module
 from tests.migrations import upgrade_check
-from tests.migrations.seed import SEED, SeedError
+from tests.migrations.seed import SEED, USERS, SeedError
 from tests.migrations.upgrade_check import (
     CONTRACT_EXEMPT_COLUMNS,
     SHARED_DATABASE_URL,
@@ -290,22 +289,21 @@ def test_an_additive_revision_passes(tmp_path: Path) -> None:
 
 
 def _shared_fingerprint() -> tuple[object, ...]:
-    """The shared database's revision and the row count of each of its tables."""
+    """The shared database's revision, each table's identity and the seed users' rows.
+
+    Not row counts: under xdist other workers' tests commit and delete rows of their own on the
+    shared database meanwhile (#328). A migration run there would change the revision or drop
+    and recreate tables (a new OID), and a seed run there would add the seed users."""
     with psycopg.connect(to_psycopg_dsn(SHARED_DATABASE_URL)) as conn:
-        tables = [
-            row[0]
-            for row in conn.execute(
-                "SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename"
-            )
-        ]
+        tables = conn.execute(
+            "SELECT relname, oid FROM pg_class WHERE relnamespace = 'public'::regnamespace "
+            "AND relkind = 'r' ORDER BY relname"
+        ).fetchall()
         version = conn.execute("SELECT version_num FROM alembic_version").fetchall()
-        counts = [
-            conn.execute(
-                sql.SQL("SELECT count(*) FROM {}").format(sql.Identifier(table))
-            ).fetchone()
-            for table in tables
-        ]
-        return (version, *zip(tables, counts, strict=True))
+        seeded = conn.execute(
+            "SELECT count(*) FROM users WHERE id = ANY(%s)", (list(USERS),)
+        ).fetchone()
+        return (version, tables, seeded)
 
 
 def _database_exists(name: str) -> bool:
