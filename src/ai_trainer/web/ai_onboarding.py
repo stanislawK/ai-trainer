@@ -118,7 +118,7 @@ def _typed_form(form: FormData, sport_id: str) -> SportForm:
     )
 
 
-def build_ai_onboarding_router(
+def build_ai_onboarding_router(  # noqa: C901, PLR0915 -- split in #331
     templates: Jinja2Templates,
     *,
     registry: SportRegistry,

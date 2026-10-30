@@ -69,7 +69,7 @@ def build_router_deps(
     )
 
 
-def _intent_model(kind: str, **fields: Any) -> type[BaseModel]:
+def _intent_model(kind: str, **fields: Any) -> type[BaseModel]:  # noqa: ANN401 -- the model's output type is built at runtime
     """Fields in the order the model should decide them: `kind` first, `confidence` last, so
     the number is written after the intent is chosen."""
     name = "".join(part.capitalize() for part in kind.split("_")) + "Intent"
@@ -88,7 +88,7 @@ class _FlatIntent(BaseModel):
 
     @model_validator(mode="before")
     @classmethod
-    def _sport_only_for_a_log(cls, data: Any) -> Any:
+    def _sport_only_for_a_log(cls, data: Any) -> Any:  # noqa: ANN401 -- raw model output
         if not isinstance(data, dict):
             return data
         if data.get("kind") != _SPORT_INTENT_KIND:
@@ -98,7 +98,7 @@ class _FlatIntent(BaseModel):
         return data
 
 
-def _flat_intent(sport_ids: tuple[str, ...]) -> Any:
+def _flat_intent(sport_ids: tuple[str, ...]) -> Any:  # noqa: ANN401 -- the model's output type is built at runtime
     return create_model(
         "Intent",
         __base__=_FlatIntent,
@@ -109,7 +109,7 @@ def _flat_intent(sport_ids: tuple[str, ...]) -> Any:
     )
 
 
-def _discriminated_intent(sport_ids: tuple[str, ...]) -> Any:
+def _discriminated_intent(sport_ids: tuple[str, ...]) -> Any:  # noqa: ANN401 -- the model's output type is built at runtime
     intent_models = [
         _intent_model(kind, sport=(Literal[sport_ids], ...))
         if kind == _SPORT_INTENT_KIND

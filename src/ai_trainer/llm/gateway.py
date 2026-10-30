@@ -164,7 +164,14 @@ class OpenRouterGateway:
         state = _StreamState()
         recorder = self._recorder(template_id, template_version, model_id)
         producer = asyncio.create_task(
-            self._pump(queue, state, model_id, instructions, prompt, recorder)
+            self._pump(
+                queue,
+                state,
+                model_id=model_id,
+                instructions=instructions,
+                prompt=prompt,
+                recorder=recorder,
+            )
         )
         # Stays `CANCELLED` only if the consumer closes the generator at a `yield`.
         outcome = LlmCallOutcome.CANCELLED
@@ -195,10 +202,10 @@ class OpenRouterGateway:
                 self._finish_stream(
                     producer,
                     state,
-                    user_id,
-                    template_id,
-                    template_version,
-                    model_id,
+                    user_id=user_id,
+                    template_id=template_id,
+                    template_version=template_version,
+                    model_id=model_id,
                     started=started,
                     outcome=outcome,
                 )
@@ -213,6 +220,7 @@ class OpenRouterGateway:
         self,
         queue: asyncio.Queue[str | Exception | _Done],
         state: _StreamState,
+        *,
         model_id: str,
         instructions: str,
         prompt: str,
@@ -252,11 +260,11 @@ class OpenRouterGateway:
         self,
         producer: asyncio.Task[None],
         state: _StreamState,
+        *,
         user_id: UUID,
         template_id: str,
         template_version: int,
         model_id: str,
-        *,
         started: float,
         outcome: LlmCallOutcome,
     ) -> None:

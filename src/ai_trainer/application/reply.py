@@ -272,7 +272,7 @@ async def _reply(
             yield event
 
 
-async def _fresh_reply(
+async def _fresh_reply(  # noqa: C901, PLR0912, PLR0915 -- split in #332
     user_id: UUID, message: ChatMessage, timezone: str, services: ReplyServices
 ) -> AsyncGenerator[ReplyEvent]:
     context = await _context(user_id, message, timezone, services)
@@ -592,7 +592,12 @@ async def _save(
         if answer.draft is not None:
             sport_id, draft, payload_version = answer.draft
             stored, question = await _store_draft(
-                user_id, message, sport_id, draft, payload_version, services
+                user_id,
+                message,
+                sport_id=sport_id,
+                draft=draft,
+                payload_version=payload_version,
+                services=services,
             )
             drafts.append(stored)
             if question is not None:
@@ -631,6 +636,7 @@ async def _continuity(
 async def _store_draft(
     user_id: UUID,
     message: ChatMessage,
+    *,
     sport_id: str,
     draft: SessionDraft,
     payload_version: int,
@@ -1032,7 +1038,12 @@ async def retry_draft(
             raise FailedPartNotFoundError(part_id)
         try:
             stored, _ = await _store_draft(
-                user_id, message, sport_id, draft, payload_version, services
+                user_id,
+                message,
+                sport_id=sport_id,
+                draft=draft,
+                payload_version=payload_version,
+                services=services,
             )
         except BaseException:
             # The draft did not come through, so the part goes back to offer Retry again.

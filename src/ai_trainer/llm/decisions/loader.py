@@ -157,7 +157,7 @@ def _kept_options(
     return kept
 
 
-def _levels(levels: list[str]) -> Any:
+def _levels(levels: list[str]) -> Any:  # noqa: ANN401 -- a runtime-built `Literal` type
     """Whole numbers 0..n, each described: the shape `DecisionModel` reads as a rubric."""
     allowed: Any = Literal[tuple(range(len(levels)))]
     schema = {

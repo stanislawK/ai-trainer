@@ -9,7 +9,7 @@ For each AC:
 
 1. **Red.** Write the smallest test that expresses the AC, named after the behaviour. Run `uv run pytest <path>::<test> -x` and confirm it fails for the right reason (not an import or syntax error).
 2. **Green.** Write the minimum code that makes it pass. Run the test again.
-3. **Refactor** with the tests green: names, duplication, layering (ADR-0003).
+3. **Refactor** with the tests green: names, duplication, layering (ADR-0003). Check the smells ruff caps: complexity over 10, more than 50 statements or 12 branches, more than 5 parameters (make them keyword-only or a parameter object), a bare `Any`.
 
 Then for the whole change:
 

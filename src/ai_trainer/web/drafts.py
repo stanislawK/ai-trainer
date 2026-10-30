@@ -105,7 +105,7 @@ def open_questions(
     }
 
 
-def draft_cards(
+def draft_cards(  # noqa: C901 -- split in #333
     messages: Sequence[ChatMessage],
     drafts: Iterable[StoredDraft],
     *,
