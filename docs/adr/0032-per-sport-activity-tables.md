@@ -20,7 +20,7 @@ Production holds no athlete data yet (the first deploy follows M1g, PRD 0010), s
 
 ## Decision
 
-**A sport owns its tables.** A plugin may define tables named `<sport>_*`, created by its own migration. The confirm transaction (ADR-0022) writes them through the plugin's `ActivityStore`, a port the registry resolves by `sport_id`. Core code still never branches on a sport name (ADR-0006 invariant 1). `training_sessions` keeps the envelope.
+**A sport owns its tables.** A plugin may define tables named `<sport>_*`, created by its own migration. The confirm transaction (ADR-0022) writes them through the plugin's `ActivityStore`, a port the registry resolves by `sport_id`. Core code still never branches on a sport name (ADR-0006 invariant 1). `training_sessions` keeps the envelope. The ORM models of a sport's tables live in `adapters/orm/sports/<sport>.py`, imported by `adapters/orm/__init__.py` (placement row in ADR-0003, "Where code lives"; split in #345).
 
 **Gym** is the first sport to move. Every table is user-owned: `user_id` NOT NULL, FK `users` CASCADE, indexed, and each reference keyed with `user_id` (ADR-0022, 2026-10-13 amendment).
 
