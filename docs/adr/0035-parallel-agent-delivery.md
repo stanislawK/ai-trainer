@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | Proposed |
+| Status | Accepted |
 | Date | 2026-10-30 |
 | Related | PRD-0009 (G12, G13), ADR-0001 (supersedes invariants 4 and 10 and the three-gate loop in part), ADR-0013, ADR-0019 (the parity gate stays for UI tickets), ADR-0023, ADR-0024 (the contract yes stays a human plan gate) |
 
