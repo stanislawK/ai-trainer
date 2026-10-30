@@ -2,6 +2,8 @@
 "Parallel, path-aware CI"): `static`, `test`, `ops` and `e2e` start together, and `ci`, the check
 `main`'s ruleset requires, fails when any of them failed or was cancelled."""
 
+import shlex
+import tomllib
 from pathlib import Path
 from typing import Any
 
@@ -106,3 +108,19 @@ def test_each_check_runs_in_its_job(
 ) -> None:
     runs = "\n".join(step.get("run", "") for step in jobs[job]["steps"])
     assert command in runs
+
+
+def test_the_test_and_ops_jobs_together_run_every_testpath_once(
+    jobs: dict[str, dict[str, Any]],
+) -> None:
+    """A folder added to `testpaths` fails here until a job runs it, and none runs twice."""
+    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text())
+    testpaths = pyproject["tool"]["pytest"]["ini_options"]["testpaths"]
+    ran = [
+        path
+        for job in ("test", "ops")
+        for step in jobs[job]["steps"]
+        if step.get("run", "").startswith("uv run pytest ")
+        for path in shlex.split(step["run"])[3:]
+    ]
+    assert sorted(ran) == sorted(testpaths)

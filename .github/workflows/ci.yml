@@ -156,8 +156,8 @@ jobs:
         run: uv run pytest tests/ops
 
   e2e:
-    # No `needs:` (#356): the #37 concurrent-write gotcha needs one shared database, and this
-    # job runs its own compose stack on its own runner.
+    # No `needs:` (#356): it once waited for the other checks to dodge the #37 concurrent-write
+    # gotcha, which needs two suites on one database. Each job now has its own runner and database.
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
