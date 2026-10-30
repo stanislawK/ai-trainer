@@ -7,7 +7,7 @@ paths:
 
 - Test first: red → green → refactor. Each ticket AC maps to at least one named test.
 - `tests/unit/` for domain and application with fakes; `tests/integration/` for real PostgreSQL, adapters, routes and MCP; `tests/e2e/` for pytest-playwright.
-- `tests/ops/` holds tests of what lives outside `src/`: `deploy/`, `scripts/`, `compose*.yaml`, the Grafana JSON (they are slow: 130 s serial). `make test-fast` skips them; run `make test-ops` when one of those paths changed. A bare `uv run pytest` runs them, and CI runs them in its own `ops` job (ADR-0013, #329, #356).
+- `tests/ops/` holds tests of what lives outside `src/`: `deploy/`, `scripts/`, `compose*.yaml`, the Grafana JSON (they are slow: 130 s serial). `make test-fast` skips them; run `make test-ops` when one of those paths changed. A bare `uv run pytest` runs them, and CI runs them in its own `ops` job when the pull request's paths need it (ADR-0013, #329, #356, #357).
 - No network. `models.ALLOW_MODEL_REQUESTS = False` is set in `conftest.py`; agents run with `TestModel` or `FunctionModel` via `agent.override`. External route, crag and geo sources are faked through their ports; parsing is tested against recorded fixtures (ADR-0016, ADR-0017).
 - Time is frozen through the fake `Clock`; no test reads the wall clock. Cover midnight and DST boundaries, and a message sent at 01:00 about "yesterday evening" (ADR-0014).
 - Prefer fakes that implement ports over `mock.patch`.

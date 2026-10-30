@@ -1,6 +1,7 @@
-"""`ci.yml` runs its checks as parallel jobs behind one `ci` gate (ticket #356, ADR-0013
-"Parallel, path-aware CI"): `static`, `test`, `ops` and `e2e` start together, and `ci`, the check
-`main`'s ruleset requires, fails when any of them failed or was cancelled."""
+"""`ci.yml` runs its checks as parallel jobs behind one `ci` gate (tickets #356 and #357, ADR-0013
+"Parallel, path-aware CI"): `changes` decides which of `static`, `test`, `ops` and `e2e` a pull
+request needs, those start together after it, and `ci`, the check `main`'s ruleset requires, fails
+when any job failed or was cancelled."""
 
 import shlex
 import tomllib
@@ -38,17 +39,61 @@ def test_pull_request_trigger_and_concurrency_stay(workflow: dict[str | bool, An
 def test_the_workflow_has_only_the_check_jobs_and_the_gate(
     jobs: dict[str, dict[str, Any]],
 ) -> None:
-    assert set(jobs) == {*CHECK_JOBS, "ci"}
+    assert set(jobs) == {"changes", *CHECK_JOBS, "ci"}
 
 
 @pytest.mark.parametrize("job", CHECK_JOBS)
-def test_check_jobs_start_together_with_no_needs(jobs: dict[str, dict[str, Any]], job: str) -> None:
-    assert "needs" not in jobs[job]
+def test_check_jobs_start_together_after_changes(jobs: dict[str, dict[str, Any]], job: str) -> None:
+    assert jobs[job]["needs"] == "changes"
 
 
-def test_ci_gate_needs_every_check_job_and_always_runs(jobs: dict[str, dict[str, Any]]) -> None:
+@pytest.mark.parametrize("job", CHECK_JOBS)
+def test_each_check_job_is_gated_by_its_changes_output(
+    jobs: dict[str, dict[str, Any]], job: str
+) -> None:
+    """A job-level `if:`, so a skipped job reports Success and never blocks the merge."""
+    assert jobs[job]["if"] == f"needs.changes.outputs.{job} == 'true'"
+
+
+def test_changes_exposes_one_output_per_check_job(jobs: dict[str, dict[str, Any]]) -> None:
+    assert jobs["changes"]["outputs"] == {
+        job: f"${{{{ steps.flags.outputs.{job} }}}}" for job in CHECK_JOBS
+    }
+
+
+def test_changes_passes_base_on_pull_request_and_all_on_push(
+    jobs: dict[str, dict[str, Any]],
+) -> None:
+    [step] = [s for s in jobs["changes"]["steps"] if s.get("id") == "flags"]
+    run = step["run"]
+    assert 'if [ "$GITHUB_EVENT_NAME" = pull_request ]; then' in run
+    assert 'scripts/ci_changes.py --base "origin/$GITHUB_BASE_REF" >> "$GITHUB_OUTPUT"' in run
+    assert 'scripts/ci_changes.py --all >> "$GITHUB_OUTPUT"' in run
+    # The base ref comes from the runner's environment, never interpolated into the script.
+    assert "${{" not in run
+
+
+def test_changes_fetches_the_history_it_diffs(jobs: dict[str, dict[str, Any]]) -> None:
+    [checkout] = [
+        s for s in jobs["changes"]["steps"] if s.get("uses", "").startswith("actions/checkout@")
+    ]
+    assert checkout["with"]["fetch-depth"] == 0
+
+
+def test_no_workflow_level_paths_filter(workflow: dict[str | bool, Any]) -> None:
+    """GitHub leaves a path-filtered workflow's required check Pending, which blocks the merge."""
+    for trigger in (workflow[True] or {}).values():
+        assert not {"paths", "paths-ignore"} & set(trigger or {})
+
+
+def test_push_runs_on_main_only(workflow: dict[str | bool, Any]) -> None:
+    assert workflow[True]["push"] == {"branches": ["main"]}
+
+
+def test_ci_gate_needs_every_job_and_always_runs(jobs: dict[str, dict[str, Any]]) -> None:
+    """`changes` is in `needs` too: if it fails, the skipped check jobs can't pass the gate."""
     gate = jobs["ci"]
-    assert sorted(gate["needs"]) == sorted(CHECK_JOBS)
+    assert sorted(gate["needs"]) == sorted(["changes", *CHECK_JOBS])
     assert gate["if"] == "always()"
 
 
@@ -63,7 +108,7 @@ def test_ci_gate_fails_when_a_job_failed_or_was_cancelled(
     assert step["run"] == "exit 1"
 
 
-@pytest.mark.parametrize("job", CHECK_JOBS)
+@pytest.mark.parametrize("job", ["changes", *CHECK_JOBS])
 def test_every_check_job_installs_the_pinned_uv(jobs: dict[str, dict[str, Any]], job: str) -> None:
     steps = [s for s in jobs[job]["steps"] if s.get("uses", "").startswith("astral-sh/setup-uv@")]
     assert len(steps) == 1
