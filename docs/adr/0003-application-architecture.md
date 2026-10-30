@@ -37,9 +37,32 @@ Dependencies point inward: `domain` ← `application` ← `adapters`, `llm`, `mc
 5. Every use case that touches user data takes the acting user's ID explicitly (ADR-0004, ADR-0005).
 6. New behaviour arrives as new classes or plugins, not as growing `if` chains over types or sport names (open/closed).
 
+### Where code lives
+
+One lookup for "where does this go and what is it called". `<feature>` is a product feature (`chat`, `admin`), `<area>` a data or service area (`conversation`, `sessions`), `<Noun>` the thing the class is about.
+
+| Kind | Location and name | Example |
+|---|---|---|
+| Entity, value object | `domain/<area>.py` | `domain/chat.py` |
+| Sport plugin | `domain/sports/<sport>/` | `domain/sports/gym/` |
+| Port | `application/ports/<area>.py`, `<Noun>Port(Protocol)` | `application/ports/sessions.py` → `SessionsRepositoryPort` |
+| Use case | `application/<feature>.py` | `application/chat.py` |
+| DB adapter | `adapters/<area>_repository.py`, `SqlAlchemy<Noun>Repository` | `adapters/conversation_repository.py` → `SqlAlchemyConversationRepository` |
+| Route | `web/<feature>.py`, `build_<feature>_router` | `web/chat.py` → `build_chat_router` |
+| Templates | `web/templates/{pages,partials}/<feature>/` | `web/templates/pages/chat/` |
+| Prompt | `llm/prompts/<template-id>/` | `llm/prompts/router/` |
+| Decision set | `llm/decisions/<id>/` | `llm/decisions/safety_screen/` |
+| Unit test | `tests/unit/test_<feature>_<aspect>.py` | `tests/unit/test_ai_onboarding_route.py` |
+| Integration test | `tests/integration/test_<area>_{repository,route}.py` | `tests/integration/test_chat_repository.py` |
+
+### Size rule
+
+A module past about 400 lines, or a router factory past about 8 routes, becomes a feature package of sub-routers or smaller modules. A function over the ruff limits already needs a `-- split in #N` reason (ADR-0002); a module over this one is listed below with its ticket.
+
 ## Consequences
 
 - M0 adds an automated import-boundary check for invariants 1–2; the M0 ticket picks the tool and records it here.
 - Tests use fakes that implement ports (ADR-0013).
 - `.claude/rules/python.md` and the `add-endpoint`, `add-sport` and `add-mcp-tool` skills follow this layout.
 - Tool chosen at #5: [import-linter](https://github.com/seddonym/import-linter), configured in `pyproject.toml` (`[tool.importlinter]`) with two contracts — pure-Python, config lives next to ruff/mypy. A `layers` contract maps invariant 2 and the internal half of invariant 1 directly onto the package layout (`domain` ← `application` ← the outer adapters/llm/mcp/knowledge/web group, siblings within that outer group left free to import each other since nothing in this ADR restricts that). A `forbidden` contract covers the rest of invariant 1 — that `domain` imports no third-party package but Pydantic — by naming every other current top-level dependency; a new dependency that `domain` should stay clear of needs adding to that list. Both contracts name this Decision's layers explicitly, so a new top-level package under `src/ai_trainer/` is itself a change to this ADR's Decision (`/update-docs`) — the same change should add it to the `layers` list. Run with `uv run lint-imports` / `make import-lint`; wired into CI (ADR-0013) and `make check`.
+- Over the size rule on 2026-10-30: `application/reply.py` (1066 lines, split in #332), `web/chat.py` (704 lines, 17 routes, split in #330), `web/ai_onboarding.py` (470 lines, 11 routes, split in #331). No ticket yet: `adapters/orm.py` (537), `llm/evals/cli.py` (535), `adapters/session_draft_repository.py` (509) and `main.py` (465, the composition root). A new split ticket goes through `/create-tickets`.
