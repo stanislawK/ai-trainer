@@ -71,7 +71,7 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: postgresql+psycopg://ai_trainer:ai_trainer@db:5432/ai_trainer
+      DATABASE_URL: postgresql+psycopg://ai_trainer:ai_trainer@db:5432/${APP_DB_NAME:-ai_trainer}
     depends_on:
       db:
         condition: service_healthy

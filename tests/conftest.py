@@ -1,12 +1,15 @@
 import os
 from collections.abc import Iterator
 
+import psycopg
 import pytest
 from opentelemetry import trace
 from opentelemetry.instrumentation.httpx import HTTPX2ClientInstrumentor
 from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
 from opentelemetry.util._once import Once
 from pydantic_ai import Agent, models
+
+from tests.server_lock import SERVER_WIDE_LOCK_KEY, SERVER_WIDE_MODULES, server_wide_lock_dsn
 
 # No test may reach a real model (ADR-0013 invariant 1).
 models.ALLOW_MODEL_REQUESTS = False
@@ -67,10 +70,11 @@ def _no_jev_model_left_configured() -> Iterator[None]:
 # Tests that touch what every xdist worker shares run one after another on one worker
 # (ADR-0013, #328).
 # - `db_schema`: migration tests share the `<db>_migrations` scratch database and copy
-#   `template1`, which refuses a second concurrent copy; the probe and vector tests create
-#   tables. The rest commit real users or conversations on their own engine (the scripts, the
-#   race tests, the `athlete` fixture of `test_request_tracing`), which `test_auth_route`'s
-#   user counts and the real-clock purge of `test_purge_conversations_cli` would see.
+#   `template1`, which refuses a second concurrent copy, as `make worktree`'s database test
+#   does; the probe and vector tests create tables. The rest commit real users or
+#   conversations on their own engine (the scripts, the race tests, the `athlete` fixture of
+#   `test_request_tracing`), which `test_auth_route`'s user counts and the real-clock purge
+#   of `test_purge_conversations_cli` would see.
 # - `src_tree`: the import-boundary tests write a throwaway module into `src/ai_trainer`, which
 #   the wall-clock scan would list and then fail to read.
 _XDIST_GROUPS = {
@@ -88,9 +92,26 @@ _XDIST_GROUPS = {
         "tests/integration/test_request_logs.py",
         "tests/integration/test_metrics_wiring.py",
         "tests/integration/test_auth_route.py",
+        "tests/integration/test_worktree_databases.py",
     ),
     "src_tree": ("tests/unit/test_import_boundaries.py", "tests/unit/test_clock_usage.py"),
 }
+
+
+# Modules that create databases or drop and recreate cluster-wide roles share the Postgres
+# server with every other checkout's run, which `xdist_group` can't see (tests/server_lock.py).
+@pytest.fixture(scope="module", autouse=True)
+def _server_wide_lock(request: pytest.FixtureRequest) -> Iterator[None]:
+    """An outer conftest's autouse fixtures run first, so `_scratch_database` runs under it."""
+    path = request.node.path.relative_to(request.config.rootpath).as_posix()
+    if not path.startswith(SERVER_WIDE_MODULES):
+        yield
+        return
+    with psycopg.connect(server_wide_lock_dsn(), autocommit=True) as conn:
+        # Fails instead of waiting forever on another checkout's hung run.
+        conn.execute("SET lock_timeout = '10min'")
+        conn.execute("SELECT pg_advisory_lock(%s)", [SERVER_WIDE_LOCK_KEY])
+        yield
 
 
 # First, so xdist's own hook, which turns the mark into the group, sees it.

@@ -7,7 +7,15 @@
 # identical in .env.example (and your local .env), by hand. DATABASE_URL is
 # hardcoded for the same reason plus one more: its host differs between the
 # container network (`db`) and a bare `uv run` (`localhost`), so it can't be a
-# straight passthrough of the host's own DATABASE_URL either way.
+# straight passthrough of the host's own DATABASE_URL either way. Only its database name
+# varies: APP_DB_NAME, which the Makefile exports from the checkout's own .env, so `make start`
+# in a ticket's worktree serves `ai_trainer_wt<n>` (ADR-0035). It isn't a .env key either.
+#
+# The name is pinned (ADR-0035) so every checkout, whatever its folder (`../ai-trainer-<n>`),
+# drives one stack on :8000 and :5432. `ai-trainer` is the name Compose derived from the main
+# checkout's folder before, so the existing `ai-trainer_postgres_data` volume is kept.
+name: ai-trainer
+
 services:
   app:
     build: .
@@ -27,7 +35,7 @@ services:
     environment:
       # Overrides .env's copy: the container reaches Postgres by service name (`db`), not
       # `localhost`, so this can never be a straight passthrough either way.
-      DATABASE_URL: postgresql+psycopg://ai_trainer:ai_trainer@db:5432/ai_trainer
+      DATABASE_URL: postgresql+psycopg://ai_trainer:ai_trainer@db:5432/${APP_DB_NAME:-ai_trainer}
     depends_on:
       db:
         condition: service_healthy

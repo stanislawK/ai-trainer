@@ -245,3 +245,7 @@ src/ai_trainer/web/static/css/daisyui-theme.js
 # Local smoke run of compose.prod.yaml (#221): test certificates, a database password and an
 # app .env, made by deploy/smoke-setup.sh. Never committed.
 .smoke/
+
+# Claude Code's own worktrees (EnterWorktree, subagent isolation). Tickets use `make worktree`'s
+# ../ai-trainer-<n> instead (ADR-0035); .worktreeinclude copies .env into either.
+.claude/worktrees/

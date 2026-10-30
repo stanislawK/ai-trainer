@@ -1,6 +1,12 @@
 .PHONY: install css test test-fast test-ops test-unit test-integration coverage lint format format-check \
 	typecheck import-lint squawk uv-pins-check openapi openapi-check check up up-build start stop down logs ps \
-	health smoke-setup smoke-up smoke-down alloy-check cloud-init-check backup-check migrate purge-conversations llm-report latency-scenario evals e2e-install e2e
+	health smoke-setup smoke-up smoke-down alloy-check cloud-init-check backup-check migrate purge-conversations llm-report latency-scenario evals e2e-install e2e worktree worktree-rm
+
+# The checkout's own database (ADR-0035): the last path segment of DATABASE_URL in its .env,
+# read by compose.yaml, so `make start` in a ticket's worktree serves `ai_trainer_wt<n>`.
+# Quotes are dropped and the last line wins, as Settings reads it. Empty (no .env, no
+# DATABASE_URL) falls back to compose's default, `ai_trainer`.
+export APP_DB_NAME := $(shell sed -n 's|^DATABASE_URL=.*/\([^/?]*\).*|\1|p' .env 2>/dev/null | tr -d "\"'" | tail -n 1)
 
 install: ## Install dependencies (uv sync)
 	uv sync
@@ -140,6 +146,12 @@ cloud-init-check: ## Validate deploy/cloud-init.yaml with Debian 13's own cloud-
 backup-check: ## Round-trip deploy/backup.sh and deploy/restore-drill.sh against the local stack with a throwaway key, in Debian 13 with the host's age and rclone (#223, #224; needs `make start`)
 	docker run --rm -e DEBIAN_FRONTEND=noninteractive -v /var/run/docker.sock:/var/run/docker.sock -v "$(CURDIR)/deploy:/src/deploy:ro" -w /src debian:trixie sh -c \
 		'apt-get update -qq >/dev/null && apt-get install -y -qq --no-install-recommends age rclone docker-cli >/dev/null && deploy/backup-check.sh'
+
+worktree: ## Start ticket <n> in ../ai-trainer-<n> on its <area>/<n>-<slug> branch with its own migrated database ai_trainer_wt<n>, then open it in VS Code (ADR-0035). Needs Postgres up and gh access. Usage: make worktree issue=<n>
+	uv run python -m scripts.worktree create '$(issue)'
+
+worktree-rm: ## Remove ../ai-trainer-<n> and drop ai_trainer_wt<n>; refuses while the worktree has uncommitted changes, keeps the branch (ADR-0035). Usage: make worktree-rm issue=<n>
+	uv run python -m scripts.worktree remove '$(issue)'
 
 migrate: ## Apply database migrations (Alembic)
 	uv run alembic upgrade head

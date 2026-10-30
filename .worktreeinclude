@@ -1,0 +1,2 @@
+# Git-ignored files Claude Code copies into a worktree it creates (ADR-0035).
+.env
