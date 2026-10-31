@@ -1,0 +1,3 @@
+{#- A confirmed gym draft's lines under its "Logged … to <date>" row (Gym Measures mock, ticket #398): the same blocks as the draft card, so what the athlete confirmed is what stays on the page. -#}
+{%- from "components/gym_copy.html" import exercise_blocks -%}
+{{ exercise_blocks(card.payload.activities) }}

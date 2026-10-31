@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ai_trainer.adapters.exercise_repository import SqlAlchemyExerciseRepository
 from ai_trainer.adapters.gym_backfill import SqlAlchemyGymBackfillStore
 from ai_trainer.adapters.training_session_repository import SqlAlchemyTrainingSessionRepository
+from ai_trainer.application.drafts import edit_draft
 from ai_trainer.application.gym_backfill import backfill_gym_sessions
 from ai_trainer.domain.exercises import MAX_EXERCISE_NAME, ExerciseMeasure
 from ai_trainer.domain.sports.base import extend_payload, withdraw_payload
@@ -26,7 +27,9 @@ from ai_trainer.domain.sports.climbing.payload import ClimbingPayload
 from ai_trainer.domain.sports.cycling.payload import CyclingPayload
 from ai_trainer.domain.sports.gym.extraction import GymExtraction, recent_exercises
 from ai_trainer.domain.sports.gym.payload import GymPayload
+from ai_trainer.domain.sports.registry import default_sport_registry
 from ai_trainer.domain.training import DraftNotFoundError, SessionDraft, StoredDraft
+from ai_trainer.web.drafts import form_changes
 from tests.activity_support import STORES
 from tests.integration.test_session_continuity_repository import (
     _START,
@@ -877,3 +880,96 @@ async def test_a_name_past_the_alias_limit_is_stored_typed_only(
     assert (
         await SqlAlchemyExerciseRepository(db_session_factory).user_aliases(athlete.user_id) == []
     )
+
+
+# --- #398: the edit form's set-by-set shape reaches the rows -------------------------------
+
+
+def _set_form(exercise: int, sets: list[dict[str, str]]) -> dict[str, str]:
+    """What the edit form posts for each set of one exercise, every field of every row."""
+    blank = {"reps": "", "load": "", "duration": "", "distance": "", "band": ""}
+    return {
+        f"activities.{exercise}.sets.{number}.{field}": value
+        for number, values in enumerate(sets)
+        for field, value in {**blank, **values}.items()
+    }
+
+
+async def test_confirming_a_pyramid_with_one_set_edited_changes_only_that_sets_row(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    athlete = await _athlete(db_session_factory, "gym-edit-pyramid")
+    pyramid = [
+        {"reps": reps, "load": {"original": f"{kg}", "value": kg, "unit": "kg", "kg": kg}}
+        for reps, kg in ((10, 60), (8, 70), (6, 80))
+    ]
+    draft = await athlete.draft(
+        "bench 10 @ 60, 8 @ 70, 6 @ 80",
+        _START,
+        _draft(
+            {
+                "sport": "gym",
+                "activities": [{"name_as_typed": "bench", "measure": "load_reps", "sets": pyramid}],
+            }
+        ),
+        sport_id="gym",
+    )
+    posted = {
+        "activities.0.name": "bench",
+        "activities.0.rir": "",
+        **_set_form(
+            0,
+            [
+                {"reps": "10", "load": "60"},
+                {"reps": "7", "load": "72.5"},
+                {"reps": "6", "load": "80"},
+            ],
+        ),
+    }
+
+    await edit_draft(
+        athlete.user_id,
+        draft.id,
+        form_changes(posted.items()),
+        drafts=athlete.drafts,
+        sports=default_sport_registry(),
+    )
+    confirmed = await athlete.confirmed(draft)
+
+    assert await _sets(db_session_factory, confirmed.session_id) == [
+        ("bench", 1, 10, Decimal("60.00"), "60", None, None, None, None),
+        ("bench", 2, 7, Decimal("72.50"), "72.5 kg", None, None, None, None),
+        ("bench", 3, 6, Decimal("80.00"), "80", None, None, None, None),
+    ]
+
+
+async def test_confirming_a_cleared_value_stores_null(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    athlete = await _athlete(db_session_factory, "gym-edit-clear")
+    plank = {
+        "name_as_typed": "plank",
+        "measure": "time",
+        "sets": [{"duration_s": 45}, {"duration_s": 45}],
+    }
+    draft = await athlete.draft(
+        "plank 2x45s", _START, _draft({"sport": "gym", "activities": [plank]}), sport_id="gym"
+    )
+    posted = {
+        "activities.0.name": "plank",
+        **_set_form(0, [{"duration": "45"}, {}]),
+    }
+
+    await edit_draft(
+        athlete.user_id,
+        draft.id,
+        form_changes(posted.items()),
+        drafts=athlete.drafts,
+        sports=default_sport_registry(),
+    )
+    confirmed = await athlete.confirmed(draft)
+
+    assert await _sets(db_session_factory, confirmed.session_id) == [
+        ("plank", 1, None, None, None, 45, None, None, None),
+        ("plank", 2, None, None, None, None, None, None, None),
+    ]

@@ -1,5 +1,4 @@
-{#- User-facing gym formats (G5), shared by the gym draft card, its edit fields and its logged row (ticket #159). Import with
-    `{% from "components/gym_copy.html" import exercise_name, kg, kg_value, scheme %}`. A name keeps how it was typed but starts upper case ("Squat", "RDL"); a load shows in kg to one decimal ("142.9", "100"); a scheme is "5 × 5", "3 sets", "12 reps" or nothing. `gym_readings` is the copy of a reading question's options (ticket #206), keyed by their `copy_key`: `{movement}` is a movement the exercise name may mean, and `{load}` the load as typed without its unit. The exercise question's options (ticket #397) share it: `{name}` is a candidate's name, `{detail}` its equipment and target, and on "Keep my name" `{name}` is the name as typed. -#}
+{#- User-facing gym formats (G5), shared by the gym draft card, its edit fields and its logged card (tickets #159 and #398). Import with `{% from "components/gym_copy.html" import exercise_name, kg, kg_value, done, exercise_blocks %}`. A name keeps how it was typed but starts upper case ("Squat", "RDL"); a load shows in kg to one decimal ("142.9", "100"). `done` is the one line of what was done (Gym Measures mock, layout B, ticket #398): sets that are all alike read "3 × 12", "3 × 12 each side", "3 × 45 s", "2 × 40 m", "4 sets" or, for one set, "12 reps" and "45 s", then the band ("red band"), the load ("60 kg", and "2 × 6 kg" for two implements, so it can't be read as a rep count) and RIR, joined by " · "; sets that differ read one by one, "10 @ 60 kg · 8 @ 70 kg · 6 @ 80 kg", where "@" is reps at a load. A value the athlete didn't give is left out, never shown as 0. `exercise_blocks` is the card's body: one block per exercise, split by a rule, with its name, that line, and what was typed when a load was in pounds. `gym_readings` is the copy of a reading question's options (ticket #206), keyed by their `copy_key`: `{movement}` is a movement the exercise name may mean, and `{load}` the load as typed without its unit. The exercise question's options (ticket #397) share it: `{name}` is a candidate's name, `{detail}` its equipment and target, and on "Keep my name" `{name}` is the name as typed. -#}
 {% set gym_readings = {
   "gym_reading_movement": {"label": "{movement}", "hint": ""},
   "gym_reading_kg": {"label": "Kilograms", "hint": "{load} kg"},
@@ -20,12 +19,80 @@
 {{ value | int if value == value | int else value }}
 {%- endmacro %}
 
-{#- Empty for a single set with no reps. Until #398 a scheme shows the first set's reps. -#}
-{% macro scheme(exercise) -%}
-{%- set count = exercise.sets | length -%}
-{%- set reps = exercise.sets[0].reps -%}
-{%- if count > 1 and reps -%}{{ count }} × {{ reps }}
-{%- elif count > 1 -%}{{ count }} sets
-{%- elif reps -%}{{ reps }} {{ "rep" if reps == 1 else "reps" }}
+{#- A set's main number, by what it was measured in: seconds, then metres, then reps; empty for a set with none. -#}
+{% macro quantity(gym_set) -%}
+{%- if gym_set.duration_s is not none -%}{{ gym_set.duration_s }} s
+{%- elif gym_set.distance_m is not none -%}{{ "%g" | format(gym_set.distance_m) }} m
+{%- elif gym_set.reps -%}{{ gym_set.reps }}
 {%- endif -%}
+{%- endmacro %}
+
+{#- A set's load, "60 kg", or "2 × 6 kg" when the exercise takes two or more implements. -#}
+{% macro load_text(exercise, gym_set) -%}
+{%- if gym_set.load -%}{% if exercise.implements and exercise.implements > 1 %}{{ exercise.implements }} × {% endif %}{{ kg(gym_set.load.kg) }} kg{%- endif -%}
+{%- endmacro %}
+
+{#- The line of what was done, empty when the log gave nothing. -#}
+{% macro done(exercise) -%}
+{%- set sets = exercise.sets -%}
+{%- set first = sets[0] -%}
+{%- set alike = namespace(all=true) -%}
+{%- for gym_set in sets %}{% if gym_set != first %}{% set alike.all = false %}{% endif %}{% endfor -%}
+{%- set side = " each side" if exercise.per_side else "" -%}
+{%- set parts = [] -%}
+{%- if alike.all -%}
+  {%- set number = quantity(first) | trim -%}
+  {%- set by_reps = first.duration_s is none and first.distance_m is none -%}
+  {%- if sets | length > 1 and number -%}
+    {%- set _ = parts.append((sets | length) ~ " × " ~ number ~ side) -%}
+  {%- elif sets | length > 1 -%}
+    {%- set _ = parts.append((sets | length) ~ " sets") -%}
+  {%- elif number and by_reps -%}
+    {%- set _ = parts.append(number ~ (" rep" if first.reps == 1 else " reps") ~ side) -%}
+  {%- elif number -%}
+    {%- set _ = parts.append(number ~ side) -%}
+  {%- endif -%}
+  {%- if number and not by_reps and first.reps -%}
+    {%- set _ = parts.append(first.reps ~ (" rep" if first.reps == 1 else " reps")) -%}
+  {%- endif -%}
+  {%- if first.band_label -%}{%- set _ = parts.append(first.band_label ~ " band") -%}{%- endif -%}
+  {%- set load = load_text(exercise, first) | trim -%}
+  {%- if load -%}{%- set _ = parts.append(load) -%}{%- endif -%}
+{%- else -%}
+  {%- for gym_set in sets -%}
+    {%- set number = quantity(gym_set) | trim -%}
+    {%- set load = load_text(exercise, gym_set) | trim -%}
+    {%- set item = (number ~ " @ " ~ load) if number and load else (number or load) -%}
+    {%- if gym_set.band_label -%}{%- set item = ((item ~ " ") if item else "") ~ gym_set.band_label ~ " band" -%}{%- endif -%}
+    {%- if item -%}{%- set _ = parts.append(item) -%}{%- endif -%}
+  {%- endfor -%}
+  {%- if side and parts -%}{%- set _ = parts.append(side | trim) -%}{%- endif -%}
+{%- endif -%}
+{%- if exercise.rir is not none -%}{%- set _ = parts.append("RIR " ~ exercise.rir) -%}{%- endif -%}
+{{ parts | join(" · ") }}
+{%- endmacro %}
+
+{#- The loads the athlete typed in pounds, "315 lb", for the "Typed:" line under an exercise. -#}
+{% macro typed_loads(exercise) -%}
+{%- set typed = [] -%}
+{%- for gym_set in exercise.sets %}{% if gym_set.load and gym_set.load.unit != "kg" %}{% set _ = typed.append(gym_set.load.original) %}{% endif %}{% endfor -%}
+{{ typed | unique | join(", ") }}
+{%- endmacro %}
+
+{% macro exercise_blocks(activities) -%}
+<ul class="flex flex-col divide-y divide-base-content/10" aria-label="Exercises">
+  {%- for exercise in activities %}
+  {%- set line = done(exercise) | trim %}
+  {%- set typed = typed_loads(exercise) | trim %}
+  <li class="flex flex-col gap-0.5 py-3 first:pt-0 last:pb-0">
+    <span class="text-[16px] font-medium lbl-1">{{ exercise_name(exercise.name_as_typed) }}</span>
+    {%- if line %}
+    <span class="text-[13px] lbl-2 tabular-nums">{{ line }}</span>
+    {%- endif %}
+    {%- if typed %}
+    <span class="text-[12px] lbl-3">Typed: {{ typed }}</span>
+    {%- endif %}
+  </li>
+  {%- endfor %}
+</ul>
 {%- endmacro %}
