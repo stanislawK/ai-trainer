@@ -92,6 +92,7 @@ _XDIST_GROUPS = {
         "tests/integration/test_request_logs.py",
         "tests/integration/test_metrics_wiring.py",
         "tests/integration/test_auth_route.py",
+        "tests/integration/test_google_sign_in.py",
         "tests/integration/test_worktree_databases.py",
         # One catalogue key per sample row: the CLI's tests commit them, and an open import in
         # another worker would hold up the rest.
