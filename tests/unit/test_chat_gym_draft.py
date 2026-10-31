@@ -398,6 +398,12 @@ async def test_a_plank_draft_shows_3_x_45_s_and_its_logged_card_shows_the_same()
         ({"sets": [{"reps": 10, "load": _KG_60}]}, "Lunge 10 reps · 60 kg"),
         ({"sets": [{}] * 4}, "Lunge 4 sets"),
         ({"sets": [{"duration_s": 30}]}, "Lunge 30 s"),
+        ({"per_side": True, "sets": [{}] * 3}, "Lunge 3 sets each side"),
+        (
+            {"per_side": True, "implements": 2, "sets": [{"load": _KG_6}]},
+            f"Lunge each side · 2 {_TIMES} 6 kg",
+        ),
+        ({"sets": [{"distance_m": 1234567}]}, "Lunge 1234567 m"),
     ],
 )
 async def test_sides_implements_and_the_other_measures_show_on_the_card(
@@ -413,6 +419,21 @@ async def test_sides_implements_and_the_other_measures_show_on_the_card(
     (row,) = _exercises(_card(client.get(f"/drafts/{draft.id}", headers=_HTMX).text))
 
     assert _text(row) == shown
+
+
+async def test_a_long_distance_prefills_the_form_exactly_not_in_exponent_form() -> None:
+    client, user_id, chat, drafts = _client()
+    payload: dict[str, JsonValue] = {
+        "sport": "gym",
+        "activities": [
+            {"name_as_typed": "ride", "measure": "distance", "sets": [{"distance_m": 1234567.5}]}
+        ],
+    }
+    draft = await _pending(chat, drafts, user_id, payload)
+
+    form = client.get(f"/drafts/{draft.id}/edit", headers=_HTMX).text
+
+    assert re.search(r'name="activities\.0\.sets\.0\.distance"[^>]*value="1234567\.5"', form)
 
 
 async def test_a_pyramid_in_one_entry_shows_each_sets_reps_at_its_load() -> None:

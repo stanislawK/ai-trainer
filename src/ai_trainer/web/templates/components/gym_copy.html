@@ -22,7 +22,7 @@
 {#- A set's main number, by what it was measured in: seconds, then metres, then reps; empty for a set with none. -#}
 {% macro quantity(gym_set) -%}
 {%- if gym_set.duration_s is not none -%}{{ gym_set.duration_s }} s
-{%- elif gym_set.distance_m is not none -%}{{ "%g" | format(gym_set.distance_m) }} m
+{%- elif gym_set.distance_m is not none -%}{{ kg_value(gym_set.distance_m) }} m
 {%- elif gym_set.reps -%}{{ gym_set.reps }}
 {%- endif -%}
 {%- endmacro %}
@@ -46,7 +46,9 @@
   {%- if sets | length > 1 and number -%}
     {%- set _ = parts.append((sets | length) ~ " × " ~ number ~ side) -%}
   {%- elif sets | length > 1 -%}
-    {%- set _ = parts.append((sets | length) ~ " sets") -%}
+    {%- set _ = parts.append((sets | length) ~ " sets" ~ side) -%}
+  {%- elif side -%}
+    {%- set _ = parts.append(side | trim) -%}
   {%- elif number and by_reps -%}
     {%- set _ = parts.append(number ~ (" rep" if first.reps == 1 else " reps") ~ side) -%}
   {%- elif number -%}

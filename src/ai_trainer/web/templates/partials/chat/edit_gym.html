@@ -23,7 +23,7 @@
     "reps": gym_set.reps if gym_set else none,
     "load": kg_value(gym_set.load.kg) if gym_set and gym_set.load else none,
     "duration": gym_set.duration_s if gym_set else none,
-    "distance": ("%g" | format(gym_set.distance_m)) if gym_set and gym_set.distance_m is not none else none,
+    "distance": kg_value(gym_set.distance_m) if gym_set and gym_set.distance_m is not none else none,
     "band": gym_set.band_label if gym_set else none,
   } %}
   <div class="flex flex-wrap items-end gap-2" data-set-row>

@@ -9,14 +9,16 @@
     (row) => !row.closest("template"),
   );
 
-  const showFields = (group) => {
+  // Shows the fields the measure uses. Only a change of measure clears the ones it hides: adding
+  // a set must not blank what the other rows hold.
+  const showFields = (group, { clear }) => {
     const measure = group.querySelector("select[data-measure]").value;
     const shown = JSON.parse(group.dataset.shows)[measure]?.shows ?? [];
     for (const row of rowsOf(group)) {
       for (const field of row.querySelectorAll("[data-field]")) {
         const visible = shown.includes(field.dataset.field);
         field.classList.toggle("hidden", !visible);
-        if (!visible) field.querySelector("input").value = "";
+        if (!visible && clear) field.querySelector("input").value = "";
       }
     }
   };
@@ -43,7 +45,7 @@
       const row = template.content.firstElementChild.cloneNode(true);
       template.before(row);
       renumber(group);
-      showFields(group);
+      showFields(group, { clear: false });
       row.querySelector("[data-field]:not(.hidden) input")?.focus();
     } else if (target.closest("[data-remove-set]")) {
       if (rowsOf(group).length > 1) {
@@ -56,6 +58,6 @@
   document.addEventListener("change", (event) => {
     const target = event.target instanceof Element ? event.target : null;
     if (!target?.matches("select[data-measure]")) return;
-    showFields(target.closest("[data-exercise]"));
+    showFields(target.closest("[data-exercise]"), { clear: true });
   });
 })();
