@@ -119,6 +119,10 @@ class StoredDraft(BaseModel):
     session_id: UUID | None = None
     # The session B16 offers to add this draft to, while it still exists (ticket #165).
     extends: SessionSpan | None = None
+    # The extraction template the draft came from; `None` for one made before drafts kept it
+    # (ADR-0034 feedback events).
+    template_id: str | None = None
+    template_version: int | None = None
     created_at: datetime
 
 

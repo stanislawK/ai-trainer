@@ -13,6 +13,7 @@ from fastapi import FastAPI, Request, Response
 from pydantic import JsonValue
 from starlette.templating import Jinja2Templates
 
+from ai_trainer.application.feedback import FeedbackRecorder
 from ai_trainer.application.ports.clock import ClockPort
 from ai_trainer.application.ports.conversation import (
     Extraction,
@@ -333,6 +334,8 @@ class InMemoryDraftRepository:
         created_at: datetime,
         extends_session_id: UUID | None = None,
         asks: Clarification | None = None,
+        template_id: str | None = None,
+        template_version: int | None = None,
     ) -> StoredDraft:
         stored = StoredDraft(
             id=uuid4(),
@@ -343,6 +346,8 @@ class InMemoryDraftRepository:
             payload_version=payload_version,
             status="pending",
             extends=None if extends_session_id is None else self.spans.get(extends_session_id),
+            template_id=template_id,
+            template_version=template_version,
             created_at=created_at,
         )
         self.rows.append((user_id, stored))
@@ -412,6 +417,8 @@ class InMemoryDraftRepository:
         extends_session_id: UUID | None,
         asks: Clarification | None = None,
         asked_at: datetime | None = None,
+        template_id: str | None = None,
+        template_version: int | None = None,
     ) -> StoredDraft:
         for index, (owner, stored) in enumerate(self.rows):
             if owner != user_id or stored.id != draft_id:
@@ -425,6 +432,8 @@ class InMemoryDraftRepository:
                     "sport_id": sport_id,
                     "draft": draft,
                     "payload_version": payload_version,
+                    "template_id": template_id,
+                    "template_version": template_version,
                     "extends": None
                     if extends_session_id is None
                     else self.spans.get(extends_session_id),
@@ -818,6 +827,7 @@ def reply_services(
     history_turns: int = 10,
     max_clarification_options: int = 5,
     recent_sessions: int = 10,
+    feedback: FeedbackRecorder | None = None,
 ) -> ReplyServices:
     drafts = drafts or InMemoryDraftRepository()
     clarifications = clarifications or InMemoryClarificationRepository()
@@ -838,6 +848,7 @@ def reply_services(
         merge_window=MERGE_WINDOW,
         max_clarification_options=max_clarification_options,
         recent_sessions=recent_sessions,
+        feedback=feedback,
     )
 
 
@@ -852,6 +863,7 @@ def include_chat(
     clarifications: InMemoryClarificationRepository | None = None,
     fast_router: ScriptedFastRouter | None = None,
     sessions: InMemoryTrainingSessions | None = None,
+    feedback: FeedbackRecorder | None = None,
 ) -> InMemoryChatRepository:
     """Mounts the chat router on an in-memory repository and a scripted conversation, and
     returns the repository."""
@@ -864,6 +876,7 @@ def include_chat(
         profile=profile,
         conversation=conversation,
         fast_router=fast_router,
+        feedback=feedback,
     )
     app.include_router(
         build_chat_router(

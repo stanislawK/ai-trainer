@@ -109,6 +109,8 @@ async def change_draft_sport(
             if kind == "ask" and latest is not None
             else None,
             asked_at=services.clock.now(),
+            template_id=answer.template.id,
+            template_version=answer.template.version,
         )
 
     # Saved in its own task: a reader who leaves now can't cut the replacement off.

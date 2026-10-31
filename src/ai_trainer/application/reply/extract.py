@@ -9,7 +9,7 @@ from datetime import datetime
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
-from ai_trainer.application.ports.conversation import ReplyContext
+from ai_trainer.application.ports.conversation import ReplyContext, TemplateRef
 from ai_trainer.application.reply.shared import (
     LOG_KIND,
     TICK,
@@ -165,6 +165,7 @@ async def save(
                 sport_id=sport_id,
                 draft=draft,
                 payload_version=payload_version,
+                template=answer.template,
                 services=services,
             )
             drafts.append(stored)
@@ -208,11 +209,13 @@ async def store_draft(
     sport_id: str,
     draft: SessionDraft,
     payload_version: int,
+    template: TemplateRef,
     services: ReplyServices,
 ) -> tuple[StoredDraft, StoredClarification | None]:
     """The pending draft, extending the session it joins, and the same-session question on
     its card when it came later that day, stored with it in one transaction; the question
-    extends nothing (ADR-0014 invariant 5)."""
+    extends nothing (ADR-0014 invariant 5). It records the extraction `template` it came from
+    (ADR-0034)."""
     kind, latest = await session_continuity(user_id, message, sport_id, draft, services)
     stored = await services.drafts.add(
         user_id,
@@ -226,6 +229,8 @@ async def store_draft(
         asks=same_session_question(draft, latest, services)
         if kind == "ask" and latest is not None
         else None,
+        template_id=template.id,
+        template_version=template.version,
     )
     return stored, await _question_on(user_id, stored, services)
 

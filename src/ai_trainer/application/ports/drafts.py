@@ -25,12 +25,15 @@ class SessionDraftRepositoryPort(Protocol):
         created_at: datetime,
         extends_session_id: UUID | None = None,
         asks: Clarification | None = None,
+        template_id: str | None = None,
+        template_version: int | None = None,
     ) -> StoredDraft:
         """Stores a pending draft made from the user's message `message_id`, in its
         conversation `conversation_id`, offered as an addition to the user's session
         `extends_session_id` when given (B16). `asks` is the same-session question on its card,
         stored `open` in the same transaction, so the draft never exists without it (ticket
-        #166)."""
+        #166). `template_id` and `template_version` name the extraction template it came from
+        (ADR-0034)."""
         ...
 
     async def list_shown(self, user_id: UUID, conversation_id: UUID) -> Sequence[StoredDraft]:
@@ -63,6 +66,8 @@ class SessionDraftRepositoryPort(Protocol):
         extends_session_id: UUID | None,
         asks: Clarification | None = None,
         asked_at: datetime | None = None,
+        template_id: str | None = None,
+        template_version: int | None = None,
     ) -> StoredDraft:
         """Replaces the user's pending draft `draft_id` with one in `sport_id`, extracted again
         from the same log (B23, ticket #163): its sport, document, payload version and the

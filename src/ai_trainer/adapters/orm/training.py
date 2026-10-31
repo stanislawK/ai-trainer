@@ -158,6 +158,9 @@ class SessionDraftOrm(Base):
     # The validated `SessionDraft`: envelope fields, `date_source` and payload.
     draft: Mapped[dict[str, JsonValue]] = mapped_column(JSONB, nullable=False)
     payload_version: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    # The extraction template the draft came from (ADR-0034); NULL for a draft made before.
+    template_id: Mapped[str | None] = mapped_column(nullable=True)
+    template_version: Mapped[int | None] = mapped_column(nullable=True)
     # The session B16 offers to add this to.
     extends_session_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
     status: Mapped[str] = mapped_column(nullable=False)

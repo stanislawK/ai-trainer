@@ -125,6 +125,8 @@ def _rows() -> dict[str, tuple[Row, ...]]:
                 "sport_id": "climbing" if a else "cycling",
                 "draft": Jsonb({"duration_min": 91, "rpe": None} if a else {"distance_km": 40.5}),
                 "payload_version": 1 if a else 2,
+                "template_id": "climbing.extract" if a else None,
+                "template_version": 2 if a else None,
                 "extends_session_id": None if a else training,
                 "status": "confirmed" if a else "pending",
                 "session_id": training if a else None,
@@ -164,6 +166,17 @@ def _rows() -> dict[str, tuple[Row, ...]]:
                 "latency_ms": 400 + n,
                 "outcome": "ok" if a else "error",
                 "created_at": _at(n, 9),
+            }
+        )
+        rows.setdefault("feedback_events", []).append(
+            {
+                "id": _id(user, 17),
+                "user_id": user,
+                "kind": "draft_edited" if a else "draft_discarded",
+                "template_id": "gym.extract" if a else None,
+                "template_version": 3 if a else None,
+                "fields": ["reps", "sets"] if a else [],
+                "created_at": _at(n, 14),
             }
         )
         rows.setdefault("goals", []).append(

@@ -67,6 +67,7 @@ The envelope's single `raw_text` and `source` from ADR-0006 become this child ta
 | `sport_id` | text NOT NULL | |
 | `draft` | jsonb NOT NULL | the validated `SessionDraft`: envelope fields, `date_source` (ADR-0014) and payload |
 | `payload_version` | smallint NOT NULL | |
+| `template_id`, `template_version` | text NULL, integer NULL | the extraction template the draft came from (ADR-0034); NULL for a draft made before they existed |
 | `extends_session_id` | uuid NULL | FK `training_sessions` `ON DELETE SET NULL`, the session B16 offers to add this to |
 | `status` | text NOT NULL | `CHECK (status IN ('pending', 'confirmed', 'discarded'))` |
 | `session_id` | uuid NULL | FK `training_sessions` `ON DELETE SET NULL`, the session a confirm produced |
@@ -133,4 +134,5 @@ Index: `(user_id, conversation_id, status)`.
 - M2 adds indexes for the stats queries it actually runs. They are additive, so ADR-0024 allows them.
 - ⚠ To check at the first M2 ticket: whether JSON path queries on `payload` meet the stats view's latency on realistic data. If not, a derived, rebuildable table (M2's call), never a rewrite of `training_sessions`.
 - Amended by [ADR-0027](0027-venues-gym-grading-and-device-location.md), accepted 2026-10-25: `training_sessions` and `session_drafts` gain a nullable `athlete_venue_id`, keyed with `user_id` as the 2026-10-13 amendment requires, with `ON DELETE SET NULL (athlete_venue_id)`. Adding it is an expand-only migration (ADR-0024).
+- Owner-directed 2026-10-31, at #394: `session_drafts` gains nullable `template_id` and `template_version`, set when the draft is stored and again when a sport change re-extracts it, so a feedback event can name the template the athlete corrected ([ADR-0034](0034-lean-evaluation.md)). Existing rows keep NULL; no backfill. Adding them is an expand-only migration (ADR-0024).
 - Superseded in part by [ADR-0032](0032-per-sport-activity-tables.md), accepted 2026-10-31: "Inside the payload" no longer applies to gym, whose activities live in typed tables, and neither does the ⚠ above about JSON path queries. Climbing and cycling keep their payloads until a ticket moves each.
