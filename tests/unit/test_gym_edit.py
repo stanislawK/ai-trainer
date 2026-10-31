@@ -97,6 +97,8 @@ def test_an_edit_without_rows_changes_nothing() -> None:
         ({"name": "   "}, "activities.1.name"),
         ({"sets": "0"}, "activities.1.sets"),
         ({"sets": "two"}, "activities.1.sets"),
+        ({"sets": "101"}, "activities.1.sets"),
+        ({"sets": "2000000000"}, "activities.1.sets"),
         ({"reps": "0"}, "activities.1.reps"),
         ({"reps": "1.5"}, "activities.1.reps"),
         ({"load": "0"}, "activities.1.load"),

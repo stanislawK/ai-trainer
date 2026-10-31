@@ -1,8 +1,8 @@
 """Smoke sets (ADR-0034, ticket #372): `evals/smoke/<id>.yaml` run once per case, graded in code,
 no baseline, no judge except the safety set. No real model: scripted `FunctionModel`s."""
 
-from dataclasses import dataclass
 import re
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 

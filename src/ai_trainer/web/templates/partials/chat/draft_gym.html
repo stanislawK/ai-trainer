@@ -4,7 +4,8 @@
   {%- for exercise in card.payload.activities %}
   {%- set details = [] %}
   {%- set load = exercise.sets[0].load %}
-  {%- if exercise.sets | length > 1 or exercise.sets[0].reps %}{% set _ = details.append(scheme(exercise)) %}{% endif %}
+  {%- set shown = scheme(exercise) %}
+  {%- if shown %}{% set _ = details.append(shown) %}{% endif %}
   {%- if load %}{% set _ = details.append(kg(load.kg) ~ " kg") %}{% endif %}
   {%- if exercise.rir is not none %}{% set _ = details.append("RIR " ~ exercise.rir) %}{% endif %}
   <li class="flex flex-col gap-1">

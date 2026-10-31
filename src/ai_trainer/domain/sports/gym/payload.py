@@ -22,6 +22,11 @@ type BandLabel = Annotated[str, StringConstraints(strip_whitespace=True, min_len
 MAX_RIR = 10
 # `gym_exercise_entries.implements`: "two dumbbells" is 2.
 MAX_IMPLEMENTS = 4
+# A count becomes one row each, so it can't be left open.
+MAX_SETS = 100
+# A set past a day is a typo; a distance stops at what `gym_sets.distance_m` holds.
+MAX_DURATION_S = 86_400
+MAX_DISTANCE_M = 9_999_999.9
 
 
 class Load(BaseModel):
@@ -46,8 +51,8 @@ class GymSet(BaseModel):
 
     reps: int | None = Field(default=None, ge=1)
     load: Load | None = None
-    duration_s: int | None = Field(default=None, ge=0)
-    distance_m: float | None = Field(default=None, ge=0)
+    duration_s: int | None = Field(default=None, ge=0, le=MAX_DURATION_S)
+    distance_m: float | None = Field(default=None, ge=0, le=MAX_DISTANCE_M)
     band_label: BandLabel | None = None
 
 
@@ -66,7 +71,7 @@ class _ExerciseV1(BaseModel):
     """A v1 exercise, one scheme: `sets` is a count, and `reps` and `load` are per set."""
 
     name: ExerciseName
-    sets: int | None = Field(default=None, ge=1)
+    sets: int | None = Field(default=None, ge=1, le=MAX_SETS)
     reps: int | None = Field(default=None, ge=1)
     load: Load | None = None
     rir: int | None = Field(default=None, ge=0, le=MAX_RIR)
@@ -93,7 +98,7 @@ class Exercise(BaseModel):
     per_side: bool = False
     implements: int | None = Field(default=None, ge=1, le=MAX_IMPLEMENTS)
     rir: int | None = Field(default=None, ge=0, le=MAX_RIR)
-    sets: list[GymSet] = Field(min_length=1)
+    sets: list[GymSet] = Field(min_length=1, max_length=MAX_SETS)
 
     @model_validator(mode="before")
     @classmethod

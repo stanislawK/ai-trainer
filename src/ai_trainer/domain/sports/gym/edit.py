@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field, JsonValue
 from ai_trainer.domain.sports.gym.normalize import normalize_load
 from ai_trainer.domain.sports.gym.payload import (
     MAX_RIR,
+    MAX_SETS,
     Exercise,
     ExerciseName,
     GymPayload,
@@ -28,7 +29,7 @@ class _ExerciseForm(BaseModel):
     names it. A blank name is rejected; the other fields clear when blank."""
 
     name: ExerciseName = ""
-    sets: int | None = Field(default=None, ge=1)
+    sets: int | None = Field(default=None, ge=1, le=MAX_SETS)
     reps: int | None = Field(default=None, ge=1)
     load: float | None = Field(default=None, gt=0, allow_inf_nan=False)
     rir: int | None = Field(default=None, ge=0, le=MAX_RIR)

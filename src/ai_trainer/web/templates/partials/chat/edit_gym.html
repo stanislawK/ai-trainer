@@ -15,7 +15,7 @@
     <div class="grid grid-cols-4 gap-2">
       <label class="flex flex-col gap-1">
         <span class="text-[12px] text-base-content/70">Sets</span>
-        <input type="number" name="{{ row }}sets" inputmode="numeric" min="1" class="lg-field tabular-nums" value="{{ field_value(row ~ 'sets', values, exercise.sets | length) }}"{{ field_error(row ~ 'sets', errors, card.draft.id) }}>
+        <input type="number" name="{{ row }}sets" inputmode="numeric" min="1" max="100" class="lg-field tabular-nums" value="{{ field_value(row ~ 'sets', values, exercise.sets | length) }}"{{ field_error(row ~ 'sets', errors, card.draft.id) }}>
       </label>
       <label class="flex flex-col gap-1">
         <span class="text-[12px] text-base-content/70">Reps</span>
@@ -30,7 +30,7 @@
         <input type="number" name="{{ row }}rir" inputmode="numeric" min="0" max="10" class="lg-field tabular-nums" value="{{ field_value(row ~ 'rir', values, exercise.rir) }}"{{ field_error(row ~ 'rir', errors, card.draft.id) }}>
       </label>
     </div>
-    {% call error_hint(row ~ "sets", errors, card.draft.id) %}Enter sets, 1 or more.{% endcall %}
+    {% call error_hint(row ~ "sets", errors, card.draft.id) %}Enter sets, from 1 to 100.{% endcall %}
     {% call error_hint(row ~ "reps", errors, card.draft.id) %}Enter reps, 1 or more.{% endcall %}
     {% call error_hint(row ~ "load", errors, card.draft.id) %}Enter a load in kg above 0.{% endcall %}
     {% call error_hint(row ~ "rir", errors, card.draft.id) %}Enter RIR from 0 to 10.{% endcall %}

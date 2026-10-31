@@ -770,3 +770,17 @@ async def test_undoing_a_log_keeps_the_band_it_added(
     await athlete.drafts.undo(athlete.user_id, confirmed.id, undone_at=_LATER)
 
     assert [row[1:] for row in await _bands(db_session_factory, athlete.user_id)] == [("red", None)]
+
+
+async def test_two_spellings_of_one_band_in_a_log_are_one_band(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    athlete = await _athlete(db_session_factory, "gym-band-spellings")
+
+    confirmed = await _logged(athlete, "bands", _gym(_band("Red"), _band("red")))
+
+    ((band_id, _, rank),) = await _bands(db_session_factory, athlete.user_id)
+    assert rank is None
+    rows = await _sets(db_session_factory, confirmed.session_id)
+    assert {row[-2] for row in rows} == {band_id}
+    assert {row[-1] for row in rows} == {"Red", "red"}

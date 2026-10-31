@@ -21,8 +21,11 @@ from ai_trainer.domain.sports.gym.normalize import (
     to_seconds,
 )
 from ai_trainer.domain.sports.gym.payload import (
+    MAX_DISTANCE_M,
+    MAX_DURATION_S,
     MAX_IMPLEMENTS,
     MAX_RIR,
+    MAX_SETS,
     BandLabel,
     Exercise,
     ExerciseName,
@@ -54,15 +57,29 @@ class ExtractedDuration(BaseModel):
     value: float = Field(gt=0)
     unit: DurationUnit
 
+    # Checked here, on the model's own output, so a wild value is sent back to it: the athlete
+    # has no field to correct one until #398.
+    @model_validator(mode="after")
+    def _fits_a_set(self) -> Self:
+        if to_seconds(self.value, self.unit) > MAX_DURATION_S:
+            raise ValueError("a set's time is too long")
+        return self
+
 
 class ExtractedDistance(BaseModel):
     value: float = Field(gt=0)
     unit: DistanceUnit
 
+    @model_validator(mode="after")
+    def _fits_a_set(self) -> Self:
+        if to_metres(self.value, self.unit) > MAX_DISTANCE_M:
+            raise ValueError("a set's distance is too long")
+        return self
+
 
 class ExtractedExercise(BaseModel):
     name: ExerciseName
-    sets: int | None = Field(default=None, ge=1)
+    sets: int | None = Field(default=None, ge=1, le=MAX_SETS)
     reps: int | None = Field(default=None, ge=1)
     load: ExtractedLoad | None = None
     duration: ExtractedDuration | None = None

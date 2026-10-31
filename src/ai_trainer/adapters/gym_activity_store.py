@@ -6,7 +6,7 @@ from collections.abc import Mapping, Sequence
 from uuid import UUID, uuid4
 
 from pydantic import JsonValue, ValidationError
-from sqlalchemy import delete, func, insert, select
+from sqlalchemy import ARRAY, Text, cast, delete, func, insert, literal, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -53,7 +53,7 @@ class GymActivityStore:
                 {
                     "user_id": user_id,
                     "entry_id": entry_id,
-                    "band_id": bands.get(row.band_label),
+                    "band_id": bands[row.band_label] if row.band_label else None,
                     **row.model_dump(),
                 }
                 for row in entry.sets
@@ -64,25 +64,35 @@ class GymActivityStore:
 
     async def _band_ids(
         self, tx: AsyncSession, user_id: UUID, entries: Sequence[GymEntryRow]
-    ) -> dict[str | None, UUID | None]:
+    ) -> dict[str, UUID]:
         """Each band of the log by its label as typed. An unseen one joins the athlete's bands
         with `rank` NULL, for the athlete to place (B39); a known one, whatever its case, keeps
-        its label and rank. Labels go in sorted order, so two logs can't deadlock."""
-        labels = {row.band_label for entry in entries for row in entry.sets} - {None}
-        ids: dict[str | None, UUID | None] = {}
-        for label in sorted(label for label in labels if label is not None):
-            await tx.execute(
-                pg_insert(AthleteBandOrm)
-                .values(user_id=user_id, label=label)
-                .on_conflict_do_nothing(constraint="athlete_bands_user_id_label_norm_key")
+        its label and rank. They go in by the column that conflicts, so two logs take the same
+        locks in the same order and can't deadlock."""
+        labels = sorted(
+            {row.band_label for entry in entries for row in entry.sets if row.band_label}
+        )
+        if not labels:
+            return {}
+        typed = func.unnest(cast(labels, ARRAY(Text))).column_valued("typed")
+        await tx.execute(
+            pg_insert(AthleteBandOrm)
+            .from_select(
+                ["id", "user_id", "label"],
+                select(func.gen_random_uuid(), literal(user_id), typed).order_by(
+                    func.exercise_name_norm(typed)
+                ),
             )
-            ids[label] = await tx.scalar(
-                select(AthleteBandOrm.id).where(
-                    AthleteBandOrm.user_id == user_id,
-                    AthleteBandOrm.label_norm == func.exercise_name_norm(label),
-                )
+            .on_conflict_do_nothing(constraint="athlete_bands_user_id_label_norm_key")
+        )
+        rows = await tx.execute(
+            select(typed, AthleteBandOrm.id).join(
+                AthleteBandOrm,
+                (AthleteBandOrm.user_id == user_id)
+                & (AthleteBandOrm.label_norm == func.exercise_name_norm(typed)),
             )
-        return ids
+        )
+        return dict(rows.tuples().all())
 
     async def withdraw(
         self, tx: AsyncSession, user_id: UUID, log: LoggedActivities
