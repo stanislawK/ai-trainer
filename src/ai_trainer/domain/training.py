@@ -48,6 +48,21 @@ class SessionSpan(BaseModel):
     last_logged_at: datetime
 
 
+class SessionSummary(BaseModel):
+    """A saved session as a history read returns it (ADR-0010, ticket #378): its envelope
+    fields, without the sport payload, which only the sport's plugin reads (ADR-0022)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    id: UUID
+    sport_id: str
+    occurred_on: date
+    duration_min: int | None = None
+    rpe: int | None = None
+    feeling: str | None = None
+    notes: str | None = None
+
+
 def joins_day(draft: SessionDraft, occurred_on: date) -> bool:
     """Whether the draft can belong to a session on `occurred_on`: a log that names another
     day never does, while one assumed to be today does, so a session running past midnight
