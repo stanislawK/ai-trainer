@@ -4,6 +4,8 @@
 // server keeps what the athlete didn't touch; a field the new measure hides is cleared here.
 (() => {
   const SET_INDEX = /\.sets\.(?:\d+|__set__)\./;
+  // An exercise holds at most this many sets (`MAX_SETS` in the gym payload): each is a row.
+  const MAX_SETS = 100;
 
   const rowsOf = (group) => [...group.querySelectorAll("[data-set-row]")].filter(
     (row) => !row.closest("template"),
@@ -34,6 +36,7 @@
       remove.disabled = rows.length === 1;
       remove.setAttribute("aria-label", `Remove set ${index + 1}`);
     });
+    group.querySelector("[data-add-set]").disabled = rows.length >= MAX_SETS;
   };
 
   document.addEventListener("click", (event) => {
@@ -41,6 +44,7 @@
     const group = target?.closest("[data-exercise]");
     if (!group) return;
     if (target.closest("[data-add-set]")) {
+      if (rowsOf(group).length >= MAX_SETS) return;
       const template = group.querySelector("template[data-set-template]");
       const row = template.content.firstElementChild.cloneNode(true);
       template.before(row);

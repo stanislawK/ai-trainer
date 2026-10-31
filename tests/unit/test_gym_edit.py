@@ -64,8 +64,9 @@ def _shown(payload: dict[str, JsonValue]) -> dict[str, JsonValue]:
                 "duration": "" if s.duration_s is None else str(s.duration_s),
                 "distance": "" if s.distance_m is None else f"{s.distance_m:g}",
                 "band": s.band_label or "",
+                "src": str(index),
             }
-            for s in exercise.sets
+            for index, s in enumerate(exercise.sets)
         ],
     }
 
@@ -136,15 +137,61 @@ def test_time_distance_and_band_are_typed_in_s_m_and_a_label() -> None:
     assert exercise.sets[1].load == Load(original="24 kg", value=24, unit="kg", kg=24)
 
 
-def test_the_measure_follows_the_sets_and_the_pick_counts_only_while_they_are_blank() -> None:
+def test_a_changed_measure_pick_stands_and_an_unchanged_one_follows_the_sets() -> None:
     blank = _set(reps="", load="", duration="", distance="", band="")
     picked = apply_gym_edit(_PYRAMID, _form(blank, measure="distance"))
-    filled = apply_gym_edit(_PYRAMID, _form({**blank, "duration": "30"}, measure="distance"))
+    filled = apply_gym_edit(_PYRAMID, _form({**blank, "distance": "30"}, measure="distance"))
+    kept_load = apply_gym_edit(_PYRAMID, {"activities": [{**_shown(_PYRAMID), "measure": "time"}]})
     cleared = apply_gym_edit(_PYRAMID, _form({**blank, "reps": "5"}, measure="load_reps"))
 
     assert picked.activities[0].measure == "distance"
-    assert filled.activities[0].measure == "time"
+    assert filled.activities[0].measure == "distance"
+    # The load still shows for a time, so the pick isn't undone by the load a set keeps.
+    assert kept_load.activities[0].measure == "time"
+    # The stored measure picked again follows what the sets hold, here a cleared load.
     assert cleared.activities[0].measure == "reps"
+
+
+def test_removing_a_middle_set_keeps_the_sets_after_it_as_they_were_typed() -> None:
+    payload: dict[str, JsonValue] = {
+        "sport": "gym",
+        "activities": [
+            {
+                "name_as_typed": "deadlift",
+                "measure": "load_reps",
+                "sets": [{"reps": 5, "load": _LB}, {"reps": 3}, {"reps": 1, "load": _LB}],
+            }
+        ],
+    }
+    form = _shown(payload)
+    rows = form["sets"]
+    assert isinstance(rows, list)
+
+    edited = apply_gym_edit(payload, {"activities": [{**form, "sets": [rows[0], rows[2]]}]})
+
+    stored = GymPayload.model_validate(payload).activities[0].sets
+    assert edited.activities[0].sets == [stored[0], stored[2]]
+
+
+def test_a_row_with_a_blank_src_is_a_new_set_that_keeps_nothing_stored() -> None:
+    form = _shown(_PYRAMID)
+    rows = form["sets"]
+    assert isinstance(rows, list)
+    new = _set(reps="4", load="", duration="", distance="", band="", src="")
+
+    edited = apply_gym_edit(_PYRAMID, {"activities": [{**form, "sets": [*rows, new]}]})
+
+    assert edited.activities[0].sets[3] == GymSet(reps=4)
+
+
+def test_a_typed_load_keeps_its_text_as_the_original() -> None:
+    form = _form(_set(reps="5", load="1234567.5", duration="", distance="", band=""))
+
+    edited = apply_gym_edit(_PYRAMID, form)
+
+    load = edited.activities[0].sets[0].load
+    assert load is not None
+    assert (load.original, load.kg) == ("1234567.5 kg", 1234567.5)
 
 
 def test_sets_can_be_added_and_removed() -> None:

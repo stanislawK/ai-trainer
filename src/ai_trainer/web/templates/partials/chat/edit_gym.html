@@ -17,7 +17,7 @@
   ("band", "Band", "text", "Enter the band's name."),
 ] -%}
 {#- One set's row. `gym_set` is none for a set the athlete added; `index` is its position, or `__set__` in the template. -#}
-{% macro set_row(row, index, gym_set, shown, values, errors, draft_id) -%}
+{% macro set_row(row, index, gym_set, shown, values, errors, draft_id, only) -%}
   {%- set prefix = row ~ "sets." ~ index ~ "." %}
   {%- set stored = {
     "reps": gym_set.reps if gym_set else none,
@@ -34,7 +34,9 @@
       <input type="{{ 'text' if field == 'band' else 'number' }}" name="{{ prefix }}{{ field }}" inputmode="{{ mode }}"{% if field != 'band' %} min="0"{% if mode == 'decimal' %} step="any"{% endif %}{% endif %} class="lg-field tabular-nums" value="{{ field_value(prefix ~ field, values, stored[field]) }}"{{ field_error(prefix ~ field, errors, draft_id) }}>
     </label>
     {%- endfor %}
-    <button type="button" class="lg lg-ghost lg-icon lg-sm shrink-0 mb-1" data-remove-set aria-label="Remove set"><span class="absolute -inset-x-px -inset-y-1" aria-hidden="true"></span>{{ icon("x", "size-4") }}</button>
+    {#- Which stored set this row came from, so a set removed above it doesn't pair it with another; blank for a set the athlete added. -#}
+    <input type="hidden" name="{{ prefix }}src" value="{{ field_value(prefix ~ 'src', values, index if gym_set else none) }}">
+    <button type="button" class="lg lg-ghost lg-icon lg-sm shrink-0 mb-1" data-remove-set aria-label="Remove set{% if index is number %} {{ index + 1 }}{% endif %}"{% if only %} disabled{% endif %}><span class="absolute -inset-x-px -inset-y-1" aria-hidden="true"></span>{{ icon("x", "size-4") }}</button>
     {%- for field, label, mode, message in set_fields %}
     {% call error_hint(prefix ~ field, errors, draft_id) %}{{ message }}{% endcall %}
     {%- endfor %}
@@ -49,7 +51,8 @@
   {#- The rows come from what was typed when the form comes back rejected, else from the draft. -#}
   {%- set typed = namespace(count=0) %}
   {%- for key in values %}{% if key.startswith(row ~ "sets.") %}{% set typed.count = [typed.count, (key[(row ~ "sets.") | length:].split(".")[0]) | int + 1] | max %}{% endif %}{% endfor %}
-  {%- set count = typed.count if typed.count else exercise.sets | length %}
+  {#- At most the 100 sets an exercise can hold: a posted key can't ask for more rows. -#}
+  {%- set count = ([typed.count, 100] | min) if typed.count else exercise.sets | length %}
   {%- set each_side = values[row ~ "per_side"] == "1" if (row ~ "per_side") in values else exercise.per_side %}
   <div class="flex flex-col gap-3 pt-4 first:pt-0" role="group" aria-label="Exercise {{ loop.index }}" data-exercise data-shows='{{ measures | tojson }}'>
     <label class="flex flex-col gap-1">
@@ -85,9 +88,9 @@
     {% call error_hint(row ~ "rir", errors, card.draft.id) %}Enter RIR from 0 to 10.{% endcall %}
     <div class="flex flex-col gap-3" data-sets>
       {%- for index in range(count) %}
-      {{ set_row(row, index, exercise.sets[index] if index < exercise.sets | length else none, shown, values, errors, card.draft.id) }}
+      {{ set_row(row, index, exercise.sets[index] if index < exercise.sets | length else none, shown, values, errors, card.draft.id, count == 1) }}
       {%- endfor %}
-      <template data-set-template>{{ set_row(row, "__set__", none, shown, {}, [], card.draft.id) }}</template>
+      <template data-set-template>{{ set_row(row, "__set__", none, shown, {}, [], card.draft.id, false) }}</template>
     </div>
     <button type="button" class="lg lg-ghost lg-sm self-start" data-add-set>{{ icon("plus", "size-4") }}Add set</button>
   </div>

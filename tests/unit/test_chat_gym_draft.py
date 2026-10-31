@@ -484,6 +484,77 @@ async def test_the_edit_form_has_each_exercises_fields_and_a_row_per_set() -> No
     assert form.count("data-remove-set") >= 3
 
 
+async def test_each_set_row_names_its_stored_set_and_a_lone_row_cannot_be_removed() -> None:
+    client, user_id, chat, drafts = _client()
+    payload: dict[str, JsonValue] = {
+        "sport": "gym",
+        "activities": [
+            {"name_as_typed": "bench", "measure": "reps", "sets": [{"reps": 5}, {"reps": 3}]},
+            {"name_as_typed": "plank", "measure": "time", "sets": [{"duration_s": 45}]},
+        ],
+    }
+    draft = await _pending(chat, drafts, user_id, payload)
+
+    form = client.get(f"/drafts/{draft.id}/edit", headers=_HTMX).text
+
+    assert re.search(r'<input type="hidden" name="activities\.0\.sets\.0\.src" value="0"', form)
+    assert re.search(r'<input type="hidden" name="activities\.0\.sets\.1\.src" value="1"', form)
+    assert re.search(
+        r'<input type="hidden" name="activities\.0\.sets\.__set__\.src" value=""', form
+    )
+    removes = re.findall(r"<button[^>]*data-remove-set[^>]*>", form)
+    # Bench's two sets and its template row, then the plank's lone set.
+    assert [" disabled" in button for button in removes[:4]] == [False, False, False, True]
+
+
+async def test_a_crafted_set_key_cannot_ask_for_a_hundred_thousand_rows() -> None:
+    client, user_id, chat, drafts = _client()
+    draft = await _pending(chat, drafts, user_id, _PYRAMID_PAYLOAD)
+
+    response = client.post(
+        f"/drafts/{draft.id}/edit",
+        headers=_HTMX,
+        data=_pyramid_form(
+            **_set_fields(0, 1, reps="8", load="heavy"),
+            **{"activities.0.sets.99999.reps": "1"},
+        ),
+    )
+
+    assert response.status_code == 422
+    assert response.text.count('name="activities.0.sets.100.reps"') == 0
+    assert response.text.count("data-set-row") <= 101 + 4
+
+
+async def test_an_unticked_each_side_posted_after_its_hidden_zero_stays_off() -> None:
+    client, user_id, chat, drafts = _client()
+    payload: dict[str, JsonValue] = {
+        "sport": "gym",
+        "activities": [
+            {
+                "name_as_typed": "lunge",
+                "measure": "reps",
+                "per_side": True,
+                "sets": [{"reps": 12}],
+            }
+        ],
+    }
+    draft = await _pending(chat, drafts, user_id, payload)
+    unticked = {
+        **_EDIT_BASE,
+        "activities.0.name": "lunge",
+        "activities.0.per_side": "0",
+        **_set_fields(0, 0, reps="12"),
+    }
+    ticked = {**unticked, "activities.0.per_side": ["0", "1"]}
+
+    client.post(f"/drafts/{draft.id}/edit", headers=_HTMX, data=unticked)
+    off = _stored_exercise(drafts, user_id)["per_side"]
+    client.post(f"/drafts/{draft.id}/edit", headers=_HTMX, data=ticked)
+    on = _stored_exercise(drafts, user_id)["per_side"]
+
+    assert (off, on) == (False, True)
+
+
 async def test_editing_one_set_of_a_pyramid_changes_only_that_set() -> None:
     client, user_id, chat, drafts = _client()
     draft = await _pending(chat, drafts, user_id, _PYRAMID_PAYLOAD)
