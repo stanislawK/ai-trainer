@@ -192,18 +192,7 @@ async def test_a_log_added_to_a_session_from_before_the_tables_keeps_its_payload
     invariant 4) and the added log's rows start at 1; #377 backfills the earlier activities."""
     athlete = await _athlete(db_session_factory, "gym-pre-table")
     first = await _logged(athlete, "Squat 100kg 5x5", _gym(_lift("Squat", 5, 5, "100kg", 100)))
-    v1 = {"sport": "gym", "activities": [{"name": "Squat", "sets": 5, "reps": 5}]}
-    async with db_session_factory() as db:
-        # The session as a confirm before #376 left it: a v1 payload and no rows.
-        await db.execute(
-            text("DELETE FROM gym_exercise_entries WHERE session_id = :id"),
-            {"id": first.session_id},
-        )
-        await db.execute(
-            text("UPDATE training_sessions SET payload = CAST(:payload AS jsonb) WHERE id = :id"),
-            {"payload": json.dumps(v1), "id": first.session_id},
-        )
-        await db.commit()
+    v1 = await _from_before_the_tables(db_session_factory, first)
 
     await _logged(
         athlete,
@@ -218,6 +207,80 @@ async def test_a_log_added_to_a_session_from_before_the_tables_keeps_its_payload
         (position, name)
         for position, name, *_ in await _entries(db_session_factory, first.session_id)
     ] == [(1, "Dips")]
+
+
+async def test_undoing_a_log_from_before_the_tables_takes_it_out_of_the_old_payload(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    """Found by #376's code review: with no rows to delete, the log's exercises leave the v1
+    payload as before #376, so #377's backfill doesn't bring them back."""
+    athlete = await _athlete(db_session_factory, "gym-pre-table-undo")
+    first = await _logged(athlete, "Squat 100kg 5x5", _gym(_lift("Squat", 5, 5, "100kg", 100)))
+    added = await _logged(
+        athlete,
+        "then dips 3x10",
+        _gym({"name": "Dips", "sets": 3, "reps": 10}),
+        at=_LATER,
+        extends=first.session_id,
+    )
+    await _from_before_the_tables(db_session_factory, first, added)
+
+    await athlete.drafts.undo(athlete.user_id, added.id, undone_at=_LATER)
+
+    assert (await _session(db_session_factory, first.session_id)).payload == {
+        "sport": "gym",
+        "activities": first.draft.payload["activities"],
+    }
+
+
+async def test_undoing_the_last_old_log_of_a_session_with_rows_leaves_an_empty_payload(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    athlete = await _athlete(db_session_factory, "gym-pre-table-last")
+    first = await _logged(athlete, "Squat 100kg 5x5", _gym(_lift("Squat", 5, 5, "100kg", 100)))
+    await _from_before_the_tables(db_session_factory, first)
+    await _logged(
+        athlete,
+        "then dips 3x10",
+        _gym({"name": "Dips", "sets": 3, "reps": 10}),
+        at=_LATER,
+        extends=first.session_id,
+    )
+
+    await athlete.drafts.undo(athlete.user_id, first.id, undone_at=_LATER)
+
+    assert (await _session(db_session_factory, first.session_id)).payload == {}
+    assert [name for _, name, *_ in await _entries(db_session_factory, first.session_id)] == [
+        "Dips"
+    ]
+
+
+def _activities_of(log: StoredDraft) -> list[Any]:
+    activities = log.draft.payload["activities"]
+    assert isinstance(activities, list)
+    return activities
+
+
+async def _from_before_the_tables(
+    factory: Callable[[], AsyncSession], *logs: StoredDraft
+) -> dict[str, Any]:
+    """The logs' session as confirms before #376 left it: a v1 payload holding their
+    activities, and no rows."""
+    session_id = logs[0].session_id
+    v1 = {
+        "sport": "gym",
+        "activities": [activity for log in logs for activity in _activities_of(log)],
+    }
+    async with factory() as db:
+        await db.execute(
+            text("DELETE FROM gym_exercise_entries WHERE session_id = :id"), {"id": session_id}
+        )
+        await db.execute(
+            text("UPDATE training_sessions SET payload = CAST(:payload AS jsonb) WHERE id = :id"),
+            {"payload": json.dumps(v1), "id": session_id},
+        )
+        await db.commit()
+    return v1
 
 
 # --- AC: undo takes only its own entries; the last undo removes the session ----------------

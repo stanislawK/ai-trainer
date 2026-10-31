@@ -5,12 +5,13 @@ session a gym log creates. Every statement filters by `user_id` (ADR-0022 invari
 from collections.abc import Mapping, Sequence
 from uuid import UUID, uuid4
 
-from pydantic import JsonValue
+from pydantic import JsonValue, ValidationError
 from sqlalchemy import delete, func, insert, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai_trainer.adapters.orm import GymExerciseEntryOrm, GymSetOrm
 from ai_trainer.application.ports.activities import LoggedActivities
+from ai_trainer.domain.sports.base import withdraw_payload
 from ai_trainer.domain.sports.gym.payload import GymPayload
 from ai_trainer.domain.sports.gym.rows import entries_of, unit_of
 
@@ -60,14 +61,27 @@ class GymActivityStore:
         self, tx: AsyncSession, user_id: UUID, log: LoggedActivities
     ) -> dict[str, JsonValue]:
         """Deletes the log's own entries, their sets with them. The source row's key would
-        take them too; deleting them here keeps the store the one place that writes them."""
-        await tx.execute(
-            delete(GymExerciseEntryOrm).where(
+        take them too; deleting them here keeps the store the one place that writes them.
+
+        A log with no entries was confirmed before the tables: its exercises are taken out of
+        the session's v1 payload instead, as before #376, so #377's backfill doesn't bring
+        them back."""
+        deleted = await tx.scalars(
+            delete(GymExerciseEntryOrm)
+            .where(
                 GymExerciseEntryOrm.user_id == user_id,
                 GymExerciseEntryOrm.source_id == log.source_id,
             )
+            .returning(GymExerciseEntryOrm.id)
         )
-        return {} if log.session_payload is None else dict(log.session_payload)
+        payload = {} if log.session_payload is None else dict(log.session_payload)
+        if deleted.first() is not None or not payload:
+            return payload
+        try:
+            return withdraw_payload(GymPayload, payload, log.addition).model_dump(mode="json")
+        except ValidationError:
+            # Nothing of the old payload is left: the session's other logs are all in rows.
+            return {}
 
     async def recent(
         self, tx: AsyncSession, user_id: UUID, session_ids: Sequence[UUID]

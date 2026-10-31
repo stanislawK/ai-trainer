@@ -57,13 +57,12 @@ class ActivityStores:
     """The store of each sport: its own, or the payload store over its plugin's payload model."""
 
     def __init__(self, sports: SportRegistry, own: Mapping[str, ActivityStore]) -> None:
-        self._sports = sports
-        self._own = dict(own)
+        self._stores: dict[str, ActivityStore] = {
+            sport.id: PayloadActivityStore(sport.extraction.payload_type)
+            for sport in sports.all()
+            if sport.extraction is not None
+        } | dict(own)
 
     def __call__(self, sport_id: str) -> ActivityStore:
-        own = self._own.get(sport_id)
-        if own is not None:
-            return own
-        spec = self._sports.get(sport_id).extraction
-        assert spec is not None  # only a sport that can be logged has sessions
-        return PayloadActivityStore(spec.payload_type)
+        # Only a sport that can be logged has sessions, so every one has a store.
+        return self._stores[sport_id]
