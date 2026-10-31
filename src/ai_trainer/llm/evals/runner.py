@@ -1,5 +1,5 @@
 import operator
-from collections.abc import Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from functools import reduce
 from pathlib import Path
@@ -28,7 +28,7 @@ from ai_trainer.llm.evals.jev_check import (
     print_jev_checks,
 )
 from ai_trainer.llm.prompts.registry import PromptRegistry, output_types
-from ai_trainer.llm.prompts.template import TemplateOutput
+from ai_trainer.llm.prompts.template import PromptTemplate, TemplateOutput
 
 _JEV_FIELDS = {"jev_checks", "jev_agreement", "jev_agreement_by_rubric", "jev_errored"}
 
@@ -190,6 +190,55 @@ def record_baseline(
     return previous, regressions
 
 
+def eval_task(
+    registry: PromptRegistry, template_id: str, version: int, *, model: Model
+) -> Callable[[EvalCaseInputs], Awaitable[TemplateOutput]]:
+    """The task a case runs: the template's agent on `model`, with deps built from the case."""
+    template = registry.get(template_id, version)
+    agent = registry.build_agent(template_id, version)
+
+    async def task(inputs: EvalCaseInputs) -> TemplateOutput:
+        deps = template.deps_type.model_validate(inputs.deps)
+        if template.output_for is None:
+            result = await agent.run(inputs.prompt, deps=deps, model=model)
+        else:
+            result = await agent.run(
+                inputs.prompt,
+                deps=deps,
+                model=model,
+                output_type=output_types(template.output_for(deps)),
+            )
+        return result.output
+
+    return task
+
+
+def dataset_type(
+    template: PromptTemplate[BaseModel, TemplateOutput],
+    *,
+    expected_output_types: tuple[type[BaseModel], ...] | None = None,
+) -> type[Dataset[EvalCaseInputs, TemplateOutput, object]]:
+    """The `Dataset` class that reads `template`'s cases.
+
+    Subscripted with `template.output_type` (the template's real, runtime output type), not
+    the `TemplateOutput` this module is statically typed against: Pydantic Evals deserializes
+    `Case.expected_output` and validates it against this generic parameter, and built-ins
+    like `EqualsExpected` compare real model instances — subscripting with bare `BaseModel`
+    would build an uninstantiable `expected_output` and crash every evaluator that touches
+    it, silently, since a crashed evaluator drops out of `report.averages()` rather than
+    raising (caught by `raise_on_failures`).
+    mypy can't express a generic parameter only known at runtime (there's no static type
+    for "whatever this template's output_type happens to be") — `output_type` is a real
+    class object at runtime, which is all `Dataset.__class_getitem__` needs.
+    A template whose model picks between several outputs (ticket #164) reads its expected
+    outputs as their union."""
+    readable = expected_output_types or template.output_type
+    output_type = reduce(operator.or_, readable) if isinstance(readable, tuple) else readable
+    # `output_type` is built at runtime from the template's declared outputs, so mypy cannot
+    # accept it as a type argument (valid-type).
+    return Dataset[EvalCaseInputs, output_type, object]  # type: ignore[valid-type]
+
+
 async def run_eval(
     *,
     registry: PromptRegistry,
@@ -226,43 +275,14 @@ async def run_eval(
 
     set_default_judge_model(judge_model)
 
-    template = registry.get(template_id, version)
-    agent = registry.build_agent(template_id, version)
-
-    async def task(inputs: EvalCaseInputs) -> TemplateOutput:
-        deps = template.deps_type.model_validate(inputs.deps)
-        if template.output_for is None:
-            result = await agent.run(inputs.prompt, deps=deps, model=model)
-        else:
-            result = await agent.run(
-                inputs.prompt,
-                deps=deps,
-                model=model,
-                output_type=output_types(template.output_for(deps)),
-            )
-        return result.output
-
-    # Subscripted with `template.output_type` (the template's real, runtime output type), not
-    # the `TemplateOutput` this function is statically typed against: Pydantic Evals deserializes
-    # `Case.expected_output` and validates it against this generic parameter, and built-ins
-    # like `EqualsExpected` compare real model instances — subscripting with bare `BaseModel`
-    # would build an uninstantiable `expected_output` and crash every evaluator that touches
-    # it, silently, since a crashed evaluator drops out of `report.averages()` rather than
-    # raising (caught below via `_evaluator_failures`).
-    # mypy can't express a generic parameter only known at runtime (there's no static type
-    # for "whatever this template's output_type happens to be") — `output_type` is a real
-    # class object at runtime, which is all `Dataset.__class_getitem__` needs.
-    # A template whose model picks between several outputs (ticket #164) reads its expected
-    # outputs as their union.
-    readable = expected_output_types or template.output_type
-    output_type = reduce(operator.or_, readable) if isinstance(readable, tuple) else readable
-    # `output_type` is built at runtime from the template's declared outputs, so mypy cannot
-    # accept it as a type argument (valid-type).
-    dataset: Dataset[EvalCaseInputs, TemplateOutput, object] = Dataset[
-        EvalCaseInputs, output_type, object  # type: ignore[valid-type]
-    ].from_file(
+    task = eval_task(registry, template_id, version, model=model)
+    dataset = dataset_type(
+        registry.get(template_id, version), expected_output_types=expected_output_types
+    ).from_file(
         datasets_root / f"{template_id}.yaml",
-        custom_evaluator_types=custom_evaluator_types,
+        # The evaluators grade structured outputs (see the docstring above); the dataset's
+        # output parameter is only known at runtime, so mypy sees the wider `TemplateOutput`.
+        custom_evaluator_types=custom_evaluator_types,  # type: ignore[arg-type]
     )
 
     report = await dataset.evaluate(

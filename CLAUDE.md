@@ -99,7 +99,7 @@ make latency-scenario            # replay the latency scenario on `make start`, 
 uv run playwright install chromium   # one-time browser download for e2e
 uv run pytest tests/e2e -n 0     # e2e specs, serial (needs `docker compose up`; excluded from `uv run pytest`)
 uv run ai-trainer-evals run <template-id> [--version N] [--promote]   # full eval run at the app's version; only --promote writes the baseline (costs money — run on purpose)
-uv run ai-trainer-evals smoke <template-id>|--all   # once #372 lands: the cheap per-change smoke set (still real models, costs cents)
+uv run ai-trainer-evals smoke <set-id>|--all   # the cheap per-change smoke sets in evals/smoke/ (still real models, costs cents; known_gaps list a failing case with its ticket)
 ```
 
 ## Non-negotiables
