@@ -227,13 +227,11 @@ async def test_google_sign_in_with_a_tampered_payload_shows_the_alert(
     await _assert_refused(_sign_in(google), google, users)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="PYSEC-2026-4357: Authlib < 1.9.0 drops the nonce check on `nonce_supported: false`",
-)
 async def test_google_sign_in_with_nonce_supported_false_still_checks_the_nonce(
     google: FakeGoogle, users: SqlAlchemyUsersRepository
 ) -> None:
+    """PYSEC-2026-4357: Authlib before 1.9.0 skipped the nonce check when the ID token itself
+    said `nonce_supported: false`, so a replayed token signed in."""
     google.mint = lambda fake, nonce: fake.sign(nonce="replayed", nonce_supported=False)
 
     await _assert_refused(_sign_in(google), google, users)
