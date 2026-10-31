@@ -79,6 +79,11 @@ def answered(payload: GymPayload, subject: str, option_id: str) -> GymPayload:
     )
 
 
+def keys_of(payload: GymPayload) -> frozenset[str]:
+    """Each name on the draft once, as the draft groups them."""
+    return frozenset(_key(exercise.name_as_typed) for exercise in payload.activities)
+
+
 def mentions(payload: GymPayload, subject: str) -> bool:
     """Whether an entry of the draft still carries the name."""
     key = _key(subject)

@@ -511,7 +511,7 @@ class InMemoryDraftRepository:
                 user_id,
                 clarification_id,
                 "abandoned" if option_id is None else "answered",
-                option_ids=None if option_id is None else [option_id],
+                option_ids=[] if option_id is None else [option_id],
                 resolved_at=answered_at,
             )
             draft = stored.draft.model_copy(update={"payload": settle(stored.draft.payload)})

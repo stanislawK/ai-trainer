@@ -439,6 +439,52 @@ async def test_two_confirms_at_once_leave_one_custom_exercise() -> None:
         await engine.dispose()
 
 
+async def test_keep_my_name_never_links_to_another_sports_exercise_of_that_name(
+    db_session_factory: SessionFactory,
+) -> None:
+    logger = await _logger(db_session_factory, "resolve-other-sport")
+    elsewhere = await logger.exercises.create_custom(
+        logger.user_id, sport_id="climbing", name="Hangboard", default_measure=ExerciseMeasure.TIME
+    )
+    await logger.exercises.add_user_alias(logger.user_id, elsewhere.id, "zzz hangboard")
+
+    _, [question] = await logger.log("zzz hangboard")
+    await logger.confirm(await logger.answer(question, KEEP_NAME_OPTION))
+
+    [entry] = await _entry_ids(db_session_factory, logger.user_id)
+    assert entry is not None
+    assert entry != elsewhere.id
+    assert sorted(await _custom_rows(db_session_factory, logger.user_id)) == [
+        "Hangboard",
+        "zzz hangboard",
+    ]
+
+
+async def _alias_version(factory: SessionFactory, user_id: UUID) -> tuple[Any, ...]:
+    async with factory() as db:
+        row = (
+            await db.execute(
+                text("SELECT id, xmin::text FROM exercise_aliases WHERE user_id = :id"),
+                {"id": user_id},
+            )
+        ).one()
+        return tuple(row)
+
+
+async def test_a_routine_log_of_a_known_name_rewrites_no_alias(
+    db_session_factory: SessionFactory,
+) -> None:
+    logger = await _logger(db_session_factory, "resolve-routine")
+    _, [question] = await logger.log("bench press")
+    await logger.confirm(await logger.answer(question, _option(question, "Barbell Bench Press")))
+    before = await _alias_version(db_session_factory, logger.user_id)
+
+    again, _ = await logger.log("bench press")
+    await logger.confirm(again)
+
+    assert await _alias_version(db_session_factory, logger.user_id) == before
+
+
 async def _search(
     logger: _Logger, name: str, *, measure: str = "load_reps", limit: int = 4
 ) -> list[str]:

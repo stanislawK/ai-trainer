@@ -231,11 +231,13 @@ async def _next_on_card(
     if settler is None:
         return None
     asked = await services.clarifications.list_shown(user_id, draft.conversation_id)
+    # Only the athlete's own skip stores an empty answer: a question dropped by an edit or a
+    # sport change has none, and its name may still be asked.
     skipped = {
         question.clarification.subject
         for question in asked
         if question.draft_id == draft.id
-        and question.status == "abandoned"
+        and question.answer_option_ids == ()
         and question.clarification.subject is not None
     }
     settled = {name for name in (*skipped, answering) if name is not None}

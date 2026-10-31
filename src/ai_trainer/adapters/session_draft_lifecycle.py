@@ -45,6 +45,8 @@ OPEN = "open"
 _CHAT_SOURCE = "chat"
 # The envelope fields an addition to a session fills when the session has none (ticket #165).
 _FILLED_FIELDS = ("started_at", "duration_min", "rpe", "feeling", "notes")
+# "Let me type instead" on a card's question: answered with no option (ticket #397).
+SKIPPED: list[str] = []
 
 
 def to_domain(row: SessionDraftOrm, spans: Mapping[UUID, SessionSpan]) -> StoredDraft:
@@ -122,7 +124,9 @@ async def _close_question(
     closed_at: datetime,
 ) -> None:
     """Moves the question off `open` with one conditional UPDATE, so two taps at once close it
-    once: answered with `option_id`, or abandoned with `None`."""
+    once: answered with `option_id`, or abandoned with `None`. The athlete's own skip stores an
+    empty answer, which a question dropped by an edit or a sport change (no answer) never has,
+    so only a skip keeps its name from being asked again on the card (ticket #397)."""
     closed = await session.scalar(
         update(ClarificationOrm)
         .where(
@@ -133,7 +137,7 @@ async def _close_question(
         )
         .values(
             status="abandoned" if option_id is None else "answered",
-            answer_option_ids=None if option_id is None else [option_id],
+            answer_option_ids=SKIPPED if option_id is None else [option_id],
             answered_at=closed_at,
         )
         .returning(ClarificationOrm.id)

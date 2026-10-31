@@ -216,7 +216,9 @@ async def store_draft(
     extends nothing (ADR-0014 invariant 5). It records the extraction `template` it came from
     (ADR-0034)."""
     kind, latest = await session_continuity(user_id, message, sport_id, draft, services)
-    settled, about_a_name = await settle_draft(user_id, sport_id, draft, services)
+    settled, asks = await settle_draft(
+        user_id, sport_id, draft, kind=kind, latest=latest, services=services
+    )
     stored = await services.drafts.add(
         user_id,
         message.conversation_id,
@@ -226,11 +228,7 @@ async def store_draft(
         payload_version=payload_version,
         created_at=services.clock.now(),
         extends_session_id=latest.id if kind == "join" and latest is not None else None,
-        # One question at a time (ADR-0015 invariant 1): the same-session one first, and a
-        # name's when its answer comes.
-        asks=same_session_question(draft, latest, services)
-        if kind == "ask" and latest is not None
-        else about_a_name,
+        asks=asks,
         template_id=template.id,
         template_version=template.version,
     )
@@ -238,16 +236,25 @@ async def store_draft(
 
 
 async def settle_draft(
-    user_id: UUID, sport_id: str, draft: SessionDraft, services: ReplyServices
+    user_id: UUID,
+    sport_id: str,
+    draft: SessionDraft,
+    *,
+    kind: Continuity,
+    latest: SessionSpan | None,
+    services: ReplyServices,
 ) -> tuple[SessionDraft, Clarification | None]:
-    """The draft with what its sport's settler knows filled in, and the first question it still
-    has (ticket #397); as it is for a sport that settles nothing."""
+    """The draft with what its sport's settler knows filled in (ticket #397), and the first
+    question its card asks. One at a time (ADR-0015 invariant 1): the same-session one first,
+    and a name's when its answer comes, so no shortlist is read for a name then."""
     settler = services.settlers.get(sport_id)
+    payload = draft.payload if settler is None else await settler.settle(user_id, draft.payload)
+    settled = draft.model_copy(update={"payload": payload})
+    if kind == "ask" and latest is not None:
+        return settled, same_session_question(draft, latest, services)
     if settler is None:
-        return draft, None
-    payload = await settler.settle(user_id, draft.payload)
-    question = await settler.next_question(user_id, payload)
-    return draft.model_copy(update={"payload": payload}), question
+        return settled, None
+    return settled, await settler.next_question(user_id, payload)
 
 
 def same_session_question(

@@ -4,7 +4,6 @@ log back (B4). The
 athlete's edit changes only a pending draft (ticket #158)."""
 
 from collections.abc import Mapping
-from contextlib import suppress
 from dataclasses import dataclass
 from uuid import UUID
 
@@ -153,33 +152,66 @@ async def edit_draft(
     if feedback is not None and fields:
         await feedback.record_for_draft(user_id, FeedbackKind.DRAFT_EDITED, saved, fields=fields)
     if questions is not None:
-        await _drop_stale_question(user_id, saved, questions)
+        await _drop_stale_question(user_id, stored, saved, questions)
     return saved
 
 
-async def _drop_stale_question(user_id: UUID, draft: StoredDraft, questions: CardQuestions) -> None:
-    """An edit asks nothing new (ticket #397), but a question about a name it took off the card
-    would hold the Confirm back over nothing, so it is closed. A tap that got there first closed
-    it already."""
+async def _drop_stale_question(
+    user_id: UUID, before: StoredDraft, draft: StoredDraft, questions: CardQuestions
+) -> None:
+    """An edit asks about no name it typed (ticket #397), but a question about a name it took off
+    the card would hold the Confirm back over nothing, so it is closed, and the card moves on to
+    the next name it was already waiting to ask about. A tap that got there first closed it
+    already, and asked its own next question."""
     settler = questions.settlers.get(draft.sport_id)
     if settler is None:
         return
-    for question in await questions.clarifications.list_shown(user_id, draft.conversation_id):
-        subject = question.clarification.subject
-        if (
-            question.draft_id == draft.id
-            and question.status == "open"
-            and subject is not None
-            and not settler.mentions(draft.draft.payload, subject)
-        ):
-            with suppress(ClarificationResolvedError):
-                await questions.clarifications.resolve(
-                    user_id,
-                    question.id,
-                    "abandoned",
-                    option_ids=None,
-                    resolved_at=questions.clock.now(),
-                )
+    asked = [
+        question
+        for question in await questions.clarifications.list_shown(user_id, draft.conversation_id)
+        if question.draft_id == draft.id
+    ]
+    stale = [
+        question
+        for question in asked
+        if question.status == "open"
+        and question.clarification.subject is not None
+        and not settler.mentions(draft.draft.payload, question.clarification.subject)
+    ]
+    for question in stale:
+        try:
+            await questions.clarifications.resolve(
+                user_id,
+                question.id,
+                "abandoned",
+                option_ids=None,
+                resolved_at=questions.clock.now(),
+            )
+        except ClarificationResolvedError:
+            return
+    if not stale:
+        return
+    # Names typed in this edit are typed-only (ADR-0015 #397 amendment), and so are the ones the
+    # athlete passed over with "Let me type instead".
+    typed_now = settler.names(draft.draft.payload) - settler.names(before.draft.payload)
+    passed_over = {
+        question.clarification.subject
+        for question in asked
+        if question.answer_option_ids == () and question.clarification.subject is not None
+    }
+    following = await settler.next_question(
+        user_id, draft.draft.payload, settled={*typed_now, *passed_over}
+    )
+    if following is not None:
+        await questions.clarifications.add(
+            user_id,
+            draft.conversation_id,
+            draft.message_id,
+            following.card_purpose,
+            following,
+            created_at=questions.clock.now(),
+            draft_id=draft.id,
+        )
 
 
 def _pending(draft: StoredDraft) -> StoredDraft:

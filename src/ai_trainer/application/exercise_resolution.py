@@ -109,3 +109,6 @@ class ResolveExercises:
 
     def mentions(self, payload: Mapping[str, JsonValue], subject: str) -> bool:
         return gym_names.mentions(GymPayload.model_validate(payload), subject)
+
+    def names(self, payload: Mapping[str, JsonValue]) -> frozenset[str]:
+        return gym_names.keys_of(GymPayload.model_validate(payload))

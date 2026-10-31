@@ -26,9 +26,15 @@ async def _norms(tx: AsyncSession, names: Collection[str]) -> Mapping[str, str]:
 async def _known_aliases(
     tx: AsyncSession, user_id: UUID, norms: Collection[str]
 ) -> dict[str, UUID]:
+    """The athlete's gym aliases among `norms`: one of another sport's exercises never names a
+    gym entry, as `match_user_aliases` reads it too."""
     rows = await tx.execute(
-        select(ExerciseAliasOrm.alias_norm, ExerciseAliasOrm.exercise_id).where(
-            ExerciseAliasOrm.user_id == user_id, ExerciseAliasOrm.alias_norm.in_(norms)
+        select(ExerciseAliasOrm.alias_norm, ExerciseAliasOrm.exercise_id)
+        .join(ExerciseOrm, ExerciseOrm.id == ExerciseAliasOrm.exercise_id)
+        .where(
+            ExerciseAliasOrm.user_id == user_id,
+            ExerciseAliasOrm.alias_norm.in_(norms),
+            ExerciseOrm.sport_id == GYM_SPORT_ID,
         )
     )
     return dict(rows.tuples().all())
@@ -90,8 +96,12 @@ async def settle_names(tx: AsyncSession, user_id: UUID, payload: GymPayload) -> 
                 settled[name] = exercise_id
             continue
         assert exercise_id is not None  # both branches above name one
-        known[norm] = exercise_id
         settled[name] = exercise_id
+        if known.get(norm) == exercise_id:
+            # Settled by this very alias, whose confirm linked the earlier entries already: the
+            # routine log of a known name writes nothing more.
+            continue
+        known[norm] = exercise_id
         await write_user_alias(tx, user_id, exercise_id, name)
         await _link_earlier(tx, user_id, norm, exercise_id)
     return settled

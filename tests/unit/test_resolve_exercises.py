@@ -635,3 +635,63 @@ async def test_an_edit_racing_a_tap_on_the_question_is_not_refused() -> None:
     edited = await _edit(athlete, draft, "incline press")
 
     assert edited.status == "pending"
+
+
+async def test_renaming_away_the_asked_name_moves_the_card_on_to_the_next_waiting_name() -> None:
+    athlete = _Athlete()
+    draft, _ = await athlete.log(_lift(), _lift("row"))
+
+    await _edit(athlete, draft, "incline press", "row")
+
+    following = athlete.open_question()
+    assert following is not None
+    assert following.clarification.subject == "row"
+    with pytest.raises(DraftAwaitingAnswerError):
+        await confirm_draft(
+            athlete.user_id, draft.id, drafts=athlete.services.drafts, clock=FixedClock()
+        )
+
+
+async def test_a_name_passed_over_before_an_edit_is_not_asked_again_after_it() -> None:
+    athlete = _Athlete()
+    draft, done = await athlete.log(_lift(), _lift("row"), _lift("curl"))
+    [first] = done.clarifications
+    await abandon_clarification(athlete.user_id, first.id, services=athlete.services)
+
+    await _edit(athlete, draft, "bench press", "seated row", "curl")
+
+    following = athlete.open_question()
+    assert following is not None
+    assert following.clarification.subject == "curl"
+
+
+async def test_a_question_dropped_by_an_edit_is_asked_again_when_its_name_comes_back() -> None:
+    """Only the athlete's own skip keeps a name from being asked again on the card."""
+    athlete = _Athlete()
+    draft, _ = await athlete.log(_lift(), _lift("row"))
+    await _edit(athlete, draft, "incline press", "row")
+    row_question = athlete.open_question()
+    assert row_question is not None
+    await _edit(athlete, draft, "bench press", "row")
+
+    await athlete.answer(row_question, KEEP_NAME_OPTION)
+
+    following = athlete.open_question()
+    assert following is not None
+    assert following.clarification.subject == "bench press"
+
+
+async def test_a_same_session_question_first_reads_no_shortlist() -> None:
+    athlete = _Athlete()
+    morning = SessionSpan(
+        id=uuid4(),
+        occurred_on=THREE_6A_TWO_6B.occurred_on,
+        first_logged_at=FROZEN_NOW.replace(hour=6),
+        last_logged_at=FROZEN_NOW.replace(hour=7),
+    )
+    athlete.sessions.latest[(athlete.user_id, "gym")] = morning
+    athlete.drafts.spans[morning.id] = morning
+
+    await athlete.log(_lift())
+
+    assert athlete.names.shortlisted == []

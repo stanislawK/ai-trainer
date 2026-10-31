@@ -34,3 +34,8 @@ class DraftSettlerPort(Protocol):
     def mentions(self, payload: Mapping[str, JsonValue], subject: str) -> bool:
         """Whether the draft still carries what a question asks about, after an edit."""
         ...
+
+    def names(self, payload: Mapping[str, JsonValue]) -> frozenset[str]:
+        """What the draft's questions could ask about, each once, as `next_question`'s `settled`
+        compares them."""
+        ...
