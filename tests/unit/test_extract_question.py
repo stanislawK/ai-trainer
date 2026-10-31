@@ -89,15 +89,14 @@ def test_a_sport_with_no_question_can_only_draft() -> None:
     assert extract_template(spec).output_type is spec.output_type
 
 
-def test_gym_and_cycling_v3_offer_the_draft_or_their_question() -> None:
-    """Ticket #206."""
+def test_gym_and_cycling_offer_the_draft_or_their_question_from_v3() -> None:
+    """Ticket #206; the active version keeps it (gym v4, ticket #373)."""
     for sport_id, question in (("gym", GymQuestion), ("cycling", CyclingQuestion)):
         spec = default_sport_registry().get(sport_id).extraction
         assert spec is not None
-        template = extract_template(spec)
 
-        assert template.version == 3
-        assert template.output_type == (spec.output_type, question)
+        assert extract_template(spec, version=3).output_type == (spec.output_type, question)
+        assert extract_template(spec).output_type == (spec.output_type, question)
         assert extract_template(spec, version=2).output_type is spec.output_type
 
 
