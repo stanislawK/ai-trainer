@@ -16,6 +16,7 @@ EXPECTED_TABLES = {
     "sport_profiles",
     "onboarding_answers",
     "llm_calls",
+    "feedback_events",
     "conversations",
     "chat_messages",
     "training_sessions",

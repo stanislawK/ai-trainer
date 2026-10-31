@@ -4,6 +4,7 @@
     uv run ai-trainer llm-debug-report [--since <ISO time>]
     uv run ai-trainer import-exercises
     uv run ai-trainer backfill-gym-sessions
+    uv run ai-trainer feedback-report [--since <ISO time>]
 
 `purge-conversations` hard-deletes every conversation last active more than
 `CONVERSATION_RETENTION_DAYS` ago, across users, with its messages by cascade. It prints the
@@ -28,6 +29,11 @@ so every payload stays as stored, and a second run writes nothing. It prints one
 `backfill-gym-sessions: skipped session=<id> reason=<reason>` line for each session that won't
 read or write, never its content, then `backfill-gym-sessions: result=ok ...` (or
 `result=skipped` with exit code 1 when any was skipped); the others still run.
+
+`feedback-report` prints the content-free feedback events (ADR-0034, #394) as one line per kind,
+template and field with its count, `<kind> <template|-> <field|-> <count>`, largest first, or
+`no feedback events` when there are none. It reads every user's rows without who made them, and
+a `--since` without a timezone is UTC. It exits 0 either way.
 """
 
 import argparse
@@ -44,8 +50,10 @@ from ai_trainer.adapters.conversation_repository import SqlAlchemyConversationRe
 from ai_trainer.adapters.db import build_engine, build_session_factory
 from ai_trainer.adapters.exercise_repository import SqlAlchemyExerciseRepository
 from ai_trainer.adapters.exercises_dataset import PinnedDatasetCatalogueSource
+from ai_trainer.adapters.feedback_repository import SqlAlchemyFeedbackEventsRepository
 from ai_trainer.adapters.gym_backfill import SqlAlchemyGymBackfillStore
 from ai_trainer.application.exercise_catalogue import import_catalogue
+from ai_trainer.application.feedback import count_signals
 from ai_trainer.application.gym_backfill import backfill_gym_sessions as run_gym_backfill
 from ai_trainer.application.ports.chat import ConversationRepositoryPort
 from ai_trainer.application.ports.clock import ClockPort
@@ -53,6 +61,7 @@ from ai_trainer.application.ports.exercises import (
     ExerciseCatalogueSourcePort,
     ExerciseRepositoryPort,
 )
+from ai_trainer.application.ports.feedback import FeedbackEventsPort
 from ai_trainer.application.ports.gym_backfill import GymBackfillPort
 from ai_trainer.application.retention import purge_expired_conversations
 from ai_trainer.domain.exercises import ExerciseCatalogueError, ExerciseDatasetError
@@ -63,6 +72,7 @@ PURGE_CONVERSATIONS = "purge-conversations"
 LLM_DEBUG_REPORT = "llm-debug-report"
 IMPORT_EXERCISES = "import-exercises"
 BACKFILL_GYM_SESSIONS = "backfill-gym-sessions"
+FEEDBACK_REPORT = "feedback-report"
 
 
 def _aware_time(value: str) -> datetime:
@@ -96,6 +106,15 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     commands.add_parser(
         BACKFILL_GYM_SESSIONS,
         help="Write gym sessions logged before the typed tables into them; payloads stay put.",
+    )
+    feedback = commands.add_parser(
+        FEEDBACK_REPORT,
+        help="Count the content-free feedback events per kind, template and field.",
+    )
+    feedback.add_argument(
+        "--since",
+        type=_aware_time,
+        help="Only events at or after this ISO time (UTC when it has no timezone).",
     )
     return parser.parse_args(argv)
 
@@ -147,6 +166,18 @@ async def backfill_gym_sessions(*, store: GymBackfillPort, output: TextIO) -> in
     return 1 if report.skipped else 0
 
 
+async def feedback_report(
+    *, events: FeedbackEventsPort, since: datetime | None, output: TextIO
+) -> int:
+    counts = count_signals(await events.signals(since=since))
+    if not counts:
+        output.write("no feedback events\n")
+        return 0
+    for row in counts:
+        output.write(f"{row.kind.value} {row.template_id or '-'} {row.field or '-'} {row.count}\n")
+    return 0
+
+
 def _import_failed(reason: str, error: Exception, output: TextIO) -> int:
     detail = " ".join(str(error).split())
     output.write(f"import-exercises: result=failed reason={reason} detail={detail}\n")
@@ -180,6 +211,12 @@ async def run(
         if args.command == BACKFILL_GYM_SESSIONS:
             return await backfill_gym_sessions(
                 store=SqlAlchemyGymBackfillStore(build_session_factory(engine)), output=output
+            )
+        if args.command == FEEDBACK_REPORT:
+            return await feedback_report(
+                events=SqlAlchemyFeedbackEventsRepository(build_session_factory(engine)),
+                since=args.since,
+                output=output,
             )
         clock = UtcClock()
         await purge_conversations(

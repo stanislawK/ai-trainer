@@ -7,6 +7,7 @@ from datetime import timedelta
 from typing import Literal
 from uuid import UUID
 
+from ai_trainer.application.feedback import FeedbackRecorder
 from ai_trainer.application.ports.chat import ChatRepositoryPort, ConversationRepositoryPort
 from ai_trainer.application.ports.clarifications import ClarificationRepositoryPort
 from ai_trainer.application.ports.clock import ClockPort
@@ -103,6 +104,8 @@ class ReplyServices:
     recent_sessions: int
     # Times each fresh log turn to its draft card (ADR-0030, G14).
     metrics: MetricsPort = NO_METRICS
+    # Records the athlete's choice-card answers as feedback events (ADR-0034).
+    feedback: FeedbackRecorder | None = None
 
 
 @dataclass(frozen=True, slots=True)

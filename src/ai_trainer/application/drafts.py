@@ -8,8 +8,10 @@ from uuid import UUID
 
 from pydantic import BaseModel, JsonValue, ValidationError
 
+from ai_trainer.application.feedback import FeedbackRecorder, changed_fields
 from ai_trainer.application.ports.clock import ClockPort
 from ai_trainer.application.ports.drafts import SessionDraftRepositoryPort
+from ai_trainer.domain.feedback import FeedbackKind
 from ai_trainer.domain.sports.registry import SportRegistry, UnknownSportError
 from ai_trainer.domain.training import (
     DraftConfirmedError,
@@ -33,21 +35,40 @@ async def confirm_draft(
 
 
 async def discard_draft(
-    user_id: UUID, draft_id: UUID, *, drafts: SessionDraftRepositoryPort, clock: ClockPort
+    user_id: UUID,
+    draft_id: UUID,
+    *,
+    drafts: SessionDraftRepositoryPort,
+    clock: ClockPort,
+    feedback: FeedbackRecorder | None = None,
 ) -> StoredDraft:
     """Throws away the athlete's own draft, now, without saving a session. Discarding it again
-    returns the same draft; another user's draft is not found, and a confirmed one is refused."""
-    return await drafts.discard(user_id, draft_id, discarded_at=clock.now())
+    returns the same draft; another user's draft is not found, and a confirmed one is refused.
+    The first discard is one `draft_discarded` feedback event (ADR-0034)."""
+    before = await drafts.get(user_id, draft_id)
+    discarded = await drafts.discard(user_id, draft_id, discarded_at=clock.now())
+    if feedback is not None and before.status == "pending":
+        await feedback.record_for_draft(user_id, FeedbackKind.DRAFT_DISCARDED, before)
+    return discarded
 
 
 async def undo_log(
-    user_id: UUID, draft_id: UUID, *, drafts: SessionDraftRepositoryPort, clock: ClockPort
+    user_id: UUID,
+    draft_id: UUID,
+    *,
+    drafts: SessionDraftRepositoryPort,
+    clock: ClockPort,
+    feedback: FeedbackRecorder | None = None,
 ) -> StoredDraft:
     """Takes the athlete's own confirmed draft's log back from its session, now: its source and
     the activities it brought go, and the session too when it was its last log (B4, B16). The
     draft stays confirmed, without a session. Another user's draft is not found, and one with
-    no session, never saved or already undone, has nothing to undo."""
-    return await drafts.undo(user_id, draft_id, undone_at=clock.now())
+    no session, never saved or already undone, has nothing to undo. An undo is one
+    `session_undone` feedback event (ADR-0034)."""
+    undone = await drafts.undo(user_id, draft_id, undone_at=clock.now())
+    if feedback is not None:
+        await feedback.record_for_draft(user_id, FeedbackKind.SESSION_UNDONE, undone)
+    return undone
 
 
 async def find_draft(
@@ -72,13 +93,16 @@ async def edit_draft(
     *,
     drafts: SessionDraftRepositoryPort,
     sports: SportRegistry,
+    feedback: FeedbackRecorder | None = None,
 ) -> StoredDraft:
     """Replaces the athlete's pending draft with their edit (F2): the date, duration, RPE and
     feeling from `changes`, validated by `SessionDraft`, and the sport's fields through its
     plugin's edit, validated by its payload model. A blank optional field clears it. A changed
     date is now one the athlete stated (ADR-0014). Raises `DraftEditError` naming every
     rejected field, and nothing changes; a confirmed or discarded draft is refused, and
-    another user's draft, or one whose sport can't be edited, is not found."""
+    another user's draft, or one whose sport can't be edited, is not found. An edit that
+    changed something is one `draft_edited` feedback event naming the changed fields, never
+    their values (ADR-0034)."""
     stored = _pending(await drafts.get(user_id, draft_id))
     try:
         spec = sports.get(stored.sport_id).extraction
@@ -107,7 +131,11 @@ async def edit_draft(
         raise DraftEditError(frozenset(invalid))
     if draft.occurred_on != stored.draft.occurred_on:
         draft = draft.model_copy(update={"date_source": "stated"})
-    return await drafts.update(user_id, draft_id, draft, payload_version=spec.payload_version)
+    saved = await drafts.update(user_id, draft_id, draft, payload_version=spec.payload_version)
+    fields = changed_fields(stored.draft, saved.draft)
+    if feedback is not None and fields:
+        await feedback.record_for_draft(user_id, FeedbackKind.DRAFT_EDITED, saved, fields=fields)
+    return saved
 
 
 def _pending(draft: StoredDraft) -> StoredDraft:

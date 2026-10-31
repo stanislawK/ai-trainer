@@ -100,6 +100,7 @@ class _DraftRoutes:
                 form_changes(values.items()),
                 drafts=ctx.replies.drafts,
                 sports=ctx.sports,
+                feedback=ctx.replies.feedback,
             )
         except DraftNotFoundError:
             raise HTTPException(status_code=NOT_FOUND) from None
@@ -144,7 +145,11 @@ class _DraftRoutes:
         user: User = request.state.user
         try:
             draft = await discard_draft(
-                user.id, parse_id(draft_id), drafts=ctx.replies.drafts, clock=ctx.clock
+                user.id,
+                parse_id(draft_id),
+                drafts=ctx.replies.drafts,
+                clock=ctx.clock,
+                feedback=ctx.replies.feedback,
             )
         except DraftNotFoundError:
             raise HTTPException(status_code=NOT_FOUND) from None
@@ -165,7 +170,11 @@ class _DraftRoutes:
         user: User = request.state.user
         try:
             draft = await undo_log(
-                user.id, parse_id(draft_id), drafts=ctx.replies.drafts, clock=ctx.clock
+                user.id,
+                parse_id(draft_id),
+                drafts=ctx.replies.drafts,
+                clock=ctx.clock,
+                feedback=ctx.replies.feedback,
             )
         except DraftNotFoundError, SessionNotFoundError:
             raise HTTPException(status_code=NOT_FOUND) from None

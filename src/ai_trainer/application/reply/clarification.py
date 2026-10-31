@@ -31,6 +31,7 @@ from ai_trainer.domain.clarification import (
     StoredClarification,
     UnknownOptionError,
 )
+from ai_trainer.domain.feedback import FeedbackKind
 from ai_trainer.domain.training import StoredDraft
 
 
@@ -119,7 +120,15 @@ async def answer_clarification(
     if question.status != "open":
         raise ClarificationResolvedError(clarification_id)
     if question.purpose == SAME_SESSION_PURPOSE:
-        return await _settle_session(user_id, question, option_ids, services)
+        settled = await _settle_session(user_id, question, option_ids, services)
+        await _record_choice(
+            user_id,
+            question,
+            template_id=settled.draft.template_id,
+            template_version=settled.draft.template_version,
+            services=services,
+        )
+        return settled
     picked = _chosen(question, option_ids)
     reading = question.purpose == READING_PURPOSE
     sport = question.clarification.sport if reading else picked
@@ -161,7 +170,35 @@ async def answer_clarification(
         return ClarificationAnswered(clarification=resolved, reply=reply)
 
     # Saved in its own task: a reader who leaves now can't cut the draft off after the answer.
-    return await asyncio.shield(asyncio.ensure_future(resume()))
+    resumed = await asyncio.shield(asyncio.ensure_future(resume()))
+    await _record_choice(
+        user_id,
+        question,
+        template_id=answer.template.id,
+        template_version=answer.template.version,
+        services=services,
+    )
+    return resumed
+
+
+async def _record_choice(
+    user_id: UUID,
+    question: StoredClarification,
+    *,
+    template_id: str | None,
+    template_version: int | None,
+    services: ReplyServices,
+) -> None:
+    """One `choice_answered` feedback event (ADR-0034): the template of what the answer made,
+    and the question's purpose as its only field; never the option picked or any text."""
+    if services.feedback is not None:
+        await services.feedback.record(
+            user_id,
+            FeedbackKind.CHOICE_ANSWERED,
+            template_id=template_id,
+            template_version=template_version,
+            fields=(question.purpose,),
+        )
 
 
 async def _settle_session(

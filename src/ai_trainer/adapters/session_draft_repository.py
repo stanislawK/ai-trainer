@@ -84,6 +84,8 @@ class SqlAlchemySessionDraftRepository:
         created_at: datetime,
         extends_session_id: UUID | None = None,
         asks: Clarification | None = None,
+        template_id: str | None = None,
+        template_version: int | None = None,
     ) -> StoredDraft:
         async with self._session_factory() as session:
             row = SessionDraftOrm(
@@ -95,6 +97,8 @@ class SqlAlchemySessionDraftRepository:
                 payload_version=payload_version,
                 status=PENDING,
                 extends_session_id=extends_session_id,
+                template_id=template_id,
+                template_version=template_version,
                 created_at=created_at,
             )
             session.add(row)
@@ -167,6 +171,8 @@ class SqlAlchemySessionDraftRepository:
         extends_session_id: UUID | None,
         asks: Clarification | None = None,
         asked_at: datetime | None = None,
+        template_id: str | None = None,
+        template_version: int | None = None,
     ) -> StoredDraft:
         """Locked first, as an edit is, so a switch racing a confirm or a discard either goes
         first, and the confirm saves the new sport, or finds the draft resolved and is
@@ -186,6 +192,8 @@ class SqlAlchemySessionDraftRepository:
             row.sport_id = sport_id
             row.draft = draft.model_dump(mode="json")
             row.payload_version = payload_version
+            row.template_id = template_id
+            row.template_version = template_version
             row.extends_session_id = extends_session_id
             # A same-session question asked about the old sport's session no longer applies.
             await session.execute(

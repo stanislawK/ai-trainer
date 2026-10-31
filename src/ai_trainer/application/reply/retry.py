@@ -103,6 +103,7 @@ async def retry_draft(
                 sport_id=sport_id,
                 draft=draft,
                 payload_version=payload_version,
+                template=answer.template,
                 services=services,
             )
         except BaseException:
