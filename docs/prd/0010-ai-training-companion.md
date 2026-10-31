@@ -4,7 +4,7 @@
 |---|---|
 | Product | ai-trainer |
 | Version | 1.1 |
-| Status | Draft |
+| Status | Approved |
 | Date | 2026-10-30 |
 | Related | ADR-0001 … ADR-0034 ([index](../adr/README.md)); supersedes [PRD 0009](0009-ai-training-companion.md) v1.0. Gym first, after the owner's first real gym session ([field transcript](../../evals/field/gym/2026-10-28-first-gym-session.md)): each gym exercise keeps one canonical name, the athlete's history checked first (B37); time, sides, implements and bands are logged and never invented (B38, B39); exercise cards and media (F23, F24); a sport owns its tables (G4); lighter evals built on real chats (G6); admins upload knowledge in the app (B7). Owner-directed 2026-10-29 and 2026-10-30. Naming a new exercise is best effort until the knowledge base lands, owner-directed 2026-10-31. Keeps v1.0's install card (F22), v0.9's Europe first (G15) and v0.8's AI onboarding |
 

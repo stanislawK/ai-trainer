@@ -4,7 +4,7 @@
 |---|---|
 | Product | ai-trainer |
 | Version | 1.0 |
-| Status | Approved |
+| Status | Superseded by [PRD 0010](0010-ai-training-companion.md), which keeps all of v1.0 |
 | Date | 2026-10-28 |
 | Related | ADR-0001 … ADR-0030 ([index](../adr/README.md)); supersedes [PRD 0008](0008-ai-training-companion.md) v0.9 — the app helps the athlete add it to the home screen: an install card in the chat and an entry in Settings (F22, owner-directed 2026-10-28). Keeps v0.9's Europe first (G15), v0.8's AI onboarding (B33–B36, F20, F21) and v0.7's gyms and location check (B27–B32, F18, F19) |
 

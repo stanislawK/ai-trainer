@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | Proposed |
+| Status | Accepted |
 | Date | 2026-10-25 |
 | Related | PRD-0008 (G8, G12), ADR-0014, ADR-0018, ADR-0023 |
 

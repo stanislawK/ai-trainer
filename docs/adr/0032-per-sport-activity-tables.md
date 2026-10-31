@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | Proposed |
+| Status | Accepted |
 | Date | 2026-10-30 |
 | Related | PRD-0010 (G4, B4, B5, B6, B37, B38, B39, F12, G13), ADR-0004, ADR-0006 (supersedes invariant 2's "no schema migration"), ADR-0022 (supersedes "Inside the payload" for gym), ADR-0024, ADR-0027, ADR-0031 |
 

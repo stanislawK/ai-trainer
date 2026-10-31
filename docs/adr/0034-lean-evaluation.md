@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | Proposed |
+| Status | Accepted |
 | Date | 2026-10-30 |
 | Related | PRD-0010 (G3, G6, G15), ADR-0008, ADR-0009 (supersedes invariants 1–2 and the per-change baseline gate), ADR-0013, ADR-0018, ADR-0020 (supersedes invariant 6's calibrated-before-active rule), ADR-0026 |
 

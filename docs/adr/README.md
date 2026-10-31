@@ -13,7 +13,7 @@ ADRs own the *how*: stack, architecture, testing and agent workflow. The current
 | 0007 | [LLM integration](0007-llm-integration.md) | Accepted | 2026-09-16 |
 | 0008 | [Conversation routing and prompt templates](0008-conversation-routing-and-prompt-templates.md) | Accepted | 2026-09-16 |
 | 0009 | [Prompt evaluation pipeline](0009-prompt-evaluation-pipeline.md) | Accepted | 2026-09-16 |
-| 0010 | [MCP tools](0010-mcp-tools.md) | Proposed | 2026-09-16 |
+| 0010 | [MCP tools](0010-mcp-tools.md) | Accepted | 2026-09-16 |
 | 0011 | [Knowledge base and ingestion (outline)](0011-knowledge-base-and-ingestion.md) | Proposed | 2026-09-16 |
 | 0012 | [Web UI](0012-web-ui.md) | Accepted | 2026-09-16 |
 | 0013 | [Testing and quality](0013-testing-and-quality.md) | Accepted | 2026-09-16 |
@@ -32,12 +32,12 @@ ADRs own the *how*: stack, architecture, testing and agent workflow. The current
 | 0026 | [LLM latency plan](0026-llm-latency-plan.md) | Accepted | 2026-10-19 |
 | 0027 | [Venues, gym grading and device location](0027-venues-gym-grading-and-device-location.md) | Accepted | 2026-10-22 |
 | 0028 | [Athlete profile and AI onboarding](0028-athlete-profile-and-ai-onboarding.md) | Accepted | 2026-10-24 |
-| 0029 | [Request and model-call limits](0029-request-and-model-call-limits.md) | Proposed | 2026-10-25 |
+| 0029 | [Request and model-call limits](0029-request-and-model-call-limits.md) | Accepted | 2026-10-25 |
 | 0030 | [Production observability on Grafana Cloud](0030-production-observability-on-grafana-cloud.md) | Accepted | 2026-10-25 |
-| 0031 | [Exercise catalogue, name resolution and media links](0031-exercise-catalogue-and-name-resolution.md) | Proposed | 2026-10-30 |
-| 0032 | [Per-sport activity tables](0032-per-sport-activity-tables.md) | Proposed | 2026-10-30 |
+| 0031 | [Exercise catalogue, name resolution and media links](0031-exercise-catalogue-and-name-resolution.md) | Accepted | 2026-10-30 |
+| 0032 | [Per-sport activity tables](0032-per-sport-activity-tables.md) | Accepted | 2026-10-30 |
 | 0033 | [Knowledge ingestion and admin upload](0033-knowledge-ingestion-and-admin-upload.md) | Proposed | 2026-10-30 |
-| 0034 | [Lean evaluation](0034-lean-evaluation.md) | Proposed | 2026-10-30 |
+| 0034 | [Lean evaluation](0034-lean-evaluation.md) | Accepted | 2026-10-30 |
 | 0035 | [Parallel agent delivery](0035-parallel-agent-delivery.md) | Accepted | 2026-10-30 |
 
 How to add an ADR: [docs/templates/README.md](../templates/README.md).

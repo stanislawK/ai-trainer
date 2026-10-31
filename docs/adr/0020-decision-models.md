@@ -133,3 +133,4 @@ A loader builds the Pydantic output type at runtime, the way `llm/router.py` bui
   - **M4.** Matching a logged session to a planned one; routing "read my planned session".
   - **M5.** Route and crag candidate disambiguation (B18), where low confidence becomes a choice card; trip recommendation score (B21).
 - Only `base_url` and the key tie the adapter to OpenRouter, so moving to TypeSafe's own API later is a settings change behind the same port.
+- Superseded in part by [ADR-0034](0034-lean-evaluation.md), accepted 2026-10-31: invariant 6. A new set starts at a conservative threshold with a smoke set of at least 5 labelled cases, and its threshold moves later on feedback.
