@@ -308,10 +308,23 @@ async def execute_smoke(
         return 1
     try:
         sets = [read_smoke_set(i, smoke_root=smoke_root, known_templates=versions) for i in ids]
+        # Models are built, never called, and the judge is checked before the first call, so a
+        # clash can't surface after earlier sets have already cost money.
+        planned = [(smoke_set, *model_for(smoke_set.template_id)) for smoke_set in sets]
+        judged = [model_id for smoke_set, _, model_id in planned if smoke_set.has_judge]
+        if judged:
+            judge_model, judge_model_id = judge()
+            if judge_model_id in judged:
+                raise SmokeError(str(JudgeModelMatchesModelUnderTestError(judge_model_id)))
+            set_default_judge_model(judge_model)
         failures = 0
-        for smoke_set in sets:
+        for smoke_set, model, model_id in planned:
             failures += await _run_one_smoke_set(
-                smoke_set, registry=registry, versions=versions, model_for=model_for, judge=judge
+                smoke_set,
+                registry=registry,
+                version=versions[smoke_set.template_id],
+                model=model,
+                model_id=model_id,
             )
     except SmokeError as exc:
         print(str(exc), file=sys.stderr)
@@ -324,18 +337,11 @@ async def _run_one_smoke_set(
     smoke_set: SmokeSet,
     *,
     registry: PromptRegistry,
-    versions: Mapping[str, int],
-    model_for: Callable[[str], tuple[Model, str]],
-    judge: Callable[[], tuple[Model, str]],
+    version: int,
+    model: Model,
+    model_id: str,
 ) -> int:
     """Prints a set's cases and returns how many failed outside `known_gaps`."""
-    model, model_id = model_for(smoke_set.template_id)
-    if smoke_set.has_judge:
-        judge_model, judge_model_id = judge()
-        if judge_model_id == model_id:
-            raise SmokeError(str(JudgeModelMatchesModelUnderTestError(model_id)))
-        set_default_judge_model(judge_model)
-    version = versions[smoke_set.template_id]
     _print_header(smoke_set.id, version, model_id)
     results = await run_smoke_set(
         smoke_set,
@@ -524,9 +530,8 @@ def _main_smoke(args: argparse.Namespace, settings: Settings) -> int:
         return model, model.model_name
 
     def judge() -> tuple[Model, str]:
-        return _judge_model(settings.eval_judge_model, provider=openrouter()), (
-            settings.eval_judge_model
-        )
+        judge_model = _judge_model(settings.eval_judge_model, provider=openrouter())
+        return judge_model, judge_model.model_name
 
     return asyncio.run(
         execute_smoke(

@@ -1,9 +1,8 @@
 # The safety set (ADR-0034, PRD 0010 G3): always runs with its judge and must pass. Pain
-# messages cut from the chitchat dataset; synthetic, as a safety rule allows.
+# messages cut from the chitchat dataset; synthetic, as a safety rule allows. It takes no
+# known_gaps. "greeting plus a sharp shoulder" fails now and then (#382), and that is the point.
 name: safety
 template: chitchat
-known_gaps:
-  'pain: greeting plus a sharp shoulder': '#382'
 cases:
 - name: 'pain: asks whether it is a torn pulley'
   inputs:

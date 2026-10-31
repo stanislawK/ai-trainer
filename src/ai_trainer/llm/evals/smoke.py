@@ -28,6 +28,7 @@ from ai_trainer.llm.prompts.registry import PromptRegistry
 SAFETY_SMOKE_ID = "safety"
 _JUDGE = "LLMJudge"
 _TICKET = re.compile(r"#\d+")
+_SET_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*")
 
 
 class SmokeError(ValueError):
@@ -78,36 +79,64 @@ def _names_judge(evaluators: object) -> bool:
     )
 
 
-def read_smoke_set(
-    smoke_id: str, *, smoke_root: Path, known_templates: Collection[str] | None = None
-) -> SmokeSet:
-    """The set `smoke_id`, checked end to end so a mistake shows before a model is called."""
-    path = smoke_root / f"{smoke_id}.yaml"
-    if not path.is_file():
+def _load_mapping(smoke_id: str, smoke_root: Path) -> dict[str, object]:
+    if not _SET_ID.fullmatch(smoke_id) or not (smoke_root / f"{smoke_id}.yaml").is_file():
         available = ", ".join(smoke_ids(smoke_root)) or "none"
         raise SmokeError(f"No smoke set named {smoke_id!r}; the sets are: {available}")
-    loaded = yaml.safe_load(path.read_text())
+    loaded = yaml.safe_load((smoke_root / f"{smoke_id}.yaml").read_text())
     if not isinstance(loaded, dict):
-        raise SmokeError(f"{path.name}: expected a mapping at the top level")
-    template_id = str(loaded.pop("template", smoke_id))
-    raw_gaps = loaded.pop("known_gaps", None) or {}
-    known_gaps = {str(name): str(ticket) for name, ticket in raw_gaps.items()}
-    try:
-        cases = [SmokeCase.model_validate(case) for case in loaded.get("cases", [])]
-    except ValidationError as exc:
-        raise SmokeError(f"{path.name}: {exc}") from exc
-    has_judge = _names_judge(loaded.get("evaluators")) or any(
-        _names_judge(case.get("evaluators")) for case in loaded.get("cases", [])
-    )
+        raise SmokeError(f"{smoke_id}.yaml: expected a mapping at the top level")
+    return loaded
 
-    if known_templates is not None and template_id not in known_templates:
-        raise SmokeError(f"{smoke_id}: no prompt template named {template_id!r}")
-    case_names = {case.name for case in cases}
+
+def _read_cases(smoke_id: str, loaded: Mapping[str, object]) -> list[SmokeCase]:
+    raw_cases = loaded.get("cases")
+    if not isinstance(raw_cases, list) or not raw_cases:
+        raise SmokeError(f"{smoke_id}: `cases` must be a list with at least one case")
+    try:
+        cases = [SmokeCase.model_validate(case) for case in raw_cases]
+    except ValidationError as exc:
+        raise SmokeError(f"{smoke_id}.yaml: {exc}") from exc
+    names = [case.name for case in cases]
+    if duplicate := next((name for name in names if names.count(name) > 1), None):
+        raise SmokeError(f"{smoke_id}: two cases are named {duplicate!r}")
+    return cases
+
+
+def _read_known_gaps(
+    smoke_id: str, raw_gaps: object, case_names: Collection[str]
+) -> dict[str, str]:
+    if raw_gaps is None:
+        return {}
+    if not isinstance(raw_gaps, dict):
+        raise SmokeError(f"{smoke_id}: `known_gaps` must map a case name to a ticket")
+    if raw_gaps and smoke_id == SAFETY_SMOKE_ID:
+        raise SmokeError(f"{smoke_id}: the safety set must pass; it takes no known_gaps")
+    known_gaps = {str(name): str(ticket) for name, ticket in raw_gaps.items()}
     for name, ticket in known_gaps.items():
         if not _TICKET.fullmatch(ticket):
             raise SmokeError(f"{smoke_id}: known gap {name!r} needs a ticket number like #373")
         if name not in case_names:
             raise SmokeError(f"{smoke_id}: known gap {name!r} names no case in the set")
+    return known_gaps
+
+
+def read_smoke_set(
+    smoke_id: str, *, smoke_root: Path, known_templates: Collection[str] | None = None
+) -> SmokeSet:
+    """The set `smoke_id`, checked end to end so a mistake shows before a model is called."""
+    loaded = _load_mapping(smoke_id, smoke_root)
+    template_id = str(loaded.pop("template", smoke_id))
+    raw_gaps = loaded.pop("known_gaps", None)
+    cases = _read_cases(smoke_id, loaded)
+    known_gaps = _read_known_gaps(smoke_id, raw_gaps, {case.name for case in cases})
+    has_judge = _names_judge(loaded.get("evaluators")) or any(
+        isinstance(case, dict) and _names_judge(case.get("evaluators"))
+        for case in loaded["cases"]  # type: ignore[attr-defined]
+    )
+
+    if known_templates is not None and template_id not in known_templates:
+        raise SmokeError(f"{smoke_id}: no prompt template named {template_id!r}")
     if has_judge and smoke_id != SAFETY_SMOKE_ID:
         raise SmokeError(f"{smoke_id}: only the safety set may use {_JUDGE}; grade in code")
     if smoke_id == SAFETY_SMOKE_ID and not has_judge:
@@ -160,7 +189,11 @@ async def run_smoke_set(
         else:
             detail = ""
         results[case.name] = _result(smoke_set, case.name, not detail, detail)
-    return [results[case.name] for case in smoke_set.cases if case.name in results]
+    return [
+        results.get(case.name)
+        or _result(smoke_set, case.name, False, "the run reported no result for this case")
+        for case in smoke_set.cases
+    ]
 
 
 def _result(smoke_set: SmokeSet, name: str, passed: bool, detail: str) -> SmokeCaseResult:

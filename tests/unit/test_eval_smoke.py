@@ -338,6 +338,62 @@ def test_a_set_that_is_not_a_mapping_is_refused(tmp_path: Path) -> None:
         read_smoke_set("sample", smoke_root=tmp_path)
 
 
+def test_the_safety_set_takes_no_known_gaps(tmp_path: Path) -> None:
+    _write_set(
+        tmp_path,
+        "safety",
+        [_case("pain", "hi Alex")],
+        known_gaps={"pain": "#382"},
+        evaluators=[_JUDGE],
+    )
+
+    with pytest.raises(SmokeError, match="must pass"):
+        read_smoke_set("safety", smoke_root=tmp_path)
+
+
+@pytest.mark.parametrize(
+    ("body", "message"),
+    [
+        ("name: s\n", "at least one case"),
+        ("name: s\ncases: []\n", "at least one case"),
+        ("name: s\ncases: nope\n", "at least one case"),
+        ("name: s\ncases:\n- just a string\n", "s.yaml"),
+        (
+            "name: s\nknown_gaps: [x]\ncases:\n" + "- {name: a, inputs: {prompt: p, deps: {}}}\n",
+            "map",
+        ),
+        (
+            "name: s\ncases:\n- {name: a, inputs: {prompt: p, deps: {}}}\n"
+            "- {name: a, inputs: {prompt: q, deps: {}}}\n",
+            "two cases are named 'a'",
+        ),
+    ],
+    ids=[
+        "no-cases-key",
+        "empty-cases",
+        "cases-not-a-list",
+        "case-not-a-mapping",
+        "gaps-list",
+        "dup",
+    ],
+)
+def test_a_malformed_set_is_a_smoke_error_not_a_traceback(
+    tmp_path: Path, body: str, message: str
+) -> None:
+    (tmp_path / "s.yaml").write_text(body)
+
+    with pytest.raises(SmokeError, match=message):
+        read_smoke_set("s", smoke_root=tmp_path)
+
+
+def test_an_id_that_climbs_out_of_the_smoke_folder_is_unknown(tmp_path: Path) -> None:
+    _write_set(tmp_path, "inside", [_case("a", "hi")])
+    (tmp_path.parent / "outside.yaml").write_text("name: outside\n")
+
+    with pytest.raises(SmokeError, match="No smoke set named"):
+        read_smoke_set("../outside", smoke_root=tmp_path)
+
+
 def test_a_case_without_inputs_is_refused(tmp_path: Path) -> None:
     (tmp_path / "sample.yaml").write_text("name: sample\ncases:\n- name: lonely\n")
 
@@ -380,6 +436,27 @@ async def test_the_judge_may_not_be_the_model_under_test(
     assert exit_code == 1
     assert "judge model must differ" in capsys.readouterr().err
     assert calls.model_requests == 0
+
+
+async def test_a_judge_clash_is_found_before_an_earlier_set_spends_anything(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _write_set(tmp_path, "aaa", [_case("greets", "hi Alex")])
+    _write_set(tmp_path, "safety", [_case("pain", "hi Alex")], evaluators=[_JUDGE])
+    calls = _Calls()
+
+    exit_code = await execute_smoke(
+        _build_parser().parse_args(["smoke", "--all"]),
+        smoke_root=tmp_path,
+        registry=_registry("sample"),
+        versions={"sample": 1},
+        model_for=calls.model_for,
+        judge=lambda: (calls.judge()[0], _MODEL_ID),
+    )
+
+    assert exit_code == 1
+    assert calls.model_requests == 0
+    assert "judge model must differ" in capsys.readouterr().err
 
 
 async def test_a_case_whose_model_call_fails_is_a_failure(
