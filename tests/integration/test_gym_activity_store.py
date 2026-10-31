@@ -3,6 +3,7 @@ are written in the confirm's transaction with the source row they came from, the
 payload is `{}`, an added log appends after the session's entries and its undo takes only its
 own, and nothing reaches another user's rows. Climbing and cycling keep their payload."""
 
+import json
 from collections.abc import Callable
 from datetime import timedelta
 from decimal import Decimal
@@ -182,6 +183,41 @@ async def test_a_log_added_to_a_gym_session_appends_its_entries_after_the_existi
         (2, "RDL", "Squat 100kg 5x5, RDL 80kg 3x8"),
         (3, "Dips", "then dips 3x10"),
     ]
+
+
+async def test_a_log_added_to_a_session_from_before_the_tables_keeps_its_payload(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    """Owner-chosen at #376's plan gate (D4): the old v1 payload stays as it is (ADR-0022
+    invariant 4) and the added log's rows start at 1; #377 backfills the earlier activities."""
+    athlete = await _athlete(db_session_factory, "gym-pre-table")
+    first = await _logged(athlete, "Squat 100kg 5x5", _gym(_lift("Squat", 5, 5, "100kg", 100)))
+    v1 = {"sport": "gym", "activities": [{"name": "Squat", "sets": 5, "reps": 5}]}
+    async with db_session_factory() as db:
+        # The session as a confirm before #376 left it: a v1 payload and no rows.
+        await db.execute(
+            text("DELETE FROM gym_exercise_entries WHERE session_id = :id"),
+            {"id": first.session_id},
+        )
+        await db.execute(
+            text("UPDATE training_sessions SET payload = CAST(:payload AS jsonb) WHERE id = :id"),
+            {"payload": json.dumps(v1), "id": first.session_id},
+        )
+        await db.commit()
+
+    await _logged(
+        athlete,
+        "then dips 3x10",
+        _gym({"name": "Dips", "sets": 3, "reps": 10}),
+        at=_LATER,
+        extends=first.session_id,
+    )
+
+    assert (await _session(db_session_factory, first.session_id)).payload == v1
+    assert [
+        (position, name)
+        for position, name, *_ in await _entries(db_session_factory, first.session_id)
+    ] == [(1, "Dips")]
 
 
 # --- AC: undo takes only its own entries; the last undo removes the session ----------------
