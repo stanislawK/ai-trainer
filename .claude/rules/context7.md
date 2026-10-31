@@ -12,4 +12,4 @@ Do not use for: refactoring, writing scripts from scratch, debugging business lo
 
 ## In this project
 
-Several pinned libraries are newer than training data: htmx 4, Pydantic AI v2, FastMCP 3 (see `CLAUDE.md`). Use a version-specific library ID when a version is named or pinned. Prefer official packages over community forks; cite the library version when it affects the answer.
+Several pinned libraries are newer than training data: htmx 4, Pydantic AI v2, FastMCP (see `CLAUDE.md`). Use a version-specific library ID when a version is named or pinned. Prefer official packages over community forks; cite the library version when it affects the answer.

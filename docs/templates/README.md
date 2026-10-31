@@ -7,6 +7,7 @@ Copy a template to create a new doc or ticket. Never invent a new structure.
 | [prd.md](prd.md) | A new PRD or PRD revision in `docs/prd/` |
 | [adr.md](adr.md) | A new ADR in `docs/adr/` |
 | [ticket.md](ticket.md) | The body of a GitHub issue (created with `/create-tickets`) |
+| [research.md](research.md) | A research document in `docs/research/` |
 
 ## Numbering
 

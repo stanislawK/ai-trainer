@@ -18,6 +18,7 @@ Use these layers:
 |---|---|---|---|
 | PRD | What and why | `docs/prd/NNNN-*.md` | Exactly one Approved |
 | ADR | How | `docs/adr/NNNN-*.md` | Context → Decision → Invariants → Consequences |
+| Research | Cited findings that tickets and ADRs build on; decides nothing | `docs/research/<topic>.md` | Trusted sources only |
 | Templates | Shape of docs and tickets | `docs/templates/` | Copy, never invent |
 | `CLAUDE.md` | Always-on conventions | repo root | Points at the PRD and ADR indexes |
 | Rules | Path-scoped conventions | `.claude/rules/*.md` with `paths:` frontmatter | Cite ADRs; never contradict an Accepted ADR |
@@ -84,4 +85,5 @@ Human gates use Claude Code's `AskUserQuestion` with exactly those options.
   - **Where it's carried.** `apply-ticket`, `create-tickets`, `implement-design`, `docs/templates/ticket.md`, `.claude/rules/web.md` and `CLAUDE.md` carry this.
 - Moving to Linear later means a new ADR superseding the tracker section, plus skill changes.
 - Amended 2026-10-11 at the project owner's direction: after opening the PR the agent suggests the best next ticket unasked, from the open `status:todo` issues and their blockers.
+- Amended 2026-10-31 at the project owner's direction: new areas can start with a research ticket whose findings live in `docs/research/`, cited, from trusted sources only ([README](../research/README.md)). Tickets that implement the area reference the document. A finding that should change a decision goes through `/update-docs`.
 - Superseded in part by [ADR-0035](0035-parallel-agent-delivery.md), 2026-10-30: invariants 4 and 10 and the three-gate loop. The plan gate becomes a critic check with a human gate only when risky, the acceptance gate applies to UI tickets only, and the review gate is the owner's review of a draft PR.

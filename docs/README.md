@@ -6,6 +6,7 @@ This project is document-driven: docs are written and reviewed before code, and 
 |---|---|
 | Product requirements — what and why | [prd/README.md](prd/README.md) (links the current PRD) |
 | Architecture decisions — how | [adr/README.md](adr/README.md) |
+| Research — cited findings tickets build on | [research/README.md](research/README.md) |
 | Templates and how to add docs | [templates/README.md](templates/README.md) |
 | Tickets | GitHub Issues in `stanislawK/ai-trainer` (labels `area:*`, `status:*`, `size:*`) |
 | Agent instructions | `CLAUDE.md`, `.claude/rules/`, `.claude/skills/` at the repo root |

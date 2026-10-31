@@ -13,4 +13,5 @@ paths:
 - Superseding: mark the old doc Superseded with a link to its replacement.
 - An ADR that locks stack or workflow patches `CLAUDE.md`, `.claude/rules/` and `.claude/skills/` in the same change.
 - References must point at real paths and real requirement IDs.
+- Research documents live in `docs/research/`, follow `docs/templates/research.md`, and cite trusted sources only ([README](../../docs/research/README.md)). They inform decisions and make none.
 - Keep ADRs short: Context → Decision → Invariants → Consequences.

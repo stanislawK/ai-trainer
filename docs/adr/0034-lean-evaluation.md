@@ -25,7 +25,8 @@ We still need to check that a change does what was intended. But the check shoul
 - **What one is:** each template and each decision set has `evals/smoke/<id>.yaml`, about 5–10 cases.
 - **Where cases come from:**
   - mostly cut from [field transcripts](../../evals/field/README.md), each case's `metadata.field` naming its transcript;
-  - synthetic cases only for a reported bug or a safety rule.
+  - synthetic cases only for a reported bug or a safety rule;
+  - until a template has a transcript behind it, about 5 cases taken from its existing dataset, replaced as real chats arrive (owner-directed 2026-10-31, to spend as little as possible on them).
 - **Grading:** in code only, with the existing evaluators: schema validity, the fields that matter, and no value the message didn't give.
 - **Runs:** one per case, with no repeats and no judge. `uv run ai-trainer-evals smoke <id>` runs one set, and `smoke --all` runs every set.
 - **Passing:** every case passes, or is listed under `known_gaps` with a ticket number.

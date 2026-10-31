@@ -12,10 +12,10 @@ Specialist agents need data: training history, load, knowledge, plans. The proje
 
 ## Decision
 
-- A standalone **FastMCP 3.x** server in `src/ai_trainer/mcp/`.
+- A standalone **FastMCP** server in `src/ai_trainer/mcp/`. The major version is settled by the research ticket and recorded here (see Consequences).
 - **Inside the app**, Pydantic AI specialists consume it in-process with `MCPToolset(server)` — no network hop.
-- **For external MCP clients**, it is mounted into FastAPI with `mcp.http_app(...)`, with its lifespan merged through `combine_lifespans` (required for session management).
-- **Starter tools:** `query_sessions`, `training_load_summary`, `search_knowledge`, `get_active_plan`, `propose_plan_change`, `draft_session`, and from M5 `lookup_route`, `recommend_area_routes`, `resolve_place` (ADR-0016, ADR-0017).
+- **For external MCP clients**, later: it is mounted into FastAPI with `mcp.http_app(...)`, with its lifespan merged through `combine_lifespans` (required for session management). Deferred, owner-directed 2026-10-31, until an amendment decides how tokens are issued. The app's Google sign-in uses server-side sessions and issues none (ADR-0005).
+- **Starter tools:** `query_sessions`, `training_load_summary`, `search_knowledge`, `get_active_plan`, `propose_plan_change`, `draft_session` (deferred until a specialist needs it, owner-directed 2026-10-31), and from M5 `lookup_route`, `recommend_area_routes`, `resolve_place` (ADR-0016, ADR-0017).
 - **Resources:** athlete profile, availability, current plan, and `current_datetime` for external clients, which have no deps to inject the date into (ADR-0014).
 - Reference-data tools read shared, non-user-scoped tables, so `current_user_id(ctx)` governs their lookup budget and rate limit (B22) rather than the rows they return.
 - Every tool calls an application use case; tools contain no business logic.
@@ -24,7 +24,7 @@ Specialist agents need data: training history, load, knowledge, plans. The proje
 **User identity** comes from one helper, `current_user_id(ctx)`:
 
 - *In-process:* the host injects the user ID from `RunContext.deps` into the MCP request meta with `MCPToolset(process_tool_call=…)`, and the tool reads it from `ctx.request_context.meta`.
-- *Over HTTP:* only verified token claims count (`get_access_token()`). Meta sent by an HTTP client is ignored, because the client controls it.
+- *Over HTTP, once built:* only verified token claims count (`get_access_token()`). Meta sent by an HTTP client is ignored, because the client controls it.
 
 ### Invariants
 
@@ -35,10 +35,12 @@ Specialist agents need data: training history, load, knowledge, plans. The proje
 
 ## Consequences
 
-- ⚠ The first MCP ticket proves with a test that `process_tool_call` meta reaches a FastMCP 3 tool in-process.
+- ⚠ The first MCP ticket proves with a test that `process_tool_call` meta reaches a FastMCP tool in-process.
 - ⚠ Practitioner experience shows agent tool selection degrades past roughly 10–20 simultaneously active tools, well under the protocol's limit — keep this server in the 5–15 range. It starts at 6 tools (9 from M5); if later growth threatens that ceiling, split by domain or lean harder on ADR-0008's per-specialist toolsets before adding more tools here.
 - The `/add-mcp-tool` skill implements these invariants.
 - Hot path and tools, approved in the gym-exercises plan on 2026-10-30 ([ADR-0031](0031-exercise-catalogue-and-name-resolution.md)):
   - The logging hot path calls its use cases in code, such as resolving exercise names against the athlete's history (B37). A model's tool-call round trip there would break G14.
-  - MCP tools wrap the same use cases for specialists and external clients. M1g adds `find_exercise` and `exercise_history`, and makes `draft_session` the first write tool. M3 adds `search_knowledge` ([ADR-0033](0033-knowledge-ingestion-and-admin-upload.md)).
-  - Before the first tool, a research ticket updates `/add-mcp-tool` and adds `.claude/rules/mcp.md`, from FastMCP 3 and Pydantic AI `MCPToolset` docs (context7) and the MCP tool-design guidance.
+  - MCP tools wrap the same use cases for specialists and external clients. M1g adds `find_exercise` and `exercise_history`. M3 adds `search_knowledge` ([ADR-0033](0033-knowledge-ingestion-and-admin-upload.md)).
+  - Before the first tool, a research ticket writes [docs/research/mcp.md](../research/mcp.md) from trusted sources only, updates `/add-mcp-tool` and adds `.claude/rules/mcp.md`. Tickets that build the server or a tool cite that document (owner-directed 2026-10-31).
+- ⚠ The version is open: ADR-0010 assumed FastMCP 3, while `pydantic-ai-slim` 2.57's `mcp` extra accepts `fastmcp-slim` from 3.3 up to 5, and PyPI's latest `fastmcp` is 4.1.4 (read 2026-10-31). An unpinned install gets 4. The research ticket compares them and records the choice here.
+- In-process meta is documented for both libraries: `process_tool_call` ([Pydantic AI v2.0.0](https://github.com/pydantic/pydantic-ai/blob/v2.0.0/docs/mcp/client.md)) and `ctx.request_context.meta` ([FastMCP v3.4.2](https://github.com/prefecthq/fastmcp/blob/v3.4.2/docs/servers/context.mdx)). The first server ticket still proves it with a test, on the chosen version.

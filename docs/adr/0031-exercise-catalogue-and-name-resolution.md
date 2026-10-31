@@ -47,9 +47,11 @@ Shared reference tables. The catalogue rows hold no user data (like ADR-0016's t
   - A GIN trigram index (`pg_trgm`) on `alias_norm` and on `lower(unaccent(name))`.
   - A `tsvector` on the name and aliases with the `simple` configuration. PostgreSQL 18 ships no Polish stemmer: the local `pg_ts_config` lists 29 languages without Polish (checked 2026-10-30).
   - `pg_trgm` 1.6 and `unaccent` are available in the project's PostgreSQL 18.6 image.
-- **Seeding:** `uv run ai-trainer import-exercises`, an idempotent CLI pinned to one dataset commit in `Settings`.
+- **Seeding:** `uv run ai-trainer import-exercises`, an idempotent CLI pinned to one dataset commit in `Settings` (`7455efa` at the first import).
   - **Rows:** it upserts on `(source, source_ref)` and never touches custom rows or user aliases.
-  - **`default_measure`:** derived in code from equipment (body weight → `reps`, band → `band_reps`, otherwise `load_reps`), with a committed override file for the exceptions (planks → `time`).
+  - **`default_measure`:** derived in code from equipment (body weight → `reps`, band → `band_reps`, otherwise `load_reps`), with a committed override file, `data/catalogue/overrides.yaml`, for the exceptions (planks → `time`).
+  - **Names:** the source's lower-case names are title-cased and lose a `(male)` or `(female)` suffix, which 33 of them carry (read 2026-10-31). The override file renames or skips the exceptions.
+  - **Supplement:** `data/catalogue/extra.yaml` is a short, human-reviewed list of common exercises the source lacks, such as face pull, imported with `source = ai-trainer`. It grows when a real chat shows a gap and isn't filled up front.
   - **Polish names:** the dataset has none, so they come from an AI-drafted alias file (`data/catalogue/aliases.pl.yaml`). A human reviews it before it is committed. It is data, not a prompt.
 
 ### Resolution order (B37)
@@ -66,12 +68,19 @@ Shared reference tables. The catalogue rows hold no user data (like ADR-0016's t
    - by trigram and `simple` full-text search over names and aliases in every language;
    - narrowed by the extracted equipment and load when present.
 
+   Only candidates above a `Settings` floor count, and with none Jev isn't called.
+
    Jev then picks one candidate or "none of these". This is a closed-set draft field (ADR-0020), added with `/add-decision`.
    - **Confident pick:** the draft card shows the canonical name with "you wrote: …" under it. Confirming the draft confirms the mapping and stores a user alias.
-   - **Below threshold, "none", a timeout or an error:** an F23 choice card (ADR-0015). It offers the candidates, each with a short description taken from `exercise_texts` and media when approved media exists, plus "Keep my name" and "let me type instead".
+   - **Below threshold, "none", a timeout or an error:** an F23 choice card (ADR-0015). It offers the candidates, each with a short description taken from `exercise_texts` and media when approved media exists, plus "Keep my name" and "let me type instead". With no candidate it offers only those two.
    - **"Keep my name":** creates a custom exercise owned by the athlete.
 
 The draft carries `exercise_id` per activity. The typed name always stays as `name_as_typed`. The MCP tools `find_exercise` and `exercise_history` (ADR-0010) wrap the same use case for specialists and external clients.
+
+**The shortlist is best effort until the knowledge base lands.** Owner-directed 2026-10-31. Guessing a name the athlete paraphrased is not a bar for M1g:
+- A missed guess costs one tap on "Keep my name", and history remembers the answer from then on.
+- M1g sets no recall target and evaluates the shortlist no further than the decision set's smoke set of 5 cases (ADR-0034).
+- Better matching comes from M3's search over the catalogue texts (ADR-0033), and is measured then, on real data.
 
 **No language step.** Matching runs over aliases and texts in every language, and trigram search needs no language. A Jev language check would add a round trip to the hot path and decide nothing that matching needs. If a later feature needs the language, a local detector library is cheaper than a model call.
 
@@ -106,12 +115,15 @@ No media is imported until a source with a license we hold is chosen. That is a 
 - **Let the extraction LLM name the exercise from a catalogue in its prompt.** 1,324 names don't fit a lean prompt (G14), and an LLM would write names freely rather than pick.
 - **An external exercise API at request time (ADR-0016's port).** That adds a network call to every log. The data changes rarely, so an import is enough.
 - **Embedding search for names from day one.** It needs ADR-0033's model first. Trigram covers typos and word order for short names, and embeddings join the shortlist later without a schema change.
+- **A search phrase returned by `gym.extract`, used only for matching.** It might rescue paraphrases at no extra call, but it adds a prompt field to evaluate for a problem M3 addresses. Left out, owner-directed 2026-10-31.
 
 ## Consequences
 
-- `gym.extract` stops being told to copy names exactly. It extracts the movement and its measures (ADR-0032), and resolution names it. The new template version goes through `/tune-prompt` (ADR-0034).
+- `gym.extract` keeps copying the name as typed, which history matches on (invariant 4), and gains the measures (ADR-0032). Resolution names the exercise. The new template version goes through `/tune-prompt` (ADR-0034).
+- ⚠ Expect paraphrases to miss, accepted above. A Python approximation of `pg_trgm` on the pinned dataset, 2026-10-31, ranks `dumbbell lateral raise` 178th among dumbbell exercises for "Rising straight arms on both sides", and "Face pull" isn't in the dataset. Plain names such as "Bench press" and "Plank" do find the right family of exercises.
 - The migration adds `CREATE EXTENSION IF NOT EXISTS pg_trgm` and `unaccent`. Both are expand-only (ADR-0024).
 - ADR-0020's catalogue candidate is delivered here. The set starts at a conservative threshold and is tuned from feedback (ADR-0034).
 - The F23 card needs a Claude Design mock with a media slot before its web ticket (ADR-0019).
 - ⚠ The media source (a Gym visual license, an openly licensed set, or drawings) is a spike ticket. Until it lands, cards show text only.
+- When M3's search improves the shortlist, whether to offer a catalogue match for an athlete's existing custom exercises is decided then. The custom row and its entries stay valid either way.
 - A `cycling` or `climbing` catalogue can reuse these tables through `sport_id` when a PRD asks for one.

@@ -73,6 +73,8 @@ Agents don't upload.
 
 ## Consequences
 
+- **Research first**, owner-directed 2026-10-31. Two research tickets write [docs/research/knowledge-base.md](../research/knowledge-base.md) (parsers, chunking, citation locators, evidence handling) and [docs/research/hybrid-search.md](../research/hybrid-search.md) (fusion, HNSW, English and Polish full-text, cheap retrieval checks) from trusted sources only. The embedding spike and every implementing ticket cite them. A finding that contradicts this ADR is proposed through `/update-docs`.
+- `search_knowledge`, with the catalogue texts ingested, is what later improves the exercise shortlist (ADR-0031). That improvement is measured here, not in M1g.
 - ADR-0011 stays the storage decision. Its "follow-up ADR at M3" is this one, and its `/ingest-knowledge` skill becomes `/research-knowledge` plus the upload page.
 - ⚠ `EMBEDDING_MODEL` and `EMBEDDING_DIM` are open until the spike. The spike needs the OpenRouter MCP authorized (`/mcp`).
 - ⚠ The `uploads` bucket is the only copy of a source file. ADR-0023's nightly backup covers the database, not R2. Whether to copy the bucket too is decided at the infra ticket.
