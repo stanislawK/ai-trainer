@@ -97,13 +97,15 @@ def test_5x5_squat_then_3_sets_of_pull_ups_is_both_exercises() -> None:
     squat, pull_ups = _expected(name).to_payload().activities
 
     assert case.inputs.prompt == "5x5 squat at 100kg, then 3 sets of pull-ups"
-    assert (squat.name, squat.sets, squat.reps, squat.load and squat.load.kg) == (
+    first = squat.sets[0]
+    assert (squat.name_as_typed, len(squat.sets), first.reps, first.load and first.load.kg) == (
         "squat",
         5,
         5,
         100,
     )
-    assert (pull_ups.name, pull_ups.sets, pull_ups.reps, pull_ups.load) == (
+    empty = pull_ups.sets[0]
+    assert (pull_ups.name_as_typed, len(pull_ups.sets), empty.reps, empty.load) == (
         "pull-ups",
         3,
         None,
@@ -122,15 +124,17 @@ def test_bench_yesterday_just_after_local_midnight_is_the_athletes_yesterday() -
     assert case.inputs.prompt == "Bench yesterday 3\N{MULTIPLICATION SIGN}8 @ 60"
     assert case.inputs.deps["now_local"] == "2026-10-13T00:40:00+02:00"
     assert (expected.occurred_on, expected.date_source) == (date(2026, 10, 12), "relative")
-    assert bench.load is not None
-    assert (bench.load.original, bench.load.unit, bench.load.kg) == ("60", "kg", 60)
+    load = bench.sets[0].load
+    assert load is not None
+    assert (load.original, load.unit, load.kg) == ("60", "kg", 60)
 
 
 def test_a_deadlift_in_lb_is_stored_in_kg_with_its_original() -> None:
     (deadlift,) = _expected("units: deadlift in lb (AC)").to_payload().activities
 
-    assert deadlift.load is not None
-    assert (deadlift.load.original, deadlift.load.unit, deadlift.load.kg) == (
+    load = deadlift.sets[0].load
+    assert load is not None
+    assert (load.original, load.unit, load.kg) == (
         "315 lb",
         "lb",
         142.88,

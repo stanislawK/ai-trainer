@@ -340,5 +340,5 @@ async def test_tapping_a_movement_stores_a_pending_draft_of_that_movement(
     [draft] = answered.reply.drafts
     assert draft.status == "pending"
     [exercise] = GymPayload.model_validate(draft.draft.payload).activities
-    assert exercise.name == "overhead press"
+    assert exercise.name_as_typed == "overhead press"
     assert await _count(db_session_factory, "training_sessions", lifter.user_id) == 1

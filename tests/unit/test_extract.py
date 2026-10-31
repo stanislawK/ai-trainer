@@ -164,6 +164,7 @@ def test_extract_templates_skip_a_sport_without_an_extraction() -> None:
         ("gym.extract", 2),
         ("gym.extract", 3),
         ("gym.extract", 4),
+        ("gym.extract", 5),
         ("cycling.extract", 1),
         ("cycling.extract", 2),
         ("cycling.extract", 3),
@@ -249,8 +250,9 @@ async def test_the_gym_agent_returns_a_load_in_lb_that_becomes_kg() -> None:
 
     assert isinstance(result.output, GymExtraction)
     (exercise,) = result.output.to_payload().activities
-    assert exercise.load is not None
-    assert (exercise.load.original, exercise.load.kg) == ("135 lb", 61.23)
+    load = exercise.sets[0].load
+    assert load is not None
+    assert (load.original, load.kg) == ("135 lb", 61.23)
 
 
 async def test_the_gym_prompt_carries_the_local_day_and_the_message() -> None:
@@ -412,10 +414,11 @@ def _render_active(template_id: str, version: int, deps: ExtractDeps) -> str:
 
 def test_every_sport_runs_its_active_extraction_version() -> None:
     """Every sport moved to v3 to ask how to read a log (tickets #164 and #206); gym to v4 to
-    read "8 x3" as 3 sets of 8 (ticket #373)."""
+    read "8 x3" as 3 sets of 8 (ticket #373) and to v5 for time, sides, implements and bands
+    (ticket #395)."""
     assert {(template.id, template.version) for template in _ACTIVE_EXTRACT_TEMPLATES} == {
         ("climbing.extract", 3),
-        ("gym.extract", 4),
+        ("gym.extract", 5),
         ("cycling.extract", 3),
     }
 

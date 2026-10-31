@@ -1,8 +1,9 @@
 """What `gym.extract` returns (ADR-0008, ADR-0014): an absolute date, how it was found, and
-each exercise with its sets, reps, load exactly as typed and RIR. The model copies the numbers
-and text and picks the unit; code, not the model, converts to kg. A log it can't read safely is
-a question instead: which movement an exercise name means, or which unit a load typed without
-one is in, its readings likeliest first (B17, ticket #206)."""
+each exercise with its sets, reps, load exactly as typed, time, distance, band, sides, implements
+and RIR (B38). The model copies the numbers and text and picks the unit; code, not the model,
+converts to kg, seconds and metres, and reads the measure. A log it can't read safely is a
+question instead: which movement an exercise name means, or which unit a load typed without one
+is in, its readings likeliest first (B17, ticket #206)."""
 
 import re
 from collections.abc import Mapping, Sequence
@@ -12,13 +13,23 @@ from pydantic import BaseModel, Field, JsonValue, field_validator, model_validat
 
 from ai_trainer.domain.clarification import ChoiceOption
 from ai_trainer.domain.sports.base import ExtractionQuestion, SessionExtraction
-from ai_trainer.domain.sports.gym.normalize import normalize_load
+from ai_trainer.domain.sports.gym.normalize import (
+    DistanceUnit,
+    DurationUnit,
+    normalize_load,
+    to_metres,
+    to_seconds,
+)
 from ai_trainer.domain.sports.gym.payload import (
+    MAX_IMPLEMENTS,
     MAX_RIR,
+    BandLabel,
     Exercise,
     ExerciseName,
     GymPayload,
+    GymSet,
     LoadUnit,
+    measure_of,
 )
 from ai_trainer.domain.sports.gym.rows import RecentGymSession
 
@@ -39,12 +50,52 @@ class ExtractedLoad(BaseModel):
     unit: LoadUnit | None = None
 
 
+class ExtractedDuration(BaseModel):
+    value: float = Field(gt=0)
+    unit: DurationUnit
+
+
+class ExtractedDistance(BaseModel):
+    value: float = Field(gt=0)
+    unit: DistanceUnit
+
+
 class ExtractedExercise(BaseModel):
     name: ExerciseName
     sets: int | None = Field(default=None, ge=1)
     reps: int | None = Field(default=None, ge=1)
     load: ExtractedLoad | None = None
+    duration: ExtractedDuration | None = None
+    distance: ExtractedDistance | None = None
+    band: BandLabel | None = None
+    per_side: bool = False
+    implements: int | None = Field(default=None, ge=1, le=MAX_IMPLEMENTS)
     rir: int | None = Field(default=None, ge=0, le=MAX_RIR)
+
+    def to_exercise(self) -> Exercise:
+        """No set count is one set with what was given (ADR-0032, #376's plan gate)."""
+        load = self.load
+        gym_set = GymSet(
+            reps=self.reps,
+            load=None
+            if load is None
+            else normalize_load(load.original, load.value, load.unit or "kg"),
+            duration_s=None
+            if self.duration is None
+            else to_seconds(self.duration.value, self.duration.unit),
+            distance_m=None
+            if self.distance is None
+            else to_metres(self.distance.value, self.distance.unit),
+            band_label=self.band,
+        )
+        return Exercise(
+            name_as_typed=self.name,
+            measure=measure_of(gym_set),
+            per_side=self.per_side,
+            implements=self.implements,
+            rir=self.rir,
+            sets=[gym_set] * (self.sets or 1),
+        )
 
 
 # The copy key of a movement option, and the prefix of a unit option's, in
@@ -97,24 +148,7 @@ class GymExtraction(SessionExtraction):
         )
 
     def to_payload(self) -> GymPayload:
-        return GymPayload(
-            activities=[
-                Exercise(
-                    name=exercise.name,
-                    sets=exercise.sets,
-                    reps=exercise.reps,
-                    load=(
-                        normalize_load(
-                            exercise.load.original, exercise.load.value, exercise.load.unit or "kg"
-                        )
-                        if exercise.load is not None
-                        else None
-                    ),
-                    rir=exercise.rir,
-                )
-                for exercise in self.activities
-            ]
-        )
+        return GymPayload(activities=[exercise.to_exercise() for exercise in self.activities])
 
 
 def _key(name: str) -> str:

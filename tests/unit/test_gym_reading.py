@@ -178,7 +178,7 @@ def test_a_unit_answer_sets_the_unit_of_every_load_typed_without_one() -> None:
 
     answered = log.answered(_unit("bench", "60", "kg", "lb").options()[1])
 
-    loads = [e.load for e in answered.to_payload().activities]
+    loads = [e.sets[0].load for e in answered.to_payload().activities]
     assert [(load.unit, load.kg) for load in loads if load is not None] == [("lb", 27.22)] * 3
 
 

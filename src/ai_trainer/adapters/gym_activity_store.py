@@ -7,13 +7,14 @@ from uuid import UUID, uuid4
 
 from pydantic import JsonValue, ValidationError
 from sqlalchemy import delete, func, insert, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ai_trainer.adapters.orm import GymExerciseEntryOrm, GymSetOrm
+from ai_trainer.adapters.orm import AthleteBandOrm, GymExerciseEntryOrm, GymSetOrm
 from ai_trainer.application.ports.activities import LoggedActivities
 from ai_trainer.domain.sports.base import withdraw_payload
 from ai_trainer.domain.sports.gym.payload import GymPayload
-from ai_trainer.domain.sports.gym.rows import entries_of, unit_of
+from ai_trainer.domain.sports.gym.rows import GymEntryRow, entries_of, unit_of
 
 
 class GymActivityStore:
@@ -32,11 +33,11 @@ class GymActivityStore:
                 GymExerciseEntryOrm.session_id == log.session_id,
             )
         )
+        rows = entries_of(GymPayload.model_validate(log.addition))
+        bands = await self._band_ids(tx, user_id, rows)
         entries: list[dict[str, object]] = []
         sets: list[dict[str, object]] = []
-        for position, entry in enumerate(
-            entries_of(GymPayload.model_validate(log.addition)), start=(last or 0) + 1
-        ):
+        for position, entry in enumerate(rows, start=(last or 0) + 1):
             entry_id = uuid4()
             entries.append(
                 {
@@ -45,17 +46,43 @@ class GymActivityStore:
                     "session_id": log.session_id,
                     "source_id": log.source_id,
                     "position": position,
-                    "name_as_typed": entry.name_as_typed,
-                    "measure": entry.measure,
-                    "rir": entry.rir,
+                    **entry.model_dump(exclude={"sets"}),
                 }
             )
             sets.extend(
-                {"user_id": user_id, "entry_id": entry_id, **row.model_dump()} for row in entry.sets
+                {
+                    "user_id": user_id,
+                    "entry_id": entry_id,
+                    "band_id": bands.get(row.band_label),
+                    **row.model_dump(),
+                }
+                for row in entry.sets
             )
         await tx.execute(insert(GymExerciseEntryOrm), entries)
         await tx.execute(insert(GymSetOrm), sets)
         return {} if log.session_payload is None else dict(log.session_payload)
+
+    async def _band_ids(
+        self, tx: AsyncSession, user_id: UUID, entries: Sequence[GymEntryRow]
+    ) -> dict[str | None, UUID | None]:
+        """Each band of the log by its label as typed. An unseen one joins the athlete's bands
+        with `rank` NULL, for the athlete to place (B39); a known one, whatever its case, keeps
+        its label and rank. Labels go in sorted order, so two logs can't deadlock."""
+        labels = {row.band_label for entry in entries for row in entry.sets} - {None}
+        ids: dict[str | None, UUID | None] = {}
+        for label in sorted(label for label in labels if label is not None):
+            await tx.execute(
+                pg_insert(AthleteBandOrm)
+                .values(user_id=user_id, label=label)
+                .on_conflict_do_nothing(constraint="athlete_bands_user_id_label_norm_key")
+            )
+            ids[label] = await tx.scalar(
+                select(AthleteBandOrm.id).where(
+                    AthleteBandOrm.user_id == user_id,
+                    AthleteBandOrm.label_norm == func.exercise_name_norm(label),
+                )
+            )
+        return ids
 
     async def withdraw(
         self, tx: AsyncSession, user_id: UUID, log: LoggedActivities
@@ -97,7 +124,7 @@ class GymActivityStore:
                     GymExerciseEntryOrm.user_id == user_id,
                     GymExerciseEntryOrm.session_id == log.session_id,
                     GymExerciseEntryOrm.source_id.is_(None),
-                    GymExerciseEntryOrm.name_as_typed == exercise.name,
+                    GymExerciseEntryOrm.name_as_typed == exercise.name_as_typed,
                 )
                 .order_by(GymExerciseEntryOrm.position.desc())
                 .limit(1)
