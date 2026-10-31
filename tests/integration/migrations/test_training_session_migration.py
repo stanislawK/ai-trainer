@@ -173,6 +173,8 @@ _INDEXES = {
     "training_session_sources": {
         "ix_training_session_sources_user_id": "(user_id)",
         "ix_training_session_sources_session_id_logged_at": "(session_id, logged_at)",
+        # The target of a sport's `source_id` key (ADR-0032, #376).
+        "training_session_sources_id_user_id_key": "(id, user_id)",
     },
     "session_drafts": {
         "ix_session_drafts_user_id_conversation_id_status": "(user_id, conversation_id, status)",

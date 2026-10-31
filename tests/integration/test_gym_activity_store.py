@@ -10,6 +10,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 import pytest
+from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -32,6 +33,12 @@ from tests.integration.test_session_continuity_repository import (
 )
 
 _LATER = _START + timedelta(minutes=5)
+
+
+def _id(session_id: UUID | None) -> UUID:
+    """A confirmed draft's session."""
+    assert session_id is not None
+    return session_id
 
 
 def _gym(*activities: dict[str, Any]) -> SessionDraft:
@@ -228,7 +235,10 @@ async def test_undoing_the_last_gym_log_removes_the_session_and_its_rows(
 # --- AC: climbing and cycling as before ----------------------------------------------------
 
 
-_PAYLOAD_TYPES = {"climbing": ClimbingPayload, "cycling": CyclingPayload}
+_PAYLOAD_TYPES: dict[str, type[BaseModel]] = {
+    "climbing": ClimbingPayload,
+    "cycling": CyclingPayload,
+}
 
 
 def _ride(km: int) -> dict[str, Any]:
@@ -313,7 +323,7 @@ async def test_recent_gym_exercises_read_only_the_users_rows(
 
     assert await sessions.recent_payloads(stranger.user_id, "gym", 5) == []
     async with db_session_factory() as db:
-        assert await STORES("gym").recent(db, stranger.user_id, [theirs.session_id]) == [
+        assert await STORES("gym").recent(db, stranger.user_id, [_id(theirs.session_id)]) == [
             {"activities": []}
         ]
 

@@ -28,10 +28,28 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 
+# squawk-ignore prefer-bigint-over-smallint, prefer-bigint-over-int: ADR-0032 types (#376)
+# ADR-0032 sets smallint and integer for bounded measures (position, set_no, reps, RIR,
+# implements, rank, duration_s), never for IDs; the lock rules stay on.
+
+_SOURCE_KEY = "training_session_sources_id_user_id_key"
+
+
 def upgrade() -> None:
-    # The target of the composite `source_id` key below; `id` alone is already unique.
-    op.create_unique_constraint(
-        "training_session_sources_id_user_id_key", "training_session_sources", ["id", "user_id"]
+    # The target of the composite `source_id` key below; `id` alone is already unique. Built
+    # concurrently, then attached, so the existing table is never locked for the build.
+    with op.get_context().autocommit_block():
+        op.create_index(
+            _SOURCE_KEY,
+            "training_session_sources",
+            ["id", "user_id"],
+            unique=True,
+            postgresql_concurrently=True,
+            if_not_exists=True,
+        )
+    op.execute(
+        f"ALTER TABLE training_session_sources ADD CONSTRAINT {_SOURCE_KEY}"
+        f" UNIQUE USING INDEX {_SOURCE_KEY}"
     )
     op.create_table(
         "athlete_bands",
@@ -141,6 +159,4 @@ def downgrade() -> None:
     op.drop_table("gym_sets")
     op.drop_table("gym_exercise_entries")
     op.drop_table("athlete_bands")
-    op.drop_constraint(
-        "training_session_sources_id_user_id_key", "training_session_sources", type_="unique"
-    )
+    op.drop_constraint(_SOURCE_KEY, "training_session_sources", type_="unique")
