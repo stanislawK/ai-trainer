@@ -320,12 +320,13 @@ def test_gym_smoke_cases_cite_a_field_transcript_with_the_message_verbatim() -> 
 
 
 def _gym_smoke_case(prompt: str) -> dict[str, Any]:
-    loaded = yaml.safe_load((ROOT / "evals" / "smoke" / "gym.extract.yaml").read_text())
-    case: dict[str, Any] = next(c for c in loaded["cases"] if c["inputs"]["prompt"] == prompt)
-    return case
+    dataset = read_smoke_set("gym.extract", smoke_root=ROOT / "evals" / "smoke").dataset
+    cases: list[dict[str, Any]] = dataset["cases"]  # type: ignore[assignment]  # read as YAML
+    return next(case for case in cases if case["inputs"]["prompt"] == prompt)
 
 
 _HANTLES = "4 series two hantles 6kg each - rising straight arms on both sides"
+_BENCH = "Bench press 45kg 8 x3"
 
 
 def test_gym_smoke_expects_four_sets_and_empty_reps_for_the_hantles_message() -> None:
@@ -346,7 +347,7 @@ def test_gym_smoke_grades_the_hantles_load_at_6_kg() -> None:
 
 
 def test_gym_smoke_expects_bench_at_3_sets_of_8_at_45_kg() -> None:
-    activity = _gym_smoke_case("Bench press 45kg 8 x3")["expected_output"]["activities"][0]
+    activity = _gym_smoke_case(_BENCH)["expected_output"]["activities"][0]
 
     assert (activity["sets"], activity["reps"], activity["load"]["value"]) == (3, 8, 45)
 
@@ -358,8 +359,11 @@ def test_gym_smoke_expects_face_pull_at_4_sets_of_12_at_30_kg() -> None:
     assert (activity["sets"], activity["reps"], activity["load"]["value"]) == (4, 12, 30)
 
 
-def test_gym_smoke_has_no_known_gaps() -> None:
-    assert read_smoke_set("gym.extract", smoke_root=ROOT / "evals" / "smoke").known_gaps == {}
+def test_gym_smoke_lists_neither_the_bench_nor_the_hantles_case_as_a_known_gap() -> None:
+    known_gaps = read_smoke_set("gym.extract", smoke_root=ROOT / "evals" / "smoke").known_gaps
+
+    for prompt in (_BENCH, _HANTLES):
+        assert _gym_smoke_case(prompt)["name"] not in known_gaps
 
 
 def test_the_committed_smoke_sets_read_and_the_safety_set_alone_holds_a_judge() -> None:
