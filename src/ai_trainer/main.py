@@ -53,6 +53,7 @@ from ai_trainer.application.ports.clock import ClockPort
 from ai_trainer.application.ports.llm_gateway import LlmGatewayPort
 from ai_trainer.application.ports.metrics import NO_METRICS, MetricsPort
 from ai_trainer.application.reply import ReplyServices
+from ai_trainer.application.training_history import TrainingHistory
 from ai_trainer.domain.sports.registry import SportRegistry, default_sport_registry
 from ai_trainer.llm.conversation import LlmConversation, build_prompt_registry
 from ai_trainer.llm.debug_log import build_debug_log
@@ -61,6 +62,8 @@ from ai_trainer.llm.gateway import OpenRouterGateway
 from ai_trainer.llm.onboarding import LlmOnboardingReader
 from ai_trainer.llm.router_fast import JevFastRouter, RouterFastThresholds
 from ai_trainer.llm.safety_screen import JevSafetyScreen
+from ai_trainer.mcp.server import build_mcp_server
+from ai_trainer.mcp.toolset import build_toolset
 from ai_trainer.settings import Settings
 from ai_trainer.web.active_user_gate import ActiveUserGateMiddleware
 from ai_trainer.web.admin import build_admin_router
@@ -225,6 +228,12 @@ def create_app(  # noqa: PLR0915 -- composition root: objects are built only her
     decisions = BudgetedDecisionGateway(
         OpenRouterDecisionGateway(settings, llm_calls, debug_log=debug_log), budget
     )
+    training_sessions = SqlAlchemyTrainingSessionRepository(session_factory)
+    # The MCP server in process, for the specialists to come (ADR-0010). Nothing mounts it
+    # over HTTP: that waits for an amendment on how tokens are issued.
+    app.state.mcp_toolset = build_toolset(
+        build_mcp_server(TrainingHistory(training_sessions, sport_registry))
+    )
     replies = ReplyServices(
         chat=chat,
         conversations=SqlAlchemyConversationRepository(
@@ -232,7 +241,7 @@ def create_app(  # noqa: PLR0915 -- composition root: objects are built only her
         ),
         drafts=SqlAlchemySessionDraftRepository(session_factory, sport_registry),
         clarifications=SqlAlchemyClarificationRepository(session_factory),
-        sessions=SqlAlchemyTrainingSessionRepository(session_factory),
+        sessions=training_sessions,
         sports=sport_registry,
         profile=onboarding,
         conversation=conversation,
