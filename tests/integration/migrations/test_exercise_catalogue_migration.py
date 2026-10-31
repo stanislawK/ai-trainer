@@ -67,6 +67,8 @@ def test_the_search_indexes_exist() -> None:
     assert "gin_trgm_ops" in indexes["ix_exercises_name_trgm"]
     assert "exercise_name_norm(name)" in indexes["ix_exercises_name_trgm"]
     assert "gin_trgm_ops" in indexes["ix_exercise_aliases_alias_norm_trgm"]
+    assert "exercise_name_norm(name)" in indexes["ix_exercises_name_tsv"]
+    assert "alias_norm" in indexes["ix_exercise_aliases_alias_tsv"]
     assert "simple" in indexes["ix_exercises_name_tsv"]
     assert "simple" in indexes["ix_exercise_aliases_alias_tsv"]
 
@@ -78,6 +80,22 @@ def test_a_custom_row_must_have_an_owner() -> None:
                 "INSERT INTO exercises (id, sport_id, source, name, default_measure) "
                 "VALUES (%s, 'gym', 'custom', 'No owner', 'reps')",
                 (uuid4(),),
+            )
+        conn.rollback()
+
+
+def test_an_alias_of_only_whitespace_is_refused() -> None:
+    with _connect() as conn, conn.cursor() as cur:
+        exercise = uuid4()
+        cur.execute(
+            "INSERT INTO exercises (id, sport_id, source, source_ref, name, default_measure) "
+            "VALUES (%s, 'gym', 'dataset', 'zz-blank-alias', 'Row', 'reps')",
+            (exercise,),
+        )
+        with pytest.raises(psycopg.errors.CheckViolation):
+            cur.execute(
+                "INSERT INTO exercise_aliases (id, exercise_id, alias) VALUES (%s, %s, '   ')",
+                (uuid4(), exercise),
             )
         conn.rollback()
 

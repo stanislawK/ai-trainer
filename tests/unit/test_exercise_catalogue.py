@@ -144,8 +144,13 @@ def test_attribution_names_the_mit_data_not_the_media_credit() -> None:
             [],
             CatalogueOverrides(rename={"2": "bench  PRESS"}),
         ),
+        (
+            [_row("1", "bench press"), _row("2", "bench-press")],
+            [],
+            CatalogueOverrides(),
+        ),
     ],
-    ids=["after-cleaning", "dataset-and-supplement", "after-a-rename"],
+    ids=["after-cleaning", "dataset-and-supplement", "after-a-rename", "punctuation-only"],
 )
 def test_build_refuses_two_rows_with_one_name(
     rows: list[DatasetRow], extras: list[ExtraExercise], overrides: CatalogueOverrides
@@ -166,6 +171,45 @@ def test_build_refuses_two_rows_with_one_name(
 def test_build_refuses_an_override_naming_an_unknown_row(overrides: CatalogueOverrides) -> None:
     with pytest.raises(ExerciseCatalogueError, match="gone"):
         build_catalogue([_row("1", "bench press")], overrides=overrides, extras=[], pin=_PIN)
+
+
+def test_build_refuses_two_rows_with_one_key() -> None:
+    with pytest.raises(ExerciseCatalogueError, match="share a key"):
+        build_catalogue(
+            [_row("1", "bench press"), _row("1", "row")],
+            overrides=CatalogueOverrides(),
+            extras=[],
+            pin=_PIN,
+        )
+
+
+@pytest.mark.parametrize("name", ["(male)", "x" * 201], ids=["empty-after-cleaning", "too-long"])
+def test_build_refuses_a_name_the_table_would_refuse(name: str) -> None:
+    with pytest.raises(ExerciseCatalogueError, match="wrong length"):
+        build_catalogue([_row("1", name)], overrides=CatalogueOverrides(), extras=[], pin=_PIN)
+
+
+@pytest.mark.parametrize(
+    "langs",
+    [("pl",), ("en", "en"), ("en", "de")],
+    ids=["no-english", "repeated", "not-imported"],
+)
+def test_an_extra_exercise_needs_english_and_only_imported_languages(
+    langs: tuple[str, ...],
+) -> None:
+    with pytest.raises(ValueError, match="languages"):
+        ExtraExercise(
+            ref="extra",
+            name="Face Pull",
+            equipment="cable",
+            body_part="shoulders",
+            target="delts",
+            secondary_muscles=(),
+            default_measure=ExerciseMeasure.LOAD_REPS,
+            texts=tuple(
+                ExerciseText(lang=lang, instructions="Pull.", steps=("Pull.",)) for lang in langs
+            ),
+        )
 
 
 def test_a_row_without_polish_text_is_invalid() -> None:
@@ -190,7 +234,19 @@ def test_the_committed_files_are_valid_and_hold_face_pull() -> None:
     )
     extras = yaml.safe_load((directory / "extra.yaml").read_text())["exercises"]
 
-    assert {"1371", "1628", "0576", "0656", "1766", "1394", "2800", "2801"} == overrides.skip
+    assert overrides.skip == {
+        "0422",
+        "0576",
+        "0656",
+        "1371",
+        "1394",
+        "1628",
+        "1731",
+        "1766",
+        "2800",
+        "2801",
+    }
+    assert overrides.rename["1759"] == "Single Leg Squat (Pistol)"
     assert [ExtraExercise.model_validate(entry).name for entry in extras] == ["Face Pull"]
 
 

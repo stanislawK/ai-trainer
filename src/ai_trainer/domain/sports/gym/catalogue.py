@@ -26,6 +26,8 @@ IMPORTED_LANGS = ("en", "pl")
 _DATASET_AUTHOR = "Hasan Emir Yıldırım"  # noqa: RUF001 -- the name as their license writes it
 _GENDER_SUFFIX = re.compile(r"\s*\((?:male|female)\)\s*$", re.IGNORECASE)
 _WORD = re.compile(r"[^\s()/-]+")
+_NOT_A_NAME_CHARACTER = re.compile(r"[^\w°]+")
+_MAX_NAME_LENGTH = 200
 
 
 class DatasetRow(BaseModel):
@@ -77,6 +79,13 @@ class ExtraExercise(BaseModel):
     default_measure: ExerciseMeasure
     texts: tuple[ExerciseText, ...] = Field(min_length=1)
 
+    @model_validator(mode="after")
+    def _has_english_and_only_imported_languages(self) -> Self:
+        langs = [text.lang for text in self.texts]
+        if "en" not in langs or len(set(langs)) != len(langs) or set(langs) - set(IMPORTED_LANGS):
+            raise ValueError(f"extra exercise {self.ref} has languages {langs}")
+        return self
+
 
 class DatasetPin(BaseModel):
     """The dataset commit an import reads and the day that pin was fetched (G10)."""
@@ -113,13 +122,15 @@ def build_catalogue(
     pin: DatasetPin,
 ) -> ImportedCatalogue:
     """Everything one import writes. Raises `ExerciseCatalogueError` when an override names a row
-    the dataset doesn't hold, or two rows would share a name."""
+    the dataset doesn't hold, or a row can't be written or told apart from another."""
     _require_known_rows(rows, overrides)
     kept = [row for row in rows if row.id not in overrides.skip]
+    attribution = _attribution(pin)
     exercises = (
-        *(_from_row(row, overrides, _attribution(pin)) for row in kept),
+        *(_from_row(row, overrides, attribution) for row in kept),
         *(_from_extra(extra) for extra in extras),
     )
+    _require_writable(exercises)
     _require_unique_names(exercises)
     return ImportedCatalogue(exercises=exercises, skipped=len(rows) - len(kept))
 
@@ -177,8 +188,28 @@ def _require_known_rows(rows: Sequence[DatasetRow], overrides: CatalogueOverride
         raise ExerciseCatalogueError(f"overrides name unknown rows: {sorted(unknown)}")
 
 
+def _require_writable(exercises: Sequence[CatalogueExercise]) -> None:
+    """What the upsert and the table's checks would refuse, as a failure line, not a traceback."""
+    keys = Counter((exercise.source, exercise.source_ref) for exercise in exercises)
+    repeated = sorted(key for key, count in keys.items() if count > 1)
+    if repeated:
+        raise ExerciseCatalogueError(f"rows share a key: {repeated}")
+    unfit = [
+        exercise.source_ref
+        for exercise in exercises
+        if not 1 <= len(exercise.name) <= _MAX_NAME_LENGTH
+    ]
+    if unfit:
+        raise ExerciseCatalogueError(f"names of the wrong length: {unfit}")
+
+
+def _name_key(name: str) -> str:
+    """Two names a person couldn't tell apart on a shortlist share this key."""
+    return _NOT_A_NAME_CHARACTER.sub(" ", name.casefold()).strip()
+
+
 def _require_unique_names(exercises: Sequence[CatalogueExercise]) -> None:
-    counts = Counter(" ".join(exercise.name.casefold().split()) for exercise in exercises)
+    counts = Counter(_name_key(exercise.name) for exercise in exercises)
     repeated = sorted(name for name, count in counts.items() if count > 1)
     if repeated:
         raise ExerciseCatalogueError(f"names shared by more than one row: {repeated}")

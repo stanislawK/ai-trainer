@@ -1,7 +1,7 @@
 from collections.abc import Callable, Mapping, Sequence
 from uuid import UUID, uuid4
 
-from sqlalchemy import Boolean, ColumnElement, literal_column, or_, select, text
+from sqlalchemy import Boolean, ColumnElement, Row, literal_column, or_, select, text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -26,6 +26,11 @@ _IMPORTED_COLUMNS = (
     "attribution",
 )
 _TEXT_COLUMNS = ("instructions", "steps")
+_ALIAS_COLUMNS = (
+    ExerciseAliasOrm.exercise_id,
+    ExerciseAliasOrm.alias,
+    ExerciseAliasOrm.alias_norm,
+)
 
 
 def _visible_to(user_id: UUID) -> ColumnElement[bool]:
@@ -43,9 +48,14 @@ def _exercise(row: ExerciseOrm) -> Exercise:
     )
 
 
+def _alias(row: Row[tuple[UUID, str, str]]) -> ExerciseAlias:
+    return ExerciseAlias(exercise_id=row[0], alias=row[1], alias_norm=row[2])
+
+
 async def _upsert_exercises(
     session: AsyncSession, exercises: Sequence[CatalogueExercise]
-) -> CatalogueWrite:
+) -> tuple[int, int]:
+    """How many rows were inserted and how many updated."""
     table = ExerciseOrm.__table__
     statement = insert(ExerciseOrm).values(
         [
@@ -80,12 +90,7 @@ async def _upsert_exercises(
         ).returning(literal_column("xmax = 0", Boolean()))
     )
     inserted = [row[0] for row in written]
-    return CatalogueWrite(
-        inserted=sum(inserted),
-        updated=len(inserted) - sum(inserted),
-        unchanged=len(exercises) - len(inserted),
-        texts_written=0,
-    )
+    return sum(inserted), len(inserted) - sum(inserted)
 
 
 async def _catalogue_ids(
@@ -141,11 +146,16 @@ class SqlAlchemyExerciseRepository:
 
     async def upsert_catalogue(self, exercises: Sequence[CatalogueExercise]) -> CatalogueWrite:
         async with self._session_factory() as session:
-            written = await _upsert_exercises(session, exercises)
+            inserted, updated = await _upsert_exercises(session, exercises)
             ids = await _catalogue_ids(session, exercises)
             texts_written = await _upsert_texts(session, exercises, ids)
             await session.commit()
-        return written.model_copy(update={"texts_written": texts_written})
+        return CatalogueWrite(
+            inserted=inserted,
+            updated=updated,
+            unchanged=len(exercises) - inserted - updated,
+            texts_written=texts_written,
+        )
 
     async def get(self, user_id: UUID, exercise_id: UUID) -> Exercise | None:
         async with self._session_factory() as session:
@@ -188,27 +198,17 @@ class SqlAlchemyExerciseRepository:
                     index_elements=["user_id", "alias_norm"],
                     index_where=text("user_id IS NOT NULL"),
                     set_={"exercise_id": exercise_id, "alias": alias},
-                ).returning(
-                    ExerciseAliasOrm.exercise_id,
-                    ExerciseAliasOrm.alias,
-                    ExerciseAliasOrm.alias_norm,
-                )
+                ).returning(*_ALIAS_COLUMNS)
             )
-            row = written.one()
+            alias_row = _alias(written.one())
             await session.commit()
-            return ExerciseAlias(exercise_id=row[0], alias=row[1], alias_norm=row[2])
+            return alias_row
 
     async def user_aliases(self, user_id: UUID) -> Sequence[ExerciseAlias]:
         async with self._session_factory() as session:
             rows = await session.execute(
-                select(
-                    ExerciseAliasOrm.exercise_id,
-                    ExerciseAliasOrm.alias,
-                    ExerciseAliasOrm.alias_norm,
-                )
+                select(*_ALIAS_COLUMNS)
                 .where(ExerciseAliasOrm.user_id == user_id)
                 .order_by(ExerciseAliasOrm.alias_norm)
             )
-            return [
-                ExerciseAlias(exercise_id=row[0], alias=row[1], alias_norm=row[2]) for row in rows
-            ]
+            return [_alias(row) for row in rows]

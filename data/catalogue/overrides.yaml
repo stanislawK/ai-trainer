@@ -2,24 +2,27 @@
 # `Settings` (ADR-0031). An id the dataset doesn't hold fails the import, and so do two rows left
 # with one name. A skipped or renamed row keeps its `source_ref`.
 
-# One of each pair that shares a name after cleaning, which a shortlist couldn't tell apart.
+# One of each pair whose names differ at most in punctuation, which a shortlist couldn't tell apart.
 skip:
+  - "0422"  # dumbbell standing one arm curl (over incline bench)
   - "0576"  # lever chest press
   - "0656"  # push-up (on stability ball)
   - "1371"  # barbell seated calf raise
   - "1394"  # smith reverse calf raises
   - "1628"  # ez barbell spider curl
+  - "1731"  # dumbbell close grip press
   - "1766"  # self assisted inverse leg curl
   - "2800"  # barbell sitted alternate leg raise (female)
   - "2801"  # twisted leg raise (female)
 
-# The finished name, for a mis-encoded degree sign or a stray suffix in the source.
+# The finished name, for a mis-encoded degree sign, a stray suffix or an unbracketed `male`.
 rename:
   "0738": Sled 45° Calf Press  # sled 45в° calf press
   "0739": Sled 45° Leg Press  # sled 45в° leg press
   "0740": Sled 45° Leg Wide Press  # sled 45в° leg wide press
   "1464": Sled 45° Leg Press (Back POV)  # sled 45в° leg press (back pov)
   "0377": Dumbbell Rear Delt Row  # dumbbell rear delt row_shoulder
+  "1759": Single Leg Squat (Pistol)  # single leg squat (pistol) male
 
 # Where the equipment gives the wrong default. Held stretches, planks, isometrics and cardio
 # machines are timed; runs and carries go a distance. Only a default: a set records its own.

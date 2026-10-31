@@ -76,6 +76,35 @@ async def test_deleting_an_account_removes_custom_exercises_and_aliases(
     )
 
 
+async def test_deleting_an_account_removes_an_alias_on_a_catalogue_exercise_and_keeps_the_row(
+    db_session_factory: SessionFactory, repository: SqlAlchemyExerciseRepository
+) -> None:
+    await import_catalogue(source=sample_source(), exercises=repository)
+    leaving = await _user(db_session_factory, "exercise-alias-leaving")
+    async with db_session_factory() as session:
+        catalogue_id = (
+            await session.execute(text("SELECT id FROM exercises WHERE source_ref = 'zz-test-01'"))
+        ).scalar_one()
+    await repository.add_user_alias(leaving, catalogue_id, "my bench")
+
+    await SqlAlchemyUsersRepository(db_session_factory).delete(leaving)
+
+    assert (
+        await _count(
+            db_session_factory,
+            "SELECT count(*) FROM exercise_aliases WHERE user_id = :id",
+            id=leaving,
+        )
+        == 0
+    )
+    assert (
+        await _count(
+            db_session_factory, "SELECT count(*) FROM exercises WHERE id = :id", id=catalogue_id
+        )
+        == 1
+    )
+
+
 async def test_one_user_cannot_read_anothers_custom_exercise_or_alias(
     db_session_factory: SessionFactory, repository: SqlAlchemyExerciseRepository
 ) -> None:

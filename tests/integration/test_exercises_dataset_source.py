@@ -87,6 +87,13 @@ async def test_a_missing_file_is_a_catalogue_error_before_any_download(tmp_path:
     assert requested == []
 
 
+async def test_a_file_that_is_not_utf8_is_a_catalogue_error(tmp_path: Path) -> None:
+    (tmp_path / "overrides.yaml").write_bytes(b"skip: [\xff]\n")
+
+    with pytest.raises(ExerciseCatalogueError, match=r"overrides\.yaml"):
+        await sample_source(directory=tmp_path).load()
+
+
 async def test_yaml_that_does_not_parse_is_a_catalogue_error(tmp_path: Path) -> None:
     (tmp_path / "extra.yaml").write_text((SAMPLE_CATALOGUE_DIR / "extra.yaml").read_text())
     (tmp_path / "overrides.yaml").write_text("skip: [unclosed\n")

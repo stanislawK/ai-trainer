@@ -77,7 +77,7 @@ def upgrade() -> None:
     op.create_index(
         "ix_exercises_name_tsv",
         "exercises",
-        [sa.text("to_tsvector('simple', name)")],
+        [sa.text("to_tsvector('simple', exercise_name_norm(name))")],
         postgresql_using="gin",
     )
     op.create_table(
@@ -104,6 +104,7 @@ def upgrade() -> None:
         ),
         sa.Column("lang", sa.Text(), nullable=True),
         sa.CheckConstraint("char_length(alias) BETWEEN 1 AND 200", name="exercise_aliases_length"),
+        sa.CheckConstraint("alias_norm <> ''", name="exercise_aliases_norm_present"),
         sa.ForeignKeyConstraint(["exercise_id"], ["exercises.id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(["user_id"], ["users.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
@@ -133,7 +134,7 @@ def upgrade() -> None:
     op.create_index(
         "ix_exercise_aliases_alias_tsv",
         "exercise_aliases",
-        [sa.text("to_tsvector('simple', alias)")],
+        [sa.text("to_tsvector('simple', alias_norm)")],
         postgresql_using="gin",
     )
 

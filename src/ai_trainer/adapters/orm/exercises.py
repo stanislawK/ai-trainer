@@ -35,7 +35,7 @@ class ExerciseOrm(Base):
         ),
         Index(
             "ix_exercises_name_tsv",
-            text("to_tsvector('simple', name)"),
+            text("to_tsvector('simple', exercise_name_norm(name))"),
             postgresql_using="gin",
         ),
     )
@@ -79,6 +79,7 @@ class ExerciseAliasOrm(Base):
     __tablename__ = "exercise_aliases"
     __table_args__ = (
         CheckConstraint("char_length(alias) BETWEEN 1 AND 200", name="exercise_aliases_length"),
+        CheckConstraint("alias_norm <> ''", name="exercise_aliases_norm_present"),
         # Also indexes `user_id` for the account deletion's cascade.
         Index(
             "exercise_aliases_user_alias_key",
@@ -101,7 +102,7 @@ class ExerciseAliasOrm(Base):
         ),
         Index(
             "ix_exercise_aliases_alias_tsv",
-            text("to_tsvector('simple', alias)"),
+            text("to_tsvector('simple', alias_norm)"),
             postgresql_using="gin",
         ),
     )

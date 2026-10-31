@@ -37,7 +37,7 @@ class _ExtraFile(BaseModel):
 def _read_file[Model: BaseModel](path: Path, model: type[Model]) -> Model:
     try:
         return model.model_validate(yaml.safe_load(path.read_text(encoding="utf-8")))
-    except (OSError, yaml.YAMLError, ValidationError) as exc:
+    except (OSError, UnicodeDecodeError, yaml.YAMLError, ValidationError) as exc:
         raise ExerciseCatalogueError(f"{path.name} is invalid: {exc}") from exc
 
 
