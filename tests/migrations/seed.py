@@ -227,6 +227,40 @@ def _rows() -> dict[str, tuple[Row, ...]]:
                 "created_at": _at(n, 13),
             }
         )
+        exercise = _id(user, 12)
+        rows.setdefault("exercises", []).append(
+            {
+                "id": exercise,
+                "sport_id": "gym" if a else "seed-sport",
+                "owner_user_id": user,
+                "source": "custom" if a else "seed-source",
+                "source_ref": None if a else "seed-ref",
+                "name": "Seed Row" if a else "  Seed Press ",
+                "equipment": None if a else "barbell",
+                "body_part": None if a else "chest",
+                "target": None if a else "pectorals",
+                "secondary_muscles": None if a else ["triceps"],
+                "default_measure": "reps" if a else "load_reps",
+                "attribution": None if a else "Seed attribution",
+            }
+        )
+        rows.setdefault("exercise_texts", []).append(
+            {
+                "exercise_id": exercise,
+                "lang": "en" if a else "pl",
+                "instructions": "Row it." if a else "  Wypchnij. ",
+                "steps": ["Row it."] if a else ["Wypchnij.", "Opuść."],
+            }
+        )
+        rows.setdefault("exercise_aliases", []).append(
+            {
+                "id": _id(user, 13),
+                "exercise_id": exercise,
+                "user_id": user,
+                "alias": "My Row" if a else "  Ławka  Płaska ",
+                "lang": None if a else "pl",
+            }
+        )
     return {table: tuple(table_rows) for table, table_rows in rows.items()}
 
 

@@ -1,0 +1,25 @@
+# Common exercises the pinned dataset lacks, imported with `source = ai-trainer` (ADR-0031). It
+# grows when a real chat shows a gap and isn't filled up front. A `ref` never changes once
+# imported: it is the row's key. Every entry is reviewed by a human before it is committed.
+exercises:
+  - ref: face-pull
+    name: Face Pull
+    equipment: cable
+    body_part: shoulders
+    target: delts
+    secondary_muscles: [traps, upper back]
+    default_measure: load_reps
+    texts:
+      - lang: en
+        instructions: >-
+          Set a cable pulley at about face height with a rope attachment and hold one end of the
+          rope in each hand, palms facing each other. Step back until your arms are straight and
+          the weight lifts off the stack. Pull the rope towards your face, keeping your elbows
+          high and moving your hands apart so they finish beside your ears. Squeeze your shoulder
+          blades together for a moment, then straighten your arms slowly under control.
+        steps:
+          - Set a cable pulley at about face height with a rope attachment and hold one end of the rope in each hand, palms facing each other.
+          - Step back until your arms are straight and the weight lifts off the stack.
+          - Pull the rope towards your face, keeping your elbows high and moving your hands apart so they finish beside your ears.
+          - Squeeze your shoulder blades together for a moment.
+          - Straighten your arms slowly under control.

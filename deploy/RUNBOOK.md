@@ -604,6 +604,18 @@ journalctl -u ai-trainer-deploy.service --since today          # the poller; als
 - `docker logs ai-trainer-prod-<service>-1` reads the same logs and needs no variables, if the wrapper isn't installed yet.
 - The same logs reach Grafana Cloud through Alloy ([section 11](#11-telemetry-to-grafana-cloud)). Use them there for anything older than the containers, since a recreated container starts with an empty `docker logs`.
 
+## 13. Exercise catalogue
+
+Source: ADR-0031. Ticket #375.
+
+The app's migrations create the catalogue's tables empty. Run the import once, by hand, after the first deploy that carries them, and again after a release that bumps `EXERCISE_DATASET_COMMIT` or changes `data/catalogue/`:
+
+```sh
+docker exec ai-trainer-prod-app-1 ai-trainer import-exercises
+```
+
+It ends on one line. `import-exercises: result=ok exercises=1317 inserted=1317 updated=0 unchanged=0 texts_written=2633 skipped=8` is the first import of the commit pinned at #375. A later run of the same release reports `inserted=0 updated=0 texts_written=0`. `import-exercises: result=failed reason=<download|catalogue> detail=<why>` with exit code 1 changes no row, so fix the cause and run it again. It needs outbound HTTPS to `raw.githubusercontent.com`.
+
 ## Provisioning record
 
 Kept by the owner, privately, outside this repo: it's public, and these are the owner's account details (ADR-0023 ⚠ *Verify at provisioning*). A password manager entry next to the server's other details does. Never commit the values.

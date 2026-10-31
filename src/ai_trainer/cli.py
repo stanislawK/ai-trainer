@@ -2,6 +2,7 @@
 
     uv run ai-trainer purge-conversations
     uv run ai-trainer llm-debug-report [--since <ISO time>]
+    uv run ai-trainer import-exercises
 
 `purge-conversations` hard-deletes every conversation last active more than
 `CONVERSATION_RETENTION_DAYS` ago, across users, with its messages by cascade. It prints the
@@ -13,6 +14,12 @@ and Alloy ships both lines to Grafana Cloud (ADR-0030, #274).
 `llm-debug-report` summarizes `LLM_DEBUG_LOG_DIR` per template and model (#179) and exits 1 when
 there is nothing to summarize. It never opens the database. A `--since` without a timezone is
 UTC, like every stored time (ADR-0014).
+
+`import-exercises` upserts the exercise catalogue from the dataset commit pinned in `Settings` and
+`EXERCISE_CATALOGUE_DIR` (ADR-0031). Running it again changes nothing, and it never touches an
+athlete's custom exercises or aliases. It prints one line, `import-exercises: result=ok ...` or
+`import-exercises: result=failed reason=<download|catalogue> ...`, the second with exit code 1 and
+no row changed.
 """
 
 import argparse
@@ -22,17 +29,28 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import TextIO
 
+import httpx2
+
 from ai_trainer.adapters.clock import UtcClock
 from ai_trainer.adapters.conversation_repository import SqlAlchemyConversationRepository
 from ai_trainer.adapters.db import build_engine, build_session_factory
+from ai_trainer.adapters.exercise_repository import SqlAlchemyExerciseRepository
+from ai_trainer.adapters.exercises_dataset import PinnedDatasetCatalogueSource
+from ai_trainer.application.exercise_catalogue import import_catalogue
 from ai_trainer.application.ports.chat import ConversationRepositoryPort
 from ai_trainer.application.ports.clock import ClockPort
+from ai_trainer.application.ports.exercises import (
+    ExerciseCatalogueSourcePort,
+    ExerciseRepositoryPort,
+)
 from ai_trainer.application.retention import purge_expired_conversations
+from ai_trainer.domain.exercises import ExerciseCatalogueError, ExerciseDatasetError
 from ai_trainer.llm.debug_report import report
 from ai_trainer.settings import Settings
 
 PURGE_CONVERSATIONS = "purge-conversations"
 LLM_DEBUG_REPORT = "llm-debug-report"
+IMPORT_EXERCISES = "import-exercises"
 
 
 def _aware_time(value: str) -> datetime:
@@ -59,6 +77,10 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
         type=_aware_time,
         help="Only lines at or after this ISO time (UTC when it has no timezone).",
     )
+    commands.add_parser(
+        IMPORT_EXERCISES,
+        help="Upsert the exercise catalogue from the pinned dataset commit and print the outcome.",
+    )
     return parser.parse_args(argv)
 
 
@@ -75,14 +97,56 @@ async def purge_conversations(
     output.write(f"purge: result=ok deleted={deleted}\n")
 
 
-async def run(argv: Sequence[str], *, output: TextIO = sys.stdout) -> int:
-    """Runs one command and returns its exit code."""
+async def import_exercises(
+    *,
+    source: ExerciseCatalogueSourcePort,
+    exercises: ExerciseRepositoryPort,
+    output: TextIO,
+) -> int:
+    try:
+        done = await import_catalogue(source=source, exercises=exercises)
+    except ExerciseDatasetError as exc:
+        return _import_failed("download", exc, output)
+    except ExerciseCatalogueError as exc:
+        return _import_failed("catalogue", exc, output)
+    output.write(
+        f"import-exercises: result=ok exercises={done.total} inserted={done.write.inserted} "
+        f"updated={done.write.updated} unchanged={done.write.unchanged} "
+        f"texts_written={done.write.texts_written} skipped={done.skipped}\n"
+    )
+    return 0
+
+
+def _import_failed(reason: str, error: Exception, output: TextIO) -> int:
+    detail = " ".join(str(error).split())
+    output.write(f"import-exercises: result=failed reason={reason} detail={detail}\n")
+    return 1
+
+
+async def run(
+    argv: Sequence[str],
+    *,
+    output: TextIO = sys.stdout,
+    dataset_transport: httpx2.AsyncBaseTransport | None = None,
+) -> int:
+    """Runs one command and returns its exit code. `dataset_transport` is for tests."""
     args = parse_args(argv)
     settings = Settings()
     if args.command == LLM_DEBUG_REPORT:
         return report(settings.llm_debug_log_dir, since=args.since, output=output)
     engine = build_engine(str(settings.database_url))
     try:
+        if args.command == IMPORT_EXERCISES:
+            return await import_exercises(
+                source=PinnedDatasetCatalogueSource(
+                    commit=settings.exercise_dataset_commit,
+                    fetched_on=settings.exercise_dataset_fetched_on,
+                    directory=settings.exercise_catalogue_dir,
+                    transport=dataset_transport,
+                ),
+                exercises=SqlAlchemyExerciseRepository(build_session_factory(engine)),
+                output=output,
+            )
         clock = UtcClock()
         await purge_conversations(
             clock=clock,

@@ -1,0 +1,12 @@
+exercises:
+  - ref: zz-test-extra
+    name: Zz Extra Pull
+    equipment: cable
+    body_part: shoulders
+    target: delts
+    secondary_muscles: [traps]
+    default_measure: load_reps
+    texts:
+      - lang: en
+        instructions: Pull the rope to your face.
+        steps: [Pull the rope to your face.]

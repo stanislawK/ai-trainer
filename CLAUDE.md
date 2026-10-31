@@ -95,6 +95,7 @@ gh api repos/stanislawK/ai-trainer/deployments   # release, owner only: the appr
 uv run alembic upgrade head      # migrations
 uv run ai-trainer purge-conversations   # delete conversations past CONVERSATION_RETENTION_DAYS (ADR-0021)
 uv run ai-trainer llm-debug-report [--since <ISO time>]   # summarize LLM_DEBUG_LOG lines per template (ADR-0018)
+uv run ai-trainer import-exercises   # upsert the exercise catalogue from the dataset commit pinned in Settings; a second run changes nothing (ADR-0031)
 make latency-scenario            # replay the latency scenario on `make start`, p50/p95 per log turn (ADR-0026; costs money)
 uv run playwright install chromium   # one-time browser download for e2e
 uv run pytest tests/e2e -n 0     # e2e specs, serial (needs `docker compose up`; excluded from `uv run pytest`)

@@ -22,6 +22,9 @@ EXPECTED_TABLES = {
     "training_session_sources",
     "session_drafts",
     "clarifications",
+    "exercises",
+    "exercise_texts",
+    "exercise_aliases",
 }
 
 

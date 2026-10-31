@@ -1,5 +1,6 @@
 import json
 import re
+from datetime import date
 from pathlib import Path
 from typing import Annotated, Any, Literal, Self
 from urllib.parse import urlsplit
@@ -88,6 +89,13 @@ class Settings(BaseSettings):
     # A conversation is hidden on read and hard-deleted by `ai-trainer purge-conversations` this
     # many days after its last message (PRD-0004 B26, ADR-0021).
     conversation_retention_days: int = Field(default=14, ge=1)
+    # The one dataset commit `ai-trainer import-exercises` reads, the day that pin was fetched
+    # (shown in the attribution, G10) and the committed overrides and supplement (ADR-0031).
+    exercise_dataset_commit: str = Field(
+        default="7455efae41b330c265e7cd4b78dfa848e7ce5ebd", pattern=r"^[0-9a-f]{40}$"
+    )
+    exercise_dataset_fetched_on: date = date(2026, 10, 31)
+    exercise_catalogue_dir: Path = Path("data/catalogue")
     # A log sent within this many minutes of the latest log of the athlete's last session in
     # the same sport is offered as an addition to it (PRD-0004 B16, ADR-0014).
     session_merge_window_min: int = Field(default=30, ge=1)
