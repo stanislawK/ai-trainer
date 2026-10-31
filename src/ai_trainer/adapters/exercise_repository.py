@@ -101,11 +101,14 @@ def _name_score(
 
 
 def _short(text_: str | None) -> str | None:
-    if not text_:
+    # One line, cut at a word where there is one.
+    flat = " ".join((text_ or "").split())
+    if not flat:
         return None
-    if len(text_) <= MAX_DESCRIPTION:
-        return text_
-    return text_[: MAX_DESCRIPTION - 1].rstrip() + "…"
+    if len(flat) <= MAX_DESCRIPTION:
+        return flat
+    cut = flat[: MAX_DESCRIPTION - 1]
+    return (cut.rpartition(" ")[0] or cut) + "…"
 
 
 def _exercise(row: ExerciseOrm) -> Exercise:

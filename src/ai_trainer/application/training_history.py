@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from ai_trainer.application.ports.exercises import ExerciseHistoryPort, ExerciseRepositoryPort
 from ai_trainer.application.ports.training import SessionHistoryPort
-from ai_trainer.domain.exercises import Exercise, ExerciseEntry
+from ai_trainer.domain.exercises import ExerciseEntry, ExerciseMeasure
 from ai_trainer.domain.sports.registry import SportRegistry, UnknownSportError
 from ai_trainer.domain.training import SessionSummary
 
@@ -84,13 +84,24 @@ DEFAULT_ENTRIES = 10
 MAX_ENTRIES = 50
 
 
+class ExerciseRef(BaseModel):
+    """The exercise a history is of, as a tool shows it: no owner, which is the athlete's own ID
+    for a custom exercise."""
+
+    model_config = ConfigDict(frozen=True)
+
+    id: UUID
+    name: str
+    default_measure: ExerciseMeasure
+
+
 class ExerciseHistoryPage(BaseModel):
     """The exercise and the athlete's entries of it, the latest day first; `truncated` when more
     exist than `limit`."""
 
     model_config = ConfigDict(frozen=True)
 
-    exercise: Exercise
+    exercise: ExerciseRef
     entries: list[ExerciseEntry]
     truncated: bool
 
@@ -116,10 +127,15 @@ class ExerciseTrainingHistory:
         exercise = await self._exercises.get(user_id, exercise_id)
         if exercise is None:
             return ExerciseHistoryFailed(reason="not_found")
+        limit = max(1, min(limit, MAX_ENTRIES))
         # One row past the limit tells a cut page from an exact one.
         found = await self._history.entries(user_id, exercise_id, limit=limit + 1)
         if not found:
             return ExerciseHistoryFailed(reason="no_entries")
         return ExerciseHistoryPage(
-            exercise=exercise, entries=list(found[:limit]), truncated=len(found) > limit
+            exercise=ExerciseRef(
+                id=exercise.id, name=exercise.name, default_measure=exercise.default_measure
+            ),
+            entries=list(found[:limit]),
+            truncated=len(found) > limit,
         )

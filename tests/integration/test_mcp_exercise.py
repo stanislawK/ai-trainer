@@ -210,6 +210,29 @@ async def test_mcp_exercise_find_describes_an_own_exercise_only_once_it_has_a_te
     assert description.endswith("…")
 
 
+async def test_mcp_exercise_find_gives_a_one_line_description_cut_at_a_word(
+    world: _World, db_session_factory: SessionFactory
+) -> None:
+    steps = "Lie flat\non the bench and press the bar up. " * 20
+    async with db_session_factory() as db:
+        db.add(
+            ExerciseTextOrm(
+                exercise_id=world.alices_custom, lang="en", instructions=steps, steps=[]
+            )
+        )
+        await db.commit()
+
+    found = await _call(world, world.alice, "find_exercise", {"name": "alice cable fly"})
+
+    description = found["data"]["exercises"][0]["description"]
+    assert "\n" not in description
+    assert len(description) <= 200
+    assert " ".join(steps.split()).startswith(description.removesuffix("…"))
+    assert description.removesuffix("…").endswith(
+        ("Lie", "flat", "on", "the", "bench", "and", "press", "bar", "up.")
+    )
+
+
 async def test_mcp_exercise_find_with_no_match_is_a_failed_result_with_a_hint(
     world: _World,
 ) -> None:
@@ -290,6 +313,26 @@ async def test_mcp_exercise_other_athletes_custom_exercise_and_entries_never_app
     assert "2026-10-20" not in str(shared)
     assert "100kg" not in str(shared)
     assert [entry["occurred_on"] for entry in bobs["data"]["entries"]] == ["2026-10-20"]
+
+
+async def test_mcp_exercise_history_of_an_own_exercise_carries_no_user_id(
+    world: _World, db_session_factory: SessionFactory
+) -> None:
+    await _entry(
+        db_session_factory,
+        world.alice,
+        world.alices_custom,
+        date(2026, 10, 22),
+        [(12, Decimal("15"), "15kg")],
+    )
+
+    history = await _call(
+        world, world.alice, "exercise_history", {"exercise_id": str(world.alices_custom)}
+    )
+
+    assert history["success"] is True
+    assert history["data"]["exercise"]["name"] == "alice cable fly"
+    assert str(world.alice) not in str(history)
 
 
 # --- AC4: an unknown ID is a failed result, an unexpected failure is masked -------------------
