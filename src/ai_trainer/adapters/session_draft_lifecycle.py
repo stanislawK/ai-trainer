@@ -60,6 +60,8 @@ def to_domain(row: SessionDraftOrm, spans: Mapping[UUID, SessionSpan]) -> Stored
             "status": row.status,
             "session_id": row.session_id,
             "extends": extends,
+            "template_id": row.template_id,
+            "template_version": row.template_version,
             "created_at": row.created_at,
         }
     )

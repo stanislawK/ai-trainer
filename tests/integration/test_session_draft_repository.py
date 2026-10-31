@@ -99,6 +99,58 @@ async def test_an_added_draft_is_listed_pending_with_its_draft_as_given(
     )
 
 
+async def test_a_draft_keeps_the_template_it_came_from_and_a_sport_change_replaces_it(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    drafts = SqlAlchemySessionDraftRepository(db_session_factory, stores=STORES)
+    user_id, conversation_id, message_id = await _log(db_session_factory, "draft-template")
+
+    added = await drafts.add(
+        user_id,
+        conversation_id,
+        message_id,
+        "climbing",
+        _DRAFT,
+        payload_version=1,
+        created_at=_START,
+        template_id="climbing.extract",
+        template_version=2,
+    )
+    switched = await drafts.change_sport(
+        user_id,
+        added.id,
+        "climbing",
+        _DRAFT,
+        payload_version=1,
+        extends_session_id=None,
+        template_id="gym.extract",
+        template_version=5,
+    )
+
+    assert (added.template_id, added.template_version) == ("climbing.extract", 2)
+    assert (switched.template_id, switched.template_version) == ("gym.extract", 5)
+    assert await drafts.get(user_id, added.id) == switched
+
+
+async def test_a_draft_added_without_a_template_reads_back_with_none(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    drafts = SqlAlchemySessionDraftRepository(db_session_factory, stores=STORES)
+    user_id, conversation_id, message_id = await _log(db_session_factory, "draft-no-template")
+
+    added = await drafts.add(
+        user_id,
+        conversation_id,
+        message_id,
+        "climbing",
+        _DRAFT,
+        payload_version=1,
+        created_at=_START,
+    )
+
+    assert (added.template_id, added.template_version) == (None, None)
+
+
 async def test_another_user_never_lists_the_draft(
     db_session_factory: Callable[[], AsyncSession],
 ) -> None:

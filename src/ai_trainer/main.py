@@ -34,6 +34,7 @@ from ai_trainer.adapters.clarification_repository import SqlAlchemyClarification
 from ai_trainer.adapters.clock import UtcClock
 from ai_trainer.adapters.conversation_repository import SqlAlchemyConversationRepository
 from ai_trainer.adapters.db import build_engine, build_session_factory
+from ai_trainer.adapters.feedback_repository import SqlAlchemyFeedbackEventsRepository
 from ai_trainer.adapters.google_oauth import AuthlibGoogleOAuthClient
 from ai_trainer.adapters.gym_activity_store import GymActivityStore
 from ai_trainer.adapters.health import PsycopgDatabaseHealth
@@ -49,6 +50,7 @@ from ai_trainer.adapters.user_status_changer import SqlAlchemyUserStatusChanger
 from ai_trainer.adapters.users_repository import SqlAlchemyUsersRepository
 from ai_trainer.application.background_reads import BackgroundReads
 from ai_trainer.application.budgeted_gateways import BudgetedDecisionGateway, BudgetedLlmGateway
+from ai_trainer.application.feedback import FeedbackRecorder
 from ai_trainer.application.metered_calls import MeteredLlmCallsRepository
 from ai_trainer.application.model_budget import ModelCallBudget
 from ai_trainer.application.ports.clock import ClockPort
@@ -277,6 +279,9 @@ def create_app(  # noqa: PLR0915 -- composition root: objects are built only her
         max_clarification_options=settings.max_clarification_options,
         recent_sessions=settings.extract_recent_sessions,
         metrics=metrics,
+        # Content-free feedback events from the athlete's edits, discards, undos and taps
+        # (ADR-0034).
+        feedback=FeedbackRecorder(SqlAlchemyFeedbackEventsRepository(session_factory), clock=clock),
     )
     app.include_router(
         build_chat_router(

@@ -72,5 +72,12 @@ There is no eval-first ordering, no separate comparison gate and no baseline pro
 - `/tune-prompt` becomes the smoke loop: cases, change, run, show. The full-run steps move to a "Full run" section. `/add-decision` drops calibration before activation. `.claude/rules/llm.md` and `CLAUDE.md` follow.
 - ADR-0026 still picks models on measured latency, cost and evals. A model swap is the trigger for a full run.
 - The CLI gains `smoke` and `feedback-report`. The existing `run` and `--promote` stay as they are.
+- Owner-directed 2026-10-31, at #394, how `feedback_events` rows are written:
+  - `draft_edited.fields` holds the names of the fields the edit changed (`reps`, `rpe`), found by comparing the draft before and after, never from typed text. A payload field is named by its key, one list level deep, so a gym row's `reps` is `reps`. An edit that changes nothing writes no row.
+  - `draft_discarded` and `session_undone` write one row on the transition only, so a repeated request writes none. Their `template_id` and `template_version` are the draft's own ([ADR-0022](0022-training-session-schema.md)), NULL for a draft made before drafts kept them.
+  - `choice_answered.fields` is the question's purpose (`sport`, `reading`, `same_session`), never the option picked. Its template is the extraction the answer produced, or the draft's own for a same-session answer.
+  - Field names are schema field names. A sport's payload must not use athlete-typed text as a key, or `fields` would carry it.
+  - Recording is best effort: a failed write is logged by its error type and never fails the athlete's action.
+  - `feedback-report` reads every user's rows without who made them. The `kind` check admits `decision_overridden` now so adding it later is no contract step; nothing writes it until the Jev pick.
 - G6 in PRD 0010 is reworded to match. The "eval dataset and committed baseline per capability" acceptance criterion becomes a smoke set per capability.
 - ADR-0009 invariants 1–2 and ADR-0020 invariant 6 are marked Superseded-in-part once this ADR is Accepted.

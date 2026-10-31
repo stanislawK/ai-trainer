@@ -10,6 +10,7 @@ from uuid import UUID, uuid4
 import pytest
 
 from ai_trainer.application.drafts import confirm_draft
+from ai_trainer.application.feedback import FeedbackRecorder
 from ai_trainer.application.reply import (
     ReplyDone,
     SessionSettled,
@@ -34,6 +35,7 @@ from tests.chat_support import (
     FROZEN_NOW,
     SAME_SESSION_QUESTION_TEXT,
     THREE_6A_TWO_6B,
+    FixedClock,
     InMemoryChatRepository,
     InMemoryClarificationRepository,
     InMemoryDraftRepository,
@@ -42,6 +44,7 @@ from tests.chat_support import (
     ScriptedConversation,
     reply_services,
 )
+from tests.feedback_support import InMemoryFeedbackEvents
 
 _CLIMB = "I climbed 3 6A and 2 6B boulders"
 # The morning's climbing session, its last log three hours before `FROZEN_NOW` (11:30 in
@@ -70,6 +73,7 @@ class _Athlete:
         if session is not None:
             self.sessions.latest[(owner or self.user_id, "climbing")] = session
             self.drafts.spans[session.id] = session
+        self.events = InMemoryFeedbackEvents()
         self.services = reply_services(
             self.chat,
             drafts=self.drafts,
@@ -77,6 +81,7 @@ class _Athlete:
             sessions=self.sessions,
             profile=self.profile,
             conversation=self.conversation,
+            feedback=FeedbackRecorder(self.events, clock=FixedClock()),
         )
 
     async def log(
@@ -417,3 +422,19 @@ async def test_the_question_is_stored_with_its_draft_never_apart(path: str) -> N
         *_, question = separate.all_of(athlete.user_id)
 
     assert (question.status, question.draft_id) == ("open", draft.id)
+
+
+async def test_answering_the_same_session_question_records_one_choice_answered() -> None:
+    athlete = _Athlete()
+    draft, question = await athlete.asked()
+
+    await athlete.answer(question, NEW_SESSION_OPTION)
+
+    [event] = athlete.events.events
+    assert event.kind.value == "choice_answered"
+    assert set(event.fields) == {"same_session"}
+    assert (event.template_id, event.template_version) == (
+        draft.template_id,
+        draft.template_version,
+    )
+    assert draft.template_id == "climbing.extract"

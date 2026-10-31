@@ -8,6 +8,7 @@ from uuid import UUID, uuid4
 
 import pytest
 
+from ai_trainer.application.feedback import FeedbackRecorder
 from ai_trainer.application.reply import (
     ClarificationAnswered,
     ReplyDone,
@@ -25,11 +26,13 @@ from ai_trainer.domain.clarification import (
     UnknownOptionError,
 )
 from ai_trainer.domain.conversation import Intent
+from ai_trainer.domain.feedback import FeedbackKind
 from ai_trainer.domain.llm_calls import LlmCallOutcome
 from tests.chat_support import (
     DRAFT_READY_TEXT,
     FROZEN_NOW,
     SPORT_QUESTION_TEXT,
+    FixedClock,
     InMemoryChatRepository,
     InMemoryClarificationRepository,
     InMemoryDraftRepository,
@@ -39,6 +42,7 @@ from tests.chat_support import (
     ScriptedSafetyScreen,
     reply_services,
 )
+from tests.feedback_support import InMemoryFeedbackEvents
 
 _LIFTER_RIDER = ["gym", "cycling"]
 _INTERVALS = "Did intervals"
@@ -62,6 +66,8 @@ class _Setup:
         self.safety = ScriptedSafetyScreen()
         self.profile = InMemoryProfile({self.user_id: sports})
         self.max_options = 5
+        self.events = InMemoryFeedbackEvents()
+        self.feedback: FeedbackRecorder | None = FeedbackRecorder(self.events, clock=FixedClock())
         for name, value in services.items():
             setattr(self, name, value)
 
@@ -76,6 +82,7 @@ class _Setup:
             fast_router=self.fast,
             safety_screen=self.safety,
             max_clarification_options=self.max_options,
+            feedback=self.feedback,
         )
 
     async def ask(self, text: str = _INTERVALS) -> tuple[ChatMessage, list[ReplyEvent]]:
@@ -325,6 +332,18 @@ async def test_another_users_question_is_not_found_and_not_answered() -> None:
     assert (await setup.clarifications.get(setup.user_id, question.id)).status == "open"
 
 
+async def test_a_failed_extraction_records_no_choice_answered() -> None:
+    setup = _Setup(conversation=ScriptedConversation(extract_outcomes=[LlmCallOutcome.TIMEOUT]))
+    _, question = await _open_question(setup)
+
+    for _ in range(2):
+        await answer_clarification(
+            setup.user_id, question.id, ["gym"], timezone="Europe/Warsaw", services=setup.services
+        )
+
+    assert setup.events.events == []
+
+
 async def test_a_failed_extraction_leaves_the_question_open_to_tap_again() -> None:
     setup = _Setup(conversation=ScriptedConversation(extract_outcomes=[LlmCallOutcome.TIMEOUT]))
     _, question = await _open_question(setup)
@@ -430,3 +449,65 @@ async def test_the_resumed_extraction_reads_the_log_as_of_when_it_was_sent() -> 
 
     [(context, sport)] = setup.conversation.extracted
     assert (sport, context.now) == ("cycling", sent)
+
+
+async def test_tapping_a_sport_records_one_choice_answered_with_the_purpose_only() -> None:
+    setup = _Setup()
+    _, question = await _open_question(setup)
+
+    await answer_clarification(
+        setup.user_id, question.id, ["cycling"], timezone="Europe/Warsaw", services=setup.services
+    )
+
+    [event] = setup.events.events
+    assert event.kind is FeedbackKind.CHOICE_ANSWERED
+    assert set(event.fields) == {"sport"}
+    assert (event.template_id, event.template_version) == ("cycling.extract", 1)
+    assert "cycling" not in event.model_dump_json().replace("cycling.extract", "")
+
+
+async def test_an_unknown_option_or_a_second_tap_records_nothing_more() -> None:
+    setup = _Setup()
+    _, question = await _open_question(setup)
+    with pytest.raises(UnknownOptionError):
+        await answer_clarification(
+            setup.user_id,
+            question.id,
+            ["rowing"],
+            timezone="Europe/Warsaw",
+            services=setup.services,
+        )
+    await answer_clarification(
+        setup.user_id, question.id, ["gym"], timezone="Europe/Warsaw", services=setup.services
+    )
+    with pytest.raises(ClarificationResolvedError):
+        await answer_clarification(
+            setup.user_id, question.id, ["gym"], timezone="Europe/Warsaw", services=setup.services
+        )
+
+    assert len(setup.events.events) == 1
+
+
+async def test_a_resumed_draft_records_the_template_it_came_from() -> None:
+    setup = _Setup()
+    _, question = await _open_question(setup)
+
+    answered = await answer_clarification(
+        setup.user_id, question.id, ["gym"], timezone="Europe/Warsaw", services=setup.services
+    )
+
+    assert isinstance(answered, ClarificationAnswered)
+    [draft] = answered.reply.drafts
+    assert (draft.template_id, draft.template_version) == ("gym.extract", 1)
+
+
+async def test_a_failing_feedback_store_does_not_fail_the_tap() -> None:
+    setup = _Setup()
+    setup.feedback = FeedbackRecorder(InMemoryFeedbackEvents(fail=True), clock=FixedClock())
+    _, question = await _open_question(setup)
+
+    answered = await answer_clarification(
+        setup.user_id, question.id, ["gym"], timezone="Europe/Warsaw", services=setup.services
+    )
+
+    assert isinstance(answered, ClarificationAnswered)
