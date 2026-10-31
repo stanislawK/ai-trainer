@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | Proposed |
+| Status | Accepted |
 | Date | 2026-10-30 |
 | Related | PRD-0010 (B37, B38, F23, F24, G5, G10, G14), ADR-0006, ADR-0010, ADR-0015, ADR-0016, ADR-0020, ADR-0032, ADR-0033 |
 
