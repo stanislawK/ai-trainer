@@ -16,6 +16,7 @@ from opentelemetry.trace import (
 )
 from pydantic import PostgresDsn, SecretStr
 from pydantic_ai import Agent, InstrumentationSettings
+from pydantic_ai.mcp import MCPToolset
 from pydantic_ai.models.test import TestModel
 from sqlalchemy.ext.asyncio import AsyncEngine
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -137,6 +138,17 @@ def test_create_app_registers_the_admin_route() -> None:
     app = create_app(_settings())
 
     assert "/admin" in app.openapi()["paths"]
+
+
+def test_create_app_builds_the_mcp_toolset_and_mounts_no_mcp_route() -> None:
+    """The in-process toolset is built for specialists, and no HTTP mount exposes the server
+    (ADR-0010 defers HTTP, ticket #378)."""
+    app = create_app(_settings())
+
+    assert isinstance(app.state.mcp_toolset, MCPToolset)
+    assert not [
+        path for route in app.routes if "mcp" in (path := getattr(route, "path", "")).lower()
+    ]
 
 
 def test_create_app_serves_the_ai_onboarding_cards() -> None:

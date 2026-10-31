@@ -1,10 +1,29 @@
 from collections.abc import Mapping, Sequence
+from datetime import date
 from typing import Protocol
 from uuid import UUID
 
 from pydantic import JsonValue
 
-from ai_trainer.domain.training import SessionSpan
+from ai_trainer.domain.training import SessionSpan, SessionSummary
+
+
+class SessionHistoryPort(Protocol):
+    """Lists the athlete's saved sessions for a history read (ADR-0010, ticket #378), scoped to
+    one `user_id` from the authenticated session: another user's session is never listed."""
+
+    async def list_sessions(
+        self,
+        user_id: UUID,
+        *,
+        sport_id: str | None,
+        since: date | None,
+        until: date | None,
+        limit: int,
+    ) -> Sequence[SessionSummary]:
+        """At most `limit` of the user's sessions, the latest day first, in `sport_id` when
+        given and on days from `since` to `until`, both included, when given."""
+        ...
 
 
 class TrainingSessionRepositoryPort(Protocol):

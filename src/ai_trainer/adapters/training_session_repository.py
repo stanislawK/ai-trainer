@@ -1,4 +1,5 @@
 from collections.abc import Callable, Mapping, Sequence
+from datetime import date
 from typing import Any
 from uuid import UUID
 
@@ -7,7 +8,7 @@ from sqlalchemy import Row, Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai_trainer.adapters.orm import TrainingSessionOrm, TrainingSessionSourceOrm
-from ai_trainer.domain.training import SessionSpan
+from ai_trainer.domain.training import SessionSpan, SessionSummary
 
 _LAST_LOGGED_AT = func.max(TrainingSessionSourceOrm.logged_at)
 
@@ -57,7 +58,8 @@ async def spans_of(
 
 
 class SqlAlchemyTrainingSessionRepository:
-    """Implements `TrainingSessionRepositoryPort` (ADR-0004, ADR-0022)."""
+    """Implements `TrainingSessionRepositoryPort` and `SessionHistoryPort` (ADR-0004,
+    ADR-0022)."""
 
     def __init__(self, session_factory: Callable[[], AsyncSession]) -> None:
         self._session_factory = session_factory
@@ -88,3 +90,35 @@ class SqlAlchemyTrainingSessionRepository:
                 .limit(limit)
             )
             return list(payloads.all())
+
+    async def list_sessions(
+        self,
+        user_id: UUID,
+        *,
+        sport_id: str | None,
+        since: date | None,
+        until: date | None,
+        limit: int,
+    ) -> Sequence[SessionSummary]:
+        query = select(
+            TrainingSessionOrm.id,
+            TrainingSessionOrm.sport_id,
+            TrainingSessionOrm.occurred_on,
+            TrainingSessionOrm.duration_min,
+            TrainingSessionOrm.rpe,
+            TrainingSessionOrm.feeling,
+            TrainingSessionOrm.notes,
+        ).where(TrainingSessionOrm.user_id == user_id)
+        if sport_id is not None:
+            query = query.where(TrainingSessionOrm.sport_id == sport_id)
+        if since is not None:
+            query = query.where(TrainingSessionOrm.occurred_on >= since)
+        if until is not None:
+            query = query.where(TrainingSessionOrm.occurred_on <= until)
+        async with self._session_factory() as session:
+            rows = await session.execute(
+                query.order_by(
+                    TrainingSessionOrm.occurred_on.desc(), TrainingSessionOrm.created_at.desc()
+                ).limit(limit)
+            )
+            return [SessionSummary.model_validate(row, from_attributes=True) for row in rows]
