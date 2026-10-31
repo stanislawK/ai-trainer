@@ -10,6 +10,7 @@ from fastmcp.server.context import Context
 from pydantic import Field
 
 from ai_trainer.application.training_history import (
+    DEFAULT_SESSIONS,
     MAX_SESSIONS,
     SessionPage,
     SessionQuery,
@@ -31,7 +32,7 @@ def build_mcp_server(history: TrainingHistory) -> FastMCP:
         sport: str | None = None,
         since: date | None = None,
         until: date | None = None,
-        limit: Annotated[int, Field(ge=1, le=MAX_SESSIONS)] = 10,
+        limit: Annotated[int, Field(ge=1, le=MAX_SESSIONS)] = DEFAULT_SESSIONS,
     ) -> ToolResult[SessionPage]:
         """List the athlete's own saved training sessions, the latest day first, with each
         session's ID, sport, day, duration in minutes, RPE, feeling and notes. Use it to look
@@ -68,6 +69,7 @@ def _failed(failure: SessionQueryFailed) -> ToolResult[SessionPage]:
         case "no_sessions":
             return ToolResult[SessionPage].failed(
                 "No saved session matches.",
-                "Widen the days or drop the sport filter. If nothing comes back without "
-                "filters, the athlete has no saved sessions yet.",
+                "If the athlete asked about exactly these days or this sport, they logged "
+                "nothing there: say so, and don't report other days instead. Widen the "
+                "filters only to look further back.",
             )

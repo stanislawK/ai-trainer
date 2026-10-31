@@ -71,7 +71,7 @@ requires-dist = [
     { name = "pgvector", specifier = ">=0.5.1" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.3.6" },
     { name = "pydantic", specifier = ">=2.12" },
-    { name = "pydantic-ai-slim", extras = ["mcp", "openai", "spec", "typesafe"], specifier = ">=2.55.0" },
+    { name = "pydantic-ai-slim", extras = ["mcp", "openai", "spec", "typesafe"], specifier = ">=2.57.0" },
     { name = "pydantic-evals", specifier = ">=2.57.0" },
     { name = "pydantic-settings", specifier = ">=2.15.0" },
     { name = "python-multipart", specifier = ">=0.0.32" },

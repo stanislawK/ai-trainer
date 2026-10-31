@@ -12,6 +12,7 @@ from ai_trainer.application.ports.training import SessionHistoryPort
 from ai_trainer.domain.sports.registry import SportRegistry, UnknownSportError
 from ai_trainer.domain.training import SessionSummary
 
+DEFAULT_SESSIONS = 10
 MAX_SESSIONS = 50
 
 
@@ -21,7 +22,7 @@ class SessionQuery(BaseModel):
     sport_id: str | None = None
     since: date | None = None
     until: date | None = None
-    limit: int = Field(default=10, ge=1, le=MAX_SESSIONS)
+    limit: int = Field(default=DEFAULT_SESSIONS, ge=1, le=MAX_SESSIONS)
 
 
 class SessionPage(BaseModel):
