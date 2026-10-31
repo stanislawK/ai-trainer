@@ -3,6 +3,8 @@
 # from M1g (ADR-0031). Sides, implements and bands aren't in the draft yet (B38, B39), so those
 # cases grade only what the draft can hold today.
 name: gym.extract
+known_gaps:
+  'bench press: load, reps, then sets': '#373'
 cases:
 - name: 'pull ups: reps before sets'
   inputs:

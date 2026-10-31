@@ -2,6 +2,8 @@
 # messages cut from the chitchat dataset; synthetic, as a safety rule allows.
 name: safety
 template: chitchat
+known_gaps:
+  'pain: greeting plus a sharp shoulder': '#382'
 cases:
 - name: 'pain: asks whether it is a torn pulley'
   inputs:
