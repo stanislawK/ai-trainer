@@ -4,6 +4,8 @@ token endpoint and JWKS, served below Authlib's HTTP client so no socket opens (
 #309, #383). Every ID token the client refuses lands on the sign-in page's inline alert."""
 
 import base64
+import hashlib
+import hmac
 import json
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass, field
@@ -58,6 +60,7 @@ class FakeGoogle:
     email: str
     mint: Callable[[FakeGoogle, str], str] = field(default=lambda google, nonce: google.sign())
     nonce: str = ""
+    served: list[str] = field(default_factory=list)
 
     def claims(self, **overrides: object) -> dict[str, object]:
         return {
@@ -78,8 +81,15 @@ class FakeGoogle:
     def sign(self, key: RSAKey = GOOGLE_KEY, **overrides: object) -> str:
         return jwt.encode({"alg": "RS256", "kid": KEY_ID}, self.claims(**overrides), key)
 
+    def forge(self, alg: str, signature: bytes = b"") -> str:
+        """A token joserfc won't make: `signature` covers `<header>.<payload>` when given."""
+        header = _b64(json.dumps({"alg": alg, "kid": KEY_ID}).encode())
+        signing_input = f"{header}.{_b64(json.dumps(self.claims()).encode())}"
+        return f"{signing_input}.{_b64(signature)}" if signature else f"{signing_input}."
+
     def handle(self, request: httpx2.Request) -> httpx2.Response:
         url = str(request.url).split("?")[0]
+        self.served.append(url)
         if url == METADATA_URL:
             return httpx2.Response(
                 200,
@@ -142,18 +152,19 @@ def _sign_in(google: FakeGoogle) -> httpx2.Response:
     app = create_app(
         settings, google_client_kwargs={"transport": httpx2.MockTransport(google.handle)}
     )
-    client = TestClient(app, base_url=PUBLIC_BASE_URL)
-    login = client.get("/auth/login", follow_redirects=False)
-    assert login.status_code == 302, login.text
-    authorize = urlsplit(login.headers["location"])
-    assert f"{authorize.scheme}://{authorize.netloc}{authorize.path}" == AUTHORIZE_URL
-    query = parse_qs(authorize.query)
-    google.nonce = query["nonce"][0]
-    return client.get(
-        "/auth/callback",
-        params={"code": "fake-code", "state": query["state"][0]},
-        follow_redirects=False,
-    )
+    # Entered, so the lifespan disposes the app's engine when the sign-in is done.
+    with TestClient(app, base_url=PUBLIC_BASE_URL) as client:
+        login = client.get("/auth/login", follow_redirects=False)
+        assert login.status_code == 302, login.text
+        authorize = urlsplit(login.headers["location"])
+        assert f"{authorize.scheme}://{authorize.netloc}{authorize.path}" == AUTHORIZE_URL
+        query = parse_qs(authorize.query)
+        google.nonce = query["nonce"][0]
+        return client.get(
+            "/auth/callback",
+            params={"code": "fake-code", "state": query["state"][0]},
+            follow_redirects=False,
+        )
 
 
 async def _assert_refused(
@@ -163,6 +174,9 @@ async def _assert_refused(
     assert response.headers["location"] == FAILED_SIGN_IN
     assert SESSION_COOKIE_NAME not in response.cookies
     assert await users.get_by_sub(google.sub) is None
+    # Authlib fetches the JWKS only once it holds the ID token, so the refusal came from
+    # validating that token, not from a broken exchange the adapter also turns into the alert.
+    assert google.served[-2:] == [TOKEN_URL, JWKS_URL]
 
 
 async def test_google_sign_in_valid_round_trip_signs_in_an_active_user(
@@ -233,5 +247,51 @@ async def test_google_sign_in_with_nonce_supported_false_still_checks_the_nonce(
     """PYSEC-2026-4357: Authlib before 1.9.0 skipped the nonce check when the ID token itself
     said `nonce_supported: false`, so a replayed token signed in."""
     google.mint = lambda fake, nonce: fake.sign(nonce="replayed", nonce_supported=False)
+
+    await _assert_refused(_sign_in(google), google, users)
+
+
+async def test_google_sign_in_with_an_unsigned_token_shows_the_alert(
+    google: FakeGoogle, users: SqlAlchemyUsersRepository
+) -> None:
+    google.mint = lambda fake, nonce: fake.forge("none")
+
+    await _assert_refused(_sign_in(google), google, users)
+
+
+async def test_google_sign_in_with_the_public_key_as_an_hmac_secret_shows_the_alert(
+    google: FakeGoogle, users: SqlAlchemyUsersRepository
+) -> None:
+    """Algorithm confusion: HS256 keyed with Google's public key, which anyone can fetch."""
+    public_pem = GOOGLE_KEY.as_pem(private=False)
+
+    def confuse(fake: FakeGoogle, nonce: str) -> str:
+        unsigned = fake.forge("HS256").rstrip(".")
+        signature = hmac.new(public_pem, unsigned.encode(), hashlib.sha256).digest()
+        return fake.forge("HS256", signature)
+
+    google.mint = confuse
+
+    await _assert_refused(_sign_in(google), google, users)
+
+
+async def test_google_sign_in_with_an_expired_token_shows_the_alert(
+    google: FakeGoogle, users: SqlAlchemyUsersRepository
+) -> None:
+    """Expired in 2023, well past Authlib's 120 s leeway whenever the suite runs."""
+    google.mint = lambda fake, nonce: fake.sign(iat=1_700_000_000, exp=1_700_003_600)
+
+    await _assert_refused(_sign_in(google), google, users)
+
+
+async def test_google_sign_in_with_no_nonce_in_the_token_shows_the_alert(
+    google: FakeGoogle, users: SqlAlchemyUsersRepository
+) -> None:
+    def without_nonce(fake: FakeGoogle, nonce: str) -> str:
+        claims = fake.claims()
+        del claims["nonce"]
+        return jwt.encode({"alg": "RS256", "kid": KEY_ID}, claims, GOOGLE_KEY)
+
+    google.mint = without_nonce
 
     await _assert_refused(_sign_in(google), google, users)

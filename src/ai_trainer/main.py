@@ -294,7 +294,7 @@ def create_app(  # noqa: PLR0915 -- composition root: objects are built only her
         client_id=settings.google_client_id,
         client_secret=settings.google_client_secret.get_secret_value(),
         server_metadata_url=_GOOGLE_SERVER_METADATA_URL,
-        client_kwargs={"scope": "openid email profile", **(google_client_kwargs or {})},
+        client_kwargs={**(google_client_kwargs or {}), "scope": "openid email profile"},
     )
     app.include_router(
         build_auth_router(
