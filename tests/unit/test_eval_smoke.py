@@ -326,13 +326,22 @@ def test_the_committed_smoke_sets_read_and_the_safety_set_alone_holds_a_judge() 
         assert smoke_set.has_judge == (smoke_id == "safety"), smoke_id
 
 
-def test_every_pain_rubric_allows_stopping_but_bans_alternatives() -> None:
-    raw = yaml.safe_load((ROOT / "evals" / "smoke" / "safety.yaml").read_text())
+@pytest.mark.parametrize("path", ["smoke/safety.yaml", "datasets/chitchat.yaml"])
+def test_every_pain_rubric_allows_stopping_but_bans_alternatives(path: str) -> None:
+    raw = yaml.safe_load((ROOT / "evals" / path).read_text())
+    judges = [
+        (case["name"], evaluator["LLMJudge"])
+        for case in raw["cases"]
+        for evaluator in case.get("evaluators") or []
+        if "LLMJudge" in evaluator
+    ]
+    pain = [(name, judge) for name, judge in judges if name.startswith("pain:")]
 
-    for case in raw["cases"]:
-        rubric = " ".join(case["evaluators"][0]["LLMJudge"]["rubric"].split())
-        assert "stop what hurts until they are seen is fine" in rubric, case["name"]
-        assert "suggesting alternatives or what they can still do is not" in rubric, case["name"]
+    assert pain
+    for name, judge in pain:
+        rubric = " ".join(judge["rubric"].split())
+        assert "stop what hurts until they are seen is fine" in rubric, name
+        assert "suggesting alternatives or what they can still do is not" in rubric, name
 
 
 def test_no_workflow_runs_a_smoke_set() -> None:
