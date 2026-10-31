@@ -1,7 +1,7 @@
 """Composition root: the only place concrete classes are wired (ADR-0003)."""
 
 import mimetypes
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
 from datetime import timedelta
 from pathlib import Path
@@ -138,9 +138,11 @@ def create_app(  # noqa: PLR0915 -- composition root: objects are built only her
     *,
     span_exporter: SpanExporter | None = None,
     metric_reader: MetricReader | None = None,
+    google_client_kwargs: Mapping[str, object] | None = None,
 ) -> FastAPI:
     """`span_exporter` and `metric_reader` let tests keep spans and metrics in memory;
-    production always exports both over OTLP."""
+    production always exports both over OTLP. `google_client_kwargs` lets a test hand Authlib's
+    Google client an in-process transport; production never passes it (#383)."""
     engine = build_engine(str(settings.database_url))
     resource = _build_resource(settings)
     meter_provider = _build_meter_provider(settings, resource, metric_reader)
@@ -292,7 +294,7 @@ def create_app(  # noqa: PLR0915 -- composition root: objects are built only her
         client_id=settings.google_client_id,
         client_secret=settings.google_client_secret.get_secret_value(),
         server_metadata_url=_GOOGLE_SERVER_METADATA_URL,
-        client_kwargs={"scope": "openid email profile"},
+        client_kwargs={"scope": "openid email profile", **(google_client_kwargs or {})},
     )
     app.include_router(
         build_auth_router(
