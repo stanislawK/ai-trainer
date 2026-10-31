@@ -64,8 +64,9 @@ class GymActivityStore:
         take them too; deleting them here keeps the store the one place that writes them.
 
         A log with no entries was confirmed before the tables: its exercises are taken out of
-        the session's v1 payload instead, as before #376, so #377's backfill doesn't bring
-        them back."""
+        the session's v1 payload, as before #376, so #377's backfill doesn't bring them back,
+        and out of the backfilled rows (those with no source) by name as typed, the latest
+        first (ADR-0032)."""
         deleted = await tx.scalars(
             delete(GymExerciseEntryOrm)
             .where(
@@ -75,13 +76,38 @@ class GymActivityStore:
             .returning(GymExerciseEntryOrm.id)
         )
         payload = {} if log.session_payload is None else dict(log.session_payload)
-        if deleted.first() is not None or not payload:
+        if deleted.first() is not None:
             return payload
+        await self._withdraw_backfilled(tx, user_id, log)
         try:
             return withdraw_payload(GymPayload, payload, log.addition).model_dump(mode="json")
         except ValidationError:
             # Nothing of the old payload is left: the session's other logs are all in rows.
             return {}
+
+    async def _withdraw_backfilled(
+        self, tx: AsyncSession, user_id: UUID, log: LoggedActivities
+    ) -> None:
+        """Each of the log's exercises takes out one backfilled entry of that name, the one at
+        the highest position, and its sets by cascade; one the session no longer has is skipped."""
+        for exercise in reversed(GymPayload.model_validate(log.addition).activities):
+            latest = (
+                select(GymExerciseEntryOrm.id)
+                .where(
+                    GymExerciseEntryOrm.user_id == user_id,
+                    GymExerciseEntryOrm.session_id == log.session_id,
+                    GymExerciseEntryOrm.source_id.is_(None),
+                    GymExerciseEntryOrm.name_as_typed == exercise.name,
+                )
+                .order_by(GymExerciseEntryOrm.position.desc())
+                .limit(1)
+                .scalar_subquery()
+            )
+            await tx.execute(
+                delete(GymExerciseEntryOrm).where(
+                    GymExerciseEntryOrm.user_id == user_id, GymExerciseEntryOrm.id == latest
+                )
+            )
 
     async def recent(
         self, tx: AsyncSession, user_id: UUID, session_ids: Sequence[UUID]
