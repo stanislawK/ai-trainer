@@ -57,9 +57,11 @@ class SqlAlchemyGymBackfillStore:
 
     async def write(self, candidate: BackfillCandidate, entries: Sequence[GymEntryRow]) -> None:
         async with self._session_factory() as db, db.begin():
-            # The row lock makes a concurrent run wait, then find the rows and write nothing.
-            locked = await db.scalar(
-                select(TrainingSessionOrm.id)
+            # The row lock makes a concurrent run wait, then find the rows and write nothing. A
+            # payload an undo rewrote since `candidates()` read it is left for the next run, so
+            # an exercise the athlete took out is never written back from the stale copy.
+            current = await db.scalar(
+                select(TrainingSessionOrm.payload)
                 .where(
                     TrainingSessionOrm.user_id == candidate.user_id,
                     TrainingSessionOrm.id == candidate.session_id,
@@ -67,7 +69,7 @@ class SqlAlchemyGymBackfillStore:
                 )
                 .with_for_update()
             )
-            if locked is None:
+            if current is None or current != candidate.payload:
                 return
             last = await db.scalar(
                 select(func.coalesce(func.max(GymExerciseEntryOrm.position), 0)).where(

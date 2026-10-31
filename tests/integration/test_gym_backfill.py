@@ -151,6 +151,30 @@ async def test_session_with_rows_from_a_later_log_gets_its_earlier_activities_af
     ] == [(1, "Dips"), (2, "Squat"), (3, "Pull-ups")]
 
 
+async def test_a_payload_changed_since_it_was_read_is_not_written_from_the_stale_copy(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    """An undo between `candidates()` and `write()` rewrote the payload: the next run reads it."""
+    athlete, session_id = await _old_session(db_session_factory, "backfill-stale")
+    store = SqlAlchemyGymBackfillStore(db_session_factory)
+    [candidate] = [c for c in await store.candidates() if c.session_id == session_id]
+    async with db_session_factory() as db:
+        await db.execute(
+            text("UPDATE training_sessions SET payload = CAST(:p AS jsonb) WHERE id = :id"),
+            {
+                "p": json.dumps({"sport": "gym", "activities": [{"name": "Squat", "sets": 1}]}),
+                "id": session_id,
+            },
+        )
+        await db.commit()
+
+    await store.write(candidate, entries_of(GymPayload.model_validate(candidate.payload)))
+
+    assert await _gym_row_count(db_session_factory, athlete.user_id) == (0, 0)
+    report = await backfill_gym_sessions(store=store)
+    assert (report.sessions, report.entries) == (1, 1)
+
+
 async def test_a_candidate_backfilled_in_the_meantime_is_written_once(
     db_session_factory: Callable[[], AsyncSession],
 ) -> None:

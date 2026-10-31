@@ -38,8 +38,13 @@ async def backfill_gym_sessions(*, store: GymBackfillPort) -> BackfillReport:
             continue
         try:
             await store.write(candidate, rows)
-        except Exception:  # one session's failure must not stop the others
-            logger.warning("gym backfill: write failed for session %s", candidate.session_id)
+        except Exception as exc:  # one session's failure must not stop the others
+            # The type names the cause without a payload or a message, which may carry content.
+            logger.warning(
+                "gym backfill: write failed for session %s: %s",
+                candidate.session_id,
+                type(exc).__name__,
+            )
             skipped.append(SkippedSession(candidate.session_id, "write_failed"))
             continue
         sessions += 1
