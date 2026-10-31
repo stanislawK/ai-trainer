@@ -8,6 +8,7 @@ from ai_trainer.adapters.orm.profile import (
     OnboardingAnswerOrm,
     SportProfileOrm,
 )
+from ai_trainer.adapters.orm.sports.gym import AthleteBandOrm, GymExerciseEntryOrm, GymSetOrm
 from ai_trainer.adapters.orm.training import (
     ClarificationOrm,
     SessionDraftOrm,
@@ -23,6 +24,7 @@ from ai_trainer.adapters.orm.users import (
 )
 
 __all__ = [
+    "AthleteBandOrm",
     "AthleteProfileOrm",
     "Base",
     "ChatMessageOrm",
@@ -32,6 +34,8 @@ __all__ = [
     "ExerciseOrm",
     "ExerciseTextOrm",
     "GoalOrm",
+    "GymExerciseEntryOrm",
+    "GymSetOrm",
     "LlmCallOrm",
     "OnboardingAnswerOrm",
     "SessionDraftOrm",

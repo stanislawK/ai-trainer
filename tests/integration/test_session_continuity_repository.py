@@ -25,6 +25,7 @@ from ai_trainer.domain.training import (
     StoredDraft,
 )
 from ai_trainer.domain.users import NewUser, UserStatus
+from tests.activity_support import STORES
 
 _START = datetime(2026, 10, 2, 16, 0, tzinfo=UTC)
 _DAY = date(2026, 10, 2)
@@ -67,7 +68,7 @@ class _Athlete:
         self.factory = factory
         self.user_id = user_id
         self.conversation_id = conversation_id
-        self.drafts = SqlAlchemySessionDraftRepository(factory)
+        self.drafts = SqlAlchemySessionDraftRepository(factory, stores=STORES)
 
     async def draft(
         self,
@@ -155,9 +156,9 @@ async def test_no_session_yet_has_no_latest(
 ) -> None:
     athlete = await _athlete(db_session_factory, "latest-none")
 
-    latest = await SqlAlchemyTrainingSessionRepository(db_session_factory).latest_in_sport(
-        athlete.user_id, "climbing"
-    )
+    latest = await SqlAlchemyTrainingSessionRepository(
+        db_session_factory, stores=STORES
+    ).latest_in_sport(athlete.user_id, "climbing")
 
     assert latest is None
 
@@ -172,9 +173,9 @@ async def test_the_latest_session_spans_its_first_and_latest_logs(
         await athlete.draft("and a 6b+", later, _draft(_climb("6b+")), extends=first.session_id)
     )
 
-    latest = await SqlAlchemyTrainingSessionRepository(db_session_factory).latest_in_sport(
-        athlete.user_id, "climbing"
-    )
+    latest = await SqlAlchemyTrainingSessionRepository(
+        db_session_factory, stores=STORES
+    ).latest_in_sport(athlete.user_id, "climbing")
 
     assert first.session_id is not None
     assert latest == SessionSpan(
@@ -194,9 +195,9 @@ async def test_the_latest_session_is_the_one_with_the_latest_log_in_that_sport(
         await athlete.draft("deadlifts", _START + timedelta(hours=3), _draft(_GYM), sport_id="gym")
     )
 
-    latest = await SqlAlchemyTrainingSessionRepository(db_session_factory).latest_in_sport(
-        athlete.user_id, "climbing"
-    )
+    latest = await SqlAlchemyTrainingSessionRepository(
+        db_session_factory, stores=STORES
+    ).latest_in_sport(athlete.user_id, "climbing")
 
     assert latest is not None
     assert latest.id == climb.session_id
@@ -209,9 +210,9 @@ async def test_another_users_sessions_are_never_the_latest(
     stranger = await _athlete(db_session_factory, "latest-stranger")
     await owner.confirmed(await owner.draft("sent 6b", _START, _draft(_climb("6b"))))
 
-    latest = await SqlAlchemyTrainingSessionRepository(db_session_factory).latest_in_sport(
-        stranger.user_id, "climbing"
-    )
+    latest = await SqlAlchemyTrainingSessionRepository(
+        db_session_factory, stores=STORES
+    ).latest_in_sport(stranger.user_id, "climbing")
 
     assert latest is None
 

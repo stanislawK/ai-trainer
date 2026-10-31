@@ -6,6 +6,7 @@ from pydantic import JsonValue
 from sqlalchemy import Row, Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ai_trainer.adapters.activity_stores import ActivityStore
 from ai_trainer.adapters.orm import TrainingSessionOrm, TrainingSessionSourceOrm
 from ai_trainer.domain.training import SessionSpan
 
@@ -57,10 +58,17 @@ async def spans_of(
 
 
 class SqlAlchemyTrainingSessionRepository:
-    """Implements `TrainingSessionRepositoryPort` (ADR-0004, ADR-0022)."""
+    """Implements `TrainingSessionRepositoryPort` (ADR-0004, ADR-0022). A session's activities
+    are read through its sport's `ActivityStore` (ADR-0032)."""
 
-    def __init__(self, session_factory: Callable[[], AsyncSession]) -> None:
+    def __init__(
+        self,
+        session_factory: Callable[[], AsyncSession],
+        *,
+        stores: Callable[[str], ActivityStore],
+    ) -> None:
         self._session_factory = session_factory
+        self._stores = stores
 
     async def latest_in_sport(self, user_id: UUID, sport_id: str) -> SessionSpan | None:
         async with self._session_factory() as session:
@@ -78,8 +86,8 @@ class SqlAlchemyTrainingSessionRepository:
         self, user_id: UUID, sport_id: str, limit: int
     ) -> Sequence[Mapping[str, JsonValue]]:
         async with self._session_factory() as session:
-            payloads = await session.scalars(
-                select(TrainingSessionOrm.payload)
+            session_ids = await session.scalars(
+                select(TrainingSessionOrm.id)
                 .where(
                     TrainingSessionOrm.user_id == user_id,
                     TrainingSessionOrm.sport_id == sport_id,
@@ -87,4 +95,4 @@ class SqlAlchemyTrainingSessionRepository:
                 .order_by(TrainingSessionOrm.occurred_on.desc(), TrainingSessionOrm.id)
                 .limit(limit)
             )
-            return list(payloads.all())
+            return await self._stores(sport_id).recent(session, user_id, list(session_ids.all()))

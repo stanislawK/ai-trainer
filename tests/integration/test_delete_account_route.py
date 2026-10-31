@@ -34,7 +34,10 @@ from ai_trainer.web.auth import SESSION_COOKIE_NAME
 from ai_trainer.web.csrf import CSRF_HEADER_NAME, CsrfMiddleware
 from ai_trainer.web.settings import build_settings_router
 from ai_trainer.web.templating import build_templates
+from tests.activity_support import STORES
 from tests.chat_support import FixedClock
+from tests.integration.test_gym_activity_store import _gym
+from tests.integration.test_session_continuity_repository import _START, _athlete
 
 FROZEN_NOW = datetime(2026, 9, 25, 12, 0, tzinfo=UTC)
 SECRET = b"integration-test-secret"
@@ -143,6 +146,11 @@ _INSERT_CLARIFICATION = text(
     " clarification, status, created_at) VALUES (:id, :user_id, :conversation_id, :message_id,"
     " :draft_id, 'sport', '{}', 'open', now())"
 )
+_GYM_TABLES = ("gym_exercise_entries", "gym_sets", "athlete_bands")
+_INSERT_CUSTOM_EXERCISE = text(
+    "INSERT INTO exercises (id, sport_id, owner_user_id, source, name, default_measure)"
+    " VALUES (:id, 'gym', :user_id, 'custom', 'My squat', 'reps')"
+)
 
 
 async def test_no_user_owned_row_references_the_deleted_user_id(
@@ -197,7 +205,7 @@ async def test_no_user_owned_row_references_the_deleted_user_id(
     gone, log = await talk("second")
     # A row in each training-session table (ADR-0022): a saved session with its source, and a
     # pending draft with an open question in the last conversation.
-    draft = await SqlAlchemySessionDraftRepository(db_session_factory).add(
+    draft = await SqlAlchemySessionDraftRepository(db_session_factory, stores=STORES).add(
         admin.id,
         gone.id,
         log.id,
@@ -294,3 +302,55 @@ async def test_deleting_one_user_leaves_another_users_rows_intact(
     assert response.status_code == 200
     assert await users.get(other.id) is not None
     assert await sessions.get(other_session_id) is not None
+
+
+async def test_account_deletion_empties_the_gym_tables(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    """Entries, sets and bands go with the account (G7, ADR-0032 invariant 2), also an entry
+    linked to the athlete's own custom exercise, whose key has no ON DELETE action (#376's plan
+    gate); another athlete's gym rows stay."""
+    users = SqlAlchemyUsersRepository(db_session_factory)
+    sessions = SqlAlchemySessionsRepository(db_session_factory)
+    leaving = await _athlete(db_session_factory, "delete-me-gym")
+    staying = await _athlete(db_session_factory, "delete-me-gym-other")
+    lifts = _gym({"name": "Squat", "sets": 3, "reps": 5})
+    gone = await leaving.confirmed(await leaving.draft("squat 3x5", _START, lifts, sport_id="gym"))
+    await staying.confirmed(await staying.draft("squat 3x5", _START, lifts, sport_id="gym"))
+    custom = uuid4()
+    async with db_session_factory() as db:
+        await db.execute(_INSERT_CUSTOM_EXERCISE, {"id": custom, "user_id": leaving.user_id})
+        await db.execute(
+            text("UPDATE gym_exercise_entries SET exercise_id = :custom WHERE session_id = :id"),
+            {"custom": custom, "id": gone.session_id},
+        )
+        await db.execute(
+            text("INSERT INTO athlete_bands (id, user_id, label) VALUES (:id, :user_id, 'red')"),
+            {"id": uuid4(), "user_id": leaving.user_id},
+        )
+        await db.commit()
+    web_session = await sessions.create(
+        NewSession(user_id=leaving.user_id, expires_at=FROZEN_NOW + timedelta(days=1))
+    )
+    client = _client(users=users, sessions=sessions)
+    client.cookies.set(SESSION_COOKIE_NAME, str(web_session.id))
+    token = _csrf_token(client)
+
+    response = client.post(
+        "/settings/delete-account", headers={CSRF_HEADER_NAME: token, "HX-Request": "true"}
+    )
+
+    assert response.status_code == 200
+    assert await _gym_counts(db_session_factory, leaving.user_id) == [0, 0, 0]
+    assert await _gym_counts(db_session_factory, staying.user_id) == [1, 3, 0]
+
+
+async def _gym_counts(factory: Callable[[], AsyncSession], user_id: UUID) -> list[int]:
+    async with factory() as db:
+        return [
+            await db.scalar(
+                text(f"SELECT count(*) FROM {table} WHERE user_id = :id"), {"id": user_id}
+            )
+            or 0
+            for table in _GYM_TABLES
+        ]

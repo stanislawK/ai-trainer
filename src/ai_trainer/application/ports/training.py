@@ -20,6 +20,7 @@ class TrainingSessionRepositoryPort(Protocol):
     async def recent_payloads(
         self, user_id: UUID, sport_id: str, limit: int
     ) -> Sequence[Mapping[str, JsonValue]]:
-        """The stored payloads of the user's `limit` latest sessions in `sport_id`, the latest
-        day first, for the sport's plugin to read its context from (ticket #164)."""
+        """The activities of the user's `limit` latest sessions in `sport_id`, the latest day
+        first, as the sport's `ActivityStore` reads them (ADR-0032), for the sport's plugin to
+        read its context from (ticket #164)."""
         ...

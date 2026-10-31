@@ -8,9 +8,11 @@ from collections.abc import Callable, Mapping
 from datetime import datetime
 from uuid import UUID
 
+from pydantic import JsonValue
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ai_trainer.adapters.activity_stores import ActivityStore
 from ai_trainer.adapters.orm import (
     ChatMessageOrm,
     ClarificationOrm,
@@ -19,8 +21,9 @@ from ai_trainer.adapters.orm import (
     TrainingSessionSourceOrm,
 )
 from ai_trainer.adapters.training_session_repository import spans_of
+from ai_trainer.application.ports.activities import LoggedActivities
 from ai_trainer.domain.clarification import ClarificationResolvedError
-from ai_trainer.domain.sports.base import ExtractionSpec, extend_payload, withdraw_payload
+from ai_trainer.domain.sports.base import ExtractionSpec
 from ai_trainer.domain.training import (
     DraftAwaitingAnswerError,
     DraftConfirmedError,
@@ -123,11 +126,13 @@ async def confirm(
     *,
     confirmed_at: datetime,
     spec_of: Callable[[str], ExtractionSpec],
+    store_of: Callable[[str], ActivityStore],
 ) -> StoredDraft:
     """One transaction (ADR-0022): the session, or the addition to the one the draft
-    extends (B16), its source row with the log's original text (B2), and the draft's move to
-    `confirmed`. The draft row is locked first, so a second confirm waits for the first and
-    then finds it done: one session either way. The extended session is locked next, as in
+    extends (B16), its source row with the log's original text (B2), the activities in the
+    sport's `ActivityStore` (ADR-0032), and the draft's move to `confirmed`. The draft row is
+    locked first, so a second confirm waits for the first and then finds it done: one session
+    either way. The extended session is locked next, as in
     an undo, so two additions to it land one after the other. A draft whose card still asks
     whether it is the same session is refused (ticket #166); the answer locks the draft row
     too, so a confirm racing it sees the session it settled."""
@@ -147,8 +152,10 @@ async def confirm(
     ).one()
     draft = SessionDraft.model_validate(row.draft)
     training = await _extended(session, user_id, row, draft)
+    session_payload: dict[str, JsonValue] | None = None
     if training is None:
-        # The session is gone, or the draft now names another day: a session of its own.
+        # The session is gone, or the draft now names another day: a session of its own. Its
+        # payload is the sport store's to set, below.
         row.extends_session_id = None
         training = TrainingSessionOrm(
             user_id=user_id,
@@ -160,31 +167,40 @@ async def confirm(
             rpe=draft.rpe,
             feeling=draft.feeling,
             notes=draft.notes,
-            payload=draft.payload,
+            payload={},
             payload_version=row.payload_version,
             created_at=confirmed_at,
             updated_at=confirmed_at,
         )
         session.add(training)
-        await session.flush()
     else:
-        spec = spec_of(row.sport_id)
-        training.payload = extend_payload(
-            spec.payload_type, training.payload, draft.payload
-        ).model_dump(mode="json")
-        training.payload_version = spec.payload_version
+        session_payload = training.payload
+        training.payload_version = spec_of(row.sport_id).payload_version
         for name in _FILLED_FIELDS:
             if getattr(training, name) is None:
                 setattr(training, name, getattr(draft, name))
         training.updated_at = confirmed_at
-    session.add(
-        TrainingSessionSourceOrm(
-            user_id=user_id,
+    await session.flush()
+    source = TrainingSessionSourceOrm(
+        user_id=user_id,
+        session_id=training.id,
+        raw_text=log.text,
+        source=_CHAT_SOURCE,
+        logged_at=log.created_at,
+    )
+    session.add(source)
+    await session.flush()
+    # The sport's activities, in its own tables or the payload (ADR-0032), with the source row
+    # they came from.
+    training.payload = await store_of(row.sport_id).add(
+        session,
+        user_id,
+        LoggedActivities(
             session_id=training.id,
-            raw_text=log.text,
-            source=_CHAT_SOURCE,
-            logged_at=log.created_at,
-        )
+            source_id=source.id,
+            session_payload=session_payload,
+            addition=draft.payload,
+        ),
     )
     row.status = CONFIRMED
     row.session_id = training.id
@@ -268,13 +284,15 @@ async def undo(
     *,
     undone_at: datetime,
     spec_of: Callable[[str], ExtractionSpec],
+    store_of: Callable[[str], ActivityStore],
 ) -> StoredDraft:
     """Takes back the draft's own log (B4, ticket #165): its source row goes, and so do the
-    activities it brought, through its sport's payload model. When it was the session's
-    last log, the session goes too, and its other drafts' `session_id` is cleared by their
-    own key (`SET NULL (session_id)`). The draft stays `confirmed` without a session. The
-    draft row is locked first, then the session, as in a confirm, so a second undo waits for
-    the first and then finds no session."""
+    activities it brought, through its sport's `ActivityStore` (ADR-0032). When it was the
+    session's last log, the session goes too, with its sources and a sport's own rows, and its
+    other drafts' `session_id` is cleared by their own key (`SET NULL (session_id)`). The
+    draft stays `confirmed` without a session. The draft row is locked first, then the
+    session, as in a confirm, so a second undo waits for the first and then finds no
+    session."""
     row = await _locked_draft(session, user_id, draft_id)
     if row.session_id is None:
         raise SessionNotFoundError(draft_id)
@@ -304,29 +322,38 @@ async def undo(
         )
         .limit(1)
     )
-    await session.execute(
-        delete(TrainingSessionSourceOrm).where(
-            TrainingSessionSourceOrm.id == source_id,
-            TrainingSessionSourceOrm.user_id == user_id,
-        )
-    )
+    assert source_id is not None  # a confirmed draft's log has its source row in its session
     left = await session.scalar(
         select(func.count()).where(
             TrainingSessionSourceOrm.session_id == training.id,
             TrainingSessionSourceOrm.user_id == user_id,
+            TrainingSessionSourceOrm.id != source_id,
         )
     )
     if left:
-        spec = spec_of(row.sport_id)
-        draft = SessionDraft.model_validate(row.draft)
-        training.payload = withdraw_payload(
-            spec.payload_type, training.payload, draft.payload
-        ).model_dump(mode="json")
-        training.payload_version = spec.payload_version
+        # The sport takes back only this log's activities, before its source row goes.
+        training.payload = await store_of(row.sport_id).withdraw(
+            session,
+            user_id,
+            LoggedActivities(
+                session_id=training.id,
+                source_id=source_id,
+                session_payload=training.payload,
+                addition=SessionDraft.model_validate(row.draft).payload,
+            ),
+        )
+        training.payload_version = spec_of(row.sport_id).payload_version
         training.updated_at = undone_at
+        await session.execute(
+            delete(TrainingSessionSourceOrm).where(
+                TrainingSessionSourceOrm.id == source_id,
+                TrainingSessionSourceOrm.user_id == user_id,
+            )
+        )
         row.session_id = None
         await session.flush()
     else:
+        # Its sources and a sport's own rows go with it, by their keys.
         await session.execute(
             delete(TrainingSessionOrm).where(
                 TrainingSessionOrm.id == training.id,

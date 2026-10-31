@@ -20,6 +20,7 @@ from ai_trainer.domain.sports.gym.payload import (
     GymPayload,
     LoadUnit,
 )
+from ai_trainer.domain.sports.gym.rows import RecentGymSession
 
 # A movement option's other readings, in one param (params are strings); no name holds a newline.
 _OTHERS_SEPARATOR = "\n"
@@ -184,11 +185,12 @@ class GymQuestion(ExtractionQuestion):
 
 def recent_exercises(payloads: Sequence[Mapping[str, JsonValue]]) -> tuple[str, ...]:
     """The exercises of the athlete's recent sessions, each once with the unit its load was in
-    ("bench press (lb)"), from the most recent session first (ticket #206)."""
+    ("bench press (lb)"), from the most recent session first (ticket #206), as the gym's
+    `ActivityStore` reads them from the rows (ticket #376)."""
     seen: dict[tuple[str, str | None], str] = {}
-    for payload in payloads:
-        for exercise in GymPayload.model_validate(payload).activities:
-            unit = None if exercise.load is None else exercise.load.unit
+    for session in payloads:
+        for exercise in RecentGymSession.model_validate(session).activities:
+            unit = exercise.unit
             entry = exercise.name if unit is None else f"{exercise.name} ({unit})"
             seen.setdefault((_key(exercise.name), unit), entry)
     return tuple(seen.values())
