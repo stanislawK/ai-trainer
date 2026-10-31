@@ -3,8 +3,6 @@
 # from M1g (ADR-0031). Sides, implements and bands aren't in the draft yet (B38, B39), so those
 # cases grade only what the draft can hold today.
 name: gym.extract
-known_gaps:
-  'bench press: load, reps, then sets': '#373'
 cases:
 - name: 'pull ups: reps before sets'
   inputs:
@@ -78,7 +76,7 @@ cases:
       message: 4 series two hantles 6kg each - rising straight arms on both sides
   metadata:
     field: evals/field/gym/2026-10-28-first-gym-session.md
-    ignore_fields: [name, load]
+    ignore_fields: [name]
   expected_output:
     occurred_on: '2026-10-28'
     date_source: assumed_today
@@ -86,7 +84,10 @@ cases:
     - name: rising straight arms
       sets: 4
       reps: null
-      load: null
+      load:
+        original: 6kg
+        value: 6
+        unit: kg
       rir: null
 - name: 'triceps: long name, series and reps'
   inputs:

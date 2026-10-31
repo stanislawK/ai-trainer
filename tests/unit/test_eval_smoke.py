@@ -3,6 +3,7 @@ no baseline, no judge except the safety set. No real model: scripted `FunctionMo
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import pytest
 import yaml
@@ -316,6 +317,53 @@ def test_gym_smoke_cases_cite_a_field_transcript_with_the_message_verbatim() -> 
         transcript = ROOT / str(case.metadata["field"])
         assert transcript.is_file(), case.metadata["field"]
         assert case.inputs.prompt in transcript.read_text(), case.name
+
+
+def _gym_smoke_case(prompt: str) -> dict[str, Any]:
+    dataset = read_smoke_set("gym.extract", smoke_root=ROOT / "evals" / "smoke").dataset
+    cases: list[dict[str, Any]] = dataset["cases"]  # type: ignore[assignment]  # read as YAML
+    return next(case for case in cases if case["inputs"]["prompt"] == prompt)
+
+
+_HANTLES = "4 series two hantles 6kg each - rising straight arms on both sides"
+_BENCH = "Bench press 45kg 8 x3"
+
+
+def test_gym_smoke_expects_four_sets_and_empty_reps_for_the_hantles_message() -> None:
+    activity = _gym_smoke_case(_HANTLES)["expected_output"]["activities"][0]
+
+    assert (activity["sets"], activity["reps"]) == (4, None)
+
+
+def test_gym_smoke_grades_the_hantles_load_at_6_kg() -> None:
+    case = _gym_smoke_case(_HANTLES)
+
+    assert "load" not in case["metadata"]["ignore_fields"]
+    assert case["expected_output"]["activities"][0]["load"] == {
+        "original": "6kg",
+        "value": 6,
+        "unit": "kg",
+    }
+
+
+def test_gym_smoke_expects_bench_at_3_sets_of_8_at_45_kg() -> None:
+    activity = _gym_smoke_case(_BENCH)["expected_output"]["activities"][0]
+
+    assert (activity["sets"], activity["reps"], activity["load"]["value"]) == (3, 8, 45)
+
+
+def test_gym_smoke_expects_face_pull_at_4_sets_of_12_at_30_kg() -> None:
+    case = _gym_smoke_case("Face pull 30kg 12reps 4 series")
+    activity = case["expected_output"]["activities"][0]
+
+    assert (activity["sets"], activity["reps"], activity["load"]["value"]) == (4, 12, 30)
+
+
+def test_gym_smoke_lists_neither_the_bench_nor_the_hantles_case_as_a_known_gap() -> None:
+    known_gaps = read_smoke_set("gym.extract", smoke_root=ROOT / "evals" / "smoke").known_gaps
+
+    for prompt in (_BENCH, _HANTLES):
+        assert _gym_smoke_case(prompt)["name"] not in known_gaps
 
 
 def test_the_committed_smoke_sets_read_and_the_safety_set_alone_holds_a_judge() -> None:
