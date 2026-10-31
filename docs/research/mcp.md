@@ -88,8 +88,8 @@ Versions read: MCP specification `2026-07-28`, FastMCP 3.4.11 and 4.1.4 (docs th
 | First stable | 3.0.0 (2026-02-18) | 4.0.0 (2026-08-31), so about two months old | [PyPI](https://pypi.org/project/fastmcp/#history) |
 | `pydantic-ai-slim` 2.57's `mcp` extra | Accepted (`>=3.3.0,<5`) | Accepted, and installed by default | [client docs](https://github.com/pydantic/pydantic-ai/blob/v2.57.0/docs/mcp/client.md), v2.57.0 |
 | MCP SDK | v1 (`mcp` 1.30.0 resolved) | v2 (`mcp` 2.3.0 resolved) | [upgrade guide](https://github.com/PrefectHQ/fastmcp/blob/v4.1.4/docs/getting-started/upgrading/from-fastmcp-3.mdx), v4.1.4 |
-| HTTP client | Adds `httpx` | Uses `httpx2`, which this project already locks | [upgrade guide](https://github.com/PrefectHQ/fastmcp/blob/v4.1.4/docs/getting-started/upgrading/from-fastmcp-3.mdx), v4.1.4 |
-| Requires | | pydantic ≥2.12, FastAPI ≥0.133, `pydantic-ai-slim` ≥2.45. This project locks pydantic 2.13.5, FastAPI 0.141.1 and `pydantic-ai-slim` 2.57.0 | [upgrade guide](https://github.com/PrefectHQ/fastmcp/blob/v4.1.4/docs/getting-started/upgrading/from-fastmcp-3.mdx), v4.1.4 |
+| HTTP client | Adds `httpx` | Uses `httpx2`, which this project already locks | [upgrade guide](https://github.com/PrefectHQ/fastmcp/blob/v4.1.4/docs/getting-started/upgrading/from-fastmcp-3.mdx), v4.1.4; [`uv.lock`](../../uv.lock) |
+| Requires | | pydantic ≥2.12, FastAPI ≥0.133, `pydantic-ai-slim` ≥2.45. This project's [`uv.lock`](../../uv.lock) has pydantic 2.13.5, FastAPI 0.141.1 and `pydantic-ai-slim` 2.57.0 | [upgrade guide](https://github.com/PrefectHQ/fastmcp/blob/v4.1.4/docs/getting-started/upgrading/from-fastmcp-3.mdx), v4.1.4 |
 | `ctx.request_context.meta` | Object, attribute access | Plain `dict` or `None` | [v3.4.11](https://github.com/PrefectHQ/fastmcp/blob/v3.4.11/docs/servers/context.mdx), [v4.1.3](https://github.com/PrefectHQ/fastmcp/blob/v4.1.3/docs/servers/context.mdx) |
 | Protocol | Session-based eras | Serves both the sessionless `2026-07-28` era and session-based eras | [upgrade guide](https://github.com/PrefectHQ/fastmcp/blob/v4.1.4/docs/getting-started/upgrading/from-fastmcp-3.mdx), v4.1.4 |
 | Moving later | The upgrade guide's migrations are still ahead | Nothing to migrate | [upgrade guide](https://github.com/PrefectHQ/fastmcp/blob/v4.1.4/docs/getting-started/upgrading/from-fastmcp-3.mdx), v4.1.4 |
@@ -99,7 +99,14 @@ Versions read: MCP specification `2026-07-28`, FastMCP 3.4.11 and 4.1.4 (docs th
 - 3.x still gets releases, but no source read here states how long it will ([PyPI](https://pypi.org/project/fastmcp/#history), read 2026-10-31).
 - 4.x moves fast: 4.0.0 to 4.1.4 took 17 releases in two months, and an alpha, 4.2.0a1, is on PyPI ([PyPI](https://pypi.org/project/fastmcp/#history), read 2026-10-31). `uv.lock` pins the exact version, and the lock check below chose 4.1.4, not the alpha.
 
-*Lock check (2026-10-31), on a scratch copy of this repository's `pyproject.toml` and `uv.lock`:* both majors resolve on Python 3.14.6 with no package removed, and only `certifi` moves among existing ones. FastMCP 3 adds 42 packages, including `httpx`, `httpcore` and `keyring`, for 147 in all. FastMCP 4 adds 32 for 137 in all. *(probe: every in-process check above gave the same result on both majors, apart from the shape of `meta`.)*
+*Lock check (2026-10-31), on a scratch copy of this repository's `pyproject.toml` and [`uv.lock`](../../uv.lock) at the commit this ticket branched from:* both majors resolve on Python 3.14.6 with no package removed, and only `certifi` moves among existing ones. FastMCP 3 adds 42 packages, including `httpx`, `httpcore` and `keyring`, for 147 in all. FastMCP 4 adds 32 for 137 in all. `pip-audit` (`.claude/rules/python.md`) flagged nothing FastMCP 4 adds. To reproduce it in that copy, and compare the two lock files:
+
+```
+uv add --no-sync "fastmcp>=4.1,<5" "pydantic-ai-slim[openai,spec,typesafe,mcp]>=2.55.0"
+uv add --no-sync "fastmcp>=3.4,<4" "pydantic-ai-slim[openai,spec,typesafe,mcp]>=2.55.0"
+```
+
+*(probe: every in-process check above gave the same result on both majors, apart from the shape of `meta`.)*
 
 ## Recommendations for this project
 
