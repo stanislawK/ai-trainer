@@ -1,3 +1,4 @@
+from datetime import date
 from enum import StrEnum
 from uuid import UUID
 
@@ -117,3 +118,46 @@ class ExerciseDatasetError(Exception):
 
 class ExerciseCatalogueError(Exception):
     """The committed catalogue files are invalid, or don't fit the pinned dataset."""
+
+
+class ExerciseDetail(BaseModel):
+    """An exercise as a lookup shows it (ADR-0031, ADR-0010): what tells it apart from its
+    neighbours and a short description from its imported text, `None` when it has none."""
+
+    model_config = ConfigDict(frozen=True)
+
+    id: UUID
+    name: str
+    equipment: str | None = None
+    target: str | None = None
+    description: str | None = None
+
+
+class LoggedSet(BaseModel):
+    """One set of a past entry as stored (ADR-0032): a measure the athlete didn't give is `None`,
+    never estimated. `load_original` keeps the load as typed."""
+
+    model_config = ConfigDict(frozen=True)
+
+    set_no: int
+    reps: int | None = None
+    load_kg: float | None = None
+    load_original: str | None = None
+    duration_s: int | None = None
+    distance_m: float | None = None
+    band_label: str | None = None
+
+
+class ExerciseEntry(BaseModel):
+    """One time the athlete did an exercise: its day, how they wrote it and its sets."""
+
+    model_config = ConfigDict(frozen=True)
+
+    session_id: UUID
+    occurred_on: date
+    name_as_typed: str
+    measure: ExerciseMeasure
+    per_side: bool
+    implements: int | None = None
+    rir: int | None = None
+    sets: tuple[LoggedSet, ...]

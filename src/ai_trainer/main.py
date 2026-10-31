@@ -34,6 +34,7 @@ from ai_trainer.adapters.clarification_repository import SqlAlchemyClarification
 from ai_trainer.adapters.clock import UtcClock
 from ai_trainer.adapters.conversation_repository import SqlAlchemyConversationRepository
 from ai_trainer.adapters.db import build_engine, build_session_factory
+from ai_trainer.adapters.exercise_history import SqlAlchemyExerciseHistory
 from ai_trainer.adapters.exercise_repository import SqlAlchemyExerciseRepository
 from ai_trainer.adapters.feedback_repository import SqlAlchemyFeedbackEventsRepository
 from ai_trainer.adapters.google_oauth import AuthlibGoogleOAuthClient
@@ -51,6 +52,7 @@ from ai_trainer.adapters.user_status_changer import SqlAlchemyUserStatusChanger
 from ai_trainer.adapters.users_repository import SqlAlchemyUsersRepository
 from ai_trainer.application.background_reads import BackgroundReads
 from ai_trainer.application.budgeted_gateways import BudgetedDecisionGateway, BudgetedLlmGateway
+from ai_trainer.application.exercise_lookup import ExerciseFinder
 from ai_trainer.application.exercise_resolution import ResolutionLimits, ResolveExercises
 from ai_trainer.application.feedback import FeedbackRecorder
 from ai_trainer.application.metered_calls import MeteredLlmCallsRepository
@@ -61,7 +63,7 @@ from ai_trainer.application.ports.draft_settling import DraftSettlerPort
 from ai_trainer.application.ports.llm_gateway import LlmGatewayPort
 from ai_trainer.application.ports.metrics import NO_METRICS, MetricsPort
 from ai_trainer.application.reply import ReplyServices
-from ai_trainer.application.training_history import TrainingHistory
+from ai_trainer.application.training_history import ExerciseTrainingHistory, TrainingHistory
 from ai_trainer.domain.sports.registry import SportRegistry, default_sport_registry
 from ai_trainer.llm.conversation import LlmConversation, build_prompt_registry
 from ai_trainer.llm.debug_log import build_debug_log
@@ -266,10 +268,24 @@ def create_app(  # noqa: PLR0915 -- composition root: objects are built only her
         OpenRouterDecisionGateway(settings, llm_calls, debug_log=debug_log), budget
     )
     training_sessions = SqlAlchemyTrainingSessionRepository(session_factory, stores=activity_stores)
+    exercise_repository = SqlAlchemyExerciseRepository(session_factory)
     # The MCP server in process, for the specialists to come (ADR-0010). Nothing mounts it
     # over HTTP: that waits for an amendment on how tokens are issued.
     app.state.mcp_toolset = build_toolset(
-        build_mcp_server(TrainingHistory(training_sessions, sport_registry))
+        build_mcp_server(
+            TrainingHistory(training_sessions, sport_registry),
+            ExerciseFinder(
+                exercise_repository,
+                ResolutionLimits(
+                    near_match=settings.exercise_near_match_threshold,
+                    candidate_floor=settings.exercise_candidate_floor,
+                    shortlist_size=settings.exercise_shortlist_size,
+                ),
+            ),
+            ExerciseTrainingHistory(
+                exercise_repository, SqlAlchemyExerciseHistory(session_factory)
+            ),
+        )
     )
     replies = ReplyServices(
         chat=chat,

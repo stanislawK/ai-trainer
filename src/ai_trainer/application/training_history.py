@@ -8,7 +8,9 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from ai_trainer.application.ports.exercises import ExerciseHistoryPort, ExerciseRepositoryPort
 from ai_trainer.application.ports.training import SessionHistoryPort
+from ai_trainer.domain.exercises import Exercise, ExerciseEntry
 from ai_trainer.domain.sports.registry import SportRegistry, UnknownSportError
 from ai_trainer.domain.training import SessionSummary
 
@@ -76,3 +78,48 @@ class TrainingHistory:
         if not found:
             return SessionQueryFailed(reason="no_sessions")
         return SessionPage(sessions=list(found[: query.limit]), truncated=len(found) > query.limit)
+
+
+DEFAULT_ENTRIES = 10
+MAX_ENTRIES = 50
+
+
+class ExerciseHistoryPage(BaseModel):
+    """The exercise and the athlete's entries of it, the latest day first; `truncated` when more
+    exist than `limit`."""
+
+    model_config = ConfigDict(frozen=True)
+
+    exercise: Exercise
+    entries: list[ExerciseEntry]
+    truncated: bool
+
+
+class ExerciseHistoryFailed(BaseModel):
+    """`not_found` covers an unknown ID and another athlete's alike; `no_entries` an exercise the
+    athlete can see but has never logged."""
+
+    model_config = ConfigDict(frozen=True)
+
+    reason: Literal["not_found", "no_entries"]
+
+
+class ExerciseTrainingHistory:
+    def __init__(self, exercises: ExerciseRepositoryPort, history: ExerciseHistoryPort) -> None:
+        self._exercises = exercises
+        self._history = history
+
+    async def entries(
+        self, user_id: UUID, exercise_id: UUID, limit: int = DEFAULT_ENTRIES
+    ) -> ExerciseHistoryPage | ExerciseHistoryFailed:
+        """The user's own entries of one exercise they can see, read from the typed rows."""
+        exercise = await self._exercises.get(user_id, exercise_id)
+        if exercise is None:
+            return ExerciseHistoryFailed(reason="not_found")
+        # One row past the limit tells a cut page from an exact one.
+        found = await self._history.entries(user_id, exercise_id, limit=limit + 1)
+        if not found:
+            return ExerciseHistoryFailed(reason="no_entries")
+        return ExerciseHistoryPage(
+            exercise=exercise, entries=list(found[:limit]), truncated=len(found) > limit
+        )
