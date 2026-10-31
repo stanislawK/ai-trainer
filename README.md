@@ -141,7 +141,13 @@ make stack-owner             # which checkout `make start` serves: none, self, o
 - `make worktree` branches from `origin/main` as `<area>/<n>-<slug>` (the issue's `area:` label; the title without its prefix and without a, an, the, at most five words, so `sign-in` stays one word), copies `.env` with only `DATABASE_URL`'s database changed, creates and migrates `ai_trainer_wt<n>`, runs `uv sync`, and prints the path. The tab then moves into it with `EnterWorktree`; no new VS Code window opens. It reads the issue with `gh`, so `gh` needs access to the repo (prefix `GH_TOKEN=…` if your active account has none).
 - It checks everything first: a missing `.env`, an existing folder (or one git still lists as a worktree), branch (local or on origin) or database, an unreachable Postgres or an issue without an `area:` label exits 1 with the reason and creates nothing. A step that fails later undoes the earlier ones.
 - `make worktree-rm` refuses while the worktree has uncommitted changes, and then keeps the database too.
-- `make worktree-prune` asks `gh` for each ticket worktree's PR. It keeps a worktree whose PR is open or missing, and one with uncommitted changes, and says why. `/apply-ticket` runs it before starting a ticket and after you reply "merged".
+- `make worktree-prune` lists the PRs with one `gh` call. It removes a ticket worktree, its database and its branch only when all of these hold:
+  - its PR is merged;
+  - the branch tip is still the merged head;
+  - nothing is uncommitted;
+  - `make start` isn't serving it.
+
+  Otherwise it prints why the worktree was kept. It exits 1 only on an error: `gh` or Postgres unreachable, which it checks before touching git. `/apply-ticket` runs it before starting a ticket and after you reply "merged".
 - Tests follow the checkout's `.env`, so `uv run pytest` runs in a worktree and the main checkout at the same time without sharing a database.
 - One `make start` serves one checkout at a time on :8000: `compose.yaml` pins the project name to `ai-trainer`, and the Makefile exports `APP_DB_NAME` (the database in the checkout's `.env`) for the `app` and `migrate` services. For a UI ticket's acceptance gate the agent starts it in the background from the ticket's worktree. It asks first when `make stack-owner` says another checkout's stack is up, and stops it after the gate. Google sign-in accepts only `http://localhost:8000/auth/callback`, so there is no second port.
 

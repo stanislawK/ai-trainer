@@ -242,38 +242,13 @@ def _ticket_worktrees(root: Path, run: Run) -> list[tuple[int, Path, str]]:
     return found
 
 
-def prune(*, root: Path, run: Run, databases: Databases, base_url: str) -> int:
-    """Removes every ticket worktree whose PR is merged, with its database and branch."""
-    failed = False
-    for number, path, branch in _ticket_worktrees(root, run):
-        prs = json.loads(
-            run(["gh", "pr", "list", "--head", branch, "--state", "all", "--json", "number,state"])
-        )
-        merged = next((pr for pr in prs if pr["state"] == "MERGED"), None)
-        if merged is None:
-            reason = f"PR #{prs[0]['number']} is {prs[0]['state']}" if prs else "no PR"
-            print(f"worktree: #{number}: {reason}, kept")
-            continue
-        database = make_url(worktree_database_url(base_url, number)).database or ""
-        try:
-            run(["git", "worktree", "remove", str(path)])
-            databases.drop(database)
-            run(["git", "branch", "-D", branch])
-        except WorktreeError as error:
-            print(
-                f"worktree: #{number}: PR #{merged['number']} merged, but {error}", file=sys.stderr
-            )
-            failed = True
-            continue
-        removed = f"removed {path}, {database}, {branch}"
-        print(f"worktree: #{number}: PR #{merged['number']} merged; {removed}")
-    return 1 if failed else 0
+_PR_FIELDS = "number,state,headRefName,headRefOid"
+_WORKING_DIR = '{{index .Config.Labels "com.docker.compose.project.working_dir"}}'
 
 
-def stack_owner(*, run: Run) -> int:
-    """Prints `none`, `self` or `other <path>` for the checkout `make start` serves; 3 on other."""
-    here = Path(run(["git", "rev-parse", "--show-toplevel"]).strip())
-    working_dir = '{{index .Config.Labels "com.docker.compose.project.working_dir"}}'
+def _served_checkout(run: Run) -> str | None:
+    """The checkout the running `make start` app serves, `unknown` when its compose label is
+    missing, or None when no app container runs."""
     try:
         state = run(
             [
@@ -281,16 +256,76 @@ def stack_owner(*, run: Run) -> int:
                 "inspect",
                 "ai-trainer-app-1",
                 "--format",
-                f"{{{{.State.Running}}}} {working_dir}",
+                f"{{{{.State.Running}}}} {_WORKING_DIR}",
             ]
         )
     except CommandError:
-        state = ""
+        return None
     running, _, served = state.strip().partition(" ")
     if running != "true":
+        return None
+    return served if served and served != "<no value>" else "unknown"
+
+
+def _keep_reason(
+    path: Path, branch: str, prs: Sequence[Mapping[str, str]], served: str | None, run: Run
+) -> str | None:
+    """Why a ticket worktree stays, or None when it can go: its PR is merged, the merged head is
+    still the branch tip, nothing is uncommitted and `make start` doesn't serve it."""
+    merged = next((pr for pr in prs if pr["state"] == "MERGED"), None)
+    if merged is None:
+        return f"PR #{prs[0]['number']} is {prs[0]['state']}" if prs else "no PR"
+    if served is not None and served != "unknown" and Path(served).resolve() == path.resolve():
+        return f"PR #{merged['number']} merged, but `make start` serves it; run `make stop` first"
+    if run(["git", "status", "--porcelain"], cwd=path).strip():
+        return f"PR #{merged['number']} merged, but it has uncommitted changes"
+    if run(["git", "rev-parse", f"refs/heads/{branch}"]).strip() != merged["headRefOid"]:
+        return f"PR #{merged['number']} merged, but {branch} has commits after it"
+    return None
+
+
+def prune(*, root: Path, run: Run, databases: Databases, base_url: str) -> int:
+    """Removes every ticket worktree whose PR is merged, with its database and branch."""
+    try:
+        listed = json.loads(
+            run(["gh", "pr", "list", "--state", "all", "--limit", "500", "--json", _PR_FIELDS])
+        )
+    except WorktreeError as error:
+        print(f"worktree: can't list PRs: {error}; nothing was removed", file=sys.stderr)
+        return 1
+    prs_by_branch: dict[str, list[dict[str, str]]] = {}
+    for pr in listed:
+        prs_by_branch.setdefault(pr["headRefName"], []).append(pr)
+    served = _served_checkout(run)
+    failed = False
+    for number, path, branch in _ticket_worktrees(root, run):
+        prs = prs_by_branch.get(branch, [])
+        reason = _keep_reason(path, branch, prs, served, run)
+        if reason is not None:
+            print(f"worktree: #{number}: {reason}, kept")
+            continue
+        database = make_url(worktree_database_url(base_url, number)).database or ""
+        try:
+            databases.exists(database)  # fails fast while Postgres is down, before git changes
+            run(["git", "worktree", "remove", str(path)])
+            databases.drop(database)
+            run(["git", "branch", "-D", branch])
+        except WorktreeError as error:
+            print(f"worktree: #{number}: {error}", file=sys.stderr)
+            failed = True
+            continue
+        print(f"worktree: #{number}: PR merged; removed {path}, {database}, {branch}")
+    return 1 if failed else 0
+
+
+def stack_owner(*, run: Run) -> int:
+    """Prints `none`, `self` or `other <path>` for the checkout `make start` serves; 3 on other."""
+    here = Path(run(["git", "rev-parse", "--show-toplevel"]).strip())
+    served = _served_checkout(run)
+    if served is None:
         print("none")
         return 0
-    if Path(served).resolve() == here.resolve():
+    if served != "unknown" and Path(served).resolve() == here.resolve():
         print("self")
         return 0
     print(f"other {served}")
@@ -313,6 +348,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("command", choices=["create", "remove", "prune", "stack-owner"])
     parser.add_argument("issue", type=int, nargs="?")
     args = parser.parse_args(argv)
+    per_issue = args.command in ("create", "remove")
+    if per_issue and args.issue is None:
+        parser.error(f"{args.command} needs an issue number")
+    if not per_issue and args.issue is not None:
+        parser.error(f"{args.command} takes no issue number")
     if args.command == "stack-owner":
         return stack_owner(run=subprocess_run)
     root = main_checkout(subprocess_run)
@@ -320,8 +360,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     databases = PostgresDatabases(base_url)
     if args.command == "prune":
         return prune(root=root, run=subprocess_run, databases=databases, base_url=base_url)
-    if args.issue is None:
-        parser.error(f"{args.command} needs an issue number")
     action = create if args.command == "create" else remove
     return action(args.issue, root=root, run=subprocess_run, databases=databases, base_url=base_url)
 

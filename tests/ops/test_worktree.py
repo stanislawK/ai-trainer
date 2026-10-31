@@ -36,9 +36,11 @@ class FakeRun:
         self.fail: dict[tuple[str, ...], str] = {}
         self.worktrees = ""
         self.make_dir = True
-        self.prs: dict[str, list[dict[str, Any]]] = {}
+        self.prs: list[dict[str, Any]] = []
         self.app_container: str | None = None
         self.toplevel = ""
+        self.tips: dict[str, str] = {}
+        self.dirty: set[Path] = set()
 
     def __call__(
         self, args: Sequence[str], *, cwd: Path | None = None, env: Mapping[str, str] | None = None
@@ -54,7 +56,11 @@ class FakeRun:
         if command[:3] == ["gh", "issue", "view"]:
             return json.dumps(self.issue)
         if command[:3] == ["gh", "pr", "list"]:
-            return json.dumps(self.prs.get(command[command.index("--head") + 1], []))
+            return json.dumps(self.prs)
+        if command[:3] == ["git", "status", "--porcelain"]:
+            return " M src/app.py\n" if cwd in self.dirty else ""
+        if command[:2] == ["git", "rev-parse"] and command[2].startswith("refs/heads/"):
+            return self.tips.get(command[2].removeprefix("refs/heads/"), "") + "\n"
         if command[:2] == ["docker", "inspect"]:
             if self.app_container is None:
                 raise wt.CommandError(command, "Error: No such object: ai-trainer-app-1")
@@ -453,20 +459,32 @@ def _prune(root: Path, run: FakeRun, databases: FakeDatabases) -> int:
     return wt.prune(root=root, run=run, databases=databases, base_url=BASE_URL)
 
 
+TIP = "f00dcafe"
+
+
+def _merged_pr(number: int = 355, *, head: str = TIP) -> dict[str, Any]:
+    return {"number": number, "state": "MERGED", "headRefName": BRANCH, "headRefOid": head}
+
+
+def _merged_worktree(root: Path, run: FakeRun) -> Path:
+    path = root.parent / "ai-trainer-351"
+    run.worktrees = _worktree_block(root, "main") + _worktree_block(path, BRANCH)
+    run.prs = [_merged_pr()]
+    run.tips[BRANCH] = TIP
+    return path
+
+
 def test_prune_removes_a_merged_worktree_its_database_and_branch(
     root: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    path = root.parent / "ai-trainer-351"
     run, databases = FakeRun(), FakeDatabases(["ai_trainer", "ai_trainer_wt351"])
-    run.worktrees = _worktree_block(root, "main") + _worktree_block(path, BRANCH)
-    run.prs[BRANCH] = [{"number": 355, "state": "MERGED"}]
+    path = _merged_worktree(root, run)
 
     assert _prune(root, run, databases) == 0
 
     commands = run.commands()
-    assert ["gh", "pr", "list", "--head", BRANCH, "--state", "all", "--json", "number,state"] in (
-        commands
-    )
+    list_prs = ["gh", "pr", "list", "--state", "all", "--limit", "500", "--json"]
+    assert [c[:8] for c in commands if c[:3] == ["gh", "pr", "list"]] == [list_prs]
     removed = commands.index(["git", "worktree", "remove", str(path)])
     assert commands.index(["git", "branch", "-D", BRANCH]) > removed
     assert databases.names == {"ai_trainer"}
@@ -474,16 +492,13 @@ def test_prune_removes_a_merged_worktree_its_database_and_branch(
 
 
 def test_prune_keeps_an_open_pr(root: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    path = root.parent / "ai-trainer-351"
     run, databases = FakeRun(), FakeDatabases(["ai_trainer_wt351"])
-    run.worktrees = _worktree_block(path, BRANCH)
-    run.prs[BRANCH] = [{"number": 355, "state": "OPEN"}]
+    run.worktrees = _worktree_block(root.parent / "ai-trainer-351", BRANCH)
+    run.prs = [{"number": 355, "state": "OPEN", "headRefName": BRANCH, "headRefOid": TIP}]
 
     assert _prune(root, run, databases) == 0
 
-    assert _mutating(run) == [
-        ["gh", "pr", "list", "--head", BRANCH, "--state", "all", "--json", "number,state"]
-    ]
+    assert not any(c[:3] == ["git", "worktree", "remove"] for c in run.commands())
     assert databases.names == {"ai_trainer_wt351"}
     assert "PR #355 is OPEN, kept" in capsys.readouterr().out
 
@@ -504,15 +519,40 @@ def test_prune_skips_a_dirty_merged_worktree(
     root: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run, databases = FakeRun(), FakeDatabases(["ai_trainer_wt351"])
-    run.worktrees = _worktree_block(root.parent / "ai-trainer-351", BRANCH)
-    run.prs[BRANCH] = [{"number": 355, "state": "MERGED"}]
-    run.fail[("git", "worktree", "remove")] = "fatal: contains modified or untracked files"
+    run.dirty.add(_merged_worktree(root, run))
 
-    assert _prune(root, run, databases) == 1
+    assert _prune(root, run, databases) == 0
 
     assert databases.names == {"ai_trainer_wt351"}
+    assert not any(c[:3] == ["git", "worktree", "remove"] for c in run.commands())
+    assert "uncommitted changes, kept" in capsys.readouterr().out
+
+
+def test_prune_keeps_commits_made_after_the_merge(
+    root: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run, databases = FakeRun(), FakeDatabases(["ai_trainer_wt351"])
+    _merged_worktree(root, run)
+    run.tips[BRANCH] = "beefbeef"
+
+    assert _prune(root, run, databases) == 0
+
     assert ["git", "branch", "-D", BRANCH] not in run.commands()
-    assert "modified or untracked" in capsys.readouterr().err
+    assert databases.names == {"ai_trainer_wt351"}
+    assert "has commits after it, kept" in capsys.readouterr().out
+
+
+def test_prune_keeps_the_worktree_make_start_serves(
+    root: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run, databases = FakeRun(), FakeDatabases(["ai_trainer_wt351"])
+    path = _merged_worktree(root, run)
+    run.app_container = f"true {path}\n"
+
+    assert _prune(root, run, databases) == 0
+
+    assert databases.names == {"ai_trainer_wt351"}
+    assert "`make stop` first" in capsys.readouterr().out
 
 
 def test_prune_ignores_worktrees_not_named_like_tickets(root: Path) -> None:
@@ -523,21 +563,42 @@ def test_prune_ignores_worktrees_not_named_like_tickets(root: Path) -> None:
         + _worktree_block(root.parent / "ai-trainer-obs", "docs/grafana")
         + f"worktree {root.parent / 'ai-trainer-352'}\nHEAD abc123\ndetached\n\n"
     )
+    run.prs = [{"number": 1, "state": "MERGED", "headRefName": "docs/grafana", "headRefOid": "x"}]
 
     assert _prune(root, run, FakeDatabases()) == 0
 
-    assert not any(command[:2] == ["gh", "pr"] for command in run.commands())
+    assert _mutating(run) == [
+        ["gh", "pr", "list", "--state", "all", "--limit", "500", "--json", wt._PR_FIELDS],
+        ["docker", "inspect", "ai-trainer-app-1", "--format",
+         f"{{{{.State.Running}}}} {wt._WORKING_DIR}"],
+    ]  # fmt: skip
 
 
-def test_prune_reports_postgres_down(root: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_prune_reports_postgres_down_before_touching_git(
+    root: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     run = FakeRun()
-    run.worktrees = _worktree_block(root.parent / "ai-trainer-351", BRANCH)
-    run.prs[BRANCH] = [{"number": 355, "state": "MERGED"}]
+    _merged_worktree(root, run)
 
     assert _prune(root, run, FakeDatabases(up=False)) == 1
 
+    assert not any(c[:3] == ["git", "worktree", "remove"] for c in run.commands())
     assert ["git", "branch", "-D", BRANCH] not in run.commands()
     assert "connection refused" in capsys.readouterr().err
+
+
+def test_prune_reports_a_gh_failure_and_removes_nothing(
+    root: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run, databases = FakeRun(), FakeDatabases(["ai_trainer_wt351"])
+    _merged_worktree(root, run)
+    run.fail[("gh", "pr", "list")] = "HTTP 404: Not Found"
+
+    assert _prune(root, run, databases) == 1
+
+    assert databases.names == {"ai_trainer_wt351"}
+    assert not any(c[:3] == ["git", "worktree", "remove"] for c in run.commands())
+    assert "can't list PRs" in capsys.readouterr().err
 
 
 # --- make stack-owner (#366) ------------------------------------------------------------------
@@ -563,6 +624,19 @@ def test_stack_owner_reports_self(root: Path, capsys: pytest.CaptureFixture[str]
     assert wt.stack_owner(run=run) == 0
 
     assert capsys.readouterr().out.strip() == "self"
+
+
+@pytest.mark.parametrize("label", ["", "<no value>"], ids=["empty", "no-value"])
+def test_stack_owner_reports_unknown_without_a_compose_label(
+    root: Path, capsys: pytest.CaptureFixture[str], label: str
+) -> None:
+    run = FakeRun()
+    run.toplevel = f"{root}\n"
+    run.app_container = f"true {label}\n"
+
+    assert wt.stack_owner(run=run) == 3
+
+    assert capsys.readouterr().out.strip() == "other unknown"
 
 
 @pytest.mark.parametrize("container", [None, "false /somewhere/else\n"], ids=["absent", "stopped"])
@@ -680,14 +754,31 @@ def test_main_dispatches_stack_owner(monkeypatch: pytest.MonkeyPatch) -> None:
     assert wt.main(["stack-owner"]) == 3
 
 
-@pytest.mark.parametrize("command", ["create", "remove"])
-def test_main_needs_an_issue_for_create_and_remove(
-    command: str, capsys: pytest.CaptureFixture[str]
+@pytest.mark.parametrize(
+    ("argv", "message"),
+    [
+        (["create"], "needs an issue number"),
+        (["remove"], "needs an issue number"),
+        (["prune", "351"], "takes no issue number"),
+        (["stack-owner", "351"], "takes no issue number"),
+    ],
+)
+def test_main_checks_the_issue_argument_first(
+    argv: list[str],
+    message: str,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
+    """A usage error, never a git or Settings error from a checkout without a valid `.env`."""
+
+    def unreachable(*_: Any) -> Path:
+        raise AssertionError("argument checks come first")
+
+    monkeypatch.setattr(wt, "main_checkout", unreachable)
     with pytest.raises(SystemExit) as exit_info:
-        wt.main([command])
+        wt.main(argv)
     assert exit_info.value.code == 2
-    assert "issue" in capsys.readouterr().err
+    assert message in capsys.readouterr().err
 
 
 def test_main_rejects_a_non_numeric_issue(capsys: pytest.CaptureFixture[str]) -> None:
