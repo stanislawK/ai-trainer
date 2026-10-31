@@ -1,6 +1,6 @@
 .PHONY: install css test test-fast test-ops test-unit test-integration coverage lint format format-check \
 	typecheck import-lint squawk uv-pins-check openapi openapi-check check up up-build start stop down logs ps \
-	health smoke-setup smoke-up smoke-down alloy-check cloud-init-check backup-check migrate purge-conversations llm-report latency-scenario evals e2e-install e2e worktree worktree-rm
+	health smoke-setup smoke-up smoke-down alloy-check cloud-init-check backup-check migrate purge-conversations llm-report latency-scenario evals e2e-install e2e worktree worktree-rm worktree-prune stack-owner
 
 # The checkout's own database (ADR-0035): the last path segment of DATABASE_URL in its .env,
 # read by compose.yaml, so `make start` in a ticket's worktree serves `ai_trainer_wt<n>`.
@@ -147,11 +147,17 @@ backup-check: ## Round-trip deploy/backup.sh and deploy/restore-drill.sh against
 	docker run --rm -e DEBIAN_FRONTEND=noninteractive -v /var/run/docker.sock:/var/run/docker.sock -v "$(CURDIR)/deploy:/src/deploy:ro" -w /src debian:trixie sh -c \
 		'apt-get update -qq >/dev/null && apt-get install -y -qq --no-install-recommends age rclone docker-cli >/dev/null && deploy/backup-check.sh'
 
-worktree: ## Start ticket <n> in ../ai-trainer-<n> on its <area>/<n>-<slug> branch with its own migrated database ai_trainer_wt<n>, then open it in VS Code (ADR-0035). Needs Postgres up and gh access. Usage: make worktree issue=<n>
+worktree: ## Start ticket <n> in ../ai-trainer-<n> on its <area>/<n>-<slug> branch with its own migrated database ai_trainer_wt<n> and print its path; /apply-ticket enters it from the same Claude tab (ADR-0035, #366). Needs Postgres up and gh access. Usage: make worktree issue=<n>
 	uv run python -m scripts.worktree create '$(issue)'
 
 worktree-rm: ## Remove ../ai-trainer-<n> and drop ai_trainer_wt<n>; refuses while the worktree has uncommitted changes, keeps the branch (ADR-0035). Usage: make worktree-rm issue=<n>
 	uv run python -m scripts.worktree remove '$(issue)'
+
+worktree-prune: ## Remove every ../ai-trainer-<n> whose PR is merged, with its database and branch; keeps open ones and any with uncommitted changes (ADR-0035, #366)
+	uv run python -m scripts.worktree prune
+
+stack-owner: ## Print which checkout `make start` serves: none, self, or other <path> (exit 3) (ADR-0035, #366)
+	uv run python -m scripts.worktree stack-owner
 
 migrate: ## Apply database migrations (Alembic)
 	uv run alembic upgrade head

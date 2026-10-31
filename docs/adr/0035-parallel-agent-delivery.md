@@ -28,7 +28,7 @@ Anthropic's guidance points the same way:
 - Route by difficulty: small models for easy inputs ([building effective agents](https://www.anthropic.com/research/building-effective-agents)).
 - Give unattended work a pass/fail check, and have a person approve the result at the end ([Claude Code best practices](https://code.claude.com/docs/en/best-practices)).
 
-The owner works in the Claude Code VS Code extension, where every tab in a window shares one folder. So one ticket means one git worktree, opened in its own window.
+The owner works in the Claude Code VS Code extension. A tab can move its session into an existing git worktree with `EnterWorktree`. So one ticket means one git worktree, run from one Claude tab in the main window (amended 2026-10-31, #366).
 
 ## Decision
 
@@ -75,7 +75,7 @@ After the first push:
 - The owner's review of the draft PR is the review gate: they mark it ready and merge it.
 
 **Parallel lanes.**
-- **One ticket per window:** a ticket runs in `../ai-trainer-<n>`, created by `make worktree issue=<n>` and opened in its own VS Code window.
+- **One ticket per tab:** `/apply-ticket <n>`, started in a Claude tab of the main window, creates `../ai-trainer-<n>` with `make worktree issue=<n>` (or reuses it), and enters it with `EnterWorktree`. When the owner replies "merged", the agent leaves the worktree and runs `make worktree-prune`. Every run also prunes worktrees whose PR is merged first.
 - **One database per worktree:** each worktree has its own `ai_trainer_wt<n>`, used by its tests and by its `make start`.
 - **The shared stack:** the compose project is pinned to `ai-trainer`, so one `make start` serves one worktree at a time on :8000.
 
@@ -94,7 +94,7 @@ After the first push:
 - **Drop the plan gate outright:** the reviewer can't judge intent, and Anthropic says human review stays necessary for fit with the wider system ([building effective agents](https://www.anthropic.com/research/building-effective-agents)). Posting the plan to the issue keeps an asynchronous veto.
 - **Open-ended evaluator-optimizer critic:** "a reviewer that's asked to find problems will always find *something*" ([best practices](https://code.claude.com/docs/en/best-practices)). A closed checklist with a PASS rule is used instead.
 - **Agents as Claude Code teammates, or headless `claude -p` fan-out:** both are CLI-first, and teammates have no worktree isolation ([agent teams](https://code.claude.com/docs/en/agent-teams)). The owner works in the VS Code extension.
-- **The extension's own worktrees (`EnterWorktree`, subagent `isolation: worktree`):** they branch under generated names and can't create the database without a `WorktreeCreate` hook, and that hook disables `.worktreeinclude` ([worktrees](https://code.claude.com/docs/en/worktrees)).
+- **Creating worktrees through the extension (`EnterWorktree` with a `name`, subagent `isolation: worktree`):** they branch under generated names and can't create the database without a `WorktreeCreate` hook, and that hook disables `.worktreeinclude` ([worktrees](https://code.claude.com/docs/en/worktrees)). Entering a worktree that `make worktree` made (`EnterWorktree` with a `path`) is the chosen path, since #366.
 - **A port and database offset per worktree for the whole stack:** Google OAuth admits only `http://localhost:8000/auth/callback`. One shared :8000 stack, served to one worktree at a time, keeps sign-in working.
 
 ## Consequences
@@ -116,5 +116,11 @@ After the first push:
 - Subagent frontmatter supports `tools`, `model` and `omitClaudeMd` (v2.1.271+) ([subagents](https://code.claude.com/docs/en/sub-agents)).
 
 **Flagged.** Whether agents in the VS Code extension start in auto mode depends on the owner's user settings. Step 5 records the prompts that actually come up.
+
+**Amended 2026-10-31 at the owner's direction (#366): one Claude tab per ticket, not one window.**
+- **Why.** The owner tried the window-per-worktree flow on the CI tickets (#357, #358). Each ticket needed a `make` command, a new window, the trust prompt, enabling the extension, its permissions, a second `/apply-ticket`, and cleanup by hand: more manual work than before ADR-0035.
+- **What changed.** `EnterWorktree` with a `path` moves a running tab into an existing worktree. It was tested in the extension on 2026-10-31: no approval prompt, and the guard hook still denied `git push origin HEAD:main` from inside. So `/apply-ticket` now creates or enters the worktree itself and cleans up after the merge.
+- **New commands.** `make worktree` no longer opens VS Code. `make worktree-prune` removes merged worktrees with their database and branch. `make stack-owner` tells the acceptance gate whether `make start` already serves another tab's checkout.
+- **Gotcha.** A session inside a worktree refuses compound shell commands it can't prove stay inside it, so `apply-ticket` runs plain commands and writes files with the Write tool.
 
 **Measuring.** After step 5, compare tickets with the table above, using the same transcript sums plus time from `status:in-progress` to the PR opening.

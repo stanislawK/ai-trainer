@@ -1,13 +1,17 @@
-"""Start or remove a ticket's own checkout and database (ADR-0035 parallel lanes, ticket #351).
+"""Start, remove or prune a ticket's own checkout and database (ADR-0035 parallel lanes, #351,
+#366).
 
-Run with `make worktree issue=<n>` / `make worktree-rm issue=<n>`, or
-`uv run python -m scripts.worktree create|remove <n>`.
+Run with `make worktree issue=<n>`, `make worktree-rm issue=<n>`, `make worktree-prune` and
+`make stack-owner`, or `uv run python -m scripts.worktree create|remove <n>` / `prune` /
+`stack-owner`.
 
 `create` makes `../ai-trainer-<n>` on `<area>/<n>-<slug>` from `origin/main`, copies `.env` with
 `DATABASE_URL` pointing at `ai_trainer_wt<n>`, creates and migrates that database, runs
-`uv sync` and opens the folder with `code`. Every check runs before anything is made; a step
-that fails afterwards undoes the earlier ones. `remove` removes the worktree (git refuses while
-it has uncommitted changes) and then drops its database; the branch stays for its PR.
+`uv sync` and prints the path, which the ticket's Claude tab then enters with `EnterWorktree`.
+Every check runs before anything is made; a step that fails afterwards undoes the earlier ones.
+`remove` removes the worktree (git refuses while it has uncommitted changes) and then drops its
+database; the branch stays for its PR. `prune` does the same for every ticket worktree whose PR
+is merged, and also deletes its branch. `stack-owner` says which checkout `make start` serves.
 """
 
 import argparse
@@ -209,10 +213,6 @@ def create(number: int, *, root: Path, run: Run, databases: Databases, base_url:
         return 1
 
     print(f"worktree: {path} on {branch}, database {database} at head")
-    try:
-        run(["code", str(path)])
-    except CommandError:
-        print(f"worktree: `code` is not on PATH; open {path} in its own VS Code window")
     return 0
 
 
@@ -229,6 +229,74 @@ def remove(number: int, *, root: Path, run: Run, databases: Databases, base_url:
     return 0
 
 
+def _ticket_worktrees(root: Path, run: Run) -> list[tuple[int, Path, str]]:
+    """`(n, path, branch)` for each `../ai-trainer-<n>` worktree on a branch."""
+    pattern = re.compile(rf"{re.escape(root.name)}-(\d+)")
+    found = []
+    for block in run(["git", "worktree", "list", "--porcelain"]).split("\n\n"):
+        fields = dict(line.partition(" ")[::2] for line in block.splitlines())
+        path = Path(fields.get("worktree", ""))
+        match = pattern.fullmatch(path.name)
+        if match and path.parent == root.parent and "branch" in fields:
+            found.append((int(match[1]), path, fields["branch"].removeprefix("refs/heads/")))
+    return found
+
+
+def prune(*, root: Path, run: Run, databases: Databases, base_url: str) -> int:
+    """Removes every ticket worktree whose PR is merged, with its database and branch."""
+    failed = False
+    for number, path, branch in _ticket_worktrees(root, run):
+        prs = json.loads(
+            run(["gh", "pr", "list", "--head", branch, "--state", "all", "--json", "number,state"])
+        )
+        merged = next((pr for pr in prs if pr["state"] == "MERGED"), None)
+        if merged is None:
+            reason = f"PR #{prs[0]['number']} is {prs[0]['state']}" if prs else "no PR"
+            print(f"worktree: #{number}: {reason}, kept")
+            continue
+        database = make_url(worktree_database_url(base_url, number)).database or ""
+        try:
+            run(["git", "worktree", "remove", str(path)])
+            databases.drop(database)
+            run(["git", "branch", "-D", branch])
+        except WorktreeError as error:
+            print(
+                f"worktree: #{number}: PR #{merged['number']} merged, but {error}", file=sys.stderr
+            )
+            failed = True
+            continue
+        removed = f"removed {path}, {database}, {branch}"
+        print(f"worktree: #{number}: PR #{merged['number']} merged; {removed}")
+    return 1 if failed else 0
+
+
+def stack_owner(*, run: Run) -> int:
+    """Prints `none`, `self` or `other <path>` for the checkout `make start` serves; 3 on other."""
+    here = Path(run(["git", "rev-parse", "--show-toplevel"]).strip())
+    working_dir = '{{index .Config.Labels "com.docker.compose.project.working_dir"}}'
+    try:
+        state = run(
+            [
+                "docker",
+                "inspect",
+                "ai-trainer-app-1",
+                "--format",
+                f"{{{{.State.Running}}}} {working_dir}",
+            ]
+        )
+    except CommandError:
+        state = ""
+    running, _, served = state.strip().partition(" ")
+    if running != "true":
+        print("none")
+        return 0
+    if Path(served).resolve() == here.resolve():
+        print("self")
+        return 0
+    print(f"other {served}")
+    return 3
+
+
 def main_checkout(run: Run) -> Path:
     """The main checkout's root, also when called from inside a worktree."""
     common = run(["git", "rev-parse", "--path-format=absolute", "--git-common-dir"])
@@ -242,19 +310,20 @@ def shared_database_url(root: Path) -> str:
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=["create", "remove"])
-    parser.add_argument("issue", type=int)
+    parser.add_argument("command", choices=["create", "remove", "prune", "stack-owner"])
+    parser.add_argument("issue", type=int, nargs="?")
     args = parser.parse_args(argv)
+    if args.command == "stack-owner":
+        return stack_owner(run=subprocess_run)
     root = main_checkout(subprocess_run)
     base_url = shared_database_url(root)
+    databases = PostgresDatabases(base_url)
+    if args.command == "prune":
+        return prune(root=root, run=subprocess_run, databases=databases, base_url=base_url)
+    if args.issue is None:
+        parser.error(f"{args.command} needs an issue number")
     action = create if args.command == "create" else remove
-    return action(
-        args.issue,
-        root=root,
-        run=subprocess_run,
-        databases=PostgresDatabases(base_url),
-        base_url=base_url,
-    )
+    return action(args.issue, root=root, run=subprocess_run, databases=databases, base_url=base_url)
 
 
 if __name__ == "__main__":

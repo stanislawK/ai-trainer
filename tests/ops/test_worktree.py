@@ -36,6 +36,9 @@ class FakeRun:
         self.fail: dict[tuple[str, ...], str] = {}
         self.worktrees = ""
         self.make_dir = True
+        self.prs: dict[str, list[dict[str, Any]]] = {}
+        self.app_container: str | None = None
+        self.toplevel = ""
 
     def __call__(
         self, args: Sequence[str], *, cwd: Path | None = None, env: Mapping[str, str] | None = None
@@ -50,6 +53,14 @@ class FakeRun:
                 raise wt.CommandError(command, error)
         if command[:3] == ["gh", "issue", "view"]:
             return json.dumps(self.issue)
+        if command[:3] == ["gh", "pr", "list"]:
+            return json.dumps(self.prs.get(command[command.index("--head") + 1], []))
+        if command[:2] == ["docker", "inspect"]:
+            if self.app_container is None:
+                raise wt.CommandError(command, "Error: No such object: ai-trainer-app-1")
+            return self.app_container
+        if command[:3] == ["git", "rev-parse", "--show-toplevel"]:
+            return self.toplevel
         if command[:2] == ["git", "ls-remote"]:
             return f"abc123\trefs/heads/{command[-1]}\n" if self.remote_branch else ""
         local = command[-1].removeprefix("refs/heads/") in self.local_branches
@@ -154,7 +165,6 @@ def test_create_runs_steps_in_order(root: Path, capsys: pytest.CaptureFixture[st
         ["git", "worktree", "add", "-b", BRANCH, str(path), "origin/main"],
         ["uv", "sync"],
         ["uv", "run", "alembic", "upgrade", "head"],
-        ["code", str(path)],
     ]
     assert databases.log == ["create ai_trainer_wt351"]
     migrate = next(call for call in run.calls if call[0][:3] == ["uv", "run", "alembic"])
@@ -375,7 +385,6 @@ def test_create_rolls_back_on_late_failure(root: Path, capsys: pytest.CaptureFix
     commands = run.commands()
     removed = commands.index(["git", "worktree", "remove", "--force", str(path)])
     assert commands.index(["git", "branch", "-D", BRANCH]) > removed
-    assert ["code", str(path)] not in run.commands()
     assert "revision not found" in capsys.readouterr().err
 
 
@@ -423,15 +432,150 @@ def test_create_reports_an_undo_step_that_fails(
     assert "could not undo" in capsys.readouterr().err
 
 
-def test_create_still_succeeds_without_code_on_path(
-    root: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_create_prints_the_worktree_path(root: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """#366: the Claude tab enters the printed path with EnterWorktree; no VS Code window opens."""
     run = FakeRun()
-    run.fail[("code",)] = "code: command not found"
 
     assert _create(root, run, FakeDatabases()) == 0
 
-    assert "open " in capsys.readouterr().out
+    assert not any(command[0] == "code" for command in run.commands())
+    assert str(root.parent / "ai-trainer-351") in capsys.readouterr().out
+
+
+# --- make worktree-prune (#366) ---------------------------------------------------------------
+
+
+def _worktree_block(path: Path, branch: str) -> str:
+    return f"worktree {path}\nHEAD abc123\nbranch refs/heads/{branch}\n\n"
+
+
+def _prune(root: Path, run: FakeRun, databases: FakeDatabases) -> int:
+    return wt.prune(root=root, run=run, databases=databases, base_url=BASE_URL)
+
+
+def test_prune_removes_a_merged_worktree_its_database_and_branch(
+    root: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    path = root.parent / "ai-trainer-351"
+    run, databases = FakeRun(), FakeDatabases(["ai_trainer", "ai_trainer_wt351"])
+    run.worktrees = _worktree_block(root, "main") + _worktree_block(path, BRANCH)
+    run.prs[BRANCH] = [{"number": 355, "state": "MERGED"}]
+
+    assert _prune(root, run, databases) == 0
+
+    commands = run.commands()
+    assert ["gh", "pr", "list", "--head", BRANCH, "--state", "all", "--json", "number,state"] in (
+        commands
+    )
+    removed = commands.index(["git", "worktree", "remove", str(path)])
+    assert commands.index(["git", "branch", "-D", BRANCH]) > removed
+    assert databases.names == {"ai_trainer"}
+    assert "#351" in capsys.readouterr().out
+
+
+def test_prune_keeps_an_open_pr(root: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    path = root.parent / "ai-trainer-351"
+    run, databases = FakeRun(), FakeDatabases(["ai_trainer_wt351"])
+    run.worktrees = _worktree_block(path, BRANCH)
+    run.prs[BRANCH] = [{"number": 355, "state": "OPEN"}]
+
+    assert _prune(root, run, databases) == 0
+
+    assert _mutating(run) == [
+        ["gh", "pr", "list", "--head", BRANCH, "--state", "all", "--json", "number,state"]
+    ]
+    assert databases.names == {"ai_trainer_wt351"}
+    assert "PR #355 is OPEN, kept" in capsys.readouterr().out
+
+
+def test_prune_keeps_a_worktree_without_a_pr(
+    root: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run, databases = FakeRun(), FakeDatabases(["ai_trainer_wt351"])
+    run.worktrees = _worktree_block(root.parent / "ai-trainer-351", BRANCH)
+
+    assert _prune(root, run, databases) == 0
+
+    assert databases.names == {"ai_trainer_wt351"}
+    assert "no PR, kept" in capsys.readouterr().out
+
+
+def test_prune_skips_a_dirty_merged_worktree(
+    root: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run, databases = FakeRun(), FakeDatabases(["ai_trainer_wt351"])
+    run.worktrees = _worktree_block(root.parent / "ai-trainer-351", BRANCH)
+    run.prs[BRANCH] = [{"number": 355, "state": "MERGED"}]
+    run.fail[("git", "worktree", "remove")] = "fatal: contains modified or untracked files"
+
+    assert _prune(root, run, databases) == 1
+
+    assert databases.names == {"ai_trainer_wt351"}
+    assert ["git", "branch", "-D", BRANCH] not in run.commands()
+    assert "modified or untracked" in capsys.readouterr().err
+
+
+def test_prune_ignores_worktrees_not_named_like_tickets(root: Path) -> None:
+    run = FakeRun()
+    run.worktrees = (
+        _worktree_block(root, "main")
+        + _worktree_block(root / ".claude" / "worktrees" / "spike", "worktree-spike")
+        + _worktree_block(root.parent / "ai-trainer-obs", "docs/grafana")
+        + f"worktree {root.parent / 'ai-trainer-352'}\nHEAD abc123\ndetached\n\n"
+    )
+
+    assert _prune(root, run, FakeDatabases()) == 0
+
+    assert not any(command[:2] == ["gh", "pr"] for command in run.commands())
+
+
+def test_prune_reports_postgres_down(root: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    run = FakeRun()
+    run.worktrees = _worktree_block(root.parent / "ai-trainer-351", BRANCH)
+    run.prs[BRANCH] = [{"number": 355, "state": "MERGED"}]
+
+    assert _prune(root, run, FakeDatabases(up=False)) == 1
+
+    assert ["git", "branch", "-D", BRANCH] not in run.commands()
+    assert "connection refused" in capsys.readouterr().err
+
+
+# --- make stack-owner (#366) ------------------------------------------------------------------
+
+
+def test_stack_owner_reports_another_checkout(
+    root: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run = FakeRun()
+    run.toplevel = f"{root}\n"
+    run.app_container = f"true {root.parent / 'ai-trainer-351'}\n"
+
+    assert wt.stack_owner(run=run) == 3
+
+    assert capsys.readouterr().out.strip() == f"other {root.parent / 'ai-trainer-351'}"
+
+
+def test_stack_owner_reports_self(root: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    run = FakeRun()
+    run.toplevel = f"{root}\n"
+    run.app_container = f"true {root}\n"
+
+    assert wt.stack_owner(run=run) == 0
+
+    assert capsys.readouterr().out.strip() == "self"
+
+
+@pytest.mark.parametrize("container", [None, "false /somewhere/else\n"], ids=["absent", "stopped"])
+def test_stack_owner_reports_none_when_no_container(
+    root: Path, capsys: pytest.CaptureFixture[str], container: str | None
+) -> None:
+    run = FakeRun()
+    run.toplevel = f"{root}\n"
+    run.app_container = container
+
+    assert wt.stack_owner(run=run) == 0
+
+    assert capsys.readouterr().out.strip() == "none"
 
 
 # --- make worktree-rm ------------------------------------------------------------------------
@@ -513,6 +657,37 @@ def test_main_dispatches(monkeypatch: pytest.MonkeyPatch, command: str) -> None:
     assert seen["root"] == Path("/repo")
     assert seen["base_url"] == BASE_URL
     assert isinstance(seen["databases"], wt.PostgresDatabases)
+
+
+def test_main_dispatches_prune(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: dict[str, Any] = {}
+
+    def fake(**kwargs: Any) -> int:
+        seen.update(kwargs)
+        return 5
+
+    monkeypatch.setattr(wt, "prune", fake)
+    monkeypatch.setattr(wt, "main_checkout", lambda run: Path("/repo"))
+    monkeypatch.setattr(wt, "shared_database_url", lambda root: BASE_URL)
+
+    assert wt.main(["prune"]) == 5
+    assert seen["root"] == Path("/repo")
+    assert isinstance(seen["databases"], wt.PostgresDatabases)
+
+
+def test_main_dispatches_stack_owner(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(wt, "stack_owner", lambda run: 3)
+    assert wt.main(["stack-owner"]) == 3
+
+
+@pytest.mark.parametrize("command", ["create", "remove"])
+def test_main_needs_an_issue_for_create_and_remove(
+    command: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    with pytest.raises(SystemExit) as exit_info:
+        wt.main([command])
+    assert exit_info.value.code == 2
+    assert "issue" in capsys.readouterr().err
 
 
 def test_main_rejects_a_non_numeric_issue(capsys: pytest.CaptureFixture[str]) -> None:

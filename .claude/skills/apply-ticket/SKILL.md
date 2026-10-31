@@ -10,7 +10,18 @@ disable-model-invocation: true
 Implements the delivery loop of ADR-0001 as amended by ADR-0035. With `--review` in the arguments, skip to **Review mode** below.
 
 1. **Fetch.** `gh issue view <n> --json number,title,body,labels,state`. Stop if it is closed, if any `Blocked by #N` issue is still open (`gh issue view N --json state`), or if it names a non-issue blocker that still holds (an ADR still Proposed).
-2. **Worktree.** The ticket runs in `../ai-trainer-<n>` on `<area>/<n>-<slug>`, with its own database `ai_trainer_wt<n>` (ADR-0035). If `git branch --show-current` isn't that branch, stop. Tell the human to run `make worktree issue=<n>` from the main checkout (it opens a new VS Code window), pick the model from the ticket's `model:` label in that window, and run `/apply-ticket <n>` there.
+2. **Worktree.** The ticket runs in `../ai-trainer-<n>` on `<area>/<n>-<slug>`, with its own database `ai_trainer_wt<n>`. One Claude tab per ticket, all in the main VS Code window (ADR-0035, #366).
+   - **Already in that worktree** (`git branch --show-current` is the ticket's branch): continue.
+   - **In the main checkout (`main`):**
+     1. Run `make worktree-prune`. It removes worktrees whose PR is merged and keeps the rest, with a line for each. Report those lines in one sentence.
+     2. If `git worktree list` shows `../ai-trainer-<n>`, enter it with `EnterWorktree` (`path`, absolute).
+     3. Otherwise:
+        - if `make worktree` reports Postgres unreachable, run `docker compose up -d --wait db` and retry once;
+        - run `make worktree issue=<n>`;
+        - enter the printed path with `EnterWorktree`.
+     4. If the tab's model doesn't match the ticket's `model:` label, say so in one line and carry on. A running tab can't switch its own model.
+   - **Anywhere else:** stop and say where you are.
+   - **Inside the worktree, keep shell commands plain and separate.** The session refuses compound commands it can't verify stay in the worktree (a heredoc chained with `gh` was refused at #366). Write files with the Write tool, then run the command on its own.
 3. **Ground.** Read the current PRD and the requirement IDs the ticket cites, every referenced ADR, the matching `.claude/rules/`, and the area branch below. If the ticket contradicts an Accepted ADR or the Approved PRD, or needs an undocumented decision, put a doc proposal into the plan — never code around it.
 4. **Plan.** Write `.acceptance/<n>/plan.md`:
    - effort S / M / L;
@@ -40,11 +51,14 @@ Implements the delivery loop of ADR-0001 as amended by ADR-0035. With `--review`
     - Then commit, write the diff with `git diff origin/main...HEAD > .acceptance/<n>/diff.patch` and the AC list to `.acceptance/<n>/acs.md`, and spawn **one** `ac-skeptic` agent with both paths. It tries to disprove each "this AC is done" claim from the diff and the AC text alone.
     - Fix every AC it successfully challenges. The challenge and its fix go in the PR body.
 11. **HUMAN GATE (acceptance)** — **UI tickets only** (the plan's `UI: yes`, or the diff touched templates, static files or a rendered route). A human tries the change before the PR opens (ADR-0001 invariant 10, ADR-0035 invariant 4). Never self-certify it.
-    - **Stack.** One `make start` serves one worktree at a time on :8000 (ADR-0035).
-      - Ask the human to stop any `make start` running elsewhere and run `make start` in this worktree. It serves this branch against `ai_trainer_wt<n>`, reloading code, templates and CSS live.
-      - Confirm `make health` first.
-      - A new migration or dependency is picked up only at start, so ask for a restart and wait.
-      - Never run `make up` alongside it: they use the same ports.
+    - **Stack.** One `make start` serves one worktree at a time on :8000 (ADR-0035). The agent runs it.
+      1. Run `make stack-owner`. If it prints `other <path>`, ask with `AskUserQuestion` (Replace / Wait) before running `make stop`. That stack is another tab's acceptance gate.
+      2. Run `make start` as a background task in this worktree. It serves this branch against `ai_trainer_wt<n>` and reloads code, templates and CSS live.
+      3. Poll `make health` until it answers. Seed the dev user once per worktree database with `uv run python scripts/dev_session.py`.
+      4. A new migration or dependency is picked up only at start, so restart the background task after one.
+      5. After the gate passes, run `make stop`.
+
+      Never run `make up` alongside it: they use the same ports.
     - **Script.** In the gate message, write a numbered step-by-step click-through, one section per AC or behavior. Start it with "hard-reload first (⌘⇧R, or DevTools → Network → Disable cache)": the live CSS rebuild can leave the browser on a stale `app.css`. Each section gives:
       - the **account**: which one and how to get it into the needed state (an admin email from `ADMIN_EMAILS`, a second Google account left `pending`, or the seeded `scripts/dev_session.py` user, seeded once per worktree database);
       - the **start URL**, as a full `http://localhost:8000/…` link;
@@ -83,7 +97,7 @@ Implements the delivery loop of ADR-0001 as amended by ADR-0035. With `--review`
       - the data-safety paragraph with the squawk and upgrade-with-data results when `migrations/` changed (ADR-0024);
       - `Closes #<n>`.
     - `gh issue edit <n> --add-label status:in-review --remove-label status:in-progress`.
-    - Report the PR URL. The owner reviews the draft PR on GitHub, marks it ready and merges it: that is the review gate (ADR-0035).
+    - Report the PR URL. The owner reviews the draft PR on GitHub, marks it ready and merges it: that is the review gate (ADR-0035). Ask them to reply **"merged"** in this tab once it's merged. See **Cleanup** below.
     - **Suggest the next tickets, unasked.** Read-only:
       1. List the candidates with `gh issue list --state open --label status:todo --json number,title,labels,body`.
       2. List the work in flight with `gh issue list --state open --label status:in-progress` and `status:in-review`.
@@ -94,14 +108,25 @@ Implements the delivery loop of ADR-0001 as amended by ADR-0035. With `--review`
          - neither takes an ADR or PRD number.
       5. List every ready, parallel-safe ticket, unblocking ones first, then smallest. For each give:
          - its `model:` label with one sentence of why (ADR-0035 routing);
-         - the line to paste: `make worktree issue=<n>` → pick <model> in the new window → `/apply-ticket <n>`.
+         - the line to paste: open a new Claude tab → pick <model> → `/apply-ticket <n>`.
 
       When nothing is ready, say so, list what blocks each ticket, and name what the human can do (accept an ADR, merge a PR). Never start one.
     - Stop. Never merge the PR yourself, and never commit to, push to or merge into `main`.
 
+## Cleanup (the owner replies "merged")
+
+1. Check `gh pr view <pr> --json state`. If it isn't `MERGED`, say its state and stop.
+2. `ExitWorktree` with `action: keep`. It never removes a worktree that `make worktree` created.
+3. Back in the main checkout:
+   - `git pull --ff-only` on `main`;
+   - `make worktree-prune`, which removes this worktree, `ai_trainer_wt<n>` and the branch.
+4. Report what was removed.
+
+A tab closed before this step loses nothing. The next `/apply-ticket` run prunes merged worktrees first (step 2).
+
 ## Review mode (`/apply-ticket <n> --review`)
 
-Run in the ticket's worktree window, in a fresh session, after the owner left review comments on the PR.
+Run in a fresh Claude tab after the owner left review comments on the PR. Enter the ticket's worktree first, as in step 2.
 
 1. Find the PR with `gh pr list --head <area>/<n>-<slug> --json number,url`. Read its conversation with `gh pr view <pr> --comments`, and its inline threads with `gh api repos/{owner}/{repo}/pulls/<pr>/comments`.
 2. List each comment with what you'll do about it.
@@ -132,6 +157,7 @@ If the area label doesn't match the work, say so in the plan and ask.
 
 - Coding before the plan critic passes, or before the human plan gate when one is required.
 - Working in the main checkout instead of the ticket's worktree.
+- Asking the owner to open a new VS Code window, run `make worktree` or clean up by hand.
 - Self-certifying the acceptance gate, or opening the PR of a UI ticket before that gate passes.
 - An acceptance script that says "check the page works" instead of naming each click and its expected result.
 - Opening a non-draft PR.
