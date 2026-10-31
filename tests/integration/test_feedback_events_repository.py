@@ -9,9 +9,12 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai_trainer.adapters.feedback_repository import SqlAlchemyFeedbackEventsRepository
+from ai_trainer.application.drafts import edit_draft
 from ai_trainer.application.feedback import FeedbackRecorder
 from ai_trainer.domain.feedback import FeedbackKind, NewFeedbackEvent
-from tests.chat_support import FixedClock
+from ai_trainer.domain.sports.registry import default_sport_registry
+from ai_trainer.domain.training import SessionDraft
+from tests.chat_support import FROZEN_NOW, FixedClock, InMemoryDraftRepository
 
 _INSERT_USER = text("INSERT INTO users (id, sub, email) VALUES (:id, :sub, :email)")
 _DELETE_USER = text("DELETE FROM users WHERE id = :id")
@@ -129,14 +132,43 @@ async def test_no_column_holds_message_text_or_a_typed_value(
 ) -> None:
     user_id = await _user(db_session_factory)
     repository = SqlAlchemyFeedbackEventsRepository(db_session_factory)
-    recorder = FeedbackRecorder(repository, clock=FixedClock())
-
-    await recorder.record(
+    # A real edit that types text into the exercise name, recorded into the real table.
+    drafts = InMemoryDraftRepository()
+    draft = await drafts.add(
         user_id,
-        FeedbackKind.DRAFT_EDITED,
+        uuid4(),
+        uuid4(),
+        "gym",
+        SessionDraft(
+            occurred_on=FROZEN_NOW.date(),
+            date_source="assumed_today",
+            timezone="Europe/Warsaw",
+            payload={
+                "sport": "gym",
+                "activities": [{"name": "squat", "sets": 5, "reps": 5, "load": None, "rir": None}],
+            },
+        ),
+        payload_version=1,
+        created_at=FROZEN_NOW,
         template_id="gym.extract",
         template_version=3,
-        fields=["name"],
+    )
+
+    await edit_draft(
+        user_id,
+        draft.id,
+        {
+            "occurred_on": FROZEN_NOW.date().isoformat(),
+            "duration_min": "",
+            "rpe": "",
+            "feeling": "",
+            "activities": [
+                {"name": _TYPED, "sets": "5", "reps": "5", "load": "", "rir": ""},
+            ],
+        },
+        drafts=drafts,
+        sports=default_sport_registry(),
+        feedback=FeedbackRecorder(repository, clock=FixedClock()),
     )
 
     async with db_session_factory() as session:
@@ -171,3 +203,6 @@ async def test_no_column_holds_message_text_or_a_typed_value(
             )
         ).scalar_one()
     assert _TYPED not in row
+    assert "name" in row  # the row exists and names the field that changed
+    [stored] = await repository.list_for_user(user_id)
+    assert (stored.kind, tuple(stored.fields)) == (FeedbackKind.DRAFT_EDITED, ("name",))
