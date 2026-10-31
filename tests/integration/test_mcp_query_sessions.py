@@ -41,6 +41,7 @@ from ai_trainer.mcp.identity import USER_ID_META_KEY, MissingUserError
 from ai_trainer.mcp.server import build_mcp_server
 from ai_trainer.mcp.toolset import build_toolset
 from tests.activity_support import STORES
+from tests.mcp_support import no_exercise_tools
 
 _AT = datetime(2026, 10, 20, 18, 0, tzinfo=UTC)
 _ALICE_NOTE = "Left ring finger sore after the crimpy boulder"
@@ -129,7 +130,7 @@ async def world(db_session_factory: Callable[[], AsyncSession]) -> _World:
 
 
 def _agent(world: _World, model: TestModel | FunctionModel) -> Agent[_Deps, str]:
-    toolset = build_toolset(build_mcp_server(world.history_use_case))
+    toolset = build_toolset(build_mcp_server(world.history_use_case, *no_exercise_tools()))
     return Agent(model, deps_type=_Deps, toolsets=[toolset])
 
 
@@ -161,7 +162,7 @@ async def test_agent_run_reaches_tool_with_user_from_deps(world: _World) -> None
 
 
 async def test_user_a_never_sees_user_b_sessions(world: _World) -> None:
-    server = build_mcp_server(world.history_use_case)
+    server = build_mcp_server(world.history_use_case, *no_exercise_tools())
 
     async with Client(server) as client:
         alices = await client.call_tool(

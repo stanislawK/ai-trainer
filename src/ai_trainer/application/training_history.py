@@ -8,7 +8,9 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from ai_trainer.application.ports.exercises import ExerciseHistoryPort, ExerciseRepositoryPort
 from ai_trainer.application.ports.training import SessionHistoryPort
+from ai_trainer.domain.exercises import ExerciseEntry, ExerciseMeasure
 from ai_trainer.domain.sports.registry import SportRegistry, UnknownSportError
 from ai_trainer.domain.training import SessionSummary
 
@@ -76,3 +78,64 @@ class TrainingHistory:
         if not found:
             return SessionQueryFailed(reason="no_sessions")
         return SessionPage(sessions=list(found[: query.limit]), truncated=len(found) > query.limit)
+
+
+DEFAULT_ENTRIES = 10
+MAX_ENTRIES = 50
+
+
+class ExerciseRef(BaseModel):
+    """The exercise a history is of, as a tool shows it: no owner, which is the athlete's own ID
+    for a custom exercise."""
+
+    model_config = ConfigDict(frozen=True)
+
+    id: UUID
+    name: str
+    default_measure: ExerciseMeasure
+
+
+class ExerciseHistoryPage(BaseModel):
+    """The exercise and the athlete's entries of it, the latest day first; `truncated` when more
+    exist than `limit`."""
+
+    model_config = ConfigDict(frozen=True)
+
+    exercise: ExerciseRef
+    entries: list[ExerciseEntry]
+    truncated: bool
+
+
+class ExerciseHistoryFailed(BaseModel):
+    """`not_found` covers an unknown ID and another athlete's alike; `no_entries` an exercise the
+    athlete can see but has never logged."""
+
+    model_config = ConfigDict(frozen=True)
+
+    reason: Literal["not_found", "no_entries"]
+
+
+class ExerciseTrainingHistory:
+    def __init__(self, exercises: ExerciseRepositoryPort, history: ExerciseHistoryPort) -> None:
+        self._exercises = exercises
+        self._history = history
+
+    async def entries(
+        self, user_id: UUID, exercise_id: UUID, limit: int = DEFAULT_ENTRIES
+    ) -> ExerciseHistoryPage | ExerciseHistoryFailed:
+        """The user's own entries of one exercise they can see, read from the typed rows."""
+        exercise = await self._exercises.get(user_id, exercise_id)
+        if exercise is None:
+            return ExerciseHistoryFailed(reason="not_found")
+        limit = max(1, min(limit, MAX_ENTRIES))
+        # One row past the limit tells a cut page from an exact one.
+        found = await self._history.entries(user_id, exercise_id, limit=limit + 1)
+        if not found:
+            return ExerciseHistoryFailed(reason="no_entries")
+        return ExerciseHistoryPage(
+            exercise=ExerciseRef(
+                id=exercise.id, name=exercise.name, default_measure=exercise.default_measure
+            ),
+            entries=list(found[:limit]),
+            truncated=len(found) > limit,
+        )

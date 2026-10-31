@@ -8,6 +8,8 @@ from ai_trainer.domain.exercises import (
     Exercise,
     ExerciseAlias,
     ExerciseCandidate,
+    ExerciseDetail,
+    ExerciseEntry,
     ExerciseMeasure,
     ImportedCatalogue,
 )
@@ -42,6 +44,27 @@ class ExerciseNamesPort(Protocol):
     ) -> Sequence[ExerciseCandidate]:
         """At most `limit` exercises at `floor` or above, by trigram and `simple` full-text search
         over names and aliases in every language. Those measured like `measure` come first."""
+        ...
+
+
+class ExerciseLookupPort(ExerciseNamesPort, Protocol):
+    """What `find_exercise` reads on top of naming (ADR-0010, ADR-0031)."""
+
+    async def describe(
+        self, user_id: UUID, exercise_ids: Sequence[UUID], *, lang: str
+    ) -> Sequence[ExerciseDetail]:
+        """The exercises among `exercise_ids` that `user_id` can see, in the order given, each
+        with a short description from its text in `lang`, else in any language. An ID the
+        athlete can't see is left out."""
+        ...
+
+
+class ExerciseHistoryPort(Protocol):
+    async def entries(
+        self, user_id: UUID, exercise_id: UUID, *, limit: int
+    ) -> Sequence[ExerciseEntry]:
+        """At most `limit` of `user_id`'s own entries of the exercise, the latest day first,
+        with their sets in order. Another athlete's entries are never read."""
         ...
 
 

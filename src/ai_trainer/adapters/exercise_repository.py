@@ -26,10 +26,13 @@ from ai_trainer.domain.exercises import (
     Exercise,
     ExerciseAlias,
     ExerciseCandidate,
+    ExerciseDetail,
     ExerciseMeasure,
 )
 
 _CUSTOM_SOURCE = "custom"
+# A description is the start of the imported instructions, short enough for a tool result.
+MAX_DESCRIPTION = 200
 # The full-text configuration of ADR-0031's search indexes.
 _SIMPLE: ColumnElement[str] = literal_column("'simple'::regconfig")
 _IMPORTED_COLUMNS = (
@@ -95,6 +98,17 @@ def _name_score(
         func.similarity(column, name),
         case((func.to_tsvector(_SIMPLE, column).op("@@")(words), floor), else_=0.0),
     )
+
+
+def _short(text_: str | None) -> str | None:
+    # One line, cut at a word where there is one.
+    flat = " ".join((text_ or "").split())
+    if not flat:
+        return None
+    if len(flat) <= MAX_DESCRIPTION:
+        return flat
+    cut = flat[: MAX_DESCRIPTION - 1]
+    return (cut.rpartition(" ")[0] or cut) + "…"
 
 
 def _exercise(row: ExerciseOrm) -> Exercise:
@@ -279,6 +293,38 @@ class SqlAlchemyExerciseRepository:
                 ExerciseCandidate(id=id_, name=found, equipment=equipment, target=target)
                 for id_, found, equipment, target in rows.tuples()
             ]
+
+    async def describe(
+        self, user_id: UUID, exercise_ids: Sequence[UUID], *, lang: str
+    ) -> Sequence[ExerciseDetail]:
+        async with self._session_factory() as session:
+            rows = await session.scalars(
+                select(ExerciseOrm).where(ExerciseOrm.id.in_(exercise_ids), visible_to(user_id))
+            )
+            by_id = {row.id: row for row in rows}
+            texts = await session.execute(
+                select(ExerciseTextOrm.exercise_id, ExerciseTextOrm.instructions)
+                .where(ExerciseTextOrm.exercise_id.in_(by_id))
+                .order_by(
+                    ExerciseTextOrm.exercise_id,
+                    (ExerciseTextOrm.lang == lang).desc(),
+                    ExerciseTextOrm.lang,
+                )
+            )
+            first: dict[UUID, str] = {}
+            for exercise_id, instructions in texts.tuples():
+                first.setdefault(exercise_id, instructions)
+        return [
+            ExerciseDetail(
+                id=by_id[exercise_id].id,
+                name=by_id[exercise_id].name,
+                equipment=by_id[exercise_id].equipment,
+                target=by_id[exercise_id].target,
+                description=_short(first.get(exercise_id)),
+            )
+            for exercise_id in exercise_ids
+            if exercise_id in by_id
+        ]
 
     async def create_custom(
         self, user_id: UUID, *, sport_id: str, name: str, default_measure: ExerciseMeasure

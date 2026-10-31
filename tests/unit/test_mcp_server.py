@@ -16,6 +16,7 @@ from ai_trainer.domain.training import SessionSummary
 from ai_trainer.mcp.identity import USER_ID_META_KEY
 from ai_trainer.mcp.results import ToolResult
 from ai_trainer.mcp.server import build_mcp_server
+from tests.mcp_support import no_exercise_tools
 
 _ALICE = uuid4()
 _BOB = uuid4()
@@ -58,7 +59,7 @@ def _client(rows: dict[UUID, list[SessionSummary]] | None = None) -> Client[Any]
         _FakeHistory(rows if rows is not None else {_ALICE: [_ALICES], _BOB: [_BOBS]}),
         default_sport_registry(),
     )
-    return Client(build_mcp_server(history))
+    return Client(build_mcp_server(history, *no_exercise_tools()))
 
 
 def _meta(user_id: UUID) -> dict[str, Any]:
@@ -138,17 +139,23 @@ async def test_schema_invalid_arguments_are_a_tool_error() -> None:
     assert result.is_error is True
 
 
-async def test_the_tool_publishes_a_described_schema_without_a_user_parameter() -> None:
+async def test_every_tool_publishes_a_described_schema_without_a_user_parameter() -> None:
     async with _client() as client:
-        (tool,) = await client.list_tools()
+        tools = {tool.name: tool for tool in await client.list_tools()}
 
-    assert tool.name == "query_sessions"
-    assert tool.description is not None
-    assert tool.description.count(". ") >= 3
-    properties = tool.input_schema["properties"]
-    assert set(properties) == {"sport", "since", "until", "limit"}
-    assert properties["limit"]["maximum"] == 50
-    assert tool.output_schema is not None
+    assert set(tools) == {"query_sessions", "find_exercise", "exercise_history"}
+    expected = {
+        "query_sessions": {"sport", "since", "until", "limit"},
+        "find_exercise": {"name"},
+        "exercise_history": {"exercise_id", "limit"},
+    }
+    for name, tool in tools.items():
+        assert tool.description is not None
+        assert tool.description.count(". ") >= 3, name
+        assert set(tool.input_schema["properties"]) == expected[name], name
+        assert tool.output_schema is not None, name
+    assert tools["query_sessions"].input_schema["properties"]["limit"]["maximum"] == 50
+    assert tools["exercise_history"].input_schema["properties"]["limit"]["maximum"] == 50
 
 
 def test_tool_result_constructors() -> None:
