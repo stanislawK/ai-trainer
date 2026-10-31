@@ -42,7 +42,7 @@ Locked by the ADRs cited below; `docs/adr/README.md` carries each ADR's current 
 - OpenRouter through Pydantic AI v2 — ADR-0007
 - Router → specialists; prompt templates as `TemplateStr` files — ADR-0008
 - Pydantic Evals — ADR-0009
-- FastMCP tools, in-process first — ADR-0010
+- FastMCP 4 tools, in-process first — ADR-0010
 - Knowledge base on pgvector with hybrid search — ADR-0011
 - FastAPI + Jinja2 + htmx 4 + daisyUI 5 — ADR-0012
 - pytest TDD, 100% coverage on touched modules — ADR-0013
