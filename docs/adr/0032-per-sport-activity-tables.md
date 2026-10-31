@@ -84,3 +84,10 @@ If athlete gym data reaches production before this ships, stop and amend this AD
 - The ADR-0022 ⚠ about JSON path latency for M2 stats no longer applies to gym.
 - The F2 edit form and the logged card read and write the typed shape. `logged_gym.html` shows the load and the measure, which it drops today.
 - `TrainingLoad` (ADR-0006) is computed from the rows. M2 decides whether to cache it.
+- Owner-directed 2026-10-31, at #376's plan gate. Until gym payload v2, a v1 draft is read into rows like this:
+  - An exercise with no set count is one set row with the reps and load the athlete gave. Rows can't say "an unknown number of sets", and none would drop what was given.
+  - `measure` is `load_reps` when a load was given, otherwise `reps`.
+  - The recent exercises' unit hint (#206) is read back from the rows: `kg` when the first typed number in `load_original` equals `load_kg`, `lb` when it converts to it, otherwise no hint. No `load_unit` column.
+  - `gym_exercise_entries.exercise_id` has no `ON DELETE` action. An account deletion removes the athlete's entries and custom exercises in one statement, which the G7 test covers.
+  - A gym log added to a session confirmed before the tables writes its rows from position 1 and leaves the old payload as it is. #377's backfill adds the earlier activities.
+  - The `ActivityStorePort` is generic over the transaction, so `application/` never names SQLAlchemy. `UNIQUE (id, user_id)` on `training_session_sources` is built concurrently and attached with `USING INDEX`.

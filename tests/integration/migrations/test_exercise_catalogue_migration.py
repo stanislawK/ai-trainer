@@ -13,6 +13,7 @@ from alembic.config import Config
 from ai_trainer.adapters.health import to_psycopg_dsn
 from ai_trainer.settings import Settings
 
+_REVISION = "b6f2a8d41c37"
 _PREVIOUS_REVISION = "e8b1f4c7a2d9"
 _NEW_TABLES = {"exercises", "exercise_texts", "exercise_aliases"}
 
@@ -29,12 +30,14 @@ def _tables() -> set[str]:
 
 def test_downgrade_drops_only_the_catalogue_and_upgrade_restores_it() -> None:
     cfg = Config("alembic.ini")
-    at_head = _tables()
     try:
+        # From this revision, so a later one's tables don't count.
+        command.downgrade(cfg, _REVISION)
+        at_revision = _tables()
         command.downgrade(cfg, _PREVIOUS_REVISION)
-        assert at_head - _tables() == _NEW_TABLES
-        command.upgrade(cfg, "head")
-        assert _tables() == at_head
+        assert at_revision - _tables() == _NEW_TABLES
+        command.upgrade(cfg, _REVISION)
+        assert _tables() == at_revision
     finally:
         command.upgrade(cfg, "head")
 

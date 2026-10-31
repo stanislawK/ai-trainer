@@ -40,6 +40,7 @@ from ai_trainer.domain.users import NewUser, UserStatus
 from ai_trainer.mcp.identity import USER_ID_META_KEY, MissingUserError
 from ai_trainer.mcp.server import build_mcp_server
 from ai_trainer.mcp.toolset import build_toolset
+from tests.activity_support import STORES
 
 _AT = datetime(2026, 10, 20, 18, 0, tzinfo=UTC)
 _ALICE_NOTE = "Left ring finger sore after the crimpy boulder"
@@ -123,7 +124,7 @@ async def world(db_session_factory: Callable[[], AsyncSession]) -> _World:
     bob = await _user(db_session_factory, f"mcp-bob-{uuid4()}")
     alices = await _session(db_session_factory, alice, date(2026, 10, 19), _ALICE_NOTE, "climbing")
     bobs = await _session(db_session_factory, bob, date(2026, 10, 20), _BOB_NOTE, "gym")
-    spy = _SpyHistory(SqlAlchemyTrainingSessionRepository(db_session_factory))
+    spy = _SpyHistory(SqlAlchemyTrainingSessionRepository(db_session_factory, stores=STORES))
     return _World(alice, bob, alices, bobs, spy, TrainingHistory(spy, default_sport_registry()))
 
 

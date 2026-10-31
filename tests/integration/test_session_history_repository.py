@@ -12,6 +12,7 @@ from ai_trainer.adapters.training_session_repository import SqlAlchemyTrainingSe
 from ai_trainer.adapters.users_repository import SqlAlchemyUsersRepository
 from ai_trainer.domain.training import SessionSummary
 from ai_trainer.domain.users import NewUser, UserStatus
+from tests.activity_support import STORES
 
 _AT = datetime(2026, 10, 20, 18, 0, tzinfo=UTC)
 
@@ -66,7 +67,7 @@ async def test_lists_only_the_users_sessions_newest_day_first(
     older = await _session(db_session_factory, alice, date(2026, 10, 1))
     newer = await _session(db_session_factory, alice, date(2026, 10, 9))
     await _session(db_session_factory, bob, date(2026, 10, 5))
-    repo = SqlAlchemyTrainingSessionRepository(db_session_factory)
+    repo = SqlAlchemyTrainingSessionRepository(db_session_factory, stores=STORES)
 
     sessions = await repo.list_sessions(alice, sport_id=None, since=None, until=None, limit=10)
 
@@ -82,7 +83,7 @@ async def test_filters_by_sport_and_inclusive_day_range_and_limit(
     await _session(db_session_factory, alice, date(2026, 10, 4), sport_id="gym")
     last = await _session(db_session_factory, alice, date(2026, 10, 6))
     await _session(db_session_factory, alice, date(2026, 10, 8))
-    repo = SqlAlchemyTrainingSessionRepository(db_session_factory)
+    repo = SqlAlchemyTrainingSessionRepository(db_session_factory, stores=STORES)
 
     in_range = await repo.list_sessions(
         alice, sport_id="climbing", since=date(2026, 10, 3), until=date(2026, 10, 6), limit=10

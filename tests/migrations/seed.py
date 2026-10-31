@@ -261,6 +261,47 @@ def _rows() -> dict[str, tuple[Row, ...]]:
                 "lang": None if a else "pl",
             }
         )
+        band, entry = _id(user, 14), _id(user, 15)
+        rows.setdefault("athlete_bands", []).append(
+            {
+                "id": band,
+                "user_id": user,
+                "label": "red" if a else "  Czerwona Gruba ",
+                "rank": 2 if a else None,
+                "nominal_kg": Decimal("11.5") if a else None,
+            }
+        )
+        rows.setdefault("gym_exercise_entries", []).append(
+            {
+                "id": entry,
+                "user_id": user,
+                "session_id": training,
+                "source_id": _id(user, 6) if a else None,
+                "position": n,
+                "exercise_id": exercise if a else None,
+                "name_as_typed": "Seed Row" if a else "  Wyciskanie  Leżąc ",
+                "measure": "band_reps" if a else "time",
+                "per_side": a,
+                "implements": 2 if a else None,
+                "rir": 1 if a else None,
+                "note": "slow negatives" if a else None,
+            }
+        )
+        rows.setdefault("gym_sets", []).append(
+            {
+                "id": _id(user, 16),
+                "user_id": user,
+                "entry_id": entry,
+                "set_no": n,
+                "reps": 12 if a else None,
+                "load_kg": Decimal("102.06") if a else None,
+                "load_original": "225 lb" if a else None,
+                "duration_s": None if a else 45,
+                "distance_m": None if a else Decimal("400.5"),
+                "band_id": band if a else None,
+                "band_label": "red" if a else None,
+            }
+        )
     return {table: tuple(table_rows) for table, table_rows in rows.items()}
 
 

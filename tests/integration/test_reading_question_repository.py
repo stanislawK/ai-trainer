@@ -40,6 +40,7 @@ from ai_trainer.domain.sports.gym.extraction import GymExtraction, GymQuestion
 from ai_trainer.domain.sports.gym.payload import GymPayload
 from ai_trainer.domain.sports.registry import default_sport_registry
 from ai_trainer.domain.users import NewUser, UserStatus
+from tests.activity_support import STORES
 from tests.chat_support import (
     MERGE_WINDOW,
     InMemoryProfile,
@@ -90,7 +91,7 @@ class _Climber:
         self.conversation_id = conversation_id
         self.clock = _Clock()
         self.chat = SqlAlchemyChatRepository(factory)
-        self.drafts = SqlAlchemySessionDraftRepository(factory)
+        self.drafts = SqlAlchemySessionDraftRepository(factory, stores=STORES)
         self.clarifications = SqlAlchemyClarificationRepository(factory)
         self.conversation = ScriptedConversation(
             intents=[[Intent(kind="log_session", sport=sport)]]
@@ -102,7 +103,7 @@ class _Climber:
             ),
             drafts=self.drafts,
             clarifications=self.clarifications,
-            sessions=SqlAlchemyTrainingSessionRepository(factory),
+            sessions=SqlAlchemyTrainingSessionRepository(factory, stores=STORES),
             sports=default_sport_registry(),
             profile=InMemoryProfile({user_id: [sport]}),
             conversation=self.conversation,
@@ -170,7 +171,7 @@ async def test_the_recent_payloads_are_the_users_own_in_the_sport_latest_day_fir
     stranger = await _climber(db_session_factory, "reading-stranger")
     await _boulders_and_leads(climber)
     await stranger.confirmed("top rope 5c", _FIRST, _climbs("top_rope", "5c", _FIRST))
-    sessions = SqlAlchemyTrainingSessionRepository(db_session_factory)
+    sessions = SqlAlchemyTrainingSessionRepository(db_session_factory, stores=STORES)
 
     recent = await sessions.recent_payloads(climber.user_id, "climbing", 10)
 

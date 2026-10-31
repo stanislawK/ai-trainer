@@ -6,6 +6,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai_trainer.adapters import session_draft_lifecycle as lifecycle
+from ai_trainer.adapters.activity_stores import ActivityStore
 from ai_trainer.adapters.orm import ClarificationOrm, SessionDraftOrm
 from ai_trainer.adapters.session_draft_lifecycle import (
     CONFIRMED,
@@ -52,14 +53,19 @@ def _ask(
 class SqlAlchemySessionDraftRepository:
     """Implements `SessionDraftRepositoryPort` (ADR-0004, ADR-0022). The conversation key is
     composite with `user_id`, so a draft can't join another user's conversation, nor extend
-    another user's session. An addition to a session goes through its sport's payload model
-    (ADR-0022), so the repository knows the sports."""
+    another user's session. A confirm or an undo reaches the session's activities through its
+    sport's `ActivityStore` (ADR-0032), so the repository knows the sports."""
 
     def __init__(
-        self, session_factory: Callable[[], AsyncSession], sports: SportRegistry | None = None
+        self,
+        session_factory: Callable[[], AsyncSession],
+        sports: SportRegistry | None = None,
+        *,
+        stores: Callable[[str], ActivityStore],
     ) -> None:
         self._session_factory = session_factory
         self._sports = sports or default_sport_registry()
+        self._stores = stores
 
     def _spec(self, sport_id: str) -> ExtractionSpec:
         spec = self._sports.get(sport_id).extraction
@@ -202,7 +208,12 @@ class SqlAlchemySessionDraftRepository:
     ) -> StoredDraft:
         async with self._session_factory() as session:
             return await lifecycle.confirm(
-                session, user_id, draft_id, confirmed_at=confirmed_at, spec_of=self._spec
+                session,
+                user_id,
+                draft_id,
+                confirmed_at=confirmed_at,
+                spec_of=self._spec,
+                store_of=self._stores,
             )
 
     async def settle_session(
@@ -235,5 +246,10 @@ class SqlAlchemySessionDraftRepository:
     async def undo(self, user_id: UUID, draft_id: UUID, *, undone_at: datetime) -> StoredDraft:
         async with self._session_factory() as session:
             return await lifecycle.undo(
-                session, user_id, draft_id, undone_at=undone_at, spec_of=self._spec
+                session,
+                user_id,
+                draft_id,
+                undone_at=undone_at,
+                spec_of=self._spec,
+                store_of=self._stores,
             )

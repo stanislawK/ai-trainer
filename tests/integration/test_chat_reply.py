@@ -66,6 +66,7 @@ from ai_trainer.llm.decision_gateway import OpenRouterDecisionGateway
 from ai_trainer.llm.gateway import OpenRouterGateway
 from ai_trainer.llm.router_fast import JevFastRouter, RouterFastThresholds
 from ai_trainer.llm.safety_screen import JevSafetyScreen
+from ai_trainer.main import build_activity_stores
 from ai_trainer.settings import Settings
 from ai_trainer.web.chat import build_chat_router
 from ai_trainer.web.request_log import log_every_request
@@ -352,9 +353,13 @@ def _app(
     replies = ReplyServices(
         chat=chat,
         conversations=SqlAlchemyConversationRepository(factory, clock=clock, retention_days=14),
-        drafts=SqlAlchemySessionDraftRepository(factory, sports_with_rowing()),
+        drafts=SqlAlchemySessionDraftRepository(
+            factory, sports_with_rowing(), stores=build_activity_stores(sports_with_rowing())
+        ),
         clarifications=SqlAlchemyClarificationRepository(factory),
-        sessions=SqlAlchemyTrainingSessionRepository(factory),
+        sessions=SqlAlchemyTrainingSessionRepository(
+            factory, stores=build_activity_stores(sports_with_rowing())
+        ),
         sports=sports_with_rowing(),
         profile=SqlAlchemyOnboardingRepository(factory),
         conversation=conversation,

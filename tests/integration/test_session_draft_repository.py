@@ -6,6 +6,7 @@ import asyncio
 import contextlib
 from collections.abc import Callable
 from datetime import UTC, date, datetime, timedelta
+from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -34,6 +35,7 @@ from ai_trainer.domain.training import (
 )
 from ai_trainer.domain.users import NewUser, UserStatus
 from ai_trainer.settings import Settings
+from tests.activity_support import STORES
 from tests.chat_support import THREE_6A_TWO_6B
 
 _START = datetime(2026, 10, 2, 9, 0, tzinfo=UTC)
@@ -75,7 +77,7 @@ async def _log(
 async def test_an_added_draft_is_listed_pending_with_its_draft_as_given(
     db_session_factory: Callable[[], AsyncSession],
 ) -> None:
-    drafts = SqlAlchemySessionDraftRepository(db_session_factory)
+    drafts = SqlAlchemySessionDraftRepository(db_session_factory, stores=STORES)
     user_id, conversation_id, message_id = await _log(db_session_factory, "draft-a")
 
     added = await drafts.add(
@@ -100,7 +102,7 @@ async def test_an_added_draft_is_listed_pending_with_its_draft_as_given(
 async def test_another_user_never_lists_the_draft(
     db_session_factory: Callable[[], AsyncSession],
 ) -> None:
-    drafts = SqlAlchemySessionDraftRepository(db_session_factory)
+    drafts = SqlAlchemySessionDraftRepository(db_session_factory, stores=STORES)
     owner, conversation_id, message_id = await _log(db_session_factory, "draft-owner")
     stranger, own_conversation, _ = await _log(db_session_factory, "draft-stranger")
     await drafts.add(
@@ -115,7 +117,7 @@ async def test_a_users_other_conversation_never_lists_the_draft(
     db_session_factory: Callable[[], AsyncSession],
 ) -> None:
     """A follow-up log takes its sport only from its own conversation's drafts (#189)."""
-    drafts = SqlAlchemySessionDraftRepository(db_session_factory)
+    drafts = SqlAlchemySessionDraftRepository(db_session_factory, stores=STORES)
     user_id, conversation_id, message_id = await _log(db_session_factory, "draft-two-chats")
     conversations = SqlAlchemyConversationRepository(
         db_session_factory, clock=_Clock(_START), retention_days=14
@@ -137,7 +139,7 @@ async def test_a_users_other_conversation_never_lists_the_draft(
 async def test_discarded_drafts_are_listed_with_the_rest_oldest_first(
     db_session_factory: Callable[[], AsyncSession],
 ) -> None:
-    drafts = SqlAlchemySessionDraftRepository(db_session_factory)
+    drafts = SqlAlchemySessionDraftRepository(db_session_factory, stores=STORES)
     user_id, conversation_id, message_id = await _log(db_session_factory, "draft-pending")
     later = await drafts.add(
         user_id,
@@ -183,7 +185,7 @@ async def test_discarded_drafts_are_listed_with_the_rest_oldest_first(
 async def test_adding_a_draft_writes_no_training_session(
     db_session_factory: Callable[[], AsyncSession],
 ) -> None:
-    drafts = SqlAlchemySessionDraftRepository(db_session_factory)
+    drafts = SqlAlchemySessionDraftRepository(db_session_factory, stores=STORES)
     user_id, conversation_id, message_id = await _log(db_session_factory, "draft-no-session")
 
     await drafts.add(
@@ -226,7 +228,7 @@ _INSERT_CLARIFICATION = text(
 async def test_purging_a_conversation_takes_its_drafts_and_questions_but_keeps_sessions(
     db_session_factory: Callable[[], AsyncSession],
 ) -> None:
-    drafts = SqlAlchemySessionDraftRepository(db_session_factory)
+    drafts = SqlAlchemySessionDraftRepository(db_session_factory, stores=STORES)
     user_id, conversation_id, message_id = await _log(db_session_factory, "draft-purge")
     draft = await drafts.add(
         user_id,
@@ -288,7 +290,7 @@ async def test_purging_a_conversation_takes_its_drafts_and_questions_but_keeps_s
 async def _pending(
     factory: Callable[[], AsyncSession], sub: str
 ) -> tuple[SqlAlchemySessionDraftRepository, UUID, StoredDraft]:
-    drafts = SqlAlchemySessionDraftRepository(factory)
+    drafts = SqlAlchemySessionDraftRepository(factory, stores=STORES)
     user_id, conversation_id, message_id = await _log(factory, sub)
     draft = await drafts.add(
         user_id,
@@ -365,7 +367,7 @@ async def test_confirming_a_ride_in_miles_saves_it_in_km_with_the_log_as_typed(
 ) -> None:
     """A cycling draft confirms like a climbing one (ticket #160): its payload keeps the miles
     as typed beside the km, and its source row keeps the athlete's text (B2)."""
-    drafts = SqlAlchemySessionDraftRepository(db_session_factory)
+    drafts = SqlAlchemySessionDraftRepository(db_session_factory, stores=STORES)
     user_id, conversation_id, message_id = await _log(
         db_session_factory, "confirm-ride", "Rode 40 miles yesterday"
     )
@@ -413,9 +415,10 @@ async def test_confirming_a_ride_in_miles_saves_it_in_km_with_the_log_as_typed(
 async def test_confirming_lifts_in_lb_saves_them_in_kg_with_the_log_as_typed(
     db_session_factory: Callable[[], AsyncSession],
 ) -> None:
-    """A gym draft confirms like a climbing one (ticket #159): its payload keeps the pounds as
-    typed beside the kg, and its source row keeps the athlete's text (B2)."""
-    drafts = SqlAlchemySessionDraftRepository(db_session_factory)
+    """A gym draft confirms like a climbing one (ticket #159): its sets keep the pounds as typed
+    beside the kg, in the gym's rows since #376 (ADR-0032), and its source row keeps the
+    athlete's text (B2)."""
+    drafts = SqlAlchemySessionDraftRepository(db_session_factory, stores=STORES)
     user_id, conversation_id, message_id = await _log(
         db_session_factory, "confirm-lifts", "Deadlift 3x5 at 315 lb, then 3 sets of pull-ups"
     )
@@ -459,20 +462,28 @@ async def test_confirming_lifts_in_lb_saves_them_in_kg_with_the_log_as_typed(
                 {"id": confirmed.session_id},
             )
         ).one()
+        sets = (
+            await db.execute(
+                text(
+                    "SELECT e.name_as_typed, g.load_original, g.load_kg FROM gym_exercise_entries e"
+                    " JOIN gym_sets g ON g.entry_id = e.id"
+                    " WHERE e.session_id = :id ORDER BY e.position, g.set_no"
+                ),
+                {"id": confirmed.session_id},
+            )
+        ).all()
     assert (sport_id, raw_text) == ("gym", "Deadlift 3x5 at 315 lb, then 3 sets of pull-ups")
-    assert [exercise["name"] for exercise in stored["activities"]] == ["Deadlift", "pull-ups"]
-    assert stored["activities"][0]["load"] == {
-        "original": "315 lb",
-        "value": 315,
-        "unit": "lb",
-        "kg": 142.88,
-    }
+    assert stored == {}
+    assert [tuple(row) for row in sets] == [
+        *[("Deadlift", "315 lb", Decimal("142.88"))] * 3,
+        *[("pull-ups", None, None)] * 3,
+    ]
 
 
 async def test_confirm_copies_every_envelope_field_the_athlete_gave(
     db_session_factory: Callable[[], AsyncSession],
 ) -> None:
-    drafts = SqlAlchemySessionDraftRepository(db_session_factory)
+    drafts = SqlAlchemySessionDraftRepository(db_session_factory, stores=STORES)
     user_id, conversation_id, message_id = await _log(db_session_factory, "confirm-envelope")
     full = _DRAFT.model_copy(
         update={
@@ -547,7 +558,7 @@ async def test_concurrent_confirms_create_one_session() -> None:
     user_id: UUID | None = None
     try:
         _, user_id, draft = await _pending(setup, f"confirm-race-{uuid4()}")
-        drafts = SqlAlchemySessionDraftRepository(racing)
+        drafts = SqlAlchemySessionDraftRepository(racing, stores=STORES)
 
         results = await asyncio.gather(
             drafts.confirm(user_id, draft.id, confirmed_at=_START),
@@ -1005,7 +1016,7 @@ async def _mixed_drafts(
     factory: Callable[[], AsyncSession], sub: str
 ) -> tuple[SqlAlchemySessionDraftRepository, UUID, StoredDraft, StoredDraft]:
     """A climbing and a cycling draft of one mixed log, as its reply stores them (#161)."""
-    drafts = SqlAlchemySessionDraftRepository(factory)
+    drafts = SqlAlchemySessionDraftRepository(factory, stores=STORES)
     user_id, conversation_id, message_id = await _log(factory, sub, _MIXED)
     ride = CyclingExtraction.model_validate(
         {

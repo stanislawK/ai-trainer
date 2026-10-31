@@ -101,18 +101,8 @@ def test_a_question_needs_two_distinct_readings_of_what_it_asks(question: dict[s
 
 
 def _session(*exercises: tuple[str, str | None]) -> dict[str, Any]:
-    return {
-        "sport": "gym",
-        "activities": [
-            {
-                "name": name,
-                "load": None
-                if unit is None
-                else {"original": f"60 {unit}", "value": 60, "unit": unit, "kg": 60},
-            }
-            for name, unit in exercises
-        ],
-    }
+    """A recent session as the gym's `ActivityStore` reads it from its rows (ticket #376)."""
+    return {"activities": [{"name": name, "unit": unit} for name, unit in exercises]}
 
 
 def test_recent_exercises_are_each_once_with_their_unit_most_recent_session_first() -> None:

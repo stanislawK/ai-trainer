@@ -41,6 +41,7 @@ from ai_trainer.domain.training import (
     StoredDraft,
 )
 from ai_trainer.domain.users import NewUser, UserStatus
+from tests.activity_support import STORES
 from tests.chat_support import (
     MERGE_WINDOW,
     InMemoryProfile,
@@ -71,7 +72,7 @@ class _Athlete:
         self.conversation_id = conversation_id
         self.clock = _Clock()
         self.chat = SqlAlchemyChatRepository(factory)
-        self.drafts = SqlAlchemySessionDraftRepository(factory)
+        self.drafts = SqlAlchemySessionDraftRepository(factory, stores=STORES)
         self.clarifications = SqlAlchemyClarificationRepository(factory)
         self.services = ReplyServices(
             chat=self.chat,
@@ -80,7 +81,7 @@ class _Athlete:
             ),
             drafts=self.drafts,
             clarifications=self.clarifications,
-            sessions=SqlAlchemyTrainingSessionRepository(factory),
+            sessions=SqlAlchemyTrainingSessionRepository(factory, stores=STORES),
             sports=default_sport_registry(),
             profile=InMemoryProfile({user_id: ["climbing"]}),
             conversation=ScriptedConversation(

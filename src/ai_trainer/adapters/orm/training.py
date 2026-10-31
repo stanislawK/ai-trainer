@@ -88,6 +88,8 @@ class TrainingSessionSourceOrm(Base):
             name="training_session_sources_session_id_user_id_fkey",
             ondelete="CASCADE",
         ),
+        # A sport's rows name the log that brought them, keyed with `user_id` (ADR-0032).
+        UniqueConstraint("id", "user_id", name="training_session_sources_id_user_id_key"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)

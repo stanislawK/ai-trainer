@@ -28,12 +28,14 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
+from ai_trainer.adapters.activity_stores import ActivityStores
 from ai_trainer.adapters.chat_repository import SqlAlchemyChatRepository
 from ai_trainer.adapters.clarification_repository import SqlAlchemyClarificationRepository
 from ai_trainer.adapters.clock import UtcClock
 from ai_trainer.adapters.conversation_repository import SqlAlchemyConversationRepository
 from ai_trainer.adapters.db import build_engine, build_session_factory
 from ai_trainer.adapters.google_oauth import AuthlibGoogleOAuthClient
+from ai_trainer.adapters.gym_activity_store import GymActivityStore
 from ai_trainer.adapters.health import PsycopgDatabaseHealth
 from ai_trainer.adapters.llm_calls_repository import SqlAlchemyLlmCallsRepository
 from ai_trainer.adapters.log_records import configure_logging
@@ -119,6 +121,12 @@ def build_llm_conversation(
         extract_reasoning_effort=settings.extract_reasoning_effort,
         history_turns=settings.chat_history_turns,
     )
+
+
+def build_activity_stores(sports: SportRegistry) -> ActivityStores:
+    """Where each sport keeps its activities (ADR-0032): its own tables where it has them,
+    otherwise the session's payload."""
+    return ActivityStores(sports, {"gym": GymActivityStore()})
 
 
 def build_onboarding_reader(
@@ -212,6 +220,7 @@ def create_app(  # noqa: PLR0915 -- composition root: objects are built only her
     health_port = PsycopgDatabaseHealth(str(settings.database_url))
     app.include_router(build_health_router(health_port))
     sport_registry = app.state.sport_registry
+    activity_stores = build_activity_stores(sport_registry)
     llm_calls = MeteredLlmCallsRepository(SqlAlchemyLlmCallsRepository(session_factory), metrics)
     debug_log = build_debug_log(settings, clock)
     # One budget for text calls and decision calls (ADR-0029). Evals build their own gateways.
@@ -228,7 +237,7 @@ def create_app(  # noqa: PLR0915 -- composition root: objects are built only her
     decisions = BudgetedDecisionGateway(
         OpenRouterDecisionGateway(settings, llm_calls, debug_log=debug_log), budget
     )
-    training_sessions = SqlAlchemyTrainingSessionRepository(session_factory)
+    training_sessions = SqlAlchemyTrainingSessionRepository(session_factory, stores=activity_stores)
     # The MCP server in process, for the specialists to come (ADR-0010). Nothing mounts it
     # over HTTP: that waits for an amendment on how tokens are issued.
     app.state.mcp_toolset = build_toolset(
@@ -239,7 +248,9 @@ def create_app(  # noqa: PLR0915 -- composition root: objects are built only her
         conversations=SqlAlchemyConversationRepository(
             session_factory, clock=clock, retention_days=settings.conversation_retention_days
         ),
-        drafts=SqlAlchemySessionDraftRepository(session_factory, sport_registry),
+        drafts=SqlAlchemySessionDraftRepository(
+            session_factory, sport_registry, stores=activity_stores
+        ),
         clarifications=SqlAlchemyClarificationRepository(session_factory),
         sessions=training_sessions,
         sports=sport_registry,
