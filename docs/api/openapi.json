@@ -286,7 +286,7 @@
     },
     "/clarifications/{clarification_id}/abandon": {
       "post": {
-        "description": "A choice card's \"Let me type instead\" (F9, invariant 2 of ADR-0015): closes the\nquestion and writes nothing else; the composer takes focus after the swap. An answered\nor skipped question is a 409, another user's or an unknown one a 404.",
+        "description": "A choice card's \"Let me type instead\" (F9, invariant 2 of ADR-0015): closes the\nquestion and writes nothing else; the composer takes focus after the swap. On a draft's\nexercise question it answers with the draft's card instead, which replaces the one that\nasked (#397). An answered or skipped question, or one on a confirmed or discarded draft,\nis a 409, another user's or an unknown one a 404.",
         "operationId": "abandon_clarifications__clarification_id__abandon_post",
         "parameters": [
           {

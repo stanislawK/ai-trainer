@@ -4,10 +4,13 @@
 Run with `make latency-scenario` while `make start` serves the app. It signs in as a seeded
 climbing-only athlete of its own, sends ADR-0025's five messages and then eight follow-up logs
 in one fresh conversation as a browser would, and confirms each log's draft card except the
-7a one, which ADR-0025 leaves pending. A turn is timed from sending the message to the last
-event of its reply stream, which carries the draft card. Its `llm_calls` rows are the ones the
-athlete gained during the turn, and its USD is their sum: Jev rows carry no cost (ADR-0018).
-A reply that ends in a timeout or an error, or a log with no card, is counted and named.
+7a one, which ADR-0025 leaves pending. `sport=gym` replays ten gym logs instead, the path that
+names exercises (ADR-0031, #397), tapping the first option of each question on a card before
+confirming it. Only a first run meets new names: the athlete's aliases stay in the database. A
+turn is timed from sending the message to the last event of its reply stream, which carries the
+draft card. Its `llm_calls` rows are the ones the athlete gained during the turn, and its USD is
+their sum: Jev rows carry no cost (ADR-0018). A reply that ends in a timeout or an error, or a
+log with no card, is counted and named.
 
 The summary is also written as JSON under `LLM_DEBUG_LOG_DIR`. Like `dev_session.py`, this is a
 script, never a route: it reaches the app's database through `DATABASE_URL` to seed the athlete
@@ -20,7 +23,7 @@ import json
 import re
 import sys
 import time
-from collections.abc import AsyncIterator, Callable, Sequence
+from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta
 from decimal import Decimal
@@ -62,6 +65,12 @@ _REQUEST_TIMEOUT_S = 30.0
 _HTMX = {"HX-Request": "true"}
 _REPLY_URL = re.compile(r'hx-sse:connect="/messages/([0-9a-f-]{36})/reply"')
 _DRAFT_ID = re.compile(r'data-draft-id="([0-9a-f-]{36})"')
+# A question's first option on a draft card, as `components/choice_card.html` renders it.
+_QUESTION_OPTION = re.compile(
+    r'hx-post="(/clarifications/[0-9a-f-]{36}/answer)" hx-vals=\'\{"option_ids": "([^"]+)"\}\''
+)
+# A log names few exercises: more questions than this on one card means a tap isn't taking.
+_MAX_CARD_QUESTIONS = 20
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,6 +96,22 @@ SCENARIO: tuple[Turn, ...] = (
     Turn("Also log a 6a slab I flashed", True, True),
     Turn("Last one: three laps of a 5b circuit to finish", True, True),
 )
+
+# The gym's naming path (ADR-0031, #397), which a climbing log never reaches: new names, each
+# asking once, and then the same names again, which history answers with no question.
+GYM_SCENARIO: tuple[Turn, ...] = (
+    Turn("Bench press 3x8 60kg", True, True),
+    Turn("Squat 5x5 100kg", True, True),
+    Turn("Bench press 3x8 62.5kg", True, True),
+    Turn("Squat 5x5 102.5kg", True, True),
+    Turn("Deadlift 3x5 120kg and lat pulldown 3x10 50kg", True, True),
+    Turn("Bench press 3x8 65kg and squat 3x5 105kg", True, True),
+    Turn("Deadlift 3x5 125kg", True, True),
+    Turn("Lat pulldown 3x10 55kg", True, True),
+    Turn("Plank 3x60s", True, True),
+    Turn("Plank 3x70s and bench press 3x8 65kg", True, True),
+)
+SCENARIOS = {"climbing": SCENARIO, "gym": GYM_SCENARIO}
 
 
 class LlmCallsSource(Protocol):
@@ -144,11 +169,12 @@ async def seed_latency_athlete(
     *,
     onboarding: OnboardingRepositoryPort,
     session_ttl: timedelta,
+    sport: str = "climbing",
 ) -> Session:
-    """The scenario's athlete: onboarded, climbing only, and nobody else's seeded user, so the
-    `llm_calls` rows it gains during a turn are that turn's alone."""
+    """The scenario's athlete: onboarded, in the scenario's one sport, and nobody else's seeded
+    user, so the `llm_calls` rows it gains during a turn are that turn's alone."""
     user = await get_or_create_active_user(users, sub=DEV_LATENCY_SUB, email=DEV_LATENCY_EMAIL)
-    await onboarding.replace_sports(user.id, ["climbing"])
+    await onboarding.replace_sports(user.id, [sport])
     if user.onboarded_at is None:
         await onboarding.set_onboarded_at(user.id, clock.now())
     return await sessions.create(NewSession(user_id=user.id, expires_at=clock.now() + session_ttl))
@@ -180,26 +206,53 @@ async def _events(response: httpx2.Response) -> AsyncIterator[str]:
         yield "\n".join(data)
 
 
-async def _reply(client: httpx2.AsyncClient, message_id: str) -> tuple[str, UUID | None]:
-    """How the reply ended, and the draft card it showed, if any. The final event targets the
-    whole reply (`#reply-<id>`); phases and chunks target its parts."""
+async def _reply(client: httpx2.AsyncClient, message_id: str) -> tuple[str, UUID | None, str]:
+    """How the reply ended, the draft card it showed, if any, and the final event's HTML. The
+    final event targets the whole reply (`#reply-<id>`); phases and chunks target its parts."""
     final = f'hx-target="#reply-{message_id}"'
     try:
         async with client.stream(
             "GET", f"/messages/{message_id}/reply", timeout=_REPLY_READ_TIMEOUT_S
         ) as response:
             if response.status_code != httpx2.codes.OK:
-                return f"http_{response.status_code}", None
+                return f"http_{response.status_code}", None, ""
             async for event in _events(response):
                 if final not in event:
                     continue
                 if f"/messages/{message_id}/retry" in event:
-                    return ("timeout" if "took too long" in event else "error"), None
+                    return ("timeout" if "took too long" in event else "error"), None, ""
                 card = _DRAFT_ID.search(event)
-                return "ok", UUID(card.group(1)) if card else None
+                return "ok", UUID(card.group(1)) if card else None, event
     except httpx2.TimeoutException:
-        return "timeout", None
-    return "stream_ended", None
+        return "timeout", None, ""
+    return "stream_ended", None, ""
+
+
+async def _confirm(
+    client: httpx2.AsyncClient, headers: Mapping[str, str], draft_id: UUID, card: str
+) -> str:
+    """Taps the first option of each question on the card, as an athlete settling it would, then
+    confirms. None of it is in the turn's time: the card has already shown, and no model is
+    called. How it ended: `ok`, or `confirm_` and what went wrong."""
+    try:
+        for _ in range(_MAX_CARD_QUESTIONS):
+            question = _QUESTION_OPTION.search(card)
+            if question is None:
+                break
+            answered = await client.post(
+                question.group(1),
+                data={"option_ids": question.group(2)},
+                headers=headers,
+            )
+            if answered.status_code != httpx2.codes.OK:
+                return f"confirm_http_{answered.status_code}"
+            card = answered.text
+        confirmed = await client.post(f"/drafts/{draft_id}/confirm", headers=headers)
+    except httpx2.HTTPError as error:
+        return f"confirm_transport_{type(error).__name__}"
+    if confirmed.status_code != httpx2.codes.OK:
+        return f"confirm_http_{confirmed.status_code}"
+    return "ok"
 
 
 def _row(call: LlmCall) -> CallRow:
@@ -231,6 +284,7 @@ async def play(
     for number, turn in enumerate(turns, start=1):
         started = timer()
         draft_id: UUID | None = None
+        card = ""
         try:
             sent = await client.post(
                 "/messages",
@@ -244,8 +298,8 @@ async def play(
                     conversation_id
                 )
                 match = _REPLY_URL.search(sent.text)
-                outcome, draft_id = (
-                    await _reply(client, match.group(1)) if match else ("no_reply", None)
+                outcome, draft_id, card = (
+                    await _reply(client, match.group(1)) if match else ("no_reply", None, "")
                 )
         except httpx2.HTTPError as error:
             # A dropped connection or a stalled request ends this turn, never the run.
@@ -254,13 +308,7 @@ async def play(
         if outcome == "ok" and turn.log and draft_id is None:
             outcome = "no_card"
         if outcome == "ok" and turn.confirm and draft_id is not None:
-            try:
-                confirmed = await client.post(f"/drafts/{draft_id}/confirm", headers=headers)
-            except httpx2.HTTPError as error:
-                outcome = f"confirm_transport_{type(error).__name__}"
-            else:
-                if confirmed.status_code != httpx2.codes.OK:
-                    outcome = f"confirm_http_{confirmed.status_code}"
+            outcome = await _confirm(client, headers, draft_id, card)
         new = [call for call in await calls.list_for_user(user_id) if call.id not in seen]
         seen.update(call.id for call in new)
         new.sort(key=lambda call: call.created_at)
@@ -336,6 +384,9 @@ def write_json(summary: Summary, directory: Path, *, now: datetime) -> Path:
 def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--url", default=DEFAULT_BASE_URL, help="the running app's base URL")
+    parser.add_argument(
+        "--sport", default="climbing", choices=sorted(SCENARIOS), help="the scenario to replay"
+    )
     return parser.parse_args(argv)
 
 
@@ -346,7 +397,8 @@ async def main(
     errors: TextIO = sys.stderr,
     settings: Settings | None = None,
     transport: httpx2.AsyncBaseTransport | None = None,
-    turns: Sequence[Turn] = SCENARIO,
+    turns: Sequence[Turn] | None = None,
+    sport: str = "climbing",
 ) -> int:
     """Checks the stack before anything else, so a stopped app costs no seeding and no model
     call."""
@@ -369,6 +421,7 @@ async def main(
                 clock,
                 onboarding=SqlAlchemyOnboardingRepository(session_factory),
                 session_ttl=timedelta(days=settings.session_ttl_days),
+                sport=sport,
             )
             client.cookies.set(SESSION_COOKIE_NAME, str(session.id))
             csrf_token = generate_csrf_token(
@@ -379,7 +432,7 @@ async def main(
                 SqlAlchemyLlmCallsRepository(session_factory),
                 session.user_id,
                 csrf_token=csrf_token,
-                turns=turns,
+                turns=SCENARIOS[sport] if turns is None else turns,
             )
         finally:
             await engine.dispose()
@@ -391,6 +444,7 @@ async def main(
 
 
 if __name__ == "__main__":
+    _args = parse_args(sys.argv[1:])  # pragma: no cover -- only runs via direct execution
     sys.exit(
-        asyncio.run(main(base_url=parse_args(sys.argv[1:]).url))
+        asyncio.run(main(base_url=_args.url, sport=_args.sport))
     )  # pragma: no cover -- only runs via direct script execution, not import

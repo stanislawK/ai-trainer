@@ -123,3 +123,8 @@ class ConversationModelPort(Protocol):
         """The question on a draft's card that asks whether it is the same session as an
         earlier one that day (B16, ticket #166)."""
         ...
+
+    def exercise_question(self) -> FixedReply:
+        """The question on a draft's card that asks which exercise a typed name is (B37, ticket
+        #397)."""
+        ...

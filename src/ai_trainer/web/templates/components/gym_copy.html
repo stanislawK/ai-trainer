@@ -1,9 +1,11 @@
 {#- User-facing gym formats (G5), shared by the gym draft card, its edit fields and its logged row (ticket #159). Import with
-    `{% from "components/gym_copy.html" import exercise_name, kg, kg_value, scheme %}`. A name keeps how it was typed but starts upper case ("Squat", "RDL"); a load shows in kg to one decimal ("142.9", "100"); a scheme is "5 × 5", "3 sets", "12 reps" or nothing. `gym_readings` is the copy of a reading question's options (ticket #206), keyed by their `copy_key`: `{movement}` is a movement the exercise name may mean, and `{load}` the load as typed without its unit. -#}
+    `{% from "components/gym_copy.html" import exercise_name, kg, kg_value, scheme %}`. A name keeps how it was typed but starts upper case ("Squat", "RDL"); a load shows in kg to one decimal ("142.9", "100"); a scheme is "5 × 5", "3 sets", "12 reps" or nothing. `gym_readings` is the copy of a reading question's options (ticket #206), keyed by their `copy_key`: `{movement}` is a movement the exercise name may mean, and `{load}` the load as typed without its unit. The exercise question's options (ticket #397) share it: `{name}` is a candidate's name, `{detail}` its equipment and target, and on "Keep my name" `{name}` is the name as typed. -#}
 {% set gym_readings = {
   "gym_reading_movement": {"label": "{movement}", "hint": ""},
   "gym_reading_kg": {"label": "Kilograms", "hint": "{load} kg"},
   "gym_reading_lb": {"label": "Pounds", "hint": "{load} lb"},
+  "gym_exercise_candidate": {"label": "{name}", "hint": "{detail}"},
+  "gym_exercise_keep": {"label": "Keep my name", "hint": "Log it as {name}"},
 } %}
 {% macro exercise_name(name) -%}
 {{ name[:1] | upper }}{{ name[1:] }}

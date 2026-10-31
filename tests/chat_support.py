@@ -22,6 +22,7 @@ from ai_trainer.application.ports.conversation import (
     Routing,
     TemplateRef,
 )
+from ai_trainer.application.ports.draft_settling import DraftSettlerPort
 from ai_trainer.application.ports.fast_router import FastRoute
 from ai_trainer.application.ports.llm_gateway import (
     LlmGatewayResult,
@@ -369,7 +370,7 @@ class InMemoryDraftRepository:
                     id=uuid4(),
                     conversation_id=draft.conversation_id,
                     message_id=draft.message_id,
-                    purpose="same_session",
+                    purpose=asks.card_purpose,
                     clarification=asks,
                     status="open",
                     draft_id=draft.id,
@@ -456,6 +457,7 @@ class InMemoryDraftRepository:
         *,
         extends_session_id: UUID | None,
         answered_at: datetime,
+        asks: Clarification | None = None,
     ) -> StoredDraft:
         for index, (owner, stored) in enumerate(self.rows):
             if owner != user_id or stored.id != draft_id:
@@ -479,6 +481,43 @@ class InMemoryDraftRepository:
             stored = stored.model_copy(update={"extends": span})
             self.rows[index] = (owner, stored)
             self.extends_ids[draft_id] = None if span is None else extends_session_id
+            self._ask(user_id, stored, asks, answered_at)
+            return stored
+        raise DraftNotFoundError(draft_id)
+
+    async def settle_name(
+        self,
+        user_id: UUID,
+        draft_id: UUID,
+        clarification_id: UUID,
+        *,
+        option_id: str | None,
+        settle: Callable[[Mapping[str, JsonValue]], dict[str, JsonValue]],
+        asks: Clarification | None,
+        answered_at: datetime,
+    ) -> StoredDraft:
+        for index, (owner, stored) in enumerate(self.rows):
+            if owner != user_id or stored.id != draft_id:
+                continue
+            if stored.status == "confirmed":
+                raise DraftConfirmedError(draft_id)
+            if stored.status == "discarded":
+                raise DraftDiscardedError(draft_id)
+            assert self.questions is not None
+            question = await self.questions.get(user_id, clarification_id)
+            if question.draft_id != draft_id or question.status != "open":
+                raise ClarificationResolvedError(clarification_id)
+            await self.questions.resolve(
+                user_id,
+                clarification_id,
+                "abandoned" if option_id is None else "answered",
+                option_ids=None if option_id is None else [option_id],
+                resolved_at=answered_at,
+            )
+            draft = stored.draft.model_copy(update={"payload": settle(stored.draft.payload)})
+            stored = stored.model_copy(update={"draft": draft})
+            self.rows[index] = (owner, stored)
+            self._ask(user_id, stored, asks, answered_at)
             return stored
         raise DraftNotFoundError(draft_id)
 
@@ -632,6 +671,7 @@ DRAFT_FAILED_TEXT = "I couldn't draft this one."
 SPORT_QUESTION_TEXT = "Which sport was that?"
 SAME_SESSION_QUESTION_TEXT = "Was this part of your earlier session?"
 READING_QUESTION_TEXT = "Which did you mean?"
+EXERCISE_QUESTION_TEXT = "Which exercise is this?"
 CHITCHAT_TEMPLATE = TemplateRef(id="chitchat", version=1)
 NOT_YET_TEMPLATE = TemplateRef(id="not_yet", version=1)
 DRAFT_READY_TEMPLATE = TemplateRef(id="draft_ready", version=1)
@@ -639,6 +679,7 @@ DRAFT_FAILED_TEMPLATE = TemplateRef(id="draft_failed", version=1)
 SPORT_QUESTION_TEMPLATE = TemplateRef(id="sport_question", version=1)
 SAME_SESSION_QUESTION_TEMPLATE = TemplateRef(id="same_session_question", version=1)
 READING_QUESTION_TEMPLATE = TemplateRef(id="reading_question", version=1)
+EXERCISE_QUESTION_TEMPLATE = TemplateRef(id="exercise_question", version=1)
 CLIMBING_EXTRACT_TEMPLATE = TemplateRef(id="climbing.extract", version=1)
 # "I climbed 3 6A and 2 6B boulders", sent at `FROZEN_NOW` with no date (Europe/Warsaw).
 THREE_6A_TWO_6B = ClimbingExtraction(
@@ -771,6 +812,9 @@ class ScriptedConversation:
     def reading_question(self) -> FixedReply:
         return FixedReply(text=READING_QUESTION_TEXT, template=READING_QUESTION_TEMPLATE)
 
+    def exercise_question(self) -> FixedReply:
+        return FixedReply(text=EXERCISE_QUESTION_TEXT, template=EXERCISE_QUESTION_TEMPLATE)
+
 
 @dataclass
 class ScriptedSafetyScreen:
@@ -828,6 +872,7 @@ def reply_services(
     max_clarification_options: int = 5,
     recent_sessions: int = 10,
     feedback: FeedbackRecorder | None = None,
+    settlers: Mapping[str, DraftSettlerPort] | None = None,
 ) -> ReplyServices:
     drafts = drafts or InMemoryDraftRepository()
     clarifications = clarifications or InMemoryClarificationRepository()
@@ -849,6 +894,7 @@ def reply_services(
         max_clarification_options=max_clarification_options,
         recent_sessions=recent_sessions,
         feedback=feedback,
+        settlers=settlers or {},
     )
 
 
@@ -864,6 +910,7 @@ def include_chat(
     fast_router: ScriptedFastRouter | None = None,
     sessions: InMemoryTrainingSessions | None = None,
     feedback: FeedbackRecorder | None = None,
+    settlers: Mapping[str, DraftSettlerPort] | None = None,
 ) -> InMemoryChatRepository:
     """Mounts the chat router on an in-memory repository and a scripted conversation, and
     returns the repository."""
@@ -877,6 +924,7 @@ def include_chat(
         conversation=conversation,
         fast_router=fast_router,
         feedback=feedback,
+        settlers=settlers,
     )
     app.include_router(
         build_chat_router(

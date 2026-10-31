@@ -1,8 +1,8 @@
 """What every part of the reply service shares: the events a reply streams, the services it
 runs on, the athlete's own message it answers and the context its model calls read."""
 
-from collections.abc import Sequence
-from dataclasses import dataclass
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Literal
 from uuid import UUID
@@ -16,6 +16,7 @@ from ai_trainer.application.ports.conversation import (
     ReplyContext,
     TemplateRef,
 )
+from ai_trainer.application.ports.draft_settling import DraftSettlerPort
 from ai_trainer.application.ports.drafts import SessionDraftRepositoryPort
 from ai_trainer.application.ports.fast_router import FastRouterPort
 from ai_trainer.application.ports.metrics import NO_METRICS, MetricsPort
@@ -106,6 +107,8 @@ class ReplyServices:
     metrics: MetricsPort = NO_METRICS
     # Records the athlete's choice-card answers as feedback events (ADR-0034).
     feedback: FeedbackRecorder | None = None
+    # What a sport settles on its drafts, by sport ID: the gym's exercise names (ticket #397).
+    settlers: Mapping[str, DraftSettlerPort] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)

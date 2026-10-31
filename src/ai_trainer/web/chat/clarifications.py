@@ -109,17 +109,24 @@ class _ClarificationRoutes:
 
     async def abandon(self, request: Request, clarification_id: str) -> HTMLResponse:
         """A choice card's "Let me type instead" (F9, invariant 2 of ADR-0015): closes the
-        question and writes nothing else; the composer takes focus after the swap. An answered
-        or skipped question is a 409, another user's or an unknown one a 404."""
+        question and writes nothing else; the composer takes focus after the swap. On a draft's
+        exercise question it answers with the draft's card instead, which replaces the one that
+        asked (#397). An answered or skipped question, or one on a confirmed or discarded draft,
+        is a 409, another user's or an unknown one a 404."""
         user: User = request.state.user
         try:
             skipped = await abandon_clarification(
                 user.id, parse_id(clarification_id), services=self._ctx.replies
             )
-        except ClarificationNotFoundError:
+        except ClarificationNotFoundError, DraftNotFoundError:
             raise HTTPException(status_code=NOT_FOUND) from None
-        except ClarificationResolvedError:
+        except ClarificationResolvedError, DraftConfirmedError, DraftDiscardedError:
             raise HTTPException(status_code=CONFLICT) from None
+        if isinstance(skipped, SessionSettled):
+            settled = await self._ctx.shown_card(user, skipped.draft)
+            return self._ctx.templates.TemplateResponse(
+                request, settled.template, {"card": settled}
+            )
         return self._ctx.templates.TemplateResponse(
             request, "partials/chat/choice_card.html", {"card": ChoiceCard(skipped)}
         )

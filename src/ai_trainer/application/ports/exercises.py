@@ -1,4 +1,4 @@
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Protocol
 from uuid import UUID
 
@@ -7,6 +7,7 @@ from ai_trainer.domain.exercises import (
     CatalogueWrite,
     Exercise,
     ExerciseAlias,
+    ExerciseCandidate,
     ExerciseMeasure,
     ImportedCatalogue,
 )
@@ -15,6 +16,32 @@ from ai_trainer.domain.exercises import (
 class ExerciseCatalogueSourcePort(Protocol):
     async def load(self) -> ImportedCatalogue:
         """Everything to import. Raises `ExerciseDatasetError` or `ExerciseCatalogueError`."""
+        ...
+
+
+class ExerciseNamesPort(Protocol):
+    """What naming a typed exercise reads (ADR-0031). Every method is scoped to one `user_id`, and
+    sees only the catalogue and that athlete's own exercises and aliases (invariant 3)."""
+
+    async def match_user_aliases(
+        self, user_id: UUID, *, sport_id: str, names: Sequence[str], near: float
+    ) -> Mapping[str, UUID]:
+        """The exercise each typed name is, by the athlete's own alias at `pg_trgm` similarity
+        `near` or above, the most similar first. A name with none is left out."""
+        ...
+
+    async def shortlist(
+        self,
+        user_id: UUID,
+        *,
+        sport_id: str,
+        name: str,
+        measure: str,
+        floor: float,
+        limit: int,
+    ) -> Sequence[ExerciseCandidate]:
+        """At most `limit` exercises at `floor` or above, by trigram and `simple` full-text search
+        over names and aliases in every language. Those measured like `measure` come first."""
         ...
 
 

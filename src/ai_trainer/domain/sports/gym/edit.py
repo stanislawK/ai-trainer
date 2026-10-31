@@ -101,9 +101,14 @@ def _edited(exercise: Exercise, row: Mapping[str, JsonValue], form: _ExerciseFor
         load = _load(first.load, row["load"], form.load)
         if load != first.load:
             sets = [gym_set.model_copy(update={"load": load}) for gym_set in sets]
+    # A settled exercise was settled under its name: another name is typed-only again (ticket
+    # #397), so a confirm can't store the new name as an alias of the old exercise.
+    renamed = "name" in fields and form.name != exercise.name_as_typed
     return exercise.model_copy(
         update={
             "name_as_typed": form.name if "name" in fields else exercise.name_as_typed,
+            "exercise_id": None if renamed else exercise.exercise_id,
+            "keep_name": False if renamed else exercise.keep_name,
             "rir": form.rir if "rir" in fields else exercise.rir,
             "measure": measure_of(sets[0]),
             "sets": sets,

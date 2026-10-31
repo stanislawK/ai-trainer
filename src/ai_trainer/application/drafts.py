@@ -4,13 +4,18 @@ log back (B4). The
 athlete's edit changes only a pending draft (ticket #158)."""
 
 from collections.abc import Mapping
+from contextlib import suppress
+from dataclasses import dataclass
 from uuid import UUID
 
 from pydantic import BaseModel, JsonValue, ValidationError
 
 from ai_trainer.application.feedback import FeedbackRecorder, changed_fields
+from ai_trainer.application.ports.clarifications import ClarificationRepositoryPort
 from ai_trainer.application.ports.clock import ClockPort
+from ai_trainer.application.ports.draft_settling import DraftSettlerPort
 from ai_trainer.application.ports.drafts import SessionDraftRepositoryPort
+from ai_trainer.domain.clarification import ClarificationResolvedError
 from ai_trainer.domain.feedback import FeedbackKind
 from ai_trainer.domain.sports.registry import SportRegistry, UnknownSportError
 from ai_trainer.domain.training import (
@@ -24,6 +29,15 @@ from ai_trainer.domain.training import (
 
 # The envelope fields the edit form carries (F2); the sport's own fields are its plugin's.
 _ENVELOPE_FIELDS = ("occurred_on", "duration_min", "rpe", "feeling")
+
+
+@dataclass(frozen=True, slots=True)
+class CardQuestions:
+    """What an edit needs to drop a question about a name it took off the card (ticket #397)."""
+
+    clarifications: ClarificationRepositoryPort
+    settlers: Mapping[str, DraftSettlerPort]
+    clock: ClockPort
 
 
 async def confirm_draft(
@@ -94,6 +108,7 @@ async def edit_draft(
     drafts: SessionDraftRepositoryPort,
     sports: SportRegistry,
     feedback: FeedbackRecorder | None = None,
+    questions: CardQuestions | None = None,
 ) -> StoredDraft:
     """Replaces the athlete's pending draft with their edit (F2): the date, duration, RPE and
     feeling from `changes`, validated by `SessionDraft`, and the sport's fields through its
@@ -137,7 +152,34 @@ async def edit_draft(
     fields = changed_fields(stored.draft.model_copy(update={"payload": before}), saved.draft)
     if feedback is not None and fields:
         await feedback.record_for_draft(user_id, FeedbackKind.DRAFT_EDITED, saved, fields=fields)
+    if questions is not None:
+        await _drop_stale_question(user_id, saved, questions)
     return saved
+
+
+async def _drop_stale_question(user_id: UUID, draft: StoredDraft, questions: CardQuestions) -> None:
+    """An edit asks nothing new (ticket #397), but a question about a name it took off the card
+    would hold the Confirm back over nothing, so it is closed. A tap that got there first closed
+    it already."""
+    settler = questions.settlers.get(draft.sport_id)
+    if settler is None:
+        return
+    for question in await questions.clarifications.list_shown(user_id, draft.conversation_id):
+        subject = question.clarification.subject
+        if (
+            question.draft_id == draft.id
+            and question.status == "open"
+            and subject is not None
+            and not settler.mentions(draft.draft.payload, subject)
+        ):
+            with suppress(ClarificationResolvedError):
+                await questions.clarifications.resolve(
+                    user_id,
+                    question.id,
+                    "abandoned",
+                    option_ids=None,
+                    resolved_at=questions.clock.now(),
+                )
 
 
 def _pending(draft: StoredDraft) -> StoredDraft:

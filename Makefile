@@ -174,8 +174,8 @@ backfill-gym-sessions: ## Write gym sessions logged before the typed tables into
 llm-report: ## Summarize the LLM debug log per template and model (#179); fails when there is no log. Usage: make llm-report [since=2026-10-18T20:00Z]
 	uv run ai-trainer llm-debug-report $(if $(since),--since $(since))
 
-latency-scenario: ## Replay the latency scenario on the running app and print p50/p95 per log turn (ADR-0026, #185) — calls real models, costs money. Needs `make start`. Usage: make latency-scenario [url=http://localhost:8000]
-	uv run python -m scripts.latency_scenario $(if $(url),--url $(url))
+latency-scenario: ## Replay the latency scenario on the running app and print p50/p95 per log turn (ADR-0026, #185) — calls real models, costs money. Needs `make start`. Usage: make latency-scenario [url=http://localhost:8000] [sport=gym]
+	uv run python -m scripts.latency_scenario $(if $(url),--url $(url)) $(if $(sport),--sport $(sport))
 
 evals: ## Run prompt or decision-set evals at the app's version unless version= is given — costs money, run on purpose; promote=1 writes the baseline. Usage: make evals template=<id> [version=2] [model=openai/gpt-5] [repeat=3] [promote=1]
 	uv run ai-trainer-evals run $(template) $(if $(version),--version $(version)) $(if $(model),--model $(model)) $(if $(repeat),--repeat $(repeat)) $(if $(promote),--promote)

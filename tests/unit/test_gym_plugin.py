@@ -151,8 +151,8 @@ def test_extraction_needs_at_least_one_exercise() -> None:
         _extraction(activities=[])
 
 
-def test_payload_is_version_two_and_tagged_gym() -> None:
-    assert GYM_PAYLOAD_VERSION == 2
+def test_payload_is_version_three_and_tagged_gym() -> None:
+    assert GYM_PAYLOAD_VERSION == 3
     payload = GymPayload.model_validate(
         {"activities": [{"name_as_typed": "pull-ups", "measure": "reps", "sets": [{"reps": 8}]}]}
     )
@@ -162,6 +162,7 @@ def test_payload_is_version_two_and_tagged_gym() -> None:
         "activities": [
             {
                 "exercise_id": None,
+                "keep_name": False,
                 "name_as_typed": "pull-ups",
                 "measure": "reps",
                 "per_side": False,

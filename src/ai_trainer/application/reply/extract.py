@@ -24,7 +24,6 @@ from ai_trainer.domain.clarification import (
     READING_PURPOSE,
     SAME_SESSION_ADD_COPY_KEY,
     SAME_SESSION_NEW_COPY_KEY,
-    SAME_SESSION_PURPOSE,
     ChoiceOption,
     Clarification,
     StoredClarification,
@@ -217,22 +216,38 @@ async def store_draft(
     extends nothing (ADR-0014 invariant 5). It records the extraction `template` it came from
     (ADR-0034)."""
     kind, latest = await session_continuity(user_id, message, sport_id, draft, services)
+    settled, about_a_name = await settle_draft(user_id, sport_id, draft, services)
     stored = await services.drafts.add(
         user_id,
         message.conversation_id,
         message.id,
         sport_id,
-        draft,
+        settled,
         payload_version=payload_version,
         created_at=services.clock.now(),
         extends_session_id=latest.id if kind == "join" and latest is not None else None,
+        # One question at a time (ADR-0015 invariant 1): the same-session one first, and a
+        # name's when its answer comes.
         asks=same_session_question(draft, latest, services)
         if kind == "ask" and latest is not None
-        else None,
+        else about_a_name,
         template_id=template.id,
         template_version=template.version,
     )
     return stored, await _question_on(user_id, stored, services)
+
+
+async def settle_draft(
+    user_id: UUID, sport_id: str, draft: SessionDraft, services: ReplyServices
+) -> tuple[SessionDraft, Clarification | None]:
+    """The draft with what its sport's settler knows filled in, and the first question it still
+    has (ticket #397); as it is for a sport that settles nothing."""
+    settler = services.settlers.get(sport_id)
+    if settler is None:
+        return draft, None
+    payload = await settler.settle(user_id, draft.payload)
+    question = await settler.next_question(user_id, payload)
+    return draft.model_copy(update={"payload": payload}), question
 
 
 def same_session_question(
@@ -261,15 +276,13 @@ def same_session_question(
 async def _question_on(
     user_id: UUID, draft: StoredDraft, services: ReplyServices
 ) -> StoredClarification | None:
-    """The same-session question still open on the draft's card, if it asks one."""
+    """The question still open on the draft's card, if it asks one."""
     asked = await services.clarifications.list_shown(user_id, draft.conversation_id)
     return next(
         (
             question
             for question in asked
-            if question.draft_id == draft.id
-            and question.purpose == SAME_SESSION_PURPOSE
-            and question.status == "open"
+            if question.draft_id == draft.id and question.status == "open"
         ),
         None,
     )

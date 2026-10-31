@@ -11,6 +11,7 @@ from ai_trainer.application.reply.extract import (
     extract,
     same_session_question,
     session_continuity,
+    settle_draft,
 )
 from ai_trainer.application.reply.shared import (
     ReplyFailed,
@@ -98,16 +99,17 @@ async def change_draft_sport(
 
     async def replace_draft() -> StoredDraft:
         kind, latest = await session_continuity(user_id, message, sport_id, draft, services)
+        settled, about_a_name = await settle_draft(user_id, sport_id, draft, services)
         return await services.drafts.change_sport(
             user_id,
             draft_id,
             sport_id,
-            draft,
+            settled,
             payload_version=payload_version,
             extends_session_id=latest.id if kind == "join" and latest is not None else None,
             asks=same_session_question(draft, latest, services)
             if kind == "ask" and latest is not None
-            else None,
+            else about_a_name,
             asked_at=services.clock.now(),
             template_id=answer.template.id,
             template_version=answer.template.version,

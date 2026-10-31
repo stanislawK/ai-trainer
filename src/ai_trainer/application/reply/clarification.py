@@ -4,9 +4,11 @@ the pick (ticket #164); and a draft's same-session question, which the tap settl
 ticket #166)."""
 
 import asyncio
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from uuid import UUID
+
+from pydantic import JsonValue
 
 from ai_trainer.application.reply.extract import extract, save
 from ai_trainer.application.reply.shared import (
@@ -20,6 +22,7 @@ from ai_trainer.application.reply.shared import (
 )
 from ai_trainer.domain.chat import ChatMessage, ChatRole
 from ai_trainer.domain.clarification import (
+    EXERCISE_PURPOSE,
     NEW_SESSION_OPTION,
     READING_PURPOSE,
     SAME_SESSION_PURPOSE,
@@ -34,11 +37,13 @@ from ai_trainer.domain.clarification import (
 from ai_trainer.domain.feedback import FeedbackKind
 from ai_trainer.domain.training import StoredDraft
 
+_ANSWERED_PURPOSES = (SPORT_PURPOSE, READING_PURPOSE, SAME_SESSION_PURPOSE, EXERCISE_PURPOSE)
+
 
 @dataclass(frozen=True, slots=True)
 class SessionSettled:
-    """A same-session question as answered: the pending draft, now extending the session the
-    athlete picked, or none (ticket #166)."""
+    """A question on a draft's card as answered: the pending draft, now extending the session the
+    athlete picked (ticket #166) or settled on the name they answered about (ticket #397)."""
 
     draft: StoredDraft
 
@@ -113,14 +118,14 @@ async def answer_clarification(
     `ClarificationResolvedError` or `UnknownOptionError` (nothing is called or written then),
     and `MessageNotFoundError` for a log past its conversation's retention."""
     question = await services.clarifications.get(user_id, clarification_id)
-    if question.purpose not in (SPORT_PURPOSE, READING_PURPOSE, SAME_SESSION_PURPOSE):
+    if question.purpose not in _ANSWERED_PURPOSES:
         raise ClarificationNotFoundError(clarification_id)
     if question.purpose == READING_PURPOSE and question.clarification.sport is None:
         raise ClarificationNotFoundError(clarification_id)
     if question.status != "open":
         raise ClarificationResolvedError(clarification_id)
-    if question.purpose == SAME_SESSION_PURPOSE:
-        settled = await _settle_session(user_id, question, option_ids, services)
+    if question.purpose in (SAME_SESSION_PURPOSE, EXERCISE_PURPOSE):
+        settled = await _settle_on_card(user_id, question, option_ids, services)
         await _record_choice(
             user_id,
             question,
@@ -201,18 +206,55 @@ async def _record_choice(
         )
 
 
-async def _settle_session(
+async def _settle_on_card(
     user_id: UUID,
     question: StoredClarification,
     option_ids: Sequence[str],
     services: ReplyServices,
 ) -> SessionSettled:
-    """The tap on a draft's same-session question (B16, ticket #166): "Add" makes the draft
-    extend the session the option names, "New session" makes it extend none. Nothing else is
-    written; the athlete still confirms (ADR-0014 invariant 5)."""
     picked = _chosen(question, option_ids)
+    if question.purpose == EXERCISE_PURPOSE:
+        return await _settle_name(user_id, question, picked, services)
+    return await _settle_session(user_id, question, picked, services)
+
+
+async def _next_on_card(
+    user_id: UUID,
+    draft: StoredDraft,
+    services: ReplyServices,
+    *,
+    answering: str | None = None,
+) -> Clarification | None:
+    """The card's next question, if its sport has one: a name not yet asked about, or passed over
+    with "Let me type instead", which isn't asked again on this draft (ticket #397)."""
+    settler = services.settlers.get(draft.sport_id)
+    if settler is None:
+        return None
+    asked = await services.clarifications.list_shown(user_id, draft.conversation_id)
+    skipped = {
+        question.clarification.subject
+        for question in asked
+        if question.draft_id == draft.id
+        and question.status == "abandoned"
+        and question.clarification.subject is not None
+    }
+    settled = {name for name in (*skipped, answering) if name is not None}
+    return await settler.next_question(user_id, draft.draft.payload, settled=settled)
+
+
+async def _settle_session(
+    user_id: UUID,
+    question: StoredClarification,
+    picked: str,
+    services: ReplyServices,
+) -> SessionSettled:
+    """The tap on a draft's same-session question (B16, ticket #166): "Add" makes the draft
+    extend the session the option names, "New session" makes it extend none, and the card asks
+    its next question, if any. Nothing else is written; the athlete still confirms (ADR-0014
+    invariant 5)."""
     if question.draft_id is None:
         raise ClarificationNotFoundError(question.id)
+    stored = await services.drafts.get(user_id, question.draft_id)
     draft = await services.drafts.settle_session(
         user_id,
         question.draft_id,
@@ -220,20 +262,61 @@ async def _settle_session(
         picked,
         extends_session_id=None if picked == NEW_SESSION_OPTION else UUID(picked),
         answered_at=services.clock.now(),
+        asks=await _next_on_card(user_id, stored, services),
+    )
+    return SessionSettled(draft=draft)
+
+
+async def _settle_name(
+    user_id: UUID,
+    question: StoredClarification,
+    picked: str | None,
+    services: ReplyServices,
+) -> SessionSettled:
+    """A tap on a draft's exercise question (B37, ticket #397), or "Let me type instead" with
+    `picked` `None`: the question closes, a tap settles every entry of the name, and the card asks
+    its next question, if any. No alias or exercise is written before the confirm. Raises as
+    `settle_name` does, and `ClarificationNotFoundError` for a question that names no draft or
+    whose draft's sport settles nothing."""
+    subject = question.clarification.subject
+    if question.draft_id is None or subject is None:
+        raise ClarificationNotFoundError(question.id)
+    if question.status != "open":
+        raise ClarificationResolvedError(question.id)
+    stored = await services.drafts.get(user_id, question.draft_id)
+    settler = services.settlers.get(stored.sport_id)
+    if settler is None:
+        raise ClarificationNotFoundError(question.id)
+
+    def settle(payload: Mapping[str, JsonValue]) -> dict[str, JsonValue]:
+        return dict(payload) if picked is None else settler.answered(payload, subject, picked)
+
+    draft = await services.drafts.settle_name(
+        user_id,
+        question.draft_id,
+        question.id,
+        option_id=picked,
+        settle=settle,
+        asks=await _next_on_card(user_id, stored, services, answering=subject),
+        answered_at=services.clock.now(),
     )
     return SessionSettled(draft=draft)
 
 
 async def abandon_clarification(
     user_id: UUID, clarification_id: UUID, *, services: ReplyServices
-) -> StoredClarification:
+) -> StoredClarification | SessionSettled:
     """ "Let me type instead" (F9): closes the question with no answer, and nothing else is
-    written. A question that offers no such escape, as a same-session one (ticket #166), can't
-    be skipped this way, so it is not found. Raises `ClarificationNotFoundError` or
-    `ClarificationResolvedError`."""
+    written. On a draft's exercise question the answer is the draft, whose card asks about its
+    next name, if any (ticket #397). A question that offers no such escape, as a same-session one
+    (ticket #166), can't be skipped this way, so it is not found. Raises
+    `ClarificationNotFoundError` or `ClarificationResolvedError`, and on a draft's question
+    `DraftNotFoundError`, `DraftConfirmedError` or `DraftDiscardedError`."""
     question = await services.clarifications.get(user_id, clarification_id)
     if not question.clarification.allow_free_text:
         raise ClarificationNotFoundError(clarification_id)
+    if question.purpose == EXERCISE_PURPOSE:
+        return await _settle_name(user_id, question, None, services)
     return await services.clarifications.resolve(
         user_id,
         clarification_id,

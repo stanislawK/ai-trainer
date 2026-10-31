@@ -8,7 +8,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
-GYM_PAYLOAD_VERSION = 2
+# Version 3 added `keep_name`; a v2 document reads as it is, with the flag off (ticket #397).
+GYM_PAYLOAD_VERSION = 3
 
 type LoadUnit = Literal["kg", "lb"]
 # `gym_exercise_entries.measure`.
@@ -89,10 +90,12 @@ class _ExerciseV1(BaseModel):
 
 class Exercise(BaseModel):
     """One exercise at one scheme: the same lift at another weight or rep count is another
-    entry. `exercise_id` stays empty until the name is settled (ADR-0031). `implements` of 2
-    with a load means that load in each hand."""
+    entry. `exercise_id` stays empty until the name is settled (ADR-0031), and `keep_name` says
+    the athlete kept their own name, which a confirm makes a custom exercise (ticket #397).
+    `implements` of 2 with a load means that load in each hand."""
 
     exercise_id: UUID | None = None
+    keep_name: bool = False
     name_as_typed: ExerciseName
     measure: Measure
     per_side: bool = False

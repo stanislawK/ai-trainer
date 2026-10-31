@@ -16,9 +16,11 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ai_trainer.adapters.exercise_repository import SqlAlchemyExerciseRepository
 from ai_trainer.adapters.gym_backfill import SqlAlchemyGymBackfillStore
 from ai_trainer.adapters.training_session_repository import SqlAlchemyTrainingSessionRepository
 from ai_trainer.application.gym_backfill import backfill_gym_sessions
+from ai_trainer.domain.exercises import MAX_EXERCISE_NAME, ExerciseMeasure
 from ai_trainer.domain.sports.base import extend_payload, withdraw_payload
 from ai_trainer.domain.sports.climbing.payload import ClimbingPayload
 from ai_trainer.domain.sports.cycling.payload import CyclingPayload
@@ -784,3 +786,94 @@ async def test_two_spellings_of_one_band_in_a_log_are_one_band(
     rows = await _sets(db_session_factory, confirmed.session_id)
     assert {row[-2] for row in rows} == {band_id}
     assert {row[-1] for row in rows} == {"Red", "red"}
+
+
+def _settled(exercise_id: UUID, *names: str) -> SessionDraft:
+    """A gym draft whose exercises the athlete settled as `exercise_id` on its card."""
+    payload = GymPayload.model_validate(
+        _gym(*[_lift(name, 3, 8, "60kg", 60) for name in names]).payload
+    )
+    for exercise in payload.activities:
+        exercise.exercise_id = exercise_id
+    return _draft(payload.model_dump(mode="json"))
+
+
+async def _custom(athlete: _Athlete, factory: Callable[[], AsyncSession], name: str) -> UUID:
+    created = await SqlAlchemyExerciseRepository(factory).create_custom(
+        athlete.user_id, sport_id="gym", name=name, default_measure=ExerciseMeasure.LOAD_REPS
+    )
+    return created.id
+
+
+async def _linked(factory: Callable[[], AsyncSession], user_id: UUID) -> dict[str, UUID | None]:
+    async with factory() as db:
+        rows = await db.execute(
+            text("SELECT name_as_typed, exercise_id FROM gym_exercise_entries WHERE user_id = :id"),
+            {"id": user_id},
+        )
+        return {name: exercise_id for name, exercise_id in rows.tuples()}
+
+
+async def test_settling_a_typed_only_name_links_its_earlier_entries(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    athlete = await _athlete(db_session_factory, "gym-link")
+    exercise_id = await _custom(athlete, db_session_factory, "Bench")
+    await _logged(
+        athlete,
+        "old log",
+        _gym(_lift("Bench  PRESS", 3, 8, "50kg", 50), _lift("row", 3, 8, "40kg", 40)),
+    )
+
+    await _logged(athlete, "new log", _settled(exercise_id, "bench press"), at=_LATER)
+
+    assert await _linked(db_session_factory, athlete.user_id) == {
+        "Bench  PRESS": exercise_id,
+        "bench press": exercise_id,
+        "row": None,
+    }
+
+
+async def test_settling_a_name_never_links_another_athletes_entries(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    athlete = await _athlete(db_session_factory, "gym-link-owner")
+    other = await _athlete(db_session_factory, "gym-link-other")
+    exercise_id = await _custom(athlete, db_session_factory, "Bench")
+    await _logged(other, "their log", _gym(_lift("bench press", 3, 8, "50kg", 50)))
+
+    await _logged(athlete, "new log", _settled(exercise_id, "bench press"))
+
+    assert await _linked(db_session_factory, other.user_id) == {"bench press": None}
+    assert await SqlAlchemyExerciseRepository(db_session_factory).user_aliases(other.user_id) == []
+
+
+async def test_a_typed_only_entry_whose_name_has_an_alias_is_linked_at_confirm(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    """A rename on the edit form asks nothing, so a known name still finds its exercise."""
+    athlete = await _athlete(db_session_factory, "gym-link-rename")
+    exercise_id = await _custom(athlete, db_session_factory, "Bench")
+    await SqlAlchemyExerciseRepository(db_session_factory).add_user_alias(
+        athlete.user_id, exercise_id, "bench press"
+    )
+
+    await _logged(athlete, "renamed", _gym(_lift("Bench Press", 3, 8, "50kg", 50)))
+
+    assert await _linked(db_session_factory, athlete.user_id) == {"Bench Press": exercise_id}
+
+
+async def test_a_name_past_the_alias_limit_is_stored_typed_only(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    athlete = await _athlete(db_session_factory, "gym-long-name")
+    name = "x" * (MAX_EXERCISE_NAME + 1)
+    payload = GymPayload.model_validate(_gym(_lift(name, 3, 8, "50kg", 50)).payload)
+    payload.activities[0].keep_name = True
+
+    await _logged(athlete, "long", _draft(payload.model_dump(mode="json")))
+
+    assert await _linked(db_session_factory, athlete.user_id) == {name: None}
+    assert (
+        await SqlAlchemyExerciseRepository(db_session_factory).user_aliases(athlete.user_id) == []
+    )
