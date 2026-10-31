@@ -67,7 +67,7 @@ The envelope's single `raw_text` and `source` from ADR-0006 become this child ta
 | `sport_id` | text NOT NULL | |
 | `draft` | jsonb NOT NULL | the validated `SessionDraft`: envelope fields, `date_source` (ADR-0014) and payload |
 | `payload_version` | smallint NOT NULL | |
-| `template_id`, `template_version` | text NULL, integer NULL | the extraction template the draft came from (ADR-0034); NULL for a draft made before they existed |
+| `template_id`, `template_version` | text NULL, bigint NULL | the extraction template the draft came from (ADR-0034); NULL for a draft made before they existed |
 | `extends_session_id` | uuid NULL | FK `training_sessions` `ON DELETE SET NULL`, the session B16 offers to add this to |
 | `status` | text NOT NULL | `CHECK (status IN ('pending', 'confirmed', 'discarded'))` |
 | `session_id` | uuid NULL | FK `training_sessions` `ON DELETE SET NULL`, the session a confirm produced |

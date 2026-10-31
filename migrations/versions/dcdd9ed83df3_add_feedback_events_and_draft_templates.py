@@ -28,7 +28,7 @@ def upgrade() -> None:
         sa.Column("user_id", sa.Uuid(), nullable=False),
         sa.Column("kind", sa.String(), nullable=False),
         sa.Column("template_id", sa.String(), nullable=True),
-        sa.Column("template_version", sa.Integer(), nullable=True),
+        sa.Column("template_version", sa.BigInteger(), nullable=True),
         sa.Column(
             "fields",
             postgresql.ARRAY(sa.Text()),
@@ -56,7 +56,7 @@ def upgrade() -> None:
         unique=False,
     )
     op.add_column("session_drafts", sa.Column("template_id", sa.String(), nullable=True))
-    op.add_column("session_drafts", sa.Column("template_version", sa.Integer(), nullable=True))
+    op.add_column("session_drafts", sa.Column("template_version", sa.BigInteger(), nullable=True))
 
 
 def downgrade() -> None:

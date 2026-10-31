@@ -1,7 +1,16 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import TIMESTAMP, CheckConstraint, ForeignKey, Index, Text, func, text
+from sqlalchemy import (
+    TIMESTAMP,
+    BigInteger,
+    CheckConstraint,
+    ForeignKey,
+    Index,
+    Text,
+    func,
+    text,
+)
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -29,7 +38,7 @@ class FeedbackEventOrm(Base):
     )
     kind: Mapped[str] = mapped_column(nullable=False)
     template_id: Mapped[str | None] = mapped_column(nullable=True)
-    template_version: Mapped[int | None] = mapped_column(nullable=True)
+    template_version: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     fields: Mapped[list[str]] = mapped_column(
         ARRAY(Text), nullable=False, server_default=text("'{}'::text[]")
     )
