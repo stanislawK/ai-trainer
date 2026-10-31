@@ -96,4 +96,6 @@ If athlete gym data reaches production before this ships, stop and amend this AD
   - A set count of one and no set count are the same in v2. Until #398 the card shows "1x5" as "5 reps", and a bare "1 set" shows no scheme.
   - Undoing a log keeps a band it added: a band is the athlete's, not the log's. Its `rank` stays NULL until the athlete places it.
   - `GymPayload` recognises a v1 exercise by its shape, a `name` key, not by `payload_version`: a reader of a draft has no version to hand, and a log added to a session moves that column while the JSON stays v1. An undo of a pre-tables log writes the old payload back in the v2 shape.
-  - The model never names the `measure`. Code reads it from the set: time, then distance, then band, then load, else reps. Time and distance arrive as a value and a unit, and code converts them, as it does kg.
+- Implementation details of gym payload v2 (#395), for the owner's review of its draft PR:
+  - The model never names the `measure`. Code reads it from the set: time, then distance, then band, then load, else reps. Time and distance arrive as a value and a unit, and code converts them, as it does kg. A time in parts or hours is the one exception: the model gives its total.
+  - A set count is capped at 100, because each set is a row. A set's time is capped at a day, and its distance at what `gym_sets.distance_m` holds. A v1 draft past 100 sets no longer reads.
