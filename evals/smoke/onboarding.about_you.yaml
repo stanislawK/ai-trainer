@@ -1,0 +1,87 @@
+# Smoke set for onboarding.about_you (ADR-0034, #374): 5 cases taken from
+# evals/datasets/onboarding.about_you.yaml, named in each case's `metadata.dataset`, until real chats
+# arrive in evals/field/. Graded in code, run once, no judge.
+name: onboarding.about_you
+cases:
+- name: 'units: the AC answer, metric with a decimal comma'
+  inputs:
+    prompt: 31, 1,78 m, 73 kg, sore left shoulder
+    deps:
+      sport: climbing
+      today: '2026-10-24'
+      timezone: Europe/Warsaw
+  metadata:
+    dataset: evals/datasets/onboarding.about_you.yaml
+  expected_output:
+    age: 31
+    height:
+      value: 1.78
+      unit: m
+    weight:
+      value: 73
+      unit: kg
+    limits: Sore left shoulder
+- name: 'units: Polish'
+  inputs:
+    prompt: Mam 34 lata, 170 cm wzrostu i 65 kg. Czasem boli mnie kolano.
+    deps:
+      sport: cycling
+      today: '2026-10-24'
+      timezone: Europe/Warsaw
+  metadata:
+    dataset: evals/datasets/onboarding.about_you.yaml
+  expected_output:
+    age: 34
+    height:
+      value: 170
+      unit: cm
+    weight:
+      value: 65
+      unit: kg
+    limits: Knee pain at times
+- name: 'unclear: a birth year is not an age'
+  inputs:
+    prompt: Born in 1990, 175 cm.
+    deps:
+      sport: climbing
+      today: '2026-10-24'
+      timezone: Europe/Warsaw
+  metadata:
+    dataset: evals/datasets/onboarding.about_you.yaml
+  expected_output:
+    age: null
+    height:
+      value: 175
+      unit: cm
+    weight: null
+    limits: null
+- name: 'empty: nothing about themselves'
+  inputs:
+    prompt: Not sure what to say here, just want to get stronger.
+    deps:
+      sport: gym
+      today: '2026-10-24'
+      timezone: Europe/Warsaw
+  metadata:
+    dataset: evals/datasets/onboarding.about_you.yaml
+  expected_output:
+    age: null
+    height: null
+    weight: null
+    limits: null
+- name: 'limits: a pulley injury only'
+  inputs:
+    prompt: No stats, but I'm coming back from an A2 pulley injury on my ring finger.
+    deps:
+      sport: climbing
+      today: '2026-10-24'
+      timezone: Europe/Warsaw
+  metadata:
+    dataset: evals/datasets/onboarding.about_you.yaml
+  expected_output:
+    age: null
+    height: null
+    weight: null
+    limits: Recovering from an A2 pulley injury on the ring finger
+evaluators:
+- AboutYouMatch

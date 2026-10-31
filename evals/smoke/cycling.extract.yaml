@@ -1,0 +1,121 @@
+# Smoke set for cycling.extract (ADR-0034, #374): 5 cases taken from
+# evals/datasets/cycling.extract.yaml, named in each case's `metadata.dataset`, until real chats
+# arrive in evals/field/. Graded in code, run once, no judge.
+name: cycling.extract
+cases:
+- name: 'relative: 62 km with 800 m this morning (AC)'
+  inputs:
+    prompt: Rode 62 km with 800 m climbing this morning
+    deps:
+      message: Rode 62 km with 800 m climbing this morning
+      history: []
+      today: '2026-10-13'
+      weekday: Tuesday
+      now_local: '2026-10-13T19:00:00+02:00'
+      timezone: Europe/Warsaw
+  metadata:
+    dataset: evals/datasets/cycling.extract.yaml
+  expected_output:
+    occurred_on: '2026-10-13'
+    date_source: relative
+    activities:
+    - distance:
+        original: 62 km
+        value: 62
+        unit: km
+      moving_time_min: null
+      elevation:
+        original: 800 m
+        value: 800
+        unit: m
+      zones: []
+- name: 'units: decimal distance'
+  inputs:
+    prompt: Did 25.5 km on the gravel bike
+    deps:
+      message: Did 25.5 km on the gravel bike
+      history: []
+      today: '2026-10-13'
+      weekday: Tuesday
+      now_local: '2026-10-13T19:00:00+02:00'
+      timezone: Europe/Warsaw
+  metadata:
+    dataset: evals/datasets/cycling.extract.yaml
+  expected_output:
+    occurred_on: '2026-10-13'
+    date_source: assumed_today
+    activities:
+    - distance:
+        original: 25.5 km
+        value: 25.5
+        unit: km
+      moving_time_min: null
+      elevation: null
+      zones: []
+- name: 'units: a ridden number without a unit is a distance with no unit (#206)'
+  inputs:
+    prompt: Rode 60 today
+    deps:
+      message: Rode 60 today
+      history: []
+      today: '2026-10-13'
+      weekday: Tuesday
+      now_local: '2026-10-13T19:00:00+02:00'
+      timezone: Europe/Warsaw
+  metadata:
+    dataset: evals/datasets/cycling.extract.yaml
+  expected_output:
+    occurred_on: '2026-10-13'
+    date_source: relative
+    activities:
+    - distance:
+        original: '60'
+        value: 60
+        unit: null
+      moving_time_min: null
+      elevation: null
+      zones: []
+- name: 'zones: easy is not a zone'
+  inputs:
+    prompt: Easy spin for an hour
+    deps:
+      message: Easy spin for an hour
+      history: []
+      today: '2026-10-13'
+      weekday: Tuesday
+      now_local: '2026-10-13T19:00:00+02:00'
+      timezone: Europe/Warsaw
+  metadata:
+    dataset: evals/datasets/cycling.extract.yaml
+  expected_output:
+    occurred_on: '2026-10-13'
+    date_source: assumed_today
+    activities:
+    - distance: null
+      moving_time_min: 60
+      elevation: null
+      zones: []
+- name: 'reading: km and mi rides, a bare 40 asks (AC)'
+  inputs:
+    prompt: Rode 40
+    deps:
+      message: Rode 40
+      history: []
+      today: '2026-10-13'
+      weekday: Tuesday
+      now_local: '2026-10-13T19:00:00+02:00'
+      timezone: Europe/Warsaw
+      recent:
+      - km
+      - mi
+  metadata:
+    dataset: evals/datasets/cycling.extract.yaml
+  expected_output:
+    distance: '40'
+    readings:
+    - km
+    - mi
+evaluators:
+- DateMatch
+- ActivitiesMatch
+- QuestionMatch

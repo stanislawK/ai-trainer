@@ -1,0 +1,132 @@
+# Smoke set for climbing.extract (ADR-0034, #374): 5 cases taken from
+# evals/datasets/climbing.extract.yaml, named in each case's `metadata.dataset`, until real chats
+# arrive in evals/field/. Graded in code, run once, no judge.
+name: climbing.extract
+cases:
+- name: 'multi-activity: font boulders (AC)'
+  inputs:
+    prompt: I climbed 3 6A and 2 6B boulders
+    deps:
+      message: I climbed 3 6A and 2 6B boulders
+      history: []
+      today: '2026-09-16'
+      weekday: Wednesday
+      now_local: '2026-09-16T19:00:00+02:00'
+      timezone: Europe/Warsaw
+  metadata:
+    dataset: evals/datasets/climbing.extract.yaml
+  expected_output:
+    occurred_on: '2026-09-16'
+    date_source: assumed_today
+    activities:
+    - kind: boulder
+      count: 3
+      grade: 6A
+      style: null
+      attempts: null
+      route: null
+    - kind: boulder
+      count: 2
+      grade: 6B
+      style: null
+      attempts: null
+      route: null
+- name: 'relative: yesterday from Warsaw (AC)'
+  inputs:
+    prompt: I did 3 6b+ yesterday
+    deps:
+      message: I did 3 6b+ yesterday
+      history: []
+      today: '2026-09-16'
+      weekday: Wednesday
+      now_local: '2026-09-16T18:00:00+02:00'
+      timezone: Europe/Warsaw
+  metadata:
+    ignore_fields:
+    - kind
+    dataset: evals/datasets/climbing.extract.yaml
+  expected_output:
+    occurred_on: '2026-09-15'
+    date_source: relative
+    activities:
+    - kind: lead
+      count: 3
+      grade: 6b+
+      style: null
+      attempts: null
+      route: null
+- name: 'scale: unrecognised colour grade (AC)'
+  inputs:
+    prompt: Did 5 blue problems and 2 purple ones at the gym
+    deps:
+      message: Did 5 blue problems and 2 purple ones at the gym
+      history: []
+      today: '2026-09-16'
+      weekday: Wednesday
+      now_local: '2026-09-16T19:00:00+02:00'
+      timezone: Europe/Warsaw
+  metadata:
+    dataset: evals/datasets/climbing.extract.yaml
+  expected_output:
+    occurred_on: '2026-09-16'
+    date_source: assumed_today
+    activities:
+    - kind: boulder
+      count: 5
+      grade: blue
+      style: null
+      attempts: null
+      route: null
+    - kind: boulder
+      count: 2
+      grade: purple
+      style: null
+      attempts: null
+      route: null
+- name: 'no grade: none invented'
+  inputs:
+    prompt: Bouldered for an hour, did about 8 problems
+    deps:
+      message: Bouldered for an hour, did about 8 problems
+      history: []
+      today: '2026-09-16'
+      weekday: Wednesday
+      now_local: '2026-09-16T19:00:00+02:00'
+      timezone: Europe/Warsaw
+  metadata:
+    dataset: evals/datasets/climbing.extract.yaml
+  expected_output:
+    occurred_on: '2026-09-16'
+    date_source: assumed_today
+    activities:
+    - kind: boulder
+      count: 8
+      grade: null
+      style: null
+      attempts: null
+      route: null
+- name: 'reading: boulders and leads, a bare 7a asks (AC)'
+  inputs:
+    prompt: Did 3 7a
+    deps:
+      message: Did 3 7a
+      history: []
+      today: '2026-10-02'
+      weekday: Friday
+      now_local: '2026-10-02T19:00:00+02:00'
+      timezone: Europe/Warsaw
+      recent:
+      - boulder
+      - lead
+  metadata:
+    dataset: evals/datasets/climbing.extract.yaml
+  expected_output:
+    readings:
+    - kind: boulder
+      grade: 7a
+    - kind: lead
+      grade: 7a
+evaluators:
+- DateMatch
+- ActivitiesMatch
+- QuestionMatch

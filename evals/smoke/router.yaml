@@ -1,0 +1,115 @@
+# Smoke set for router (ADR-0034, #374): 5 cases taken from
+# evals/datasets/router.yaml, named in each case's `metadata.dataset`, until real chats
+# arrive in evals/field/. Graded in code, run once, no judge.
+name: router
+cases:
+- name: log gym with units
+  metadata:
+    plausible_sports:
+    - gym
+    dataset: evals/datasets/router.yaml
+  inputs:
+    prompt: Did 5x5 squats at 100 kg this morning
+    deps:
+      message: Did 5x5 squats at 100 kg this morning
+      history: []
+      athlete_sports:
+      - climbing
+      - gym
+      - cycling
+      today: '2026-09-30'
+      now_local: '2026-09-30T18:30:00+02:00'
+      timezone: Europe/Warsaw
+  expected_output:
+    intents:
+    - kind: log_session
+      confidence: 0.9
+      span: ''
+      sport: gym
+- name: log climbing with grades
+  metadata:
+    plausible_sports:
+    - climbing
+    dataset: evals/datasets/router.yaml
+  inputs:
+    prompt: Sent three 6A boulders and a 6B+ at the wall
+    deps:
+      message: Sent three 6A boulders and a 6B+ at the wall
+      history: []
+      athlete_sports:
+      - climbing
+      - gym
+      - cycling
+      today: '2026-09-30'
+      now_local: '2026-09-30T18:30:00+02:00'
+      timezone: Europe/Warsaw
+  expected_output:
+    intents:
+    - kind: log_session
+      confidence: 0.9
+      span: ''
+      sport: climbing
+- name: pain alone
+  inputs:
+    prompt: My left elbow has been aching since Tuesday
+    deps:
+      message: My left elbow has been aching since Tuesday
+      history: []
+      athlete_sports:
+      - climbing
+      - gym
+      - cycling
+      today: '2026-09-30'
+      now_local: '2026-09-30T18:30:00+02:00'
+      timezone: Europe/Warsaw
+  expected_output:
+    intents:
+    - kind: wellbeing_or_injury
+      confidence: 0.9
+      span: ''
+  metadata:
+    dataset: evals/datasets/router.yaml
+- name: question on recovery
+  inputs:
+    prompt: How many rest days should I take between hard climbing days?
+    deps:
+      message: How many rest days should I take between hard climbing days?
+      history: []
+      athlete_sports:
+      - climbing
+      - gym
+      - cycling
+      today: '2026-09-30'
+      now_local: '2026-09-30T18:30:00+02:00'
+      timezone: Europe/Warsaw
+  expected_output:
+    intents:
+    - kind: ask_training_question
+      confidence: 0.9
+      span: ''
+  metadata:
+    dataset: evals/datasets/router.yaml
+- name: polish message
+  inputs:
+    prompt: Dzisiaj zrobilem 4 przejscia 6A na scianie
+    deps:
+      message: Dzisiaj zrobilem 4 przejscia 6A na scianie
+      history: []
+      athlete_sports:
+      - climbing
+      - gym
+      - cycling
+      today: '2026-09-30'
+      now_local: '2026-09-30T18:30:00+02:00'
+      timezone: Europe/Warsaw
+  expected_output:
+    intents:
+    - kind: log_session
+      confidence: 0.9
+      span: ''
+      sport: climbing
+  metadata:
+    dataset: evals/datasets/router.yaml
+evaluators:
+- IntentKindsMatch
+- LogSessionSportMatch

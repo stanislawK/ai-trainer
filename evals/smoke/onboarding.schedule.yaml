@@ -1,0 +1,87 @@
+# Smoke set for onboarding.schedule (ADR-0034, #374): 5 cases taken from
+# evals/datasets/onboarding.schedule.yaml, named in each case's `metadata.dataset`, until real chats
+# arrive in evals/field/. Graded in code, run once, no judge.
+name: onboarding.schedule
+cases:
+- name: 'units: the AC answer, hours and named days'
+  inputs:
+    prompt: 4 times a week, around 2 hours, Mon Wed Fri Sat
+    deps:
+      sport: climbing
+      today: '2026-10-25'
+      timezone: Europe/Warsaw
+  metadata:
+    dataset: evals/datasets/onboarding.schedule.yaml
+  expected_output:
+    sessions_per_week: 4
+    session_length:
+      value: 2
+      unit: h
+    days:
+    - mon
+    - wed
+    - fri
+    - sat
+- name: 'units: Polish with a decimal comma and short days'
+  inputs:
+    prompt: 3 razy w tygodniu po 1,5 h, pon śr pt
+    deps:
+      sport: cycling
+      today: '2026-10-25'
+      timezone: Europe/Warsaw
+  metadata:
+    dataset: evals/datasets/onboarding.schedule.yaml
+  expected_output:
+    sessions_per_week: 3
+    session_length:
+      value: 1.5
+      unit: h
+    days:
+    - mon
+    - wed
+    - fri
+- name: 'ranges: the lower number'
+  inputs:
+    prompt: 3 or 4 times a week, 1 to 2 hours
+    deps:
+      sport: climbing
+      today: '2026-10-25'
+      timezone: Europe/Warsaw
+  metadata:
+    dataset: evals/datasets/onboarding.schedule.yaml
+  expected_output:
+    sessions_per_week: 3
+    session_length:
+      value: 1
+      unit: h
+    days: []
+- name: 'days only: weekends'
+  inputs:
+    prompt: Weekends only
+    deps:
+      sport: cycling
+      today: '2026-10-25'
+      timezone: Europe/Warsaw
+  metadata:
+    dataset: evals/datasets/onboarding.schedule.yaml
+  expected_output:
+    sessions_per_week: null
+    session_length: null
+    days:
+    - sat
+    - sun
+- name: 'empty: whenever I can'
+  inputs:
+    prompt: Whenever I can
+    deps:
+      sport: climbing
+      today: '2026-10-25'
+      timezone: Europe/Warsaw
+  metadata:
+    dataset: evals/datasets/onboarding.schedule.yaml
+  expected_output:
+    sessions_per_week: null
+    session_length: null
+    days: []
+evaluators:
+- ScheduleMatch

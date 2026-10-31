@@ -1,0 +1,72 @@
+# Smoke set for onboarding.goals (ADR-0034, #374): 5 cases taken from
+# evals/datasets/onboarding.goals.yaml, named in each case's `metadata.dataset`, until real chats
+# arrive in evals/field/. Graded in code, run once, no judge.
+name: onboarding.goals
+cases:
+- name: 'dates: the AC answer, a month already past this year is next year'
+  inputs:
+    prompt: Send my first 7c outdoors by June
+    deps:
+      sport: climbing
+      today: '2026-10-25'
+      timezone: Europe/Warsaw
+  metadata:
+    dataset: evals/datasets/onboarding.goals.yaml
+  expected_output:
+    goals:
+    - text: Send my first 7c outdoors
+      target:
+        month: 6
+- name: 'dates: Polish'
+  inputs:
+    prompt: Chcę zrobić pierwsze 7a na skałach w czerwcu
+    deps:
+      sport: climbing
+      today: '2026-10-25'
+      timezone: Europe/Warsaw
+  metadata:
+    dataset: evals/datasets/onboarding.goals.yaml
+  expected_output:
+    goals:
+    - text: Pierwsze 7a na skałach
+      target:
+        month: 6
+- name: 'dates: a Font grade in lower case'
+  inputs:
+    prompt: flash a 6c+ boulder by april
+    deps:
+      sport: climbing
+      today: '2026-10-25'
+      timezone: Europe/Warsaw
+  metadata:
+    dataset: evals/datasets/onboarding.goals.yaml
+  expected_output:
+    goals:
+    - text: Flash a 6c+ boulder
+      target:
+        month: 4
+- name: 'unclear: soon is no date'
+  inputs:
+    prompt: Get stronger on pulling soon
+    deps:
+      sport: gym
+      today: '2026-10-25'
+      timezone: Europe/Warsaw
+  metadata:
+    dataset: evals/datasets/onboarding.goals.yaml
+  expected_output:
+    goals:
+    - text: Get stronger on pulling
+- name: 'empty: no goal named'
+  inputs:
+    prompt: Not sure yet.
+    deps:
+      sport: cycling
+      today: '2026-10-25'
+      timezone: Europe/Warsaw
+  metadata:
+    dataset: evals/datasets/onboarding.goals.yaml
+  expected_output:
+    goals: []
+evaluators:
+- GoalsMatch
