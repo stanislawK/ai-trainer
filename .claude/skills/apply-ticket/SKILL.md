@@ -22,7 +22,7 @@ Implements the delivery loop of ADR-0001 as amended by ADR-0035. With `--review`
      4. If the tab's model doesn't match the ticket's `model:` label, say so in one line and carry on. A running tab can't switch its own model.
    - **Anywhere else:** stop and say where you are.
    - **Inside the worktree, keep shell commands plain and separate.** The session refuses compound commands it can't verify stay in the worktree (a heredoc chained with `gh` was refused at #366). Write files with the Write tool, then run the command on its own.
-3. **Ground.** Read the current PRD and the requirement IDs the ticket cites, every referenced ADR, the matching `.claude/rules/`, and the area branch below. If the ticket contradicts an Accepted ADR or the Approved PRD, or needs an undocumented decision, put a doc proposal into the plan — never code around it.
+3. **Ground.** Read the current PRD and the requirement IDs the ticket cites, every referenced ADR and research document, the matching `.claude/rules/`, and the area branch below. If the ticket contradicts an Accepted ADR or the Approved PRD, or needs an undocumented decision, put a doc proposal into the plan — never code around it.
 4. **Plan.** Write `.acceptance/<n>/plan.md`:
    - effort S / M / L;
    - the AC → test mapping, one named test per AC;

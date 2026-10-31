@@ -20,12 +20,13 @@ Production holds no athlete data yet (the first deploy follows M1g, PRD 0010), s
 
 ## Decision
 
-**A sport owns its tables.** A plugin may define tables named `<sport>_*`, created by its own migration. The confirm transaction (ADR-0022) writes them through the plugin's `ActivityStore`, a port the registry resolves by `sport_id`. Core code still never branches on a sport name (ADR-0006 invariant 1). `training_sessions` keeps the envelope. The ORM models of a sport's tables live in `adapters/orm/sports/<sport>.py`, imported by `adapters/orm/__init__.py` (placement row in ADR-0003, "Where code lives"; split in #345).
+**A sport owns its tables.** A plugin may define tables named `<sport>_*`, created by its own migration. The confirm and undo transactions (ADR-0022) reach them through the sport's `ActivityStore`: a port in `application/ports/` with implementations in `adapters/`, mapped by `sport_id` in the composition root, because `domain/` can't import an adapter. Climbing and cycling share one default store over today's `extend_payload` and `withdraw_payload`. Core code still never branches on a sport name (ADR-0006 invariant 1). `training_sessions` keeps the envelope. The ORM models of a sport's tables live in `adapters/orm/sports/<sport>.py`, imported by `adapters/orm/__init__.py` (placement row in ADR-0003, "Where code lives"; split in #345).
 
 **Gym** is the first sport to move. Every table is user-owned: `user_id` NOT NULL, FK `users` CASCADE, indexed, and each reference keyed with `user_id` (ADR-0022, 2026-10-13 amendment).
 
 - **`gym_exercise_entries`**: one row per exercise in a session.
   - `session_id`: FK `training_sessions` CASCADE.
+  - `source_id`: nullable FK `training_session_sources` CASCADE: the log that brought this entry. Undo deletes that log's source row, so a log added to a session (B16) takes only its own entries with it. It is null only on backfilled rows.
   - `position`: smallint, unique with `session_id`.
   - `exercise_id`: nullable FK `exercises` (ADR-0031). It is null only while the entry is typed-only.
   - `name_as_typed`: text NOT NULL.
@@ -51,21 +52,20 @@ Production holds no athlete data yet (the first deploy follows M1g, PRD 0010), s
   - `nominal_kg`: `numeric(5,1)` NULL, only when the athlete states it.
   - A colour is never ranked or converted by the app on its own, the same rule as gym grades in ADR-0027. While `rank` is null the band is stored and shown by label, and the athlete is asked to order it once, on a choice card.
 
-**Drafts stay JSONB.** `session_drafts.draft` keeps the validated draft. Gym payload v2 carries `exercise_id`, `name_as_typed`, `measure`, `per_side`, `implements` and a list of sets. Confirming writes typed rows in the same transaction as the session (ADR-0022 invariant 3). Undo deletes them through the session's cascade.
+**Drafts stay JSONB.** `session_drafts.draft` keeps the validated draft. Gym payload v2 carries `exercise_id`, `name_as_typed`, `measure`, `per_side`, `implements` and a list of sets. Confirming writes typed rows in the same transaction as the session (ADR-0022 invariant 3). Undoing the session's only log deletes them through the session's cascade, and undoing a later log through `source_id`.
 
-**Migration, expand then contract (ADR-0024).**
-1. **Expand.**
-   - Create the three tables.
-   - An idempotent backfill reads each gym payload through its upcaster and writes typed rows with `exercise_id` NULL. It never rewrites the JSON (ADR-0022 invariant 4).
-   - Gym confirms write both the rows and the payload, so a rollback of the app still reads.
-   - Readers (the logged card, history, MCP tools, stats) move to the rows.
-2. **Contract**, its own ticket after the release that stopped reading gym payloads: gym sessions store `{}` as payload and the old payloads are cleared.
+**Migration, one cut-over.** Owner-directed 2026-10-31. Production holds no athlete data and no release comes before M1g (PRD 0010), so G13 doesn't bind yet and no running app needs the old payload. ADR-0024's expand/contract would only add dual-write bugs:
+- Create the three tables.
+- Gym confirms write rows only, and gym sessions store `{}` as payload. Readers (history, MCP tools, stats, the extraction's recent exercises) read the rows.
+- One idempotent backfill reads each existing gym payload through its upcaster and writes typed rows with `exercise_id` and `source_id` NULL. It leaves the JSON alone (ADR-0022 invariant 4). Undoing a log added before the backfill removes the matching entries by name as typed, latest first, as `withdraw_payload` does.
+
+If athlete gym data reaches production before this ships, stop and amend this ADR: the move is then an expand/contract under ADR-0024.
 
 **Climbing and cycling** keep their payload as the record until a ticket moves each, with the same pattern.
 
 ### Invariants
 
-1. A confirmed gym session's activities are read from `gym_exercise_entries` and `gym_sets`, never from `payload`, once the expand ticket has shipped.
+1. A confirmed gym session's activities are read from `gym_exercise_entries` and `gym_sets`, never from `payload`, once the tables ticket has shipped.
 2. Every gym table is user-owned, keyed with `user_id`, and emptied by account deletion (G7). The tenancy and G7 tests cover each one.
 3. Only the athlete's confirm or edit writes these rows (ADR-0022 invariant 3).
 4. A measure the athlete didn't give is stored as NULL, never estimated.

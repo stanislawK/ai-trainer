@@ -53,3 +53,4 @@ or it cannot be verified until later work lands.
 - PRD: `docs/prd/NNNN-….md` (<requirement IDs>)
 - ADR: `docs/adr/NNNN-….md`
 - Skill: `.claude/skills/<name>/SKILL.md`
+- Research: `docs/research/<topic>.md` (when one covers this area)

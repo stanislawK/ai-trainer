@@ -14,6 +14,7 @@ Docs outrank chat. If a request contradicts an Accepted ADR or the Approved PRD,
 
 - [**.claude/rules/README.md**](.claude/rules/README.md) — Rules by topic; loaded automatically when editing files in their scope (Python, tests, web, LLM, migrations, etc.)
 - [**.claude/skills/README.md**](.claude/skills/README.md) — Structured workflows for docs, tickets, evals, routes, tools, sports and design (invoke with `/skill-name`)
+- [**docs/research/README.md**](docs/research/README.md) — Cited findings from trusted sources; read the document a ticket references (MCP, knowledge base, hybrid search) before implementing it
 - [**docs/design/README.md**](docs/design/README.md) — Claude Design projects, the screen → template → ticket map, and the design brief
 
 ## How work happens
@@ -41,7 +42,7 @@ Locked by the ADRs cited below; `docs/adr/README.md` carries each ADR's current 
 - OpenRouter through Pydantic AI v2 — ADR-0007
 - Router → specialists; prompt templates as `TemplateStr` files — ADR-0008
 - Pydantic Evals — ADR-0009
-- FastMCP 3 tools — ADR-0010
+- FastMCP tools, in-process first — ADR-0010
 - Knowledge base on pgvector with hybrid search — ADR-0011
 - FastAPI + Jinja2 + htmx 4 + daisyUI 5 — ADR-0012
 - pytest TDD, 100% coverage on touched modules — ADR-0013
@@ -61,7 +62,7 @@ Locked by the ADRs cited below; `docs/adr/README.md` carries each ADR's current 
 - Athlete profile (`athlete_profiles`, `sport_profiles`) built by AI onboarding: one prompt template per step read in the background, durable `onboarding_answers`, a summary that catches up and is the only write — ADR-0028
 - In-process request and model-call limits: sign-in routes by `CF-Connecting-IP`, other requests by session cookie, text and decision calls sharing one per-user budget; no Redis — ADR-0029
 - Production telemetry through one pinned Grafana Alloy container to Grafana Cloud: app OTLP, container and journal logs, host, Caddy and Postgres metrics; JSON logs with trace and request IDs; dashboards and alerts as JSON in `deploy/grafana/`, imported by the owner — ADR-0030
-- Exercise catalogue (`exercises`, `exercise_texts`, `exercise_aliases`) imported from a pinned dataset commit; gym names resolved history first, then catalogue shortlist plus Jev, then the exercise card; media linked per catalogue exercise — ADR-0031 (Proposed)
+- Exercise catalogue (`exercises`, `exercise_texts`, `exercise_aliases`) imported from a pinned dataset commit; gym names resolved history first, then a best-effort catalogue shortlist plus Jev, then the exercise card; media linked per catalogue exercise — ADR-0031 (Proposed)
 - A sport owns its activity tables (`gym_exercise_entries`, `gym_sets`, `athlete_bands`), written on confirm through the plugin's `ActivityStore`; drafts stay JSONB — ADR-0032 (Proposed)
 - Knowledge uploaded by admins at `/admin/knowledge` to a private R2 bucket behind `ObjectStoragePort`, ingested in-process; multilingual embeddings; hybrid `search_knowledge` with reciprocal rank fusion — ADR-0033 (Proposed)
 - Lean evals: per-change smoke sets from `evals/field/` transcripts, code-graded and run once; full runs on demand; safety always judged; content-free `feedback_events` — ADR-0034 (Proposed)
@@ -114,7 +115,7 @@ uv run ai-trainer-evals smoke <template-id>|--all   # once ADR-0034 lands: the c
 - External lookups are cached and attributed, and carry no user data — only a route, crag or place name (ADR-0016).
 - Europe first: metric units and the European grade scales (French, Font, UIAA, Polish/Kurtyka) must work. Imperial units and American grades (V, YDS) are best effort, and a gap in them never blocks a ticket, a prompt promotion or a release. Default to metric when unsure (PRD 0008 G15).
 - A gym grade is never converted on its own: a bouldering gym's "6" is not 6A. A device position is read only with the athlete's consent, used for one gym match, and never stored, logged, sent to a model or sent out (ADR-0027).
-- Look up library APIs with context7 (`.claude/rules/context7.md`) before using them. Several libraries here are newer than most training data: htmx 4, Pydantic AI v2, FastMCP 3.
+- Look up library APIs with context7 (`.claude/rules/context7.md`) before using them. Several libraries here are newer than most training data: htmx 4, Pydantic AI v2, FastMCP.
 - Facts about OpenRouter models, upstreams, prices and live latency come from the OpenRouter MCP server (`.claude/rules/openrouter-mcp.md`), never from memory. Its paid tools run only when the owner asks, and never with athlete data.
 - Only stable/GA OpenRouter model IDs are used outside `/tune-prompt` experiments — no preview or beta models in default `Settings`.
 - Jev only picks, wherever that helps: it classifies, routes, gates, scores or fills a closed-set draft field the athlete confirms. It never writes text, open values or arithmetic. It runs through the decision gateway with a pinned version, question sets as files, thresholds from evals and feedback (ADR-0034), and a fallback. Its state never carries user identity.

@@ -39,3 +39,4 @@ Parsers, chunking strategy, OCR and transcript handling are decided in a follow-
 
 - A follow-up ADR at M3 details ingestion. The `/ingest-knowledge` skill arrives with it.
 - `search_knowledge` is exposed as an MCP tool (ADR-0010).
+- Tickets that build storage, ingestion or retrieval cite [docs/research/knowledge-base.md](../research/knowledge-base.md) and [docs/research/hybrid-search.md](../research/hybrid-search.md), written first from trusted sources only (owner-directed 2026-10-31).
