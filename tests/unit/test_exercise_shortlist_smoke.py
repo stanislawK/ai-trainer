@@ -200,6 +200,14 @@ async def test_a_label_naming_no_candidate_is_refused_before_any_call(tmp_path: 
     assert jev.states == []
 
 
+async def test_a_case_listing_a_candidate_name_twice_is_refused(tmp_path: Path) -> None:
+    """Candidates are told apart by name here, so a repeat would collapse into one option."""
+    root = _set(tmp_path, _case("pull ups", "none", "Pull-up", "Pull-up"))
+
+    with pytest.raises(SmokeError, match="twice"):
+        await _run(root, ScriptedJev({}))
+
+
 async def test_a_case_with_no_candidates_is_refused(tmp_path: Path) -> None:
     root = _set(tmp_path, _case("pull ups", "none"))
 

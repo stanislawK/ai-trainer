@@ -136,6 +136,19 @@ async def test_a_timeout_or_an_error_returns_no_pick(decisions: FakeDecisions) -
     assert await _picker(decisions).pick(uuid4(), "bench press", [_BARBELL, _DUMBBELL]) is None
 
 
+async def test_a_failure_the_gateway_did_not_map_is_logged_by_type_only(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    decisions = FakeDecisions(error=RuntimeError("bench press for 123e4567"))
+
+    with caplog.at_level("WARNING", logger="ai_trainer.llm.exercise_shortlist"):
+        assert await _picker(decisions).pick(uuid4(), "bench press", [_BARBELL, _DUMBBELL]) is None
+
+    assert [record.getMessage() for record in caplog.records] == [
+        "exercise pick failed: RuntimeError"
+    ]
+
+
 async def test_an_option_that_is_no_candidate_returns_no_pick() -> None:
     decisions = FakeDecisions(str(uuid4()), 0.99)
 

@@ -57,6 +57,8 @@ def _read(smoke_set: SmokeSet) -> list[tuple[_Case, list[ExerciseCandidate]]]:
         names = {candidate.name for candidate in candidates}
         if not candidates:
             raise SmokeError(f"{smoke_set.id}: case {case.name!r} has no candidate")
+        if len(names) != len(candidates):
+            raise SmokeError(f"{smoke_set.id}: case {case.name!r} lists a candidate name twice")
         if case.expected_output.pick not in {NONE_OF_THESE, *names}:
             raise SmokeError(
                 f"{smoke_set.id}: case {case.name!r} labels {case.expected_output.pick!r}, "

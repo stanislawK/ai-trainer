@@ -4,6 +4,7 @@ options, named by their catalogue ID and described by their name, equipment and 
 reads words and code reads IDs. The athlete still confirms the draft, and only then is an alias
 stored (invariant 1)."""
 
+import logging
 from collections.abc import Mapping, Sequence
 from uuid import UUID
 
@@ -13,6 +14,8 @@ from ai_trainer.application.ports.decision_gateway import DecisionGatewayPort
 from ai_trainer.domain.exercises import ExerciseCandidate
 from ai_trainer.domain.llm_calls import LlmCallOutcome
 from ai_trainer.llm.decisions.loader import DecisionSet, DecisionSetLoader
+
+logger = logging.getLogger(__name__)
 
 EXERCISE_SHORTLIST_ID = "exercise_shortlist"
 EXERCISE_SHORTLIST_VERSION = 1
@@ -86,8 +89,10 @@ class JevExercisePicker:
                 output_type=decision_set.output_type,
                 state=name.strip(),
             )
-        except Exception:
+        except Exception as error:
             # A failure the gateway did not map to an outcome (its row write, say): the card asks.
+            # Logged by type only, so a dead pick shows without a name or a message (ADR-0030).
+            logger.warning("exercise pick failed: %s", type(error).__name__)
             return None
         if result.outcome is not LlmCallOutcome.SUCCESS or result.output is None:
             return None
