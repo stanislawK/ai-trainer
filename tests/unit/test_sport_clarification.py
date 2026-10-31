@@ -363,6 +363,7 @@ async def test_let_me_type_instead_abandons_the_question_without_a_draft() -> No
 
     abandoned = await abandon_clarification(setup.user_id, question.id, services=setup.services)
 
+    assert isinstance(abandoned, StoredClarification)
     assert (abandoned.status, abandoned.answer_option_ids) == ("abandoned", None)
     assert setup.drafts.all_of(setup.user_id) == []
     with pytest.raises(ClarificationResolvedError):

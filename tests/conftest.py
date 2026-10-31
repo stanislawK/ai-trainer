@@ -98,6 +98,7 @@ _XDIST_GROUPS = {
         # another worker would hold up the rest.
         "tests/integration/test_exercise_import.py",
         "tests/integration/test_exercise_repository.py",
+        "tests/integration/test_exercise_resolution.py",
         "tests/integration/test_import_exercises_cli.py",
     ),
     "src_tree": ("tests/unit/test_import_boundaries.py", "tests/unit/test_clock_usage.py"),

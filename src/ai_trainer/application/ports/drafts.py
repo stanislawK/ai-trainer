@@ -1,7 +1,9 @@
-from collections.abc import Sequence
+from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime
 from typing import Protocol
 from uuid import UUID
+
+from pydantic import JsonValue
 
 from ai_trainer.domain.clarification import Clarification
 from ai_trainer.domain.training import SessionDraft, StoredDraft
@@ -102,16 +104,37 @@ class SessionDraftRepositoryPort(Protocol):
         *,
         extends_session_id: UUID | None,
         answered_at: datetime,
+        asks: Clarification | None = None,
     ) -> StoredDraft:
         """In one transaction, answers the user's open same-session question
         `clarification_id` on their pending draft `draft_id` with `option_id`, and sets the
         session the draft extends to `extends_session_id`, or clears it with `None` (B16,
         ticket #166). A session that is gone, or no longer in the draft's sport, is not
-        extended, and a confirm then saves a session of its own. The draft row is locked first,
-        as in a confirm, so a confirm racing the answer waits for it. Raises
+        extended, and a confirm then saves a session of its own. `asks` is the card's next
+        question, stored `open` in the same transaction (ticket #397). The draft row is locked
+        first, as in a confirm, so a confirm racing the answer waits for it. Raises
         `DraftNotFoundError` when the user has no such draft, `DraftConfirmedError` or
         `DraftDiscardedError` when it is no longer pending, and `ClarificationResolvedError`
         when the question is not open on it; none of them changes anything."""
+        ...
+
+    async def settle_name(
+        self,
+        user_id: UUID,
+        draft_id: UUID,
+        clarification_id: UUID,
+        *,
+        option_id: str | None,
+        settle: Callable[[Mapping[str, JsonValue]], dict[str, JsonValue]],
+        asks: Clarification | None,
+        answered_at: datetime,
+    ) -> StoredDraft:
+        """In one transaction, closes the user's open exercise question `clarification_id` on
+        their pending draft `draft_id`, as answered with `option_id` or abandoned with `None`,
+        replaces the draft's payload with `settle` of it, read under the draft row's lock so an
+        edit racing the tap isn't lost, and stores `asks`, the card's next question, `open`
+        (ticket #397). No alias or exercise is written before the confirm. Raises as
+        `settle_session` does; none of them changes anything."""
         ...
 
     async def undo(self, user_id: UUID, draft_id: UUID, *, undone_at: datetime) -> StoredDraft:

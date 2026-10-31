@@ -98,7 +98,7 @@ uv run ai-trainer llm-debug-report [--since <ISO time>]   # summarize LLM_DEBUG_
 uv run ai-trainer import-exercises   # upsert the exercise catalogue from the dataset commit pinned in Settings; a second run changes nothing (ADR-0031)
 uv run ai-trainer backfill-gym-sessions   # write gym sessions logged before the typed tables into them, payloads untouched; a second run writes nothing (ADR-0032)
 uv run ai-trainer feedback-report [--since <ISO time>]   # counts of the content-free feedback events per kind, template and field; "no feedback events" when empty (ADR-0034)
-make latency-scenario            # replay the latency scenario on `make start`, p50/p95 per log turn (ADR-0026; costs money)
+make latency-scenario [sport=gym]   # replay the latency scenario on `make start`, p50/p95 per log turn (ADR-0026; costs money); sport=gym exercises gym naming (ADR-0031)
 uv run playwright install chromium   # one-time browser download for e2e
 uv run pytest tests/e2e -n 0     # e2e specs, serial (needs `docker compose up`; excluded from `uv run pytest`)
 uv run ai-trainer-evals run <template-id> [--version N] [--promote]   # full eval run at the app's version; only --promote writes the baseline (costs money — run on purpose)

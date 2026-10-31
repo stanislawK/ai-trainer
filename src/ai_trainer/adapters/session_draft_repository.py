@@ -1,7 +1,8 @@
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime
 from uuid import UUID
 
+from pydantic import JsonValue
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,7 +18,7 @@ from ai_trainer.adapters.session_draft_lifecycle import (
     with_span,
 )
 from ai_trainer.adapters.training_session_repository import spans_of
-from ai_trainer.domain.clarification import SAME_SESSION_PURPOSE, Clarification
+from ai_trainer.domain.clarification import Clarification
 from ai_trainer.domain.sports.base import ExtractionSpec
 from ai_trainer.domain.sports.registry import SportRegistry, default_sport_registry
 from ai_trainer.domain.training import (
@@ -27,27 +28,6 @@ from ai_trainer.domain.training import (
     SessionDraft,
     StoredDraft,
 )
-
-
-def _ask(
-    session: AsyncSession, row: SessionDraftOrm, asks: Clarification | None, at: datetime
-) -> None:
-    """The same-session question on the draft's card, added in the draft's own transaction
-    (ticket #166)."""
-    if asks is None:
-        return
-    session.add(
-        ClarificationOrm(
-            user_id=row.user_id,
-            conversation_id=row.conversation_id,
-            message_id=row.message_id,
-            draft_id=row.id,
-            purpose=SAME_SESSION_PURPOSE,
-            clarification=asks.model_dump(mode="json"),
-            status=OPEN,
-            created_at=at,
-        )
-    )
 
 
 class SqlAlchemySessionDraftRepository:
@@ -104,7 +84,7 @@ class SqlAlchemySessionDraftRepository:
             session.add(row)
             # Flushed, not read after the commit: a committed row's attributes expire.
             await session.flush()
-            _ask(session, row, asks, created_at)
+            lifecycle.ask(session, row, asks, created_at)
             stored = await with_span(session, user_id, row)
             await session.commit()
             return stored
@@ -206,7 +186,7 @@ class SqlAlchemySessionDraftRepository:
                 .values(status="abandoned", answered_at=None)
             )
             await session.flush()
-            _ask(session, row, asks, asked_at or row.created_at)
+            lifecycle.ask(session, row, asks, asked_at or row.created_at)
             changed = await with_span(session, user_id, row)
             await session.commit()
             return changed
@@ -233,6 +213,7 @@ class SqlAlchemySessionDraftRepository:
         *,
         extends_session_id: UUID | None,
         answered_at: datetime,
+        asks: Clarification | None = None,
     ) -> StoredDraft:
         async with self._session_factory() as session:
             return await lifecycle.settle_session(
@@ -242,6 +223,30 @@ class SqlAlchemySessionDraftRepository:
                 clarification_id,
                 option_id,
                 extends_session_id=extends_session_id,
+                answered_at=answered_at,
+                asks=asks,
+            )
+
+    async def settle_name(
+        self,
+        user_id: UUID,
+        draft_id: UUID,
+        clarification_id: UUID,
+        *,
+        option_id: str | None,
+        settle: Callable[[Mapping[str, JsonValue]], dict[str, JsonValue]],
+        asks: Clarification | None,
+        answered_at: datetime,
+    ) -> StoredDraft:
+        async with self._session_factory() as session:
+            return await lifecycle.settle_name(
+                session,
+                user_id,
+                draft_id,
+                clarification_id,
+                option_id=option_id,
+                settle=settle,
+                asks=asks,
                 answered_at=answered_at,
             )
 

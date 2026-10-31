@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse
 
 from ai_trainer.application.drafts import (
+    CardQuestions,
     confirm_draft,
     discard_draft,
     draft_to_edit,
@@ -101,6 +102,11 @@ class _DraftRoutes:
                 drafts=ctx.replies.drafts,
                 sports=ctx.sports,
                 feedback=ctx.replies.feedback,
+                questions=CardQuestions(
+                    clarifications=ctx.replies.clarifications,
+                    settlers=ctx.replies.settlers,
+                    clock=ctx.clock,
+                ),
             )
         except DraftNotFoundError:
             raise HTTPException(status_code=NOT_FOUND) from None

@@ -1,7 +1,7 @@
 """Composition root: the only place concrete classes are wired (ADR-0003)."""
 
 import mimetypes
-from collections.abc import AsyncIterator, Mapping
+from collections.abc import AsyncIterator, Callable, Mapping
 from contextlib import asynccontextmanager
 from datetime import timedelta
 from pathlib import Path
@@ -24,7 +24,7 @@ from opentelemetry.sdk.trace.export import BatchSpanProcessor, SpanExporter
 from opentelemetry.sdk.trace.sampling import ParentBased, TraceIdRatioBased
 from opentelemetry.util.re import parse_env_headers
 from pydantic_ai import Agent, InstrumentationSettings
-from sqlalchemy.ext.asyncio import AsyncEngine
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
@@ -34,6 +34,7 @@ from ai_trainer.adapters.clarification_repository import SqlAlchemyClarification
 from ai_trainer.adapters.clock import UtcClock
 from ai_trainer.adapters.conversation_repository import SqlAlchemyConversationRepository
 from ai_trainer.adapters.db import build_engine, build_session_factory
+from ai_trainer.adapters.exercise_repository import SqlAlchemyExerciseRepository
 from ai_trainer.adapters.feedback_repository import SqlAlchemyFeedbackEventsRepository
 from ai_trainer.adapters.google_oauth import AuthlibGoogleOAuthClient
 from ai_trainer.adapters.gym_activity_store import GymActivityStore
@@ -50,10 +51,13 @@ from ai_trainer.adapters.user_status_changer import SqlAlchemyUserStatusChanger
 from ai_trainer.adapters.users_repository import SqlAlchemyUsersRepository
 from ai_trainer.application.background_reads import BackgroundReads
 from ai_trainer.application.budgeted_gateways import BudgetedDecisionGateway, BudgetedLlmGateway
+from ai_trainer.application.exercise_resolution import ResolutionLimits, ResolveExercises
 from ai_trainer.application.feedback import FeedbackRecorder
 from ai_trainer.application.metered_calls import MeteredLlmCallsRepository
 from ai_trainer.application.model_budget import ModelCallBudget
 from ai_trainer.application.ports.clock import ClockPort
+from ai_trainer.application.ports.conversation import ConversationModelPort
+from ai_trainer.application.ports.draft_settling import DraftSettlerPort
 from ai_trainer.application.ports.llm_gateway import LlmGatewayPort
 from ai_trainer.application.ports.metrics import NO_METRICS, MetricsPort
 from ai_trainer.application.reply import ReplyServices
@@ -129,6 +133,28 @@ def build_activity_stores(sports: SportRegistry) -> ActivityStores:
     """Where each sport keeps its activities (ADR-0032): its own tables where it has them,
     otherwise the session's payload."""
     return ActivityStores(sports, {"gym": GymActivityStore()})
+
+
+def build_draft_settlers(
+    settings: Settings,
+    session_factory: Callable[[], AsyncSession],
+    conversation: ConversationModelPort,
+) -> Mapping[str, DraftSettlerPort]:
+    """What each sport settles on its drafts: the gym's exercise names (ADR-0031, ticket #397).
+    "Keep my name" takes one of the card's `max_clarification_options`."""
+    return {
+        "gym": ResolveExercises(
+            SqlAlchemyExerciseRepository(session_factory),
+            question=conversation.exercise_question,
+            limits=ResolutionLimits(
+                near_match=settings.exercise_near_match_threshold,
+                candidate_floor=settings.exercise_candidate_floor,
+                shortlist_size=min(
+                    settings.exercise_shortlist_size, settings.max_clarification_options - 1
+                ),
+            ),
+        )
+    }
 
 
 def build_onboarding_reader(
@@ -282,6 +308,7 @@ def create_app(  # noqa: PLR0915 -- composition root: objects are built only her
         # Content-free feedback events from the athlete's edits, discards, undos and taps
         # (ADR-0034).
         feedback=FeedbackRecorder(SqlAlchemyFeedbackEventsRepository(session_factory), clock=clock),
+        settlers=build_draft_settlers(settings, session_factory, conversation),
     )
     app.include_router(
         build_chat_router(

@@ -3,6 +3,10 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
 
+# `exercises.name` and `exercise_aliases.alias` hold at most this much, so a longer typed name
+# stays typed-only (ticket #397).
+MAX_EXERCISE_NAME = 200
+
 
 class ExerciseMeasure(StrEnum):
     """What one set of an exercise is measured in (ADR-0032)."""
@@ -84,6 +88,17 @@ class Exercise(BaseModel):
     owner_user_id: UUID | None
     name: str
     default_measure: ExerciseMeasure
+
+
+class ExerciseCandidate(BaseModel):
+    """A shortlisted exercise for a typed name (ADR-0031): what a choice card tells it apart by."""
+
+    model_config = ConfigDict(frozen=True)
+
+    id: UUID
+    name: str
+    equipment: str | None = None
+    target: str | None = None
 
 
 class ExerciseAlias(BaseModel):

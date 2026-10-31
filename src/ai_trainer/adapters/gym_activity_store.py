@@ -10,6 +10,7 @@ from sqlalchemy import ARRAY, Text, cast, delete, func, insert, literal, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ai_trainer.adapters.exercise_names import settle_names
 from ai_trainer.adapters.orm import AthleteBandOrm, GymExerciseEntryOrm, GymSetOrm
 from ai_trainer.application.ports.activities import LoggedActivities
 from ai_trainer.domain.sports.base import withdraw_payload
@@ -33,7 +34,12 @@ class GymActivityStore:
                 GymExerciseEntryOrm.session_id == log.session_id,
             )
         )
-        rows = entries_of(GymPayload.model_validate(log.addition))
+        payload = GymPayload.model_validate(log.addition)
+        settled = await settle_names(tx, user_id, payload)
+        rows = tuple(
+            entry.model_copy(update={"exercise_id": settled.get(entry.name_as_typed)})
+            for entry in entries_of(payload)
+        )
         bands = await self._band_ids(tx, user_id, rows)
         entries: list[dict[str, object]] = []
         sets: list[dict[str, object]] = []

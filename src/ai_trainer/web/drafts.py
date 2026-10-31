@@ -22,7 +22,7 @@ from pydantic import BaseModel, JsonValue, ValidationError
 
 from ai_trainer.application.reply import asking_sports, sports_to_switch_to
 from ai_trainer.domain.chat import ChatMessage, ChatRole
-from ai_trainer.domain.clarification import SAME_SESSION_PURPOSE, StoredClarification
+from ai_trainer.domain.clarification import StoredClarification
 from ai_trainer.domain.sports.base import SportPlugin
 from ai_trainer.domain.sports.registry import SportRegistry, UnknownSportError
 from ai_trainer.domain.training import DRAFT_FAILED_TEMPLATE_ID, StoredDraft, joins_day
@@ -45,7 +45,7 @@ class DraftCard:
     # The sports a pending draft's chip offers to move it to (B23, ticket #163); none for a
     # one-sport athlete or a resolved draft.
     switch_to: tuple[SportPlugin, ...] = ()
-    # The same-session question still open on a pending draft's card (B16, ticket #166).
+    # The question still open on a pending draft's card (B16, ticket #166; B37, ticket #397).
     question: StoredClarification | None = None
 
     @property
@@ -95,13 +95,12 @@ class DraftCard:
 def open_questions(
     questions: Iterable[StoredClarification],
 ) -> Mapping[UUID, StoredClarification]:
-    """The same-session questions still open, by the draft whose card asks them (#166)."""
+    """The questions still open on a card, a same-session one (#166) or one about an exercise's
+    name (#397), by the draft whose card asks them. A card asks one at a time."""
     return {
         question.draft_id: question
         for question in questions
-        if question.draft_id is not None
-        and question.purpose == SAME_SESSION_PURPOSE
-        and question.status == "open"
+        if question.draft_id is not None and question.status == "open"
     }
 
 

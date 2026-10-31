@@ -1,7 +1,21 @@
 from collections.abc import Callable, Mapping, Sequence
 from uuid import UUID, uuid4
 
-from sqlalchemy import Boolean, ColumnElement, Row, literal_column, or_, select, text
+from sqlalchemy import (
+    ARRAY,
+    Boolean,
+    ColumnElement,
+    Row,
+    SQLColumnExpression,
+    Text,
+    case,
+    cast,
+    func,
+    literal_column,
+    or_,
+    select,
+    text,
+)
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,10 +25,13 @@ from ai_trainer.domain.exercises import (
     CatalogueWrite,
     Exercise,
     ExerciseAlias,
+    ExerciseCandidate,
     ExerciseMeasure,
 )
 
 _CUSTOM_SOURCE = "custom"
+# The full-text configuration of ADR-0031's search indexes.
+_SIMPLE: ColumnElement[str] = literal_column("'simple'::regconfig")
 _IMPORTED_COLUMNS = (
     "sport_id",
     "name",
@@ -33,9 +50,51 @@ _ALIAS_COLUMNS = (
 )
 
 
-def _visible_to(user_id: UUID) -> ColumnElement[bool]:
+def visible_to(user_id: UUID) -> ColumnElement[bool]:
     """A catalogue row or the athlete's own (ADR-0031 invariant 3)."""
     return or_(ExerciseOrm.owner_user_id.is_(None), ExerciseOrm.owner_user_id == user_id)
+
+
+def custom_row(user_id: UUID, *, sport_id: str, name: str, measure: str) -> ExerciseOrm:
+    """An athlete's own exercise, not yet added to a session."""
+    return ExerciseOrm(
+        id=uuid4(),
+        sport_id=sport_id,
+        owner_user_id=user_id,
+        source=_CUSTOM_SOURCE,
+        name=name,
+        default_measure=measure,
+    )
+
+
+async def write_user_alias(
+    session: AsyncSession, user_id: UUID, exercise_id: UUID, alias: str
+) -> ExerciseAlias:
+    """Maps the name onto one exercise, in the caller's transaction, replacing any earlier
+    mapping of it. The caller has checked that `user_id` can see the exercise."""
+    statement = insert(ExerciseAliasOrm).values(
+        id=uuid4(), exercise_id=exercise_id, user_id=user_id, alias=alias
+    )
+    written = await session.execute(
+        statement.on_conflict_do_update(
+            index_elements=["user_id", "alias_norm"],
+            index_where=text("user_id IS NOT NULL"),
+            set_={"exercise_id": exercise_id, "alias": alias},
+        ).returning(*_ALIAS_COLUMNS)
+    )
+    return _alias(written.one())
+
+
+def _name_score(
+    column: SQLColumnExpression[str], name: SQLColumnExpression[str], floor: float
+) -> ColumnElement[float]:
+    """How well a stored name fits: its trigram similarity, and at least `floor` when it holds
+    every word of the typed name (`simple` full text, as PostgreSQL has no Polish stemmer)."""
+    words = func.plainto_tsquery(_SIMPLE, name)
+    return func.greatest(
+        func.similarity(column, name),
+        case((func.to_tsvector(_SIMPLE, column).op("@@")(words), floor), else_=0.0),
+    )
 
 
 def _exercise(row: ExerciseOrm) -> Exercise:
@@ -160,22 +219,72 @@ class SqlAlchemyExerciseRepository:
     async def get(self, user_id: UUID, exercise_id: UUID) -> Exercise | None:
         async with self._session_factory() as session:
             row = await session.scalar(
-                select(ExerciseOrm).where(ExerciseOrm.id == exercise_id, _visible_to(user_id))
+                select(ExerciseOrm).where(ExerciseOrm.id == exercise_id, visible_to(user_id))
             )
             return None if row is None else _exercise(row)
+
+    async def match_user_aliases(
+        self, user_id: UUID, *, sport_id: str, names: Sequence[str], near: float
+    ) -> Mapping[str, UUID]:
+        typed = func.unnest(cast(list(names), ARRAY(Text))).column_valued("typed")
+        norm = func.exercise_name_norm(typed)
+        similarity = func.similarity(ExerciseAliasOrm.alias_norm, norm)
+        exact = ExerciseAliasOrm.alias_norm == norm
+        async with self._session_factory() as session:
+            rows = await session.execute(
+                select(typed, ExerciseAliasOrm.exercise_id)
+                .distinct(typed)
+                .join(ExerciseAliasOrm, or_(exact, similarity >= near))
+                .join(ExerciseOrm, ExerciseOrm.id == ExerciseAliasOrm.exercise_id)
+                .where(ExerciseAliasOrm.user_id == user_id, ExerciseOrm.sport_id == sport_id)
+                .order_by(typed, exact.desc(), similarity.desc(), ExerciseAliasOrm.alias_norm)
+            )
+            return dict(rows.tuples().all())
+
+    async def shortlist(
+        self,
+        user_id: UUID,
+        *,
+        sport_id: str,
+        name: str,
+        measure: str,
+        floor: float,
+        limit: int,
+    ) -> Sequence[ExerciseCandidate]:
+        typed = func.exercise_name_norm(name)
+        by_alias = (
+            select(func.max(_name_score(ExerciseAliasOrm.alias_norm, typed, floor)))
+            .where(
+                ExerciseAliasOrm.exercise_id == ExerciseOrm.id,
+                or_(ExerciseAliasOrm.user_id.is_(None), ExerciseAliasOrm.user_id == user_id),
+            )
+            .scalar_subquery()
+        )
+        score = func.greatest(
+            _name_score(func.exercise_name_norm(ExerciseOrm.name), typed, floor),
+            func.coalesce(by_alias, 0.0),
+        )
+        async with self._session_factory() as session:
+            rows = await session.execute(
+                select(ExerciseOrm.id, ExerciseOrm.name, ExerciseOrm.equipment, ExerciseOrm.target)
+                .where(ExerciseOrm.sport_id == sport_id, visible_to(user_id), score >= floor)
+                .order_by(
+                    (ExerciseOrm.default_measure == measure).desc(),
+                    score.desc(),
+                    ExerciseOrm.name,
+                )
+                .limit(limit)
+            )
+            return [
+                ExerciseCandidate(id=id_, name=found, equipment=equipment, target=target)
+                for id_, found, equipment, target in rows.tuples()
+            ]
 
     async def create_custom(
         self, user_id: UUID, *, sport_id: str, name: str, default_measure: ExerciseMeasure
     ) -> Exercise:
         async with self._session_factory() as session:
-            row = ExerciseOrm(
-                id=uuid4(),
-                sport_id=sport_id,
-                owner_user_id=user_id,
-                source=_CUSTOM_SOURCE,
-                name=name,
-                default_measure=default_measure.value,
-            )
+            row = custom_row(user_id, sport_id=sport_id, name=name, measure=default_measure.value)
             session.add(row)
             exercise = _exercise(row)
             await session.commit()
@@ -186,21 +295,11 @@ class SqlAlchemyExerciseRepository:
     ) -> ExerciseAlias | None:
         async with self._session_factory() as session:
             visible = await session.scalar(
-                select(ExerciseOrm.id).where(ExerciseOrm.id == exercise_id, _visible_to(user_id))
+                select(ExerciseOrm.id).where(ExerciseOrm.id == exercise_id, visible_to(user_id))
             )
             if visible is None:
                 return None
-            statement = insert(ExerciseAliasOrm).values(
-                id=uuid4(), exercise_id=exercise_id, user_id=user_id, alias=alias
-            )
-            written = await session.execute(
-                statement.on_conflict_do_update(
-                    index_elements=["user_id", "alias_norm"],
-                    index_where=text("user_id IS NOT NULL"),
-                    set_={"exercise_id": exercise_id, "alias": alias},
-                ).returning(*_ALIAS_COLUMNS)
-            )
-            alias_row = _alias(written.one())
+            alias_row = await write_user_alias(session, user_id, exercise_id, alias)
             await session.commit()
             return alias_row
 

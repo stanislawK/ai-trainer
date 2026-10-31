@@ -44,6 +44,10 @@ _SPORT_QUESTION_VERSION = 1
 # day, sent as written (B16, ticket #166).
 SAME_SESSION_QUESTION_REPLY_ID = "same_session_question"
 _SAME_SESSION_QUESTION_VERSION = 1
+# The question on a draft's card that asks which exercise a typed name is, sent as written (B37,
+# ticket #397).
+EXERCISE_QUESTION_REPLY_ID = "exercise_question"
+_EXERCISE_QUESTION_VERSION = 1
 # The question above the choice card that asks how to read a log, sent as written (ticket #164).
 READING_QUESTION_REPLY_ID = READING_QUESTION_TEMPLATE_ID
 _READING_QUESTION_VERSION = 1
@@ -256,4 +260,12 @@ class LlmConversation:
             template=TemplateRef(
                 id=SAME_SESSION_QUESTION_REPLY_ID, version=_SAME_SESSION_QUESTION_VERSION
             ),
+        )
+
+    def exercise_question(self) -> FixedReply:
+        return FixedReply(
+            text=self._registry.load_fixed_reply(
+                EXERCISE_QUESTION_REPLY_ID, _EXERCISE_QUESTION_VERSION
+            ),
+            template=TemplateRef(id=EXERCISE_QUESTION_REPLY_ID, version=_EXERCISE_QUESTION_VERSION),
         )

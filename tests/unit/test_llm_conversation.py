@@ -397,6 +397,17 @@ def test_same_session_question_is_read_from_its_file_with_no_model_call() -> Non
     assert (gateway.runs, gateway.streams) == ([], [])
 
 
+def test_exercise_question_is_read_from_its_file_with_no_model_call() -> None:
+    gateway = RecordingGateway()
+
+    reply = _conversation(gateway).exercise_question()
+
+    assert reply.template == TemplateRef(id="exercise_question", version=1)
+    assert reply.text == (_PROMPTS_ROOT / "exercise_question" / "v1.en.md").read_text().strip()
+    assert reply.text
+    assert (gateway.runs, gateway.streams) == ([], [])
+
+
 def test_reading_question_is_read_from_its_file_with_no_model_call() -> None:
     gateway = RecordingGateway()
 

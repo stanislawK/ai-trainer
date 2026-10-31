@@ -22,7 +22,7 @@ from ai_trainer.adapters.orm import (
 )
 from ai_trainer.adapters.training_session_repository import spans_of
 from ai_trainer.application.ports.activities import LoggedActivities
-from ai_trainer.domain.clarification import ClarificationResolvedError
+from ai_trainer.domain.clarification import Clarification, ClarificationResolvedError
 from ai_trainer.domain.sports.base import ExtractionSpec
 from ai_trainer.domain.training import (
     DraftAwaitingAnswerError,
@@ -45,6 +45,8 @@ OPEN = "open"
 _CHAT_SOURCE = "chat"
 # The envelope fields an addition to a session fills when the session has none (ticket #165).
 _FILLED_FIELDS = ("started_at", "duration_min", "rpe", "feeling", "notes")
+# "Let me type instead" on a card's question: answered with no option (ticket #397).
+SKIPPED: list[str] = []
 
 
 def to_domain(row: SessionDraftOrm, spans: Mapping[UUID, SessionSpan]) -> StoredDraft:
@@ -81,6 +83,67 @@ async def _locked_draft(session: AsyncSession, user_id: UUID, draft_id: UUID) ->
     if row is None:
         raise DraftNotFoundError(draft_id)
     return row
+
+
+async def _locked_pending(session: AsyncSession, user_id: UUID, draft_id: UUID) -> SessionDraftOrm:
+    row = await _locked_draft(session, user_id, draft_id)
+    if row.status == CONFIRMED:
+        raise DraftConfirmedError(draft_id)
+    if row.status == DISCARDED:
+        raise DraftDiscardedError(draft_id)
+    return row
+
+
+def ask(
+    session: AsyncSession, row: SessionDraftOrm, asks: Clarification | None, at: datetime
+) -> None:
+    """A question on the draft's card, added in the draft's own transaction (ticket #166)."""
+    if asks is None:
+        return
+    session.add(
+        ClarificationOrm(
+            user_id=row.user_id,
+            conversation_id=row.conversation_id,
+            message_id=row.message_id,
+            draft_id=row.id,
+            purpose=asks.card_purpose,
+            clarification=asks.model_dump(mode="json"),
+            status=OPEN,
+            created_at=at,
+        )
+    )
+
+
+async def _close_question(
+    session: AsyncSession,
+    user_id: UUID,
+    draft_id: UUID,
+    clarification_id: UUID,
+    option_id: str | None,
+    *,
+    closed_at: datetime,
+) -> None:
+    """Moves the question off `open` with one conditional UPDATE, so two taps at once close it
+    once: answered with `option_id`, or abandoned with `None`. The athlete's own skip stores an
+    empty answer, which a question dropped by an edit or a sport change (no answer) never has,
+    so only a skip keeps its name from being asked again on the card (ticket #397)."""
+    closed = await session.scalar(
+        update(ClarificationOrm)
+        .where(
+            ClarificationOrm.user_id == user_id,
+            ClarificationOrm.id == clarification_id,
+            ClarificationOrm.draft_id == draft_id,
+            ClarificationOrm.status == OPEN,
+        )
+        .values(
+            status="abandoned" if option_id is None else "answered",
+            answer_option_ids=SKIPPED if option_id is None else [option_id],
+            answered_at=closed_at,
+        )
+        .returning(ClarificationOrm.id)
+    )
+    if closed is None:
+        raise ClarificationResolvedError(clarification_id)
 
 
 async def _awaits_answer(session: AsyncSession, user_id: UUID, draft_id: UUID) -> bool:
@@ -222,29 +285,17 @@ async def settle_session(
     *,
     extends_session_id: UUID | None,
     answered_at: datetime,
+    asks: Clarification | None = None,
 ) -> StoredDraft:
     """One transaction (ticket #166): the draft row is locked first, as in a confirm, then
     the question moves from `open` to `answered` with one conditional UPDATE, so two taps
     at once settle it once, and the draft extends the picked session while it is the
-    user's, in the draft's sport."""
-    row = await _locked_draft(session, user_id, draft_id)
-    if row.status == CONFIRMED:
-        raise DraftConfirmedError(draft_id)
-    if row.status == DISCARDED:
-        raise DraftDiscardedError(draft_id)
-    answered = await session.scalar(
-        update(ClarificationOrm)
-        .where(
-            ClarificationOrm.user_id == user_id,
-            ClarificationOrm.id == clarification_id,
-            ClarificationOrm.draft_id == draft_id,
-            ClarificationOrm.status == OPEN,
-        )
-        .values(status="answered", answer_option_ids=[option_id], answered_at=answered_at)
-        .returning(ClarificationOrm.id)
+    user's, in the draft's sport. The card's next question goes in with it (ticket #397)."""
+    row = await _locked_pending(session, user_id, draft_id)
+    await _close_question(
+        session, user_id, draft_id, clarification_id, option_id, closed_at=answered_at
     )
-    if answered is None:
-        raise ClarificationResolvedError(clarification_id)
+    ask(session, row, asks, answered_at)
     extended = None
     if extends_session_id is not None:
         extended = await session.scalar(
@@ -255,6 +306,33 @@ async def settle_session(
             )
         )
     row.extends_session_id = extended
+    await session.flush()
+    settled = await with_span(session, user_id, row)
+    await session.commit()
+    return settled
+
+
+async def settle_name(
+    session: AsyncSession,
+    user_id: UUID,
+    draft_id: UUID,
+    clarification_id: UUID,
+    *,
+    option_id: str | None,
+    settle: Callable[[Mapping[str, JsonValue]], dict[str, JsonValue]],
+    asks: Clarification | None,
+    answered_at: datetime,
+) -> StoredDraft:
+    """One transaction (ticket #397), locked and closed as `settle_session` is: the payload is
+    read under the draft row's lock, so an edit racing the tap isn't lost, and the card's next
+    question goes in with it."""
+    row = await _locked_pending(session, user_id, draft_id)
+    await _close_question(
+        session, user_id, draft_id, clarification_id, option_id, closed_at=answered_at
+    )
+    draft = SessionDraft.model_validate(row.draft)
+    row.draft = draft.model_copy(update={"payload": settle(draft.payload)}).model_dump(mode="json")
+    ask(session, row, asks, answered_at)
     await session.flush()
     settled = await with_span(session, user_id, row)
     await session.commit()

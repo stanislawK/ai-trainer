@@ -3,10 +3,10 @@ answers by tapping one of a few concrete options. Asking writes nothing but the 
 (ADR-0015 invariant 3), and the answer is option IDs, never text (invariant 4)."""
 
 from datetime import datetime
-from typing import Literal
+from typing import Literal, Self
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 # What is being asked, as stored in `clarifications.purpose` (ADR-0022): text, not an enum.
 SPORT_PURPOSE = "sport"
@@ -26,6 +26,11 @@ NEW_SESSION_OPTION = "new"
 # The copy keys of its two options, in `components/session_copy.html`.
 SAME_SESSION_ADD_COPY_KEY = "same_session_add"
 SAME_SESSION_NEW_COPY_KEY = "same_session_new"
+# Which exercise a typed name is (B37, ADR-0031, ticket #397). Like the same-session question it
+# blocks a stored draft and is asked on the draft's own card, one name at a time.
+EXERCISE_PURPOSE = "exercise"
+# The exercise question's "Keep my name" option; its others' IDs are the candidate exercises'.
+KEEP_NAME_OPTION = "keep"
 
 type ClarificationMode = Literal["single", "multi"]
 type ClarificationStatus = Literal["open", "answered", "abandoned"]
@@ -46,17 +51,32 @@ class ChoiceOption(BaseModel):
 
 class Clarification(BaseModel):
     """The `clarifications.clarification` document: the question as written in the persona's
-    voice, 2 or more options, and the intent it blocks (`pending`). `sport` is the sport whose
-    extraction asked, for a question its tap resumes in that sport (ticket #164)."""
+    voice, its options, and the intent it blocks (`pending`). One option is enough only beside
+    the free-text escape, which is then the second route (ADR-0015 invariant 2, ticket #397).
+    `sport` is the sport whose extraction asked, for a question its tap resumes in that sport
+    (ticket #164). `subject` is the name as typed that an exercise question asks about."""
 
     model_config = ConfigDict(frozen=True)
 
     question: str
-    options: tuple[ChoiceOption, ...] = Field(min_length=2)
+    options: tuple[ChoiceOption, ...] = Field(min_length=1)
     mode: ClarificationMode = "single"
     allow_free_text: bool = True
     pending: str
     sport: str | None = None
+    subject: str | None = None
+
+    @model_validator(mode="after")
+    def _has_a_second_route(self) -> Self:
+        if len(self.options) < 2 and not self.allow_free_text:
+            raise ValueError("a question with one option needs the free-text escape")
+        return self
+
+    @property
+    def card_purpose(self) -> str:
+        """What this question is, when it is asked on a draft's card: one about a typed name is
+        an exercise question, any other the same-session one."""
+        return SAME_SESSION_PURPOSE if self.subject is None else EXERCISE_PURPOSE
 
 
 class StoredClarification(BaseModel):
