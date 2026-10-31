@@ -381,8 +381,11 @@ def test_every_new_smoke_case_names_its_dataset_origin() -> None:
             assert case.metadata is not None, (smoke_id, case.name)
             origin = ROOT / str(case.metadata["dataset"])
             assert origin.is_file(), (smoke_id, case.metadata["dataset"])
-            names = [c["name"] for c in yaml.safe_load(origin.read_text())["cases"]]
-            assert case.name in names, (smoke_id, case.name)
+            matches = [
+                c for c in yaml.safe_load(origin.read_text())["cases"] if c["name"] == case.name
+            ]
+            assert len(matches) == 1, (smoke_id, case.name)
+            assert case.inputs.model_dump() == matches[0]["inputs"], (smoke_id, case.name)
 
 
 def test_no_workflow_runs_a_smoke_set() -> None:
