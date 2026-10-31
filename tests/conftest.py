@@ -93,6 +93,11 @@ _XDIST_GROUPS = {
         "tests/integration/test_metrics_wiring.py",
         "tests/integration/test_auth_route.py",
         "tests/integration/test_worktree_databases.py",
+        # One catalogue key per sample row: the CLI's tests commit them, and an open import in
+        # another worker would hold up the rest.
+        "tests/integration/test_exercise_import.py",
+        "tests/integration/test_exercise_repository.py",
+        "tests/integration/test_import_exercises_cli.py",
     ),
     "src_tree": ("tests/unit/test_import_boundaries.py", "tests/unit/test_clock_usage.py"),
 }

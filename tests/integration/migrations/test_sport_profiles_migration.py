@@ -14,6 +14,7 @@ from alembic.config import Config
 from ai_trainer.adapters.health import to_psycopg_dsn
 from ai_trainer.settings import Settings
 
+_THIS_REVISION = "7d2c9e4a1f63"
 _PREVIOUS_REVISION = "c894aa4b2c20"
 
 
@@ -31,8 +32,11 @@ def test_downgrade_drops_only_sport_profiles_and_upgrade_restores_it() -> None:
     cfg = Config("alembic.ini")
     at_head = _tables()
     try:
+        # Later revisions add tables of their own, so compare from this revision.
+        command.downgrade(cfg, _THIS_REVISION)
+        at_this_revision = _tables()
         command.downgrade(cfg, _PREVIOUS_REVISION)
-        assert at_head - _tables() == {"sport_profiles"}
+        assert at_this_revision - _tables() == {"sport_profiles"}
         command.upgrade(cfg, "head")
         assert _tables() == at_head
     finally:

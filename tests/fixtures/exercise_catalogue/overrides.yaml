@@ -1,0 +1,10 @@
+skip:
+  - zz-test-06
+rename:
+  zz-test-04: Sled 45° Leg Press
+measure:
+  zz-test-08: time
+words:
+  ez: EZ
+  pov: POV
+  v.: v.

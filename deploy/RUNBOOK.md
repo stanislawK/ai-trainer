@@ -116,6 +116,8 @@ ssh deploy@<ip> 'sudo install -o root -g root -m 0600 /tmp/origin.pem /tmp/origi
 
 The app's `.env` comes from `.env.example`, filled with the production values: the production Google OAuth client, `PUBLIC_BASE_URL=https://<domain>`, and `DATABASE_URL` with a fresh random password. The database password goes to `db.env` as well, which `compose.prod.yaml` reads for the `db` container.
 
+Leave every `EXERCISE_*` key out of the production `.env` too: the release's defaults name the dataset commit its `data/catalogue/` was written against, and a value here would outrank them ([section 13](#13-exercise-catalogue)).
+
 Leave every `OTEL_*` key, `APP_VERSION` and `DEPLOYMENT_ENVIRONMENT` out of the production `.env`. `compose.prod.yaml` sets what the app needs, and the rest keep their defaults: the app sends to Alloy, which holds the only Grafana Cloud credentials ([section 11](#11-telemetry-to-grafana-cloud), ADR-0030 invariant 1), and `deploy.sh` passes the release tag. The one exception is `OTEL_TRACES_SAMPLER_RATIO`, which you may set to fit the free tier (section 11.1).
 
 On the production OpenRouter key, set a credit limit in the OpenRouter dashboard (ADR-0029). The app caps model calls per user and cannot see that limit. It is the backstop if the app's cap is wrong. The key's secret stays in `.env` only.
@@ -603,6 +605,18 @@ journalctl -u ai-trainer-deploy.service --since today          # the poller; als
 - The app's access line has the route template (`/auth/callback`), the method, the status and the duration. It never has the query, the client's address or a user (ADR-0030 invariant 3). Use a line's `request_id` to find that request's other lines.
 - `docker logs ai-trainer-prod-<service>-1` reads the same logs and needs no variables, if the wrapper isn't installed yet.
 - The same logs reach Grafana Cloud through Alloy ([section 11](#11-telemetry-to-grafana-cloud)). Use them there for anything older than the containers, since a recreated container starts with an empty `docker logs`.
+
+## 13. Exercise catalogue
+
+Source: ADR-0031. Ticket #375.
+
+The app's migrations create the catalogue's tables empty. Run the import once, by hand, after the first deploy that carries them, and again after a release that bumps `EXERCISE_DATASET_COMMIT` or changes `data/catalogue/`:
+
+```sh
+docker exec ai-trainer-prod-app-1 ai-trainer import-exercises
+```
+
+It ends on one line. `import-exercises: result=ok exercises=1315 inserted=1315 updated=0 unchanged=0 texts_written=2629 skipped=10` is the first import of the commit pinned at #375. A later run of the same release reports `inserted=0 updated=0 texts_written=0`. `import-exercises: result=failed reason=<download|catalogue> detail=<why>` with exit code 1 changes no row, so fix the cause and run it again. It needs outbound HTTPS to `raw.githubusercontent.com`.
 
 ## Provisioning record
 

@@ -1,0 +1,111 @@
+# Exceptions to the catalogue import's rules, keyed by the dataset's `id` at the commit pinned in
+# `Settings` (ADR-0031). An id the dataset doesn't hold fails the import, and so do two rows left
+# with one name. A skipped or renamed row keeps its `source_ref`.
+
+# One of each pair whose names differ at most in punctuation, which a shortlist couldn't tell apart.
+skip:
+  - "0422"  # dumbbell standing one arm curl (over incline bench)
+  - "0576"  # lever chest press
+  - "0656"  # push-up (on stability ball)
+  - "1371"  # barbell seated calf raise
+  - "1394"  # smith reverse calf raises
+  - "1628"  # ez barbell spider curl
+  - "1731"  # dumbbell close grip press
+  - "1766"  # self assisted inverse leg curl
+  - "2800"  # barbell sitted alternate leg raise (female)
+  - "2801"  # twisted leg raise (female)
+
+# The finished name, for a mis-encoded degree sign, a stray suffix or an unbracketed `male`.
+rename:
+  "0738": Sled 45° Calf Press  # sled 45в° calf press
+  "0739": Sled 45° Leg Press  # sled 45в° leg press
+  "0740": Sled 45° Leg Wide Press  # sled 45в° leg wide press
+  "1464": Sled 45° Leg Press (Back POV)  # sled 45в° leg press (back pov)
+  "0377": Dumbbell Rear Delt Row  # dumbbell rear delt row_shoulder
+  "1759": Single Leg Squat (Pistol)  # single leg squat (pistol) male
+
+# Where the equipment gives the wrong default. Held stretches, planks, isometrics and cardio
+# machines are timed; runs and carries go a distance. Only a default: a set records its own.
+measure:
+  "0128": time  # battling ropes
+  "0257": time  # circles knee stretch
+  "0613": time  # lying (side) quads stretch
+  "0643": time  # overhead triceps stretch
+  "0669": time  # rear deltoid stretch
+  "0690": time  # seated lower back stretch
+  "0716": time  # side push neck stretch
+  "0721": time  # side wrist pull stretch
+  "0794": time  # standing lateral stretch
+  "0798": time  # stationary bike walk
+  "0817": time  # triceps stretch
+  "1259": time  # behind head chest stretch
+  "1271": time  # chest and front of shoulder stretch
+  "1272": time  # chest stretch with exercise ball
+  "1297": time  # isometric chest squeeze
+  "1339": time  # exercise ball lat stretch
+  "1341": time  # exercise ball lower back stretch (pyramid)
+  "1342": time  # exercise ball lying side lat stretch
+  "1346": time  # kneeling lat stretch
+  "1358": time  # side lying floor stretch
+  "1363": time  # spine stretch
+  "1365": time  # upper back stretch
+  "1377": time  # calf stretch with hands against wall
+  "1378": time  # calf stretch with rope
+  "1388": time  # peroneals stretch
+  "1389": time  # posterior tibialis stretch
+  "1390": time  # seated calf stretch (male)
+  "1398": time  # standing calves calf stretch
+  "1403": time  # neck side stretch
+  "1405": time  # back pec stretch
+  "1407": time  # calf push stretch with hands against wall
+  "1419": time  # iron cross stretch
+  "1424": time  # seated glute stretch
+  "1511": time  # hamstring stretch
+  "1512": time  # all fours squad stretch
+  "1548": time  # chair leg extended stretch
+  "1559": time  # exercise ball hip flexor stretch
+  "1560": time  # exercise ball seated hamstring stretch
+  "1564": time  # intermediate hip flexor and quad stretch
+  "1576": time  # leg up hamstring stretch
+  "1582": time  # reclining big toe pose with rope
+  "1585": time  # runners stretch
+  "1599": time  # standing hamstring and calf stretch with strap
+  "1604": time  # world greatest stretch
+  "1708": time  # assisted lying calves stretch
+  "1709": time  # assisted lying glutes stretch
+  "1710": time  # assisted lying gluteus and piriformis stretch
+  "1712": time  # assisted side lying adductor stretch
+  "1713": time  # assisted prone lying quads stretch
+  "1714": time  # assisted prone rectus femoris stretch
+  "1716": time  # assisted seated pectoralis major stretch with stability ball
+  "1745": time  # exercise ball seated triceps stretch
+  "2135": time  # weighted front plank
+  "2138": time  # stationary bike run v. 3
+  "2139": time  # hands bike
+  "2141": time  # walk elliptical cross trainer
+  "2142": time  # ski ergometer
+  "2202": time  # roller hip stretch
+  "2205": time  # roller hip lat stretch
+  "2207": time  # roller side lat stretch
+  "2208": time  # roller back stretch
+  "2311": time  # walking on stepmill
+  "2331": time  # cycle cross trainer
+  "2567": time  # seated piriformis stretch
+  "2612": time  # jump rope
+  "3419": time  # l-sit on floor
+  "3544": time  # bodyweight incline side plank
+  "3665": time  # power point plank
+  "3666": time  # walking on incline treadmill
+  "0684": distance  # run (equipment)
+  "0685": distance  # run
+  "2133": distance  # farmers walk
+  "3548": distance  # dumbbell single arm overhead carry
+  "3656": distance  # short stride run
+
+# Words plain title-casing gets wrong.
+words:
+  ez: EZ
+  jm: JM
+  sz: SZ
+  pov: POV
+  "v.": v.

@@ -1,6 +1,6 @@
 .PHONY: install css test test-fast test-ops test-unit test-integration coverage lint format format-check \
 	typecheck import-lint squawk uv-pins-check openapi openapi-check check up up-build start stop down logs ps \
-	health smoke-setup smoke-up smoke-down alloy-check cloud-init-check backup-check migrate purge-conversations llm-report latency-scenario evals e2e-install e2e worktree worktree-rm worktree-prune stack-owner
+	health smoke-setup smoke-up smoke-down alloy-check cloud-init-check backup-check migrate purge-conversations import-exercises llm-report latency-scenario evals e2e-install e2e worktree worktree-rm worktree-prune stack-owner
 
 # The checkout's own database (ADR-0035): the last path segment of DATABASE_URL in its .env,
 # read by compose.yaml, so `make start` in a ticket's worktree serves `ai_trainer_wt<n>`.
@@ -164,6 +164,9 @@ migrate: ## Apply database migrations (Alembic)
 
 purge-conversations: ## Delete conversations past CONVERSATION_RETENTION_DAYS and print how many (ADR-0021); needs the stack's database up
 	uv run ai-trainer purge-conversations
+
+import-exercises: ## Upsert the exercise catalogue from the pinned dataset commit and print the outcome (ADR-0031); needs the stack's database up
+	uv run ai-trainer import-exercises
 
 llm-report: ## Summarize the LLM debug log per template and model (#179); fails when there is no log. Usage: make llm-report [since=2026-10-18T20:00Z]
 	uv run ai-trainer llm-debug-report $(if $(since),--since $(since))
