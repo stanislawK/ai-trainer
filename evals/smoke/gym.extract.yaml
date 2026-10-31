@@ -1,0 +1,133 @@
+# Smoke set for gym.extract (ADR-0034), cut from the owner's first gym session. Messages are
+# verbatim, typos included. Exercise names are left open (`ignore_fields`): naming is code's job
+# from M1g (ADR-0031). Sides, implements and bands aren't in the draft yet (B38, B39), so those
+# cases grade only what the draft can hold today.
+name: gym.extract
+known_gaps:
+  'bench press: load, reps, then sets': '#373'
+cases:
+- name: 'pull ups: reps before sets'
+  inputs:
+    prompt: Gym 8 pull ups 3x
+    deps: &deps
+      message: Gym 8 pull ups 3x
+      history: []
+      today: '2026-10-28'
+      weekday: Wednesday
+      now_local: '2026-10-28T20:49:00+01:00'
+      timezone: Europe/Warsaw
+  metadata:
+    field: evals/field/gym/2026-10-28-first-gym-session.md
+    ignore_fields: [name]
+  expected_output:
+    occurred_on: '2026-10-28'
+    date_source: assumed_today
+    activities:
+    - name: pull ups
+      sets: 3
+      reps: 8
+      load: null
+      rir: null
+- name: 'bench press: load, reps, then sets'
+  inputs:
+    prompt: Bench press 45kg 8 x3
+    deps:
+      <<: *deps
+      message: Bench press 45kg 8 x3
+  metadata:
+    field: evals/field/gym/2026-10-28-first-gym-session.md
+    ignore_fields: [name]
+  expected_output:
+    occurred_on: '2026-10-28'
+    date_source: assumed_today
+    activities:
+    - name: Bench press
+      sets: 3
+      reps: 8
+      load:
+        original: 45kg
+        value: 45
+        unit: kg
+      rir: null
+- name: 'face pull: series means sets'
+  inputs:
+    prompt: Face pull 30kg 12reps 4 series
+    deps:
+      <<: *deps
+      message: Face pull 30kg 12reps 4 series
+  metadata:
+    field: evals/field/gym/2026-10-28-first-gym-session.md
+    ignore_fields: [name]
+  expected_output:
+    occurred_on: '2026-10-28'
+    date_source: assumed_today
+    activities:
+    - name: Face pull
+      sets: 4
+      reps: 12
+      load:
+        original: 30kg
+        value: 30
+        unit: kg
+      rir: null
+- name: 'rising straight arms: no reps given, none invented'
+  inputs:
+    prompt: 4 series two hantles 6kg each - rising straight arms on both sides
+    deps:
+      <<: *deps
+      message: 4 series two hantles 6kg each - rising straight arms on both sides
+  metadata:
+    field: evals/field/gym/2026-10-28-first-gym-session.md
+    ignore_fields: [name, load]
+  expected_output:
+    occurred_on: '2026-10-28'
+    date_source: assumed_today
+    activities:
+    - name: rising straight arms
+      sets: 4
+      reps: null
+      load: null
+      rir: null
+- name: 'triceps: long name, series and reps'
+  inputs:
+    prompt: Triceps - straightening arm bent to 90 degr 3 series 10 reps 14kg
+    deps:
+      <<: *deps
+      message: Triceps - straightening arm bent to 90 degr 3 series 10 reps 14kg
+  metadata:
+    field: evals/field/gym/2026-10-28-first-gym-session.md
+    ignore_fields: [name]
+  expected_output:
+    occurred_on: '2026-10-28'
+    date_source: assumed_today
+    activities:
+    - name: Triceps - straightening arm bent to 90 degr
+      sets: 3
+      reps: 10
+      load:
+        original: 14kg
+        value: 14
+        unit: kg
+      rir: null
+- name: 'anti rotations: a band is not a kg load'
+  inputs:
+    prompt: Anti rotations 12 reps each side - red bungee (elastic) tape
+    deps:
+      <<: *deps
+      message: Anti rotations 12 reps each side - red bungee (elastic) tape
+  metadata:
+    field: evals/field/gym/2026-10-28-first-gym-session.md
+    ignore_fields: [name]
+  expected_output:
+    occurred_on: '2026-10-28'
+    date_source: assumed_today
+    activities:
+    - name: Anti rotations
+      sets: null
+      reps: 12
+      load: null
+      rir: null
+evaluators:
+- DateMatch
+- ActivitiesMatch
+- QuestionMatch

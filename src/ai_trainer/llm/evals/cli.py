@@ -19,7 +19,7 @@ Actions job.
 import argparse
 import asyncio
 import sys
-from collections.abc import Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 
 from pydantic import BaseModel
@@ -30,6 +30,7 @@ from pydantic_ai.models.typesafe import TypeSafeModel
 from pydantic_ai.providers.openrouter import OpenRouterProvider
 from pydantic_ai.providers.typesafe import TypeSafeProvider
 from pydantic_evals.evaluators import Evaluator
+from pydantic_evals.evaluators.llm_as_a_judge import set_default_judge_model
 
 from ai_trainer.domain.llm_calls import ProviderPreferences, ReasoningEffort
 from ai_trainer.domain.sports.registry import SportRegistry, default_sport_registry
@@ -46,6 +47,14 @@ from ai_trainer.llm.evals.runner import (
     EvaluatorFailedError,
     JudgeModelMatchesModelUnderTestError,
     run_eval,
+)
+from ai_trainer.llm.evals.smoke import (
+    SmokeCaseResult,
+    SmokeError,
+    SmokeSet,
+    read_smoke_set,
+    run_smoke_set,
+    smoke_ids,
 )
 from ai_trainer.llm.extract import ActivitiesMatch, DateMatch, QuestionMatch
 from ai_trainer.llm.gateway import provider_config, reasoning_at
@@ -226,6 +235,13 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Writes the run's figures to the committed baseline, even on a regression",
     )
 
+    smoke_parser = subparsers.add_parser(
+        "smoke", help="Run a smoke set (evals/smoke/<id>.yaml) once per case (ADR-0034)"
+    )
+    smoke_parser.add_argument("smoke_id", nargs="?", default=None)
+    smoke_parser.add_argument("--all", action="store_true", help="Run every smoke set")
+    smoke_parser.add_argument("--model", default=None, help="Overrides the model under test")
+
     return parser
 
 
@@ -272,6 +288,82 @@ async def execute(
     return _report_outcome(
         args, baselines_root=baselines_root, changes=[], regressions=result.regressions
     )
+
+
+async def execute_smoke(
+    args: argparse.Namespace,
+    *,
+    smoke_root: Path,
+    registry: PromptRegistry,
+    versions: Mapping[str, int],
+    model_for: Callable[[str], tuple[Model, str]],
+    judge: Callable[[], tuple[Model, str]],
+) -> int:
+    """Runs one smoke set, or all of them, once per case (ADR-0034). Every set is read and
+    checked first; `model_for` and `judge` are called only after that, so a typo or a bad set
+    makes no model call. A test injects scripted models through them."""
+    ids = smoke_ids(smoke_root) if args.all else [args.smoke_id]
+    if not ids:
+        print(f"No smoke sets in {smoke_root}", file=sys.stderr)
+        return 1
+    try:
+        sets = [read_smoke_set(i, smoke_root=smoke_root, known_templates=versions) for i in ids]
+        # Models are built, never called, and the judge is checked before the first call, so a
+        # clash can't surface after earlier sets have already cost money.
+        planned = [(smoke_set, *model_for(smoke_set.template_id)) for smoke_set in sets]
+        judged = [model_id for smoke_set, _, model_id in planned if smoke_set.has_judge]
+        if judged:
+            judge_model, judge_model_id = judge()
+            if judge_model_id in judged:
+                raise SmokeError(str(JudgeModelMatchesModelUnderTestError(judge_model_id)))
+            set_default_judge_model(judge_model)
+        failures = 0
+        for smoke_set, model, model_id in planned:
+            failures += await _run_one_smoke_set(
+                smoke_set,
+                registry=registry,
+                version=versions[smoke_set.template_id],
+                model=model,
+                model_id=model_id,
+            )
+    except SmokeError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    print(f"{len(sets)} smoke set(s), {failures} failing case(s)")
+    return 1 if failures else 0
+
+
+async def _run_one_smoke_set(
+    smoke_set: SmokeSet,
+    *,
+    registry: PromptRegistry,
+    version: int,
+    model: Model,
+    model_id: str,
+) -> int:
+    """Prints a set's cases and returns how many failed outside `known_gaps`."""
+    _print_header(smoke_set.id, version, model_id)
+    results = await run_smoke_set(
+        smoke_set,
+        registry=registry,
+        version=version,
+        model=model,
+        model_id=model_id,
+        evaluator_types=_evaluators_for(smoke_set.template_id),
+        expected_output_types=_expected_output_types(smoke_set.template_id),
+    )
+    for result in results:
+        print(_smoke_line(result), flush=True)
+    return sum(result.counts_as_failure for result in results)
+
+
+def _smoke_line(result: SmokeCaseResult) -> str:
+    if result.gap is not None:
+        label = "FIXED?" if result.passed else "KNOWN GAP"
+        return f"{label} {result.gap} {result.name}"
+    if result.passed:
+        return f"PASS {result.name}"
+    return f"FAIL {result.name}: {result.detail}"
 
 
 def _print_header(item_id: str, version: int, model_id: str) -> None:
@@ -415,9 +507,52 @@ def _model_under_test(
     return OpenRouterModel(model_id, provider=provider, settings=model_settings or None)
 
 
+def _main_smoke(args: argparse.Namespace, settings: Settings) -> int:
+    registry = _default_registry()
+    provider: OpenRouterProvider | None = None
+
+    def openrouter() -> OpenRouterProvider:
+        nonlocal provider
+        if provider is None:
+            api_key = _api_key(settings)
+            if api_key is None:
+                raise SmokeError("No OpenRouter key; nothing was run")
+            provider = OpenRouterProvider(api_key=api_key)
+        return provider
+
+    versions = _active_versions(default_sport_registry())
+
+    def model_for(template_id: str) -> tuple[Model, str]:
+        template = registry.get(template_id, versions[template_id])
+        model = _model_under_test(
+            template, settings, model_override=args.model, provider=openrouter()
+        )
+        return model, model.model_name
+
+    def judge() -> tuple[Model, str]:
+        judge_model = _judge_model(settings.eval_judge_model, provider=openrouter())
+        return judge_model, judge_model.model_name
+
+    return asyncio.run(
+        execute_smoke(
+            args,
+            smoke_root=_EVALS_ROOT / "smoke",
+            registry=registry,
+            versions=versions,
+            model_for=model_for,
+            judge=judge,
+        )
+    )
+
+
 def main(argv: Sequence[str] | None = None) -> int:
-    args = _build_parser().parse_args(argv)
+    parser = _build_parser()
+    args = parser.parse_args(argv)
+    if args.command == "smoke" and args.all == (args.smoke_id is not None):
+        parser.error("smoke takes one set ID, or --all")
     settings = Settings()
+    if args.command == "smoke":
+        return _main_smoke(args, settings)
     registry = _default_registry()
     loader = DecisionSetLoader(root=_DECISIONS_ROOT)
     template_versions = registry.versions(args.template_id)
