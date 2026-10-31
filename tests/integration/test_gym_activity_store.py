@@ -16,7 +16,9 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ai_trainer.adapters.gym_backfill import SqlAlchemyGymBackfillStore
 from ai_trainer.adapters.training_session_repository import SqlAlchemyTrainingSessionRepository
+from ai_trainer.application.gym_backfill import backfill_gym_sessions
 from ai_trainer.domain.sports.base import extend_payload, withdraw_payload
 from ai_trainer.domain.sports.climbing.payload import ClimbingPayload
 from ai_trainer.domain.sports.cycling.payload import CyclingPayload
@@ -329,6 +331,45 @@ async def test_undoing_the_last_gym_log_removes_the_session_and_its_rows(
 
     assert await _session(db_session_factory, first.session_id) is None
     assert await _gym_row_count(db_session_factory, athlete.user_id) == (0, 0)
+
+
+async def test_undo_of_a_log_added_before_the_backfill_removes_only_its_entries_latest_first(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    """ADR-0032: a backfilled row has no source, so the undo takes the log's activities out by
+    name as typed, the latest match first, as `withdraw_payload` does; the other logs' stay."""
+    athlete = await _athlete(db_session_factory, "gym-backfilled-undo")
+    first = await _logged(
+        athlete,
+        "Squat 100kg 5x5, dips 3x10",
+        _gym(_lift("Squat", 5, 5, "100kg", 100), {"name": "Dips", "sets": 3, "reps": 10}),
+    )
+    added = await _logged(
+        athlete,
+        "and dips 3x10 again",
+        _gym({"name": "Dips", "sets": 3, "reps": 10}),
+        at=_LATER,
+        extends=first.session_id,
+    )
+    await _from_before_the_tables(db_session_factory, first, added)
+    await backfill_gym_sessions(store=SqlAlchemyGymBackfillStore(db_session_factory))
+
+    await athlete.drafts.undo(athlete.user_id, added.id, undone_at=_LATER)
+
+    async with db_session_factory() as db:
+        rows = await db.execute(
+            text(
+                "SELECT position, name_as_typed, source_id FROM gym_exercise_entries"
+                " WHERE session_id = :id ORDER BY position"
+            ),
+            {"id": first.session_id},
+        )
+        assert [tuple(row) for row in rows.all()] == [(1, "Squat", None), (2, "Dips", None)]
+    assert await _gym_row_count(db_session_factory, athlete.user_id) == (2, 8)
+    assert [
+        activity["name"]
+        for activity in (await _session(db_session_factory, first.session_id)).payload["activities"]
+    ] == ["Squat", "Dips"]
 
 
 # --- AC: climbing and cycling as before ----------------------------------------------------

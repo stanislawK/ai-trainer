@@ -3,6 +3,7 @@
     uv run ai-trainer purge-conversations
     uv run ai-trainer llm-debug-report [--since <ISO time>]
     uv run ai-trainer import-exercises
+    uv run ai-trainer backfill-gym-sessions
 
 `purge-conversations` hard-deletes every conversation last active more than
 `CONVERSATION_RETENTION_DAYS` ago, across users, with its messages by cascade. It prints the
@@ -20,6 +21,13 @@ UTC, like every stored time (ADR-0014).
 athlete's custom exercises or aliases. It prints one line, `import-exercises: result=ok ...` or
 `import-exercises: result=failed reason=<download|catalogue> ...`, the second with exit code 1 and
 no row changed.
+
+`backfill-gym-sessions` writes the entries and sets of gym sessions logged before the typed tables
+from their v1 payload, with `exercise_id` and `source_id` NULL (ADR-0032, #377). It only inserts,
+so every payload stays as stored, and a second run writes nothing. It prints one
+`backfill-gym-sessions: skipped session=<id> reason=<reason>` line for each session that won't
+read or write, never its content, then `backfill-gym-sessions: result=ok ...` (or
+`result=skipped` with exit code 1 when any was skipped); the others still run.
 """
 
 import argparse
@@ -36,13 +44,16 @@ from ai_trainer.adapters.conversation_repository import SqlAlchemyConversationRe
 from ai_trainer.adapters.db import build_engine, build_session_factory
 from ai_trainer.adapters.exercise_repository import SqlAlchemyExerciseRepository
 from ai_trainer.adapters.exercises_dataset import PinnedDatasetCatalogueSource
+from ai_trainer.adapters.gym_backfill import SqlAlchemyGymBackfillStore
 from ai_trainer.application.exercise_catalogue import import_catalogue
+from ai_trainer.application.gym_backfill import backfill_gym_sessions as run_gym_backfill
 from ai_trainer.application.ports.chat import ConversationRepositoryPort
 from ai_trainer.application.ports.clock import ClockPort
 from ai_trainer.application.ports.exercises import (
     ExerciseCatalogueSourcePort,
     ExerciseRepositoryPort,
 )
+from ai_trainer.application.ports.gym_backfill import GymBackfillPort
 from ai_trainer.application.retention import purge_expired_conversations
 from ai_trainer.domain.exercises import ExerciseCatalogueError, ExerciseDatasetError
 from ai_trainer.llm.debug_report import report
@@ -51,6 +62,7 @@ from ai_trainer.settings import Settings
 PURGE_CONVERSATIONS = "purge-conversations"
 LLM_DEBUG_REPORT = "llm-debug-report"
 IMPORT_EXERCISES = "import-exercises"
+BACKFILL_GYM_SESSIONS = "backfill-gym-sessions"
 
 
 def _aware_time(value: str) -> datetime:
@@ -80,6 +92,10 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     commands.add_parser(
         IMPORT_EXERCISES,
         help="Upsert the exercise catalogue from the pinned dataset commit and print the outcome.",
+    )
+    commands.add_parser(
+        BACKFILL_GYM_SESSIONS,
+        help="Write gym sessions logged before the typed tables into them; payloads stay put.",
     )
     return parser.parse_args(argv)
 
@@ -117,6 +133,20 @@ async def import_exercises(
     return 0
 
 
+async def backfill_gym_sessions(*, store: GymBackfillPort, output: TextIO) -> int:
+    report = await run_gym_backfill(store=store)
+    for skip in report.skipped:
+        output.write(
+            f"{BACKFILL_GYM_SESSIONS}: skipped session={skip.session_id} reason={skip.reason}\n"
+        )
+    result = "skipped" if report.skipped else "ok"
+    output.write(
+        f"{BACKFILL_GYM_SESSIONS}: result={result} sessions={report.sessions} "
+        f"entries={report.entries} sets={report.sets} skipped={len(report.skipped)}\n"
+    )
+    return 1 if report.skipped else 0
+
+
 def _import_failed(reason: str, error: Exception, output: TextIO) -> int:
     detail = " ".join(str(error).split())
     output.write(f"import-exercises: result=failed reason={reason} detail={detail}\n")
@@ -146,6 +176,10 @@ async def run(
                 ),
                 exercises=SqlAlchemyExerciseRepository(build_session_factory(engine)),
                 output=output,
+            )
+        if args.command == BACKFILL_GYM_SESSIONS:
+            return await backfill_gym_sessions(
+                store=SqlAlchemyGymBackfillStore(build_session_factory(engine)), output=output
             )
         clock = UtcClock()
         await purge_conversations(
