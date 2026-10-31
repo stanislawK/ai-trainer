@@ -19,7 +19,7 @@ Docs outrank chat. If a request contradicts an Accepted ADR or the Approved PRD,
 ## How work happens
 
 - Tickets are GitHub Issues in `stanislawK/ai-trainer`. Create them with `/create-tickets <scope>`; implement one with `/apply-ticket <issue#>`.
-- One ticket per worktree (ADR-0035): `make worktree issue=<n>` creates `../ai-trainer-<n>` with its own database and opens it in a new VS Code window. Pick the model from the ticket's `model:` label there, then run `/apply-ticket <n>`. Tickets run in parallel, one window each; one ticket is never split across agents.
+- One ticket per worktree, one Claude tab per ticket, all in the main VS Code window (ADR-0035, #366). Open a tab, pick the model from the ticket's `model:` label, run `/apply-ticket <n>`. The agent creates `../ai-trainer-<n>` with its own database (`make worktree`) and enters it (`EnterWorktree`). After the owner replies "merged" it leaves and runs `make worktree-prune`. Tickets run in parallel, one tab each; one ticket is never split across agents.
 - Gates (ADR-0001 as amended by ADR-0035):
   - **Plan.** The plan is posted on the issue and checked by the `plan-critic` agent. A human plan gate is added for `risk:high`, a doc conflict, a migration contract step, or a second failed check. No product code before it passes.
   - **Acceptance.** UI tickets only: a human tries the change on `make start` served from the ticket's worktree, following the agent's step-by-step script and opening any screenshots under `.acceptance/<issue#>/`, before the PR opens. Other tickets list their commands and output in the PR.
@@ -65,7 +65,7 @@ Locked by the ADRs cited below; `docs/adr/README.md` carries each ADR's current 
 - A sport owns its activity tables (`gym_exercise_entries`, `gym_sets`, `athlete_bands`), written on confirm through the plugin's `ActivityStore`; drafts stay JSONB — ADR-0032 (Proposed)
 - Knowledge uploaded by admins at `/admin/knowledge` to a private R2 bucket behind `ObjectStoragePort`, ingested in-process; multilingual embeddings; hybrid `search_knowledge` with reciprocal rank fusion — ADR-0033 (Proposed)
 - Lean evals: per-change smoke sets from `evals/field/` transcripts, code-graded and run once; full runs on demand; safety always judged; content-free `feedback_events` — ADR-0034 (Proposed)
-- Parallel agent delivery: `model:`/`risk:` labels per ticket, a checklist plan critic (human plan gate only for `risk:high`), the acceptance gate for UI tickets only, draft PRs as the review gate, one worktree and database per ticket in its own VS Code window — ADR-0035
+- Parallel agent delivery: `model:`/`risk:` labels per ticket, a checklist plan critic (human plan gate only for `risk:high`), the acceptance gate for UI tickets only, draft PRs as the review gate, one worktree and database per ticket, run from its own Claude tab in the main window — ADR-0035
 
 ## Commands (available once M0 lands)
 
@@ -79,8 +79,10 @@ make squawk                      # squawk on the SQL of migration revisions new 
 uv run python scripts/generate_openapi.py   # regenerate docs/api/openapi.json (never hand-edit it)
 docker compose up -d             # app + postgres
 make start                       # dev loop: app + postgres with uvicorn --reload and a live Tailwind CSS rebuild over src/ (foreground)
-make worktree issue=<n>          # ticket <n> in ../ai-trainer-<n> on <area>/<n>-<slug> with its own migrated database ai_trainer_wt<n>, opened in VS Code (ADR-0035)
+make worktree issue=<n>          # ticket <n> in ../ai-trainer-<n> on <area>/<n>-<slug> with its own migrated database ai_trainer_wt<n>; prints the path for EnterWorktree (ADR-0035)
 make worktree-rm issue=<n>       # remove that worktree and drop its database; refuses on uncommitted changes, keeps the branch
+make worktree-prune              # remove every ticket worktree whose PR is merged, with its database and branch (#366)
+make stack-owner                 # which checkout `make start` serves: none, self, or other <path> (exit 3)
 make cloud-init-check             # validate deploy/cloud-init.yaml with Debian 13's cloud-init (deploy/RUNBOOK.md provisions the host; owner only)
 make alloy-check                 # alloy fmt --test + validate on deploy/alloy/config.alloy with the pinned image; config=<file> checks another (ADR-0030)
 make backup-check                # round-trip deploy/backup.sh and the restore drill against the `make start` database with a throwaway age key (ADR-0023, #223, #224)

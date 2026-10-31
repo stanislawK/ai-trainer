@@ -86,7 +86,7 @@ Run `make` targets from the repo root; see the [Makefile](Makefile) for the comp
 | `make e2e` | Run the pytest-playwright specs in `tests/e2e/` (needs `make up` first) |
 | `make coverage` | Line coverage on `src/ai_trainer` |
 | `make migrate` | Apply database migrations (Alembic) |
-| `make worktree issue=<n>` / `make worktree-rm issue=<n>` | Start a ticket in its own checkout and database, or remove them — see [One ticket per worktree](#one-ticket-per-worktree) |
+| `make worktree issue=<n>` / `make worktree-rm issue=<n>` / `make worktree-prune` / `make stack-owner` | Start a ticket in its own checkout and database, remove them, remove every merged one, or see which checkout `make start` serves — see [One ticket per worktree](#one-ticket-per-worktree) |
 | `make lint` / `make format` / `make typecheck` | ruff / ruff format / mypy --strict |
 | `make import-lint` | Check layer boundaries (import-linter, ADR-0003) |
 | `make squawk` | Lint the SQL of migration revisions new since `origin/main` with squawk (ADR-0024); `base=<ref>` overrides the base |
@@ -129,18 +129,27 @@ It's foreground on purpose (`docker compose watch` can't run detached), so use a
 
 ### One ticket per worktree
 
-Tickets run in parallel, each in its own checkout and database (ADR-0035). With Postgres up (`make start` or `make up`), from either checkout:
+Tickets run in parallel, each in its own checkout and database, and each from its own Claude tab in the main VS Code window (ADR-0035, #366). Open a tab, pick the model from the ticket's `model:` label, and run `/apply-ticket <n>`. The agent creates the worktree and works inside it. Once the PR is merged, reply "merged" and it cleans up. The commands it runs, from either checkout, with Postgres up (`make start`, `make up` or `docker compose up -d db`):
 
 ```bash
-make worktree issue=351      # ../ai-trainer-351 on infra/351-<slug>, database ai_trainer_wt351 at head, opened in VS Code
+make worktree issue=351      # ../ai-trainer-351 on infra/351-<slug>, database ai_trainer_wt351 at head; prints the path
 make worktree-rm issue=351   # removes ../ai-trainer-351 and drops ai_trainer_wt351; the branch stays
+make worktree-prune          # removes every ../ai-trainer-<n> whose PR is merged, with its database and branch
+make stack-owner             # which checkout `make start` serves: none, self, or other <path> (exit 3)
 ```
 
-- `make worktree` branches from `origin/main` as `<area>/<n>-<slug>` (the issue's `area:` label; the title without its prefix and without a, an, the, at most five words, so `sign-in` stays one word), copies `.env` with only `DATABASE_URL`'s database changed, creates and migrates `ai_trainer_wt<n>`, runs `uv sync`, then `code ../ai-trainer-<n>`. It reads the issue with `gh`, so `gh` needs access to the repo (prefix `GH_TOKEN=…` if your active account has none).
+- `make worktree` branches from `origin/main` as `<area>/<n>-<slug>` (the issue's `area:` label; the title without its prefix and without a, an, the, at most five words, so `sign-in` stays one word), copies `.env` with only `DATABASE_URL`'s database changed, creates and migrates `ai_trainer_wt<n>`, runs `uv sync`, and prints the path. The tab then moves into it with `EnterWorktree`; no new VS Code window opens. It reads the issue with `gh`, so `gh` needs access to the repo (prefix `GH_TOKEN=…` if your active account has none).
 - It checks everything first: a missing `.env`, an existing folder (or one git still lists as a worktree), branch (local or on origin) or database, an unreachable Postgres or an issue without an `area:` label exits 1 with the reason and creates nothing. A step that fails later undoes the earlier ones.
 - `make worktree-rm` refuses while the worktree has uncommitted changes, and then keeps the database too.
+- `make worktree-prune` lists the PRs with one `gh` call. It removes a ticket worktree, its database and its branch only when all of these hold:
+  - its PR is merged;
+  - the branch tip is still the merged head;
+  - nothing is uncommitted;
+  - `make start` isn't serving it.
+
+  Otherwise it prints why the worktree was kept. It exits 1 only on an error: `gh` or Postgres unreachable, which it checks before touching git. `/apply-ticket` runs it before starting a ticket and after you reply "merged".
 - Tests follow the checkout's `.env`, so `uv run pytest` runs in a worktree and the main checkout at the same time without sharing a database.
-- One `make start` serves one checkout at a time on :8000: `compose.yaml` pins the project name to `ai-trainer`, and the Makefile exports `APP_DB_NAME` (the database in the checkout's `.env`) for the `app` and `migrate` services. Stop it in one window before starting it in another. Google sign-in accepts only `http://localhost:8000/auth/callback`, so there is no second port.
+- One `make start` serves one checkout at a time on :8000: `compose.yaml` pins the project name to `ai-trainer`, and the Makefile exports `APP_DB_NAME` (the database in the checkout's `.env`) for the `app` and `migrate` services. For a UI ticket's acceptance gate the agent starts it in the background from the ticket's worktree. It asks first when `make stack-owner` says another checkout's stack is up, and stops it after the gate. Google sign-in accepts only `http://localhost:8000/auth/callback`, so there is no second port.
 
 **Metrics and traces on `make start`.** Start a local [`grafana/otel-lgtm`](https://github.com/grafana/docker-otel-lgtm) (the `docker run` line under [Production smoke run](#production-smoke-run)), then set `OTEL_ENABLED=true` and `OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4318` in `.env` and restart `make start`. The app exports its metrics once a minute (ADR-0030). At http://localhost:3000 → Explore → **Prometheus**:
 - `sum by (template_id) (ai_trainer_llm_call_duration_seconds_count)` counts model calls by template.
