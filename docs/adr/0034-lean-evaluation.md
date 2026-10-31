@@ -76,6 +76,7 @@ There is no eval-first ordering, no separate comparison gate and no baseline pro
   - `draft_edited.fields` holds the names of the fields the edit changed (`reps`, `rpe`), found by comparing the draft before and after, never from typed text. A payload field is named by its key, one list level deep, so a gym row's `reps` is `reps`. An edit that changes nothing writes no row.
   - `draft_discarded` and `session_undone` write one row on the transition only, so a repeated request writes none. Their `template_id` and `template_version` are the draft's own ([ADR-0022](0022-training-session-schema.md)), NULL for a draft made before drafts kept them.
   - `choice_answered.fields` is the question's purpose (`sport`, `reading`, `same_session`), never the option picked. Its template is the extraction the answer produced, or the draft's own for a same-session answer.
+  - Field names are schema field names. A sport's payload must not use athlete-typed text as a key, or `fields` would carry it.
   - Recording is best effort: a failed write is logged by its error type and never fails the athlete's action.
   - `feedback-report` reads every user's rows without who made them. The `kind` check admits `decision_overridden` now so adding it later is no contract step; nothing writes it until the Jev pick.
 - G6 in PRD 0010 is reworded to match. The "eval dataset and committed baseline per capability" acceptance criterion becomes a smoke set per capability.

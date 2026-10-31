@@ -15,6 +15,8 @@ class FeedbackKind(StrEnum):
     DRAFT_DISCARDED = "draft_discarded"
     SESSION_UNDONE = "session_undone"
     CHOICE_ANSWERED = "choice_answered"
+    # Nothing writes it until the Jev pick (ADR-0034); the table's check admits it already.
+    DECISION_OVERRIDDEN = "decision_overridden"
 
 
 class NewFeedbackEvent(BaseModel):

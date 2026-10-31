@@ -84,6 +84,20 @@ async def test_an_event_with_no_fields_and_no_template_reads_back_empty(
     assert (read.template_id, read.template_version, tuple(read.fields)) == (None, None, ())
 
 
+async def test_a_decision_overridden_row_reads_back_so_the_report_never_crashes(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    user_id = await _user(db_session_factory)
+    repository = SqlAlchemyFeedbackEventsRepository(db_session_factory)
+    await repository.record(_event(user_id, kind=FeedbackKind.DECISION_OVERRIDDEN, fields=[]))
+
+    [read] = await repository.list_for_user(user_id)
+    signals = await repository.signals()
+
+    assert read.kind is FeedbackKind.DECISION_OVERRIDDEN
+    assert FeedbackKind.DECISION_OVERRIDDEN in {signal.kind for signal in signals}
+
+
 async def test_another_users_events_are_never_read(
     db_session_factory: Callable[[], AsyncSession],
 ) -> None:

@@ -332,6 +332,18 @@ async def test_another_users_question_is_not_found_and_not_answered() -> None:
     assert (await setup.clarifications.get(setup.user_id, question.id)).status == "open"
 
 
+async def test_a_failed_extraction_records_no_choice_answered() -> None:
+    setup = _Setup(conversation=ScriptedConversation(extract_outcomes=[LlmCallOutcome.TIMEOUT]))
+    _, question = await _open_question(setup)
+
+    for _ in range(2):
+        await answer_clarification(
+            setup.user_id, question.id, ["gym"], timezone="Europe/Warsaw", services=setup.services
+        )
+
+    assert setup.events.events == []
+
+
 async def test_a_failed_extraction_leaves_the_question_open_to_tap_again() -> None:
     setup = _Setup(conversation=ScriptedConversation(extract_outcomes=[LlmCallOutcome.TIMEOUT]))
     _, question = await _open_question(setup)
