@@ -214,7 +214,7 @@ async def test_stream_chitchat_streams_the_chitchat_template_through_the_gateway
     [call] = gateway.streams
     assert (call["template_id"], call["template_version"], call["model_id"]) == (
         "chitchat",
-        1,
+        2,
         "test/chitchat-model",
     )
     deps = build_chitchat_deps(
@@ -227,7 +227,7 @@ async def test_stream_chitchat_streams_the_chitchat_template_through_the_gateway
         history_turns=10,
     )
     expected = build_prompt_registry(_PROMPTS_ROOT, default_sport_registry()).render_instructions(
-        "chitchat", 1, deps
+        "chitchat", 2, deps
     )
     assert call["instructions"] == expected
     assert "01:30" in call["instructions"]
@@ -237,7 +237,7 @@ async def test_stream_chitchat_streams_the_chitchat_template_through_the_gateway
 def test_chitchat_template_names_the_template_that_streams() -> None:
     conversation = _conversation(RecordingGateway())
 
-    assert conversation.chitchat_template == TemplateRef(id="chitchat", version=1)
+    assert conversation.chitchat_template == TemplateRef(id="chitchat", version=2)
 
 
 def test_not_yet_is_read_from_its_file_with_no_model_call() -> None:

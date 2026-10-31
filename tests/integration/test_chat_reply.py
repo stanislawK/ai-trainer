@@ -491,7 +491,7 @@ async def test_my_knee_hurts_also_hi_puts_the_pain_first_in_one_chitchat_call(
     [body], _ = await _send_and_stream(db_session_factory, user, "my knee hurts, also hi", chitchat)
 
     [instructions] = chitchat.instructions
-    assert "Pain or feeling unwell comes first" in instructions
+    assert "Pain or feeling unwell opens the reply" in instructions
     assert "my knee hurts, also hi" in instructions
     assert body.index("Sorry about the knee.") < body.index("Hi!")
 
@@ -638,7 +638,7 @@ async def test_a_greeting_with_pain_the_router_missed_is_screened_and_gets_the_p
 
     assert jev.states == ["knee's a bit sore lol, anyway hi"]
     [instructions] = chitchat.instructions
-    assert "Pain or feeling unwell comes first" in instructions
+    assert "Pain or feeling unwell opens the reply" in instructions
     assert body.index("Sorry about the knee.") < body.index("Hi!")
 
 

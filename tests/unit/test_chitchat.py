@@ -56,22 +56,22 @@ async def _rendered_instructions(deps: ChitchatDeps) -> str:
         seen.append(str(messages[0].instructions))  # type: ignore[union-attr]
         return ModelResponse(parts=[TextPart("Hey! Good to hear from you.")])
 
-    agent = _registry().build_agent(CHITCHAT_TEMPLATE_ID, 1)
+    agent = _registry().build_agent(CHITCHAT_TEMPLATE_ID, chitchat_template().version)
     await agent.run(deps.message, deps=deps, model=FunctionModel(respond))
     return seen[0]
 
 
-def test_the_chitchat_template_is_v1_with_text_output_and_its_own_model_setting() -> None:
+def test_the_chitchat_template_is_on_v2_with_text_output_and_its_own_model_setting() -> None:
     template = chitchat_template()
 
-    assert (template.id, template.version, template.locale) == ("chitchat", 1, "en")
+    assert (template.id, template.version, template.locale) == ("chitchat", 2, "en")
     assert template.deps_type is ChitchatDeps
     assert template.output_type is str
     assert template.model_settings_key == "chitchat_model"
 
 
 async def test_the_agent_replies_with_plain_text() -> None:
-    agent = _registry().build_agent(CHITCHAT_TEMPLATE_ID, 1)
+    agent = _registry().build_agent(CHITCHAT_TEMPLATE_ID, chitchat_template().version)
 
     def respond(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
         return ModelResponse(parts=[TextPart("Hey! Good to hear from you.")])
@@ -121,11 +121,12 @@ async def test_an_athlete_with_no_sports_or_goals_still_renders() -> None:
 def test_a_typo_in_the_real_chitchat_template_fails_the_build(tmp_path: Path) -> None:
     root = tmp_path / "prompts"
     shutil.copytree(_PROMPTS_ROOT, root)
-    body = root / CHITCHAT_TEMPLATE_ID / "v1.en.md"
+    version = chitchat_template().version
+    body = root / CHITCHAT_TEMPLATE_ID / f"v{version}.en.md"
     body.write_text(body.read_text().replace("{{message}}", "{{mesage}}"))
 
     with pytest.raises(PromptTemplateVariableError):
-        _registry(root).build_agent(CHITCHAT_TEMPLATE_ID, 1)
+        _registry(root).build_agent(CHITCHAT_TEMPLATE_ID, version)
 
 
 def test_build_chitchat_deps_resolves_today_and_now_local_in_the_user_timezone() -> None:

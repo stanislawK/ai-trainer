@@ -422,7 +422,7 @@ def test_router_evals_use_the_router_evaluators() -> None:
 
 
 def test_default_registry_registers_the_chitchat_template() -> None:
-    template = cli_module._default_registry().get("chitchat", 1)
+    template = cli_module._default_registry().get("chitchat", 2)
 
     assert template.model_settings_key == "chitchat_model"
     assert template.output_type is str
