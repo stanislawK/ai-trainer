@@ -157,7 +157,7 @@ async def test_5x5_squat_then_3_sets_of_pull_ups_ends_with_a_gym_card_of_both() 
     assert _text(squat) == f"Squat 5 {_TIMES} 5 · 100 kg"
     assert _text(pull_ups) == "Pull-ups 3 sets"
     (stored,) = drafts.all_of(user_id)
-    assert (stored.sport_id, stored.payload_version) == ("gym", 1)
+    assert (stored.sport_id, stored.payload_version) == ("gym", 2)
 
 
 async def test_bench_yesterday_is_a_card_dated_yesterday() -> None:
@@ -187,8 +187,8 @@ async def test_a_load_in_lb_shows_kg_and_what_was_typed() -> None:
     [
         ({"name": "plank"}, "Plank"),
         ({"name": "dips", "reps": 12}, "Dips 12 reps"),
-        ({"name": "row", "sets": 1, "reps": 1}, f"Row 1 {_TIMES} 1"),
-        ({"name": "curl", "sets": 1}, "Curl 1 set"),
+        ({"name": "row", "sets": 1, "reps": 1}, "Row 1 rep"),
+        ({"name": "curl", "sets": 1}, "Curl"),
         ({"name": "RDL", "load": {"original": "80 kg", "value": 80, "unit": "kg"}}, "RDL 80 kg"),
     ],
 )
@@ -302,11 +302,11 @@ async def test_saving_an_untouched_load_keeps_the_lb_as_typed() -> None:
 
     assert response.status_code == 200
     (stored,) = drafts.all_of(user_id)
+    payload = DEADLIFT_IN_LB.to_payload().model_dump(mode="json")
+    deadlift = payload["activities"][0]
     assert stored.draft.payload == {
-        **DEADLIFT_IN_LB.to_payload().model_dump(mode="json"),
-        "activities": [
-            {**DEADLIFT_IN_LB.to_payload().activities[0].model_dump(mode="json"), "sets": 4}
-        ],
+        **payload,
+        "activities": [{**deadlift, "sets": [deadlift["sets"][0]] * 4}],
     }
     assert f"Deadlift 4 {_TIMES} 5 · 142.9 kg" in _text(_card(response.text))
 
@@ -328,3 +328,34 @@ async def test_a_rejected_load_comes_back_marked_and_writes_nothing() -> None:
     )
     (stored,) = drafts.all_of(user_id)
     assert stored.draft == draft.draft
+
+
+async def test_a_v1_draft_still_shows_its_card_and_its_edit_form() -> None:
+    client, user_id, chat, drafts = _client()
+    draft = await _draft(chat, drafts, user_id, DEADLIFT_IN_LB)
+    (stored,) = drafts.all_of(user_id)
+    stored.draft.payload.clear()
+    stored.draft.payload.update(
+        {
+            "sport": "gym",
+            "activities": [
+                {
+                    "name": "deadlift",
+                    "sets": 3,
+                    "reps": 5,
+                    "load": {"original": "315 lb", "value": 315, "unit": "lb", "kg": 142.88},
+                    "rir": 2,
+                }
+            ],
+        }
+    )
+
+    form = client.get(f"/drafts/{draft.id}/edit", headers=_HTMX).text
+
+    for name, value in (
+        ("activities.0.name", "deadlift"),
+        ("activities.0.sets", "3"),
+        ("activities.0.reps", "5"),
+        ("activities.0.load", "142.88"),
+    ):
+        assert re.search(rf'<input[^>]*name="{re.escape(name)}"[^>]*value="{value}"', form), name

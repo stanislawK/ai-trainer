@@ -1,7 +1,8 @@
 # Smoke set for gym.extract (ADR-0034), cut from the owner's first gym session. Messages are
 # verbatim, typos included. Exercise names are left open (`ignore_fields`): naming is code's job
-# from M1g (ADR-0031). Sides, implements and bands aren't in the draft yet (B38, B39), so those
-# cases grade only what the draft can hold today.
+# from M1g (ADR-0031). The plank, the red band rows and the two together are synthetic, from the
+# gaps #395 reports (`metadata.reported`): the first session held no time and no "red band"
+# wording. Those cases grade the name too, as a band's words must stay out of it.
 name: gym.extract
 cases:
 - name: 'pull ups: reps before sets'
@@ -76,7 +77,8 @@ cases:
       message: 4 series two hantles 6kg each - rising straight arms on both sides
   metadata:
     field: evals/field/gym/2026-10-28-first-gym-session.md
-    ignore_fields: [name]
+    # "On both sides" with two dumbbells doesn't say whether a count is per side.
+    ignore_fields: [name, per_side]
   expected_output:
     occurred_on: '2026-10-28'
     date_source: assumed_today
@@ -88,6 +90,7 @@ cases:
         original: 6kg
         value: 6
         unit: kg
+      implements: 2
       rir: null
 - name: 'triceps: long name, series and reps'
   inputs:
@@ -127,7 +130,63 @@ cases:
       sets: null
       reps: 12
       load: null
+      band: red
+      per_side: true
       rir: null
+- name: 'plank: time held per set'
+  inputs:
+    prompt: plank 3x45s
+    deps:
+      <<: *deps
+      message: plank 3x45s
+  metadata:
+    reported: '#395'
+  expected_output:
+    occurred_on: '2026-10-28'
+    date_source: assumed_today
+    activities:
+    - name: plank
+      sets: 3
+      duration:
+        value: 45
+        unit: s
+- name: 'red band rows: a band is its label'
+  inputs:
+    prompt: red band rows 3x10
+    deps:
+      <<: *deps
+      message: red band rows 3x10
+  metadata:
+    reported: '#395'
+  expected_output:
+    occurred_on: '2026-10-28'
+    date_source: assumed_today
+    activities:
+    - name: rows
+      sets: 3
+      reps: 10
+      band: red
+- name: 'the ticket demo: a time and a band in one message'
+  inputs:
+    prompt: plank 3x45s, red band rows 3x10
+    deps:
+      <<: *deps
+      message: plank 3x45s, red band rows 3x10
+  metadata:
+    reported: '#395'
+  expected_output:
+    occurred_on: '2026-10-28'
+    date_source: assumed_today
+    activities:
+    - name: plank
+      sets: 3
+      duration:
+        value: 45
+        unit: s
+    - name: rows
+      sets: 3
+      reps: 10
+      band: red
 evaluators:
 - DateMatch
 - ActivitiesMatch

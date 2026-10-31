@@ -1,14 +1,25 @@
-"""The athlete's edit of a gym draft (PRD-0004 F2, tickets #158 and #159): each exercise's
-name, sets, reps, load in kg and RIR, by position. What the edit leaves out stays as it was, and
-`GymPayload` validates the result. A changed load is converted by code, as in an extraction; an
-untouched one keeps what was typed."""
+"""The athlete's edit of a gym draft (PRD-0004 F2, tickets #158, #159 and #395): each exercise's
+name, number of sets, reps, load in kg and RIR, by position. What the edit leaves out stays as
+it was. A changed load is converted by code, as in an extraction; an untouched one keeps what was
+typed. The form shows the first set's reps and load until #398 edits set by set: a value left as
+shown touches no set, so a time, a band or a set that differs stays, and a changed one goes on
+every set."""
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 
 from pydantic import BaseModel, Field, JsonValue
 
 from ai_trainer.domain.sports.gym.normalize import normalize_load
-from ai_trainer.domain.sports.gym.payload import MAX_RIR, ExerciseName, GymPayload
+from ai_trainer.domain.sports.gym.payload import (
+    MAX_RIR,
+    MAX_SETS,
+    Exercise,
+    ExerciseName,
+    GymPayload,
+    GymSet,
+    Load,
+    measure_of,
+)
 
 _EDITABLE = ("name", "sets", "reps", "load", "rir")
 
@@ -18,7 +29,7 @@ class _ExerciseForm(BaseModel):
     names it. A blank name is rejected; the other fields clear when blank."""
 
     name: ExerciseName = ""
-    sets: int | None = Field(default=None, ge=1)
+    sets: int | None = Field(default=None, ge=1, le=MAX_SETS)
     reps: int | None = Field(default=None, ge=1)
     load: float | None = Field(default=None, gt=0, allow_inf_nan=False)
     rir: int | None = Field(default=None, ge=0, le=MAX_RIR)
@@ -34,19 +45,23 @@ def apply_gym_edit(
     """`payload` is the stored gym payload and `changes` the athlete's form, with its
     `activities` as a list of `{name, sets, reps, load, rir}` strings. Rows past the stored
     exercises are ignored. Raises `ValidationError` located at `activities.<i>.<field>` when a
-    typed value is rejected, or at the payload's own fields when the result isn't valid."""
+    typed value is rejected."""
     current = GymPayload.model_validate(payload)
-    activities = [exercise.model_dump(mode="json") for exercise in current.activities]
     edits = changes.get("activities")
     rows: list[dict[str, JsonValue]] = []
     if isinstance(edits, list):
-        rows = [_row(edit) if isinstance(edit, dict) else {} for edit in edits[: len(activities)]]
-    for activity, row in zip(activities, rows, strict=False):
-        _keep_tiny_load(activity, row)
+        rows = [
+            _row(edit) if isinstance(edit, dict) else {}
+            for edit in edits[: len(current.activities)]
+        ]
+    for exercise, row in zip(current.activities, rows, strict=False):
+        _keep_tiny_load(exercise.sets[0].load, row)
     form = _Form.model_validate({"activities": rows})
-    for activity, row, exercise in zip(activities, rows, form.activities, strict=False):
-        _apply(activity, row, exercise)
-    return GymPayload.model_validate({**current.model_dump(mode="json"), "activities": activities})
+    edited = [
+        _edited(exercise, row, typed)
+        for exercise, row, typed in zip(current.activities, rows, form.activities, strict=False)
+    ]
+    return GymPayload(activities=[*edited, *current.activities[len(edited) :]])
 
 
 def _row(edit: Mapping[str, JsonValue]) -> dict[str, JsonValue]:
@@ -62,11 +77,10 @@ def _row(edit: Mapping[str, JsonValue]) -> dict[str, JsonValue]:
     return row
 
 
-def _keep_tiny_load(activity: Mapping[str, JsonValue], row: dict[str, JsonValue]) -> None:
+def _keep_tiny_load(stored: Load | None, row: dict[str, JsonValue]) -> None:
     """A load that rounds to 0 kg is shown as "0", which a typed load can't be; left as shown,
     it is untouched, so the row drops it and what was typed stays."""
-    stored = activity.get("load")
-    if isinstance(stored, dict) and stored.get("kg") == 0 and _is_zero(row.get("load")):
+    if stored is not None and stored.kg == 0 and _is_zero(row.get("load")):
         del row["load"]
 
 
@@ -77,25 +91,37 @@ def _is_zero(typed: JsonValue) -> bool:
         return False
 
 
-def _apply(
-    activity: dict[str, JsonValue], row: Mapping[str, JsonValue], exercise: _ExerciseForm
-) -> None:
-    fields = exercise.model_fields_set
-    if "name" in fields:
-        activity["name"] = exercise.name
-    for field in ("sets", "reps", "rir"):
-        if field in fields:
-            activity[field] = getattr(exercise, field)
+def _edited(exercise: Exercise, row: Mapping[str, JsonValue], form: _ExerciseForm) -> Exercise:
+    fields = form.model_fields_set
+    sets = _resized(exercise.sets, form.sets or 1) if "sets" in fields else exercise.sets
+    first = sets[0]
+    if "reps" in fields and form.reps != first.reps:
+        sets = [gym_set.model_copy(update={"reps": form.reps}) for gym_set in sets]
     if "load" in fields:
-        activity["load"] = _load(activity.get("load"), row["load"], exercise.load)
+        load = _load(first.load, row["load"], form.load)
+        if load != first.load:
+            sets = [gym_set.model_copy(update={"load": load}) for gym_set in sets]
+    return exercise.model_copy(
+        update={
+            "name_as_typed": form.name if "name" in fields else exercise.name_as_typed,
+            "rir": form.rir if "rir" in fields else exercise.rir,
+            "measure": measure_of(sets[0]),
+            "sets": sets,
+        }
+    )
 
 
-def _load(stored: JsonValue, typed: JsonValue, value: float | None) -> JsonValue:
+def _resized(sets: Sequence[GymSet], count: int) -> list[GymSet]:
+    """Cut from the end, or grown by copies of the last set. A blank count is one set."""
+    return [*sets[:count], *[sets[-1]] * (count - len(sets))]
+
+
+def _load(stored: Load | None, typed: JsonValue, value: float | None) -> Load | None:
     """None when blank; the stored load when the athlete kept its kg, so what was typed stays;
     else the typed kg."""
     if value is None:
         return None
-    if isinstance(stored, dict) and stored.get("kg") == value:
+    if stored is not None and stored.kg == value:
         return stored
     text = typed if isinstance(typed, str) else str(typed)
-    return normalize_load(f"{text} kg", value, "kg").model_dump(mode="json")
+    return normalize_load(f"{text} kg", value, "kg")

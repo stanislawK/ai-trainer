@@ -64,7 +64,8 @@ class FeedbackRecorder:
 
 def changed_fields(before: SessionDraft, after: SessionDraft) -> list[str]:
     """The names of the fields an edit changed, never what they changed to: the envelope's
-    (`rpe`) and the payload's, one list level deep (`reps` of any exercise row)."""
+    (`rpe`) and the payload's, through its lists of rows (`reps` of any set of any exercise,
+    or `sets` when their number changed)."""
     names = {name for name in _ENVELOPE_FIELDS if getattr(before, name) != getattr(after, name)}
     return sorted(names | _payload_fields(before.payload, after.payload))
 
@@ -79,17 +80,15 @@ def _payload_fields(before: Mapping[str, JsonValue], after: Mapping[str, JsonVal
 
 
 def _row_fields(old: JsonValue, new: JsonValue) -> set[str]:
-    """For two lists of objects, as a gym draft's exercise rows, the keys that differ in any
-    row; empty for anything else."""
-    if not (isinstance(old, list) and isinstance(new, list)):
+    """For two equally long lists of objects, as a gym draft's exercises and their sets, the
+    keys that differ in any row; empty for anything else, so the list names itself."""
+    if not (isinstance(old, list) and isinstance(new, list)) or len(old) != len(new):
         return set()
     names: set[str] = set()
-    for index in range(max(len(old), len(new))):
-        row_old: JsonValue = old[index] if index < len(old) else {}
-        row_new: JsonValue = new[index] if index < len(new) else {}
+    for row_old, row_new in zip(old, new, strict=True):
         if not (isinstance(row_old, dict) and isinstance(row_new, dict)):
             return set()
-        names |= {k for k in row_old.keys() | row_new.keys() if row_old.get(k) != row_new.get(k)}
+        names |= _payload_fields(row_old, row_new)
     return names
 
 

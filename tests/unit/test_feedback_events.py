@@ -10,6 +10,7 @@ from pydantic import JsonValue
 from ai_trainer.application.drafts import discard_draft, edit_draft, undo_log
 from ai_trainer.application.feedback import FeedbackRecorder, changed_fields, count_signals
 from ai_trainer.domain.feedback import FeedbackKind, FeedbackSignal
+from ai_trainer.domain.sports.gym.extraction import GymExtraction
 from ai_trainer.domain.sports.registry import default_sport_registry
 from ai_trainer.domain.training import SessionDraft
 from tests.chat_support import FROZEN_NOW, FixedClock, InMemoryDraftRepository, pending_draft
@@ -102,7 +103,7 @@ async def test_an_envelope_edit_and_a_payload_edit_name_both_fields() -> None:
         user_id, draft.id, form, drafts=drafts, sports=_SPORTS, feedback=_recorder(events)
     )
 
-    assert [set(e.fields) for e in events.events] == [{"name", "rpe"}]
+    assert [set(e.fields) for e in events.events] == [{"name_as_typed", "rpe"}]
 
 
 async def test_an_edit_that_changes_nothing_writes_no_row() -> None:
@@ -217,3 +218,78 @@ def test_counts_group_by_kind_template_and_field() -> None:
         (FeedbackKind.DRAFT_DISCARDED, "gym.extract", None, 1),
         (edited, "gym.extract", "sets", 1),
     ]
+
+
+# --- #395: gym payload v2 holds reps and load inside each exercise's list of sets ------------
+
+
+async def _v2_draft(drafts: InMemoryDraftRepository, user_id):  # type: ignore[no-untyped-def]
+    payload = GymExtraction.model_validate(
+        {
+            "occurred_on": FROZEN_NOW.date(),
+            "date_source": "assumed_today",
+            "activities": [
+                {
+                    "name": "squat",
+                    "sets": 5,
+                    "reps": 5,
+                    "load": {"original": "100kg", "value": 100, "unit": "kg"},
+                }
+            ],
+        }
+    ).to_payload()
+    return await drafts.add(
+        user_id,
+        uuid4(),
+        uuid4(),
+        "gym",
+        SessionDraft(
+            occurred_on=FROZEN_NOW.date(),
+            date_source="assumed_today",
+            timezone="Europe/Warsaw",
+            payload=payload.model_dump(mode="json"),
+        ),
+        payload_version=2,
+        created_at=FROZEN_NOW,
+        template_id="gym.extract",
+        template_version=5,
+    )
+
+
+@pytest.mark.parametrize(
+    ("row", "fields"),
+    [
+        ({"reps": "8"}, {"reps"}),
+        ({"load": "120"}, {"load"}),
+        ({"sets": "4"}, {"sets"}),
+        ({"rir": "2"}, {"rir"}),
+        ({"name": "front squat"}, {"name_as_typed"}),
+        ({"reps": "8", "load": "120"}, {"reps", "load"}),
+        # Code reads `measure` from the set, so it follows a load the athlete cleared.
+        ({"load": ""}, {"load", "measure"}),
+        ({}, None),
+    ],
+)
+async def test_a_v2_edit_names_the_field_inside_its_sets(
+    row: dict[str, str], fields: set[str] | None
+) -> None:
+    drafts, events, user_id = InMemoryDraftRepository(), InMemoryFeedbackEvents(), uuid4()
+    draft = await _v2_draft(drafts, user_id)
+
+    await edit_draft(
+        user_id,
+        draft.id,
+        _form(**{"load": "100", **row}),
+        drafts=drafts,
+        sports=_SPORTS,
+        feedback=_recorder(events),
+    )
+
+    assert [set(e.fields) for e in events.events] == ([] if fields is None else [fields])
+
+
+def test_lists_of_different_lengths_name_their_own_key() -> None:
+    before = _draft_with({"rows": [{"sets": [{"a": 1}, {"a": 1}]}]})
+    after = _draft_with({"rows": [{"sets": [{"a": 1}]}]})
+
+    assert changed_fields(before, after) == ["sets"]

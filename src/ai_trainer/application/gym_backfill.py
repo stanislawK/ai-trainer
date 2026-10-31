@@ -54,8 +54,8 @@ async def backfill_gym_sessions(*, store: GymBackfillPort) -> BackfillReport:
 
 
 def _rows_of(candidate: BackfillCandidate) -> tuple[GymEntryRow, ...] | SkipReason:
-    """The payload read through the gym's payload model, the one place that reads it (the
-    payload is at v1, so there is no older shape to upcast); a newer version isn't guessed."""
+    """The payload read through the gym's payload model, the one place that reads it and upcasts
+    v1; a newer version isn't guessed."""
     if candidate.payload_version > GYM_PAYLOAD_VERSION:
         return "payload_version_unsupported"
     try:

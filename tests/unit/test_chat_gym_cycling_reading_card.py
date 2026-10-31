@@ -160,8 +160,8 @@ async def test_tapping_a_movement_shows_a_draft_of_that_movement() -> None:
     [draft] = app.drafts.all_of(app.user.id)
     assert (draft.sport_id, draft.status) == ("gym", "pending")
     [exercise] = GymPayload.model_validate(draft.draft.payload).activities
-    assert exercise.name == "bench press"
-    assert exercise.load == Load(original="60", value=60, unit="kg", kg=60)
+    assert exercise.name_as_typed == "bench press"
+    assert exercise.sets[0].load == Load(original="60", value=60, unit="kg", kg=60)
 
 
 async def test_a_load_whose_unit_is_unclear_asks_kg_or_lb_with_the_load() -> None:
@@ -255,4 +255,6 @@ async def test_a_mixed_log_drafts_the_climbing_part_and_asks_about_the_gym_part(
     drafts = app.drafts.all_of(app.user.id)
     assert sorted(draft.sport_id for draft in drafts) == ["climbing", "gym"]
     [gym] = [draft for draft in drafts if draft.sport_id == "gym"]
-    assert GymPayload.model_validate(gym.draft.payload).activities[0].name == "overhead press"
+    assert (
+        GymPayload.model_validate(gym.draft.payload).activities[0].name_as_typed == "overhead press"
+    )

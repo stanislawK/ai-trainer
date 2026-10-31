@@ -82,3 +82,70 @@ def test_a_loads_unit_is_read_back_from_its_typed_number_and_kg(
 ) -> None:
     # Owner-chosen at #376's plan gate (D2): the rows keep kg and the text, not the unit.
     assert unit_of(original, Decimal(kg)) == unit
+
+
+def test_v1_payload_gives_the_rows_it_gave_before() -> None:
+    # AC #395: v1 is read through the upcaster, and no v1 value moves.
+    payload = _payload(
+        {"name": "Squat", "sets": 2, "reps": 5, "load": _load("100kg", 100, "kg", 100), "rir": 1},
+        {"name": "Dips", "reps": 12},
+        {"name": "Plank"},
+    )
+
+    assert entries_of(payload) == (
+        GymEntryRow(
+            name_as_typed="Squat",
+            measure="load_reps",
+            rir=1,
+            sets=tuple(
+                GymSetRow(set_no=n, reps=5, load_kg=Decimal("100"), load_original="100kg")
+                for n in (1, 2)
+            ),
+        ),
+        GymEntryRow(
+            name_as_typed="Dips",
+            measure="reps",
+            rir=None,
+            sets=(GymSetRow(set_no=1, reps=12, load_kg=None, load_original=None),),
+        ),
+        GymEntryRow(
+            name_as_typed="Plank",
+            measure="reps",
+            rir=None,
+            sets=(GymSetRow(set_no=1, reps=None, load_kg=None, load_original=None),),
+        ),
+    )
+
+
+def test_plank_three_sets_of_45_s_is_time() -> None:
+    payload = _payload(
+        {
+            "name_as_typed": "plank",
+            "measure": "time",
+            "sets": [{"duration_s": 45}, {"duration_s": 45}, {"duration_s": 45}],
+        }
+    )
+
+    (entry,) = entries_of(payload)
+
+    assert entry.measure == "time"
+    assert [row.duration_s for row in entry.sets] == [45, 45, 45]
+    assert [row.set_no for row in entry.sets] == [1, 2, 3]
+
+
+def test_a_v2_entry_carries_its_side_implements_band_and_distance() -> None:
+    (entry,) = entries_of(
+        _payload(
+            {
+                "name_as_typed": "carry",
+                "measure": "distance",
+                "per_side": True,
+                "implements": 2,
+                "sets": [{"distance_m": 40.5, "band_label": "red"}],
+            }
+        )
+    )
+
+    assert (entry.per_side, entry.implements) == (True, 2)
+    assert entry.sets[0].distance_m == Decimal("40.5")
+    assert entry.sets[0].band_label == "red"

@@ -219,4 +219,4 @@ async def test_no_column_holds_message_text_or_a_typed_value(
     assert _TYPED not in row
     assert "name" in row  # the row exists and names the field that changed
     [stored] = await repository.list_for_user(user_id)
-    assert (stored.kind, tuple(stored.fields)) == (FeedbackKind.DRAFT_EDITED, ("name",))
+    assert (stored.kind, tuple(stored.fields)) == (FeedbackKind.DRAFT_EDITED, ("name_as_typed",))

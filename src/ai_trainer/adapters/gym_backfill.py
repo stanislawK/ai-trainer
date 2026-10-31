@@ -88,9 +88,7 @@ class SqlAlchemyGymBackfillStore:
                         "session_id": candidate.session_id,
                         "source_id": None,
                         "position": position,
-                        "name_as_typed": entry.name_as_typed,
-                        "measure": entry.measure,
-                        "rir": entry.rir,
+                        **entry.model_dump(exclude={"sets"}),
                     }
                 )
                 set_rows.extend(

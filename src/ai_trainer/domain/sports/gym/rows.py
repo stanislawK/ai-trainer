@@ -1,18 +1,16 @@
-"""Gym payload v1 read into the typed rows of ADR-0032 (ticket #376), and what the rows give
-back to the extraction. Only the gym's `ActivityStore` writes these rows; a draft stays JSONB.
-A value the message didn't give stays `None`, never estimated (B38, ADR-0032 invariant 4)."""
+"""Gym payload read into the typed rows of ADR-0032 (tickets #376 and #395), and what the rows
+give back to the extraction. Only the gym's `ActivityStore` writes these rows; a draft stays
+JSONB. A value the message didn't give stays `None`, never estimated (B38, ADR-0032 invariant
+4)."""
 
 import re
 from decimal import Decimal
-from typing import Literal
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
 
 from ai_trainer.domain.sports.gym.normalize import to_kg
-from ai_trainer.domain.sports.gym.payload import Exercise, GymPayload, LoadUnit
-
-# `gym_exercise_entries.measure`; v1 can only say load and reps, or reps.
-type Measure = Literal["load_reps", "reps", "time", "distance", "band_reps"]
+from ai_trainer.domain.sports.gym.payload import Exercise, GymPayload, GymSet, LoadUnit, Measure
 
 # The first number in a load as typed: "45kg", "22,5 kg", "225 lb".
 _NUMBER = re.compile(r"\d+(?:[.,]\d+)?")
@@ -27,6 +25,9 @@ class GymSetRow(BaseModel):
     reps: int | None
     load_kg: Decimal | None
     load_original: str | None
+    duration_s: int | None = None
+    distance_m: Decimal | None = None
+    band_label: str | None = None
 
 
 class GymEntryRow(BaseModel):
@@ -34,30 +35,38 @@ class GymEntryRow(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
+    exercise_id: UUID | None = None
     name_as_typed: str
     measure: Measure
+    per_side: bool = False
+    implements: int | None = None
     rir: int | None
     sets: tuple[GymSetRow, ...]
 
 
+def _set(set_no: int, gym_set: GymSet) -> GymSetRow:
+    load = gym_set.load
+    distance = gym_set.distance_m
+    return GymSetRow(
+        set_no=set_no,
+        reps=gym_set.reps,
+        load_kg=None if load is None else Decimal(str(load.kg)),
+        load_original=None if load is None else load.original,
+        duration_s=gym_set.duration_s,
+        distance_m=None if distance is None else Decimal(str(distance)),
+        band_label=gym_set.band_label,
+    )
+
+
 def _entry(exercise: Exercise) -> GymEntryRow:
-    load = exercise.load
-    # No set count is one set with what was given, owner-chosen at #376's plan gate: rows can't
-    # say "an unknown number of sets", and none would drop the reps and load.
-    count = exercise.sets or 1
     return GymEntryRow(
-        name_as_typed=exercise.name,
-        measure="reps" if load is None else "load_reps",
+        exercise_id=exercise.exercise_id,
+        name_as_typed=exercise.name_as_typed,
+        measure=exercise.measure,
+        per_side=exercise.per_side,
+        implements=exercise.implements,
         rir=exercise.rir,
-        sets=tuple(
-            GymSetRow(
-                set_no=set_no,
-                reps=exercise.reps,
-                load_kg=None if load is None else Decimal(str(load.kg)),
-                load_original=None if load is None else load.original,
-            )
-            for set_no in range(1, count + 1)
-        ),
+        sets=tuple(_set(set_no, gym_set) for set_no, gym_set in enumerate(exercise.sets, start=1)),
     )
 
 

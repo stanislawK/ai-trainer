@@ -1,6 +1,7 @@
 """Smoke sets (ADR-0034, ticket #372): `evals/smoke/<id>.yaml` run once per case, graded in code,
 no baseline, no judge except the safety set. No real model: scripted `FunctionModel`s."""
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -309,15 +310,22 @@ def test_the_parser_takes_one_id_or_all() -> None:
         main(["smoke", "gym.extract", "--all"])
 
 
-def test_gym_smoke_cases_cite_a_field_transcript_with_the_message_verbatim() -> None:
+def test_gym_smoke_cases_cite_a_transcript_verbatim_or_the_ticket_that_reported_them() -> None:
+    # ADR-0034: mostly cut from field transcripts, synthetic only for a reported bug.
     smoke_set = read_smoke_set("gym.extract", smoke_root=ROOT / "evals" / "smoke")
 
     assert smoke_set.cases
+    cited = 0
     for case in smoke_set.cases:
         assert case.metadata is not None, case.name
+        if "reported" in case.metadata:
+            assert re.fullmatch(r"#\d+", str(case.metadata["reported"])), case.name
+            continue
         transcript = ROOT / str(case.metadata["field"])
         assert transcript.is_file(), case.metadata["field"]
         assert case.inputs.prompt in transcript.read_text(), case.name
+        cited += 1
+    assert cited > len(smoke_set.cases) - cited
 
 
 def _gym_smoke_case(prompt: str) -> dict[str, Any]:

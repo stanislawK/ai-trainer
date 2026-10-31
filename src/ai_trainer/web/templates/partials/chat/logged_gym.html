@@ -3,7 +3,8 @@
 {%- set exercises = card.payload.activities -%}
 {%- if exercises | length == 1 -%}
 {%- set exercise = exercises[0] -%}
-{{ exercise_name(exercise.name) }}{% if exercise.sets or exercise.reps %} {{ scheme(exercise) }}{% endif %}
+{%- set shown = scheme(exercise) -%}
+{{ exercise_name(exercise.name_as_typed) }}{% if shown %} {{ shown }}{% endif %}
 {%- else -%}
 {{ exercises | length }} exercises
 {%- endif -%}

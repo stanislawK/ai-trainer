@@ -66,7 +66,7 @@ async def test_a_v1_payload_becomes_its_entries_and_sets_for_its_own_user() -> N
 
 async def test_a_payload_that_will_not_read_is_reported_and_the_others_still_run() -> None:
     broken = _candidate({"sport": "gym", "activities": "not a list"})
-    newer = _candidate(_squat(), version=2)
+    newer = _candidate(_squat(), version=3)
     good = _candidate(_squat())
     store = FakeBackfillStore([broken, newer, good])
 

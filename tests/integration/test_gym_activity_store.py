@@ -23,6 +23,7 @@ from ai_trainer.domain.sports.base import extend_payload, withdraw_payload
 from ai_trainer.domain.sports.climbing.payload import ClimbingPayload
 from ai_trainer.domain.sports.cycling.payload import CyclingPayload
 from ai_trainer.domain.sports.gym.extraction import GymExtraction, recent_exercises
+from ai_trainer.domain.sports.gym.payload import GymPayload
 from ai_trainer.domain.training import DraftNotFoundError, SessionDraft, StoredDraft
 from tests.activity_support import STORES
 from tests.integration.test_session_continuity_repository import (
@@ -367,8 +368,10 @@ async def test_undo_of_a_log_added_before_the_backfill_removes_only_its_entries_
         assert [tuple(row) for row in rows.all()] == [(1, "Squat", None), (2, "Dips", None)]
     assert await _gym_row_count(db_session_factory, athlete.user_id) == (2, 8)
     assert [
-        activity["name"]
-        for activity in (await _session(db_session_factory, first.session_id)).payload["activities"]
+        activity.name_as_typed
+        for activity in GymPayload.model_validate(
+            (await _session(db_session_factory, first.session_id)).payload
+        ).activities
     ] == ["Squat", "Dips"]
 
 
@@ -548,3 +551,236 @@ async def test_gym_rows_cannot_reference_another_users_session_source_entry_or_b
     async with db_session_factory() as db:
         with pytest.raises(IntegrityError):
             await db.execute(statement, params)
+
+
+# --- #395: measures and bands (B38, B39) ----------------------------------------------------
+
+
+def _band(label: str) -> dict[str, Any]:
+    return {"name": "rows", "sets": 3, "reps": 10, "band": label}
+
+
+async def _bands(factory: Callable[[], AsyncSession], user_id: UUID) -> list[Any]:
+    async with factory() as db:
+        rows = await db.execute(
+            text("SELECT id, label, rank FROM athlete_bands WHERE user_id = :id ORDER BY label"),
+            {"id": user_id},
+        )
+        return [tuple(row) for row in rows.all()]
+
+
+async def test_plank_stores_measure_time_and_three_sets_of_45_s(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    athlete = await _athlete(db_session_factory, "gym-plank")
+
+    confirmed = await _logged(
+        athlete,
+        "plank 3x45s",
+        _gym({"name": "plank", "sets": 3, "duration": {"value": 45, "unit": "s"}}),
+    )
+
+    assert await _entries(db_session_factory, confirmed.session_id) == [
+        (1, "plank", "time", None, False, None, None, None, "plank 3x45s")
+    ]
+    assert await _sets(db_session_factory, confirmed.session_id) == [
+        ("plank", n, None, None, None, 45, None, None, None) for n in (1, 2, 3)
+    ]
+
+
+async def test_a_distance_in_km_stores_metres(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    athlete = await _athlete(db_session_factory, "gym-distance")
+
+    confirmed = await _logged(
+        athlete,
+        "wiosla 1,5 km",
+        _gym({"name": "wiosla", "distance": {"value": 1.5, "unit": "km"}}),
+    )
+
+    assert await _entries(db_session_factory, confirmed.session_id) == [
+        (1, "wiosla", "distance", None, False, None, None, None, "wiosla 1,5 km")
+    ]
+    assert await _sets(db_session_factory, confirmed.session_id) == [
+        ("wiosla", 1, None, None, None, None, Decimal("1500.0"), None, None)
+    ]
+
+
+async def test_each_side_stores_per_side(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    athlete = await _athlete(db_session_factory, "gym-side")
+
+    confirmed = await _logged(
+        athlete,
+        "lunges 12 each side",
+        _gym({"name": "lunges", "reps": 12, "per_side": True}),
+    )
+
+    assert await _entries(db_session_factory, confirmed.session_id) == [
+        (1, "lunges", "reps", None, True, None, None, None, "lunges 12 each side")
+    ]
+    assert await _sets(db_session_factory, confirmed.session_id) == [
+        ("lunges", 1, 12, None, None, None, None, None, None)
+    ]
+
+
+async def test_two_dumbbells_store_implements_2_and_6_kg(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    athlete = await _athlete(db_session_factory, "gym-implements")
+
+    confirmed = await _logged(
+        athlete,
+        "curls two dumbbells 6 kg each",
+        _gym(
+            {
+                "name": "curls",
+                "implements": 2,
+                "load": {"original": "6 kg", "value": 6, "unit": "kg"},
+            }
+        ),
+    )
+
+    assert await _entries(db_session_factory, confirmed.session_id) == [
+        (1, "curls", "load_reps", None, False, 2, None, None, "curls two dumbbells 6 kg each")
+    ]
+    assert await _sets(db_session_factory, confirmed.session_id) == [
+        ("curls", 1, None, Decimal("6.00"), "6 kg", None, None, None, None)
+    ]
+
+
+async def test_red_band_stores_label_and_an_unranked_band(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    athlete = await _athlete(db_session_factory, "gym-band")
+
+    confirmed = await _logged(athlete, "red band rows 3x10", _gym(_band("red")))
+
+    ((band_id, label, rank),) = await _bands(db_session_factory, athlete.user_id)
+    assert (label, rank) == ("red", None)
+    assert await _entries(db_session_factory, confirmed.session_id) == [
+        (1, "rows", "band_reps", None, False, None, None, None, "red band rows 3x10")
+    ]
+    assert await _sets(db_session_factory, confirmed.session_id) == [
+        ("rows", n, 10, None, None, None, None, band_id, "red") for n in (1, 2, 3)
+    ]
+
+
+async def test_known_band_keeps_its_rank_and_label(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    athlete = await _athlete(db_session_factory, "gym-known-band")
+    await _logged(athlete, "red band rows 3x10", _gym(_band("Czerwona")))
+    async with db_session_factory() as db:
+        await db.execute(
+            text("UPDATE athlete_bands SET rank = 1 WHERE user_id = :id"),
+            {"id": athlete.user_id},
+        )
+        await db.commit()
+
+    confirmed = await _logged(athlete, "czerwona guma 3x10", _gym(_band(" czerwona ")), at=_LATER)
+
+    ((band_id, label, rank),) = await _bands(db_session_factory, athlete.user_id)
+    assert (label, rank) == ("Czerwona", 1)
+    assert (await _sets(db_session_factory, confirmed.session_id))[-1][-2:] == (
+        band_id,
+        "czerwona",
+    )
+
+
+async def test_two_bands_in_one_log_are_two_bands(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    athlete = await _athlete(db_session_factory, "gym-two-bands")
+
+    await _logged(athlete, "bands", _gym(_band("red"), _band("black")))
+
+    assert [row[1:] for row in await _bands(db_session_factory, athlete.user_id)] == [
+        ("black", None),
+        ("red", None),
+    ]
+
+
+async def test_same_colour_for_another_athlete_is_their_own_band(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    athlete = await _athlete(db_session_factory, "gym-band-a")
+    other = await _athlete(db_session_factory, "gym-band-b")
+
+    await _logged(athlete, "red band rows 3x10", _gym(_band("red")))
+    confirmed = await _logged(other, "red band rows 3x10", _gym(_band("red")))
+
+    ((own_id, _, _),) = await _bands(db_session_factory, athlete.user_id)
+    ((other_id, _, _),) = await _bands(db_session_factory, other.user_id)
+    assert own_id != other_id
+    assert (await _sets(db_session_factory, confirmed.session_id))[0][-2] == other_id
+
+
+async def test_four_sets_without_reps_store_four_empty_sets(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    athlete = await _athlete(db_session_factory, "gym-four-sets")
+
+    confirmed = await _logged(athlete, "4 sets rows", _gym({"name": "rows", "sets": 4}))
+
+    assert await _sets(db_session_factory, confirmed.session_id) == [
+        ("rows", n, None, None, None, None, None, None, None) for n in (1, 2, 3, 4)
+    ]
+
+
+async def test_v1_draft_confirms_to_the_same_rows(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    athlete = await _athlete(db_session_factory, "gym-v1")
+    v1: dict[str, Any] = {
+        "sport": "gym",
+        "activities": [
+            {
+                "name": "Bench press",
+                "sets": 2,
+                "reps": 8,
+                "load": {"original": "45kg", "value": 45, "unit": "kg", "kg": 45},
+                "rir": 1,
+            },
+            {"name": "dips", "sets": None, "reps": 12, "load": None, "rir": None},
+        ],
+    }
+
+    confirmed = await _logged(athlete, "v1 log", _draft(v1))
+
+    assert await _entries(db_session_factory, confirmed.session_id) == [
+        (1, "Bench press", "load_reps", 1, False, None, None, None, "v1 log"),
+        (2, "dips", "reps", None, False, None, None, None, "v1 log"),
+    ]
+    assert await _sets(db_session_factory, confirmed.session_id) == [
+        ("Bench press", 1, 8, Decimal("45.00"), "45kg", None, None, None, None),
+        ("Bench press", 2, 8, Decimal("45.00"), "45kg", None, None, None, None),
+        ("dips", 1, 12, None, None, None, None, None, None),
+    ]
+
+
+async def test_undoing_a_log_keeps_the_band_it_added(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    athlete = await _athlete(db_session_factory, "gym-band-undo")
+    confirmed = await _logged(athlete, "red band rows 3x10", _gym(_band("red")))
+
+    await athlete.drafts.undo(athlete.user_id, confirmed.id, undone_at=_LATER)
+
+    assert [row[1:] for row in await _bands(db_session_factory, athlete.user_id)] == [("red", None)]
+
+
+async def test_two_spellings_of_one_band_in_a_log_are_one_band(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    athlete = await _athlete(db_session_factory, "gym-band-spellings")
+
+    confirmed = await _logged(athlete, "bands", _gym(_band("Red"), _band("red")))
+
+    ((band_id, _, rank),) = await _bands(db_session_factory, athlete.user_id)
+    assert rank is None
+    rows = await _sets(db_session_factory, confirmed.session_id)
+    assert {row[-2] for row in rows} == {band_id}
+    assert {row[-1] for row in rows} == {"Red", "red"}

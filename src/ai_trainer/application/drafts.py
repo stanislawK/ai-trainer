@@ -132,7 +132,9 @@ async def edit_draft(
     if draft.occurred_on != stored.draft.occurred_on:
         draft = draft.model_copy(update={"date_source": "stated"})
     saved = await drafts.update(user_id, draft_id, draft, payload_version=spec.payload_version)
-    fields = changed_fields(stored.draft, saved.draft)
+    # Compared in the payload's current shape, so an upcast from an older version isn't an edit.
+    before = spec.payload_type.model_validate(stored.draft.payload).model_dump(mode="json")
+    fields = changed_fields(stored.draft.model_copy(update={"payload": before}), saved.draft)
     if feedback is not None and fields:
         await feedback.record_for_draft(user_id, FeedbackKind.DRAFT_EDITED, saved, fields=fields)
     return saved

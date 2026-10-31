@@ -3,18 +3,20 @@
 <ul class="flex flex-col gap-2" aria-label="Exercises">
   {%- for exercise in card.payload.activities %}
   {%- set details = [] %}
-  {%- if exercise.sets or exercise.reps %}{% set _ = details.append(scheme(exercise)) %}{% endif %}
-  {%- if exercise.load %}{% set _ = details.append(kg(exercise.load.kg) ~ " kg") %}{% endif %}
+  {%- set load = exercise.sets[0].load %}
+  {%- set shown = scheme(exercise) %}
+  {%- if shown %}{% set _ = details.append(shown) %}{% endif %}
+  {%- if load %}{% set _ = details.append(kg(load.kg) ~ " kg") %}{% endif %}
   {%- if exercise.rir is not none %}{% set _ = details.append("RIR " ~ exercise.rir) %}{% endif %}
   <li class="flex flex-col gap-1">
     <div class="flex items-baseline justify-between gap-4">
-      <span class="text-[16px] font-medium">{{ exercise_name(exercise.name) }}</span>
+      <span class="text-[16px] font-medium">{{ exercise_name(exercise.name_as_typed) }}</span>
       {%- if details %}
       <span class="text-[12px] text-base-content/70 text-right tabular-nums">{{ details | join(" · ") }}</span>
       {%- endif %}
     </div>
-    {%- if exercise.load and exercise.load.unit != "kg" %}
-    <span class="text-[12px] text-base-content/70">Typed: {{ exercise.load.original }}</span>
+    {%- if load and load.unit != "kg" %}
+    <span class="text-[12px] text-base-content/70">Typed: {{ load.original }}</span>
     {%- endif %}
   </li>
   {%- endfor %}
