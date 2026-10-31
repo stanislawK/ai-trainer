@@ -107,7 +107,7 @@ uv run ai-trainer-evals smoke <template-id>|--all   # once #372 lands: the cheap
 - `user_id` comes only from the authenticated session; every query is user-scoped.
 - Access is approval-gated: new accounts are `pending` until an admin activates them, and admin rights come from `ADMIN_EMAILS` — never from the database. A sign-in with a listed, verified email always ends `active` (ADR-0005).
 - No real LLM calls in pytest.
-- No prompt text in Python string literals outside tests (ADR-0008).
+- No prompt text in Python string literals outside tests (ADR-0008). An MCP tool's description is its docstring, which isn't a prompt template (ADR-0010).
 - Secrets live only in `.env`.
 - AI-made data changes are drafts the user confirms.
 - The clock is a port: no `datetime.now()` outside its adapter, and stored time is UTC (ADR-0014).
