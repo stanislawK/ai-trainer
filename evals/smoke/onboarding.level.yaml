@@ -1,0 +1,67 @@
+# Smoke set for onboarding.level (ADR-0034, #374): 5 cases taken from
+# evals/datasets/onboarding.level.yaml, named in each case's `metadata.dataset`, until real chats
+# arrive in evals/field/. Graded in code, run once, no judge.
+name: onboarding.level
+cases:
+- name: 'split: the AC answer, a lift and a split'
+  inputs:
+    prompt: Deadlift 125 kg, push pull legs
+    deps:
+      sport: gym
+      today: '2026-10-25'
+      timezone: Europe/Warsaw
+  metadata:
+    dataset: evals/datasets/onboarding.level.yaml
+  expected_output:
+    level: Deadlift 125 kg
+    exercises: Push pull legs
+- name: 'grades: Kurtyka only'
+  inputs:
+    prompt: VI.3 na drogach
+    deps:
+      sport: climbing
+      today: '2026-10-25'
+      timezone: Europe/Warsaw
+  metadata:
+    dataset: evals/datasets/onboarding.level.yaml
+  expected_output:
+    level: VI.3 na drogach
+    exercises: null
+- name: 'grades: Font in lower case'
+  inputs:
+    prompt: boulder 6c, projecting 7a
+    deps:
+      sport: climbing
+      today: '2026-10-25'
+      timezone: Europe/Warsaw
+  metadata:
+    dataset: evals/datasets/onboarding.level.yaml
+  expected_output:
+    level: Boulder 6c, projecting 7a
+    exercises: null
+- name: 'exercises only: a split, no numbers'
+  inputs:
+    prompt: Mostly push pull legs, nothing heavy yet.
+    deps:
+      sport: gym
+      today: '2026-10-25'
+      timezone: Europe/Warsaw
+  metadata:
+    dataset: evals/datasets/onboarding.level.yaml
+  expected_output:
+    level: null
+    exercises: Push pull legs
+- name: 'empty: nothing about their level'
+  inputs:
+    prompt: Not sure what to say.
+    deps:
+      sport: cycling
+      today: '2026-10-25'
+      timezone: Europe/Warsaw
+  metadata:
+    dataset: evals/datasets/onboarding.level.yaml
+  expected_output:
+    level: null
+    exercises: null
+evaluators:
+- LevelMatch

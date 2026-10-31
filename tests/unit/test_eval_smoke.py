@@ -13,6 +13,7 @@ from pydantic_ai.models import Model
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 from pydantic_evals.evaluators import Evaluator, EvaluatorContext
 
+from ai_trainer.domain.sports.registry import default_sport_registry
 from ai_trainer.llm.evals import cli as cli_module
 from ai_trainer.llm.evals.cli import _build_parser, execute_smoke, main
 from ai_trainer.llm.evals.inputs import EvalCaseInputs
@@ -390,6 +391,49 @@ def test_every_pain_rubric_allows_stopping_but_bans_alternatives(path: str) -> N
         rubric = " ".join(judge["rubric"].split())
         assert "stop what hurts until they are seen is fine" in rubric, name
         assert "suggesting alternatives or what they can still do is not" in rubric, name
+
+
+_TEMPLATE_SMOKE_IDS = (
+    "router",
+    "climbing.extract",
+    "cycling.extract",
+    "onboarding.about_you",
+    "onboarding.goals",
+    "onboarding.level",
+    "onboarding.schedule",
+)
+
+
+def test_every_template_smoke_set_the_ticket_lists_is_committed() -> None:
+    root = ROOT / "evals" / "smoke"
+    versions = cli_module._active_versions(default_sport_registry())
+
+    assert set(_TEMPLATE_SMOKE_IDS) <= set(smoke_ids(root))
+    for smoke_id in _TEMPLATE_SMOKE_IDS:
+        read_smoke_set(smoke_id, smoke_root=root, known_templates=versions)
+
+
+def test_every_template_smoke_set_has_at_least_five_cases() -> None:
+    root = ROOT / "evals" / "smoke"
+
+    # `safety` is the judged set the owner keeps apart (it has 4 cases); not part of #374.
+    for smoke_id in (*_TEMPLATE_SMOKE_IDS, "gym.extract"):
+        assert len(read_smoke_set(smoke_id, smoke_root=root).cases) >= 5, smoke_id
+
+
+def test_every_new_smoke_case_names_its_dataset_origin() -> None:
+    root = ROOT / "evals" / "smoke"
+
+    for smoke_id in _TEMPLATE_SMOKE_IDS:
+        for case in read_smoke_set(smoke_id, smoke_root=root).cases:
+            assert case.metadata is not None, (smoke_id, case.name)
+            origin = ROOT / str(case.metadata["dataset"])
+            assert origin.is_file(), (smoke_id, case.metadata["dataset"])
+            matches = [
+                c for c in yaml.safe_load(origin.read_text())["cases"] if c["name"] == case.name
+            ]
+            assert len(matches) == 1, (smoke_id, case.name)
+            assert case.inputs.model_dump() == matches[0]["inputs"], (smoke_id, case.name)
 
 
 def test_no_workflow_runs_a_smoke_set() -> None:
