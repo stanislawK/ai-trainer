@@ -152,8 +152,32 @@ async def edit_draft(
     if feedback is not None and fields:
         await feedback.record_for_draft(user_id, FeedbackKind.DRAFT_EDITED, saved, fields=fields)
     if questions is not None:
+        if feedback is not None:
+            await _record_overridden_picks(user_id, stored, saved, questions, feedback)
         await _drop_stale_question(user_id, stored, saved, questions)
     return saved
+
+
+async def _record_overridden_picks(
+    user_id: UUID,
+    before: StoredDraft,
+    saved: StoredDraft,
+    questions: CardQuestions,
+    feedback: FeedbackRecorder,
+) -> None:
+    """One `decision_overridden` event per Jev decision whose pick the edit undid (ADR-0034,
+    ticket #399), naming the decision and the field, never the exercise."""
+    settler = questions.settlers.get(saved.sport_id)
+    if settler is None:
+        return
+    for decision in settler.overridden_picks(before.draft.payload, saved.draft.payload):
+        await feedback.record(
+            user_id,
+            FeedbackKind.DECISION_OVERRIDDEN,
+            template_id=decision.decision_id,
+            template_version=decision.version,
+            fields=decision.fields,
+        )
 
 
 async def _drop_stale_question(

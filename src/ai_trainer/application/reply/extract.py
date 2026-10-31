@@ -246,11 +246,17 @@ async def settle_draft(
 ) -> tuple[SessionDraft, Clarification | None]:
     """The draft with what its sport's settler knows filled in (ticket #397), and the first
     question its card asks. One at a time (ADR-0015 invariant 1): the same-session one first,
-    and a name's when its answer comes, so no shortlist is read for a name then."""
+    and a name's when its answer comes, so no shortlist is read and Jev isn't asked for a name
+    then (ticket #399)."""
     settler = services.settlers.get(sport_id)
-    payload = draft.payload if settler is None else await settler.settle(user_id, draft.payload)
+    same_session_first = kind == "ask" and latest is not None
+    payload = (
+        draft.payload
+        if settler is None
+        else await settler.settle(user_id, draft.payload, pick=not same_session_first)
+    )
     settled = draft.model_copy(update={"payload": payload})
-    if kind == "ask" and latest is not None:
+    if same_session_first and latest is not None:
         return settled, same_session_question(draft, latest, services)
     if settler is None:
         return settled, None

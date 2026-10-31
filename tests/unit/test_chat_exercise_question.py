@@ -26,6 +26,7 @@ from tests.chat_support import (
     include_chat,
     sign_in_as,
 )
+from tests.picker_support import ScriptedPicker
 
 _HTMX = {"HX-Request": "true"}
 _BARBELL = ExerciseCandidate(
@@ -87,6 +88,7 @@ class _App:
             settlers={
                 "gym": ResolveExercises(
                     _Names(candidates),
+                    ScriptedPicker(),
                     question=conversation.exercise_question,
                     limits=ResolutionLimits(
                         near_match=0.75, candidate_floor=0.25, shortlist_size=4

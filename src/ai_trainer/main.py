@@ -59,6 +59,7 @@ from ai_trainer.application.metered_calls import MeteredLlmCallsRepository
 from ai_trainer.application.model_budget import ModelCallBudget
 from ai_trainer.application.ports.clock import ClockPort
 from ai_trainer.application.ports.conversation import ConversationModelPort
+from ai_trainer.application.ports.decision_gateway import DecisionGatewayPort
 from ai_trainer.application.ports.draft_settling import DraftSettlerPort
 from ai_trainer.application.ports.llm_gateway import LlmGatewayPort
 from ai_trainer.application.ports.metrics import NO_METRICS, MetricsPort
@@ -68,6 +69,7 @@ from ai_trainer.domain.sports.registry import SportRegistry, default_sport_regis
 from ai_trainer.llm.conversation import LlmConversation, build_prompt_registry
 from ai_trainer.llm.debug_log import build_debug_log
 from ai_trainer.llm.decision_gateway import OpenRouterDecisionGateway
+from ai_trainer.llm.exercise_shortlist import JevExercisePicker
 from ai_trainer.llm.gateway import OpenRouterGateway
 from ai_trainer.llm.onboarding import LlmOnboardingReader
 from ai_trainer.llm.router_fast import JevFastRouter, RouterFastThresholds
@@ -141,12 +143,14 @@ def build_draft_settlers(
     settings: Settings,
     session_factory: Callable[[], AsyncSession],
     conversation: ConversationModelPort,
+    decisions: DecisionGatewayPort,
 ) -> Mapping[str, DraftSettlerPort]:
-    """What each sport settles on its drafts: the gym's exercise names (ADR-0031, ticket #397).
-    "Keep my name" takes one of the card's `max_clarification_options`."""
+    """What each sport settles on its drafts: the gym's exercise names (ADR-0031, tickets #397
+    and #399). "Keep my name" takes one of the card's `max_clarification_options`."""
     return {
         "gym": ResolveExercises(
             SqlAlchemyExerciseRepository(session_factory),
+            JevExercisePicker(decisions, threshold=settings.exercise_pick_threshold),
             question=conversation.exercise_question,
             limits=ResolutionLimits(
                 near_match=settings.exercise_near_match_threshold,
@@ -324,7 +328,7 @@ def create_app(  # noqa: PLR0915 -- composition root: objects are built only her
         # Content-free feedback events from the athlete's edits, discards, undos and taps
         # (ADR-0034).
         feedback=FeedbackRecorder(SqlAlchemyFeedbackEventsRepository(session_factory), clock=clock),
-        settlers=build_draft_settlers(settings, session_factory, conversation),
+        settlers=build_draft_settlers(settings, session_factory, conversation, decisions),
     )
     app.include_router(
         build_chat_router(

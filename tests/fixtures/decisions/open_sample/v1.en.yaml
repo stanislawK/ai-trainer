@@ -1,0 +1,14 @@
+goal: A short note an athlete wrote, to be matched with one of the entries listed below it.
+questions:
+  entry:
+    kind: choice
+    question: Which entry did the athlete mean?
+    open: true
+    options:
+      none: None of the other entries is what the athlete meant.
+  closed:
+    kind: choice
+    question: Which colour is it?
+    options:
+      red: A red thing.
+      blue: A blue thing.

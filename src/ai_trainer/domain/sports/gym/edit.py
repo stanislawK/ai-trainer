@@ -109,6 +109,7 @@ def _edited(exercise: Exercise, row: Mapping[str, JsonValue], form: _ExerciseFor
             "name_as_typed": form.name if "name" in fields else exercise.name_as_typed,
             "exercise_id": None if renamed else exercise.exercise_id,
             "keep_name": False if renamed else exercise.keep_name,
+            "jev_pick": False if renamed else exercise.jev_pick,
             "rir": form.rir if "rir" in fields else exercise.rir,
             "measure": measure_of(sets[0]),
             "sets": sets,
