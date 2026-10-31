@@ -1,7 +1,8 @@
 # Smoke set for gym.extract (ADR-0034), cut from the owner's first gym session. Messages are
 # verbatim, typos included. Exercise names are left open (`ignore_fields`): naming is code's job
-# from M1g (ADR-0031). The plank and the red band rows are synthetic, from the gaps #395 reports
-# (`metadata.reported`): the first session held no time and no "red band" wording.
+# from M1g (ADR-0031). The plank, the red band rows and the two together are synthetic, from the
+# gaps #395 reports (`metadata.reported`): the first session held no time and no "red band"
+# wording. Those cases grade the name too, as a band's words must stay out of it.
 name: gym.extract
 cases:
 - name: 'pull ups: reps before sets'
@@ -140,7 +141,6 @@ cases:
       message: plank 3x45s
   metadata:
     reported: '#395'
-    ignore_fields: [name]
   expected_output:
     occurred_on: '2026-10-28'
     date_source: assumed_today
@@ -158,11 +158,31 @@ cases:
       message: red band rows 3x10
   metadata:
     reported: '#395'
-    ignore_fields: [name]
   expected_output:
     occurred_on: '2026-10-28'
     date_source: assumed_today
     activities:
+    - name: rows
+      sets: 3
+      reps: 10
+      band: red
+- name: 'the ticket demo: a time and a band in one message'
+  inputs:
+    prompt: plank 3x45s, red band rows 3x10
+    deps:
+      <<: *deps
+      message: plank 3x45s, red band rows 3x10
+  metadata:
+    reported: '#395'
+  expected_output:
+    occurred_on: '2026-10-28'
+    date_source: assumed_today
+    activities:
+    - name: plank
+      sets: 3
+      duration:
+        value: 45
+        unit: s
     - name: rows
       sets: 3
       reps: 10
