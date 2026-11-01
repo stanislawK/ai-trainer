@@ -116,7 +116,13 @@ def typed(payload: GymPayload, subject: str, name: str) -> GymPayload:
         key = _key(exercise.name_as_typed)
         if key == old:
             return exercise.model_copy(
-                update={"name_as_typed": name, "exercise_id": None, "keep_name": False, **answer}
+                update={
+                    "name_as_typed": name,
+                    "exercise_id": None,
+                    "keep_name": False,
+                    "jev_pick": False,
+                    **answer,
+                }
             )
         return exercise.model_copy(update=answer) if key == new else exercise
 
