@@ -4,7 +4,7 @@ the pick (ticket #164); and a draft's same-session question, which the tap settl
 ticket #166)."""
 
 import asyncio
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass, replace
 from uuid import UUID
 
@@ -23,6 +23,7 @@ from ai_trainer.application.reply.shared import (
 from ai_trainer.domain.chat import ChatMessage, ChatRole
 from ai_trainer.domain.clarification import (
     EXERCISE_PURPOSE,
+    KEEP_NAME_OPTION,
     NEW_SESSION_OPTION,
     READING_PURPOSE,
     SAME_SESSION_PURPOSE,
@@ -34,6 +35,7 @@ from ai_trainer.domain.clarification import (
     StoredClarification,
     UnknownOptionError,
 )
+from ai_trainer.domain.exercises import MAX_EXERCISE_NAME, ExerciseNameError
 from ai_trainer.domain.feedback import FeedbackKind
 from ai_trainer.domain.training import StoredDraft
 
@@ -223,10 +225,11 @@ async def _next_on_card(
     draft: StoredDraft,
     services: ReplyServices,
     *,
-    answering: str | None = None,
+    answering: Collection[str] = (),
 ) -> Clarification | None:
     """The card's next question, if its sport has one: a name not yet asked about, or passed over
-    with "Let me type instead", which isn't asked again on this draft (ticket #397)."""
+    with "Let me type instead", which isn't asked again on this draft (ticket #397). `answering`
+    are the names the answer in hand settles."""
     settler = services.settlers.get(draft.sport_id)
     if settler is None:
         return None
@@ -240,8 +243,7 @@ async def _next_on_card(
         and question.answer_option_ids == ()
         and question.clarification.subject is not None
     }
-    settled = {name for name in (*skipped, answering) if name is not None}
-    return await settler.next_question(user_id, draft.draft.payload, settled=settled)
+    return await settler.next_question(user_id, draft.draft.payload, settled={*skipped, *answering})
 
 
 async def _settle_session(
@@ -274,12 +276,15 @@ async def _settle_name(
     question: StoredClarification,
     picked: str | None,
     services: ReplyServices,
+    *,
+    typed_name: str | None = None,
 ) -> SessionSettled:
-    """A tap on a draft's exercise question (B37, ticket #397), or "Let me type instead" with
-    `picked` `None`: the question closes, a tap settles every entry of the name, and the card asks
-    its next question, if any. No alias or exercise is written before the confirm. Raises as
-    `settle_name` does, and `ClarificationNotFoundError` for a question that names no draft or
-    whose draft's sport settles nothing."""
+    """A tap on a draft's exercise question (B37, ticket #397), "Let me type instead" with
+    `picked` `None`, or the card's name field with `typed_name` (ticket #402): the question
+    closes, a tap or a name settles every entry of the name, and the card asks its next question,
+    if any. No alias or exercise is written before the confirm. Raises as `settle_name` does, and
+    `ClarificationNotFoundError` for a question that names no draft or whose draft's sport settles
+    nothing."""
     subject = question.clarification.subject
     if question.draft_id is None or subject is None:
         raise ClarificationNotFoundError(question.id)
@@ -291,18 +296,61 @@ async def _settle_name(
         raise ClarificationNotFoundError(question.id)
 
     def settle(payload: Mapping[str, JsonValue]) -> dict[str, JsonValue]:
+        if typed_name is not None:
+            return settler.typed(payload, subject, typed_name)
         return dict(payload) if picked is None else settler.answered(payload, subject, picked)
 
+    answering = (subject,) if typed_name is None else (subject, typed_name)
     draft = await services.drafts.settle_name(
         user_id,
         question.draft_id,
         question.id,
         option_id=picked,
         settle=settle,
-        asks=await _next_on_card(user_id, stored, services, answering=subject),
+        asks=await _next_on_card(user_id, stored, services, answering=answering),
         answered_at=services.clock.now(),
+        typed_name=typed_name,
     )
     return SessionSettled(draft=draft)
+
+
+async def open_exercise_question(
+    user_id: UUID, clarification_id: UUID, *, services: ReplyServices
+) -> StoredClarification:
+    """The open exercise question the card's name field belongs to (ticket #402). Raises
+    `ClarificationNotFoundError` for another user's or any other kind of question, and
+    `ClarificationResolvedError` for one already closed."""
+    question = await services.clarifications.get(user_id, clarification_id)
+    if question.purpose != EXERCISE_PURPOSE:
+        raise ClarificationNotFoundError(clarification_id)
+    if question.status != "open":
+        raise ClarificationResolvedError(clarification_id)
+    return question
+
+
+async def keep_typed_name(
+    user_id: UUID, clarification_id: UUID, name: str, *, services: ReplyServices
+) -> SessionSettled:
+    """ "Use this name" on the exercise card (F23, ADR-0015, ticket #402): like "Keep my name", with
+    the name the athlete typed, so a confirm makes the custom exercise and it isn't asked about
+    again (B37). The question's answer is still the `keep` option's ID (invariant 4). Raises
+    `ExerciseNameError` for a blank or too long name, with nothing written, and as
+    `open_exercise_question` and `_settle_name` do."""
+    question = await open_exercise_question(user_id, clarification_id, services=services)
+    typed_name = name.strip()
+    if not typed_name or len(typed_name) > MAX_EXERCISE_NAME:
+        raise ExerciseNameError
+    settled = await _settle_name(
+        user_id, question, KEEP_NAME_OPTION, services, typed_name=typed_name
+    )
+    await _record_choice(
+        user_id,
+        question,
+        template_id=settled.draft.template_id,
+        template_version=settled.draft.template_version,
+        services=services,
+    )
+    return settled
 
 
 async def abandon_clarification(

@@ -237,6 +237,7 @@ class SqlAlchemySessionDraftRepository:
         settle: Callable[[Mapping[str, JsonValue]], dict[str, JsonValue]],
         asks: Clarification | None,
         answered_at: datetime,
+        typed_name: str | None = None,
     ) -> StoredDraft:
         async with self._session_factory() as session:
             return await lifecycle.settle_name(
@@ -248,6 +249,7 @@ class SqlAlchemySessionDraftRepository:
                 settle=settle,
                 asks=asks,
                 answered_at=answered_at,
+                typed_name=typed_name,
             )
 
     async def discard(

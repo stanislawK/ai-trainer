@@ -6,6 +6,7 @@ from uuid import UUID
 from pydantic import JsonValue
 
 from ai_trainer.domain.clarification import Clarification
+from ai_trainer.domain.exercises import ExerciseLabel
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,6 +52,20 @@ class DraftSettlerPort(Protocol):
     ) -> dict[str, JsonValue]:
         """The payload as the option the athlete tapped on the question about `subject` reads
         it. The caller has checked that the question offered it (ADR-0015 invariant 4)."""
+        ...
+
+    def typed(
+        self, payload: Mapping[str, JsonValue], subject: str, name: str
+    ) -> dict[str, JsonValue]:
+        """The payload as the card's name field reads it: `subject` becomes `name`, kept like the
+        athlete's own name (ticket #402). The caller has checked that `name` can be stored."""
+        ...
+
+    async def labels(
+        self, user_id: UUID, payload: Mapping[str, JsonValue], *, answered: Collection[str] = ()
+    ) -> Mapping[str, ExerciseLabel]:
+        """How the draft's card names each settled entry, by its name as typed. `answered` are
+        the names the athlete answered about on this draft, which no near match explains."""
         ...
 
     def mentions(self, payload: Mapping[str, JsonValue], subject: str) -> bool:

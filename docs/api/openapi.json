@@ -364,6 +364,124 @@
         "summary": "Answer"
       }
     },
+    "/clarifications/{clarification_id}/card": {
+      "get": {
+        "description": "The name field's Back: the exercise card again. Nothing is written (ticket #402).",
+        "operationId": "exercise_card_clarifications__clarification_id__card_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "clarification_id",
+            "required": true,
+            "schema": {
+              "title": "Clarification Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Exercise Card"
+      }
+    },
+    "/clarifications/{clarification_id}/name": {
+      "get": {
+        "description": "\"Let me type instead\" on the exercise card: its name field, holding the name as typed.\nNothing is written, and the question stays open (F23, ticket #402).",
+        "operationId": "name_field_clarifications__clarification_id__name_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "clarification_id",
+            "required": true,
+            "schema": {
+              "title": "Clarification Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Name Field"
+      },
+      "post": {
+        "description": "\"Use this name\" (F23, ticket #402): keeps the typed name for every entry of the name\nand answers with the row and the draft's next card. A blank or too long name is this\nfield again, as typed and marked (422), with nothing written. An answered question, or\none on a confirmed or discarded draft, is a 409, another user's or an unknown one a\n404.",
+        "operationId": "keep_name_clarifications__clarification_id__name_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "clarification_id",
+            "required": true,
+            "schema": {
+              "title": "Clarification Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Keep Name"
+      }
+    },
     "/drafts/{draft_id}": {
       "get": {
         "description": "The draft as it is stored: the pending card, or the row it collapsed to. The edit\nform's Cancel swaps it back in (ticket #158).",

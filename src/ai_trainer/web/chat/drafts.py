@@ -137,7 +137,10 @@ class _DraftRoutes:
             raise HTTPException(status_code=NOT_FOUND) from None
         except DraftDiscardedError, DraftAwaitingAnswerError:
             raise HTTPException(status_code=CONFLICT) from None
-        card = draft_card(draft, sports=ctx.sports, today=ctx.local_today(user))
+        labels = await ctx.draft_labels(user, [draft])
+        card = draft_card(
+            draft, sports=ctx.sports, today=ctx.local_today(user), labels=labels.get(draft.id)
+        )
         return ctx.templates.TemplateResponse(
             request, "partials/chat/draft_confirmed.html", {"card": card, "draft": draft}
         )

@@ -10,6 +10,7 @@ from ai_trainer.domain.exercises import (
     ExerciseCandidate,
     ExerciseDetail,
     ExerciseEntry,
+    ExerciseLabel,
     ExerciseMeasure,
     ImportedCatalogue,
 )
@@ -43,7 +44,16 @@ class ExerciseNamesPort(Protocol):
         limit: int,
     ) -> Sequence[ExerciseCandidate]:
         """At most `limit` exercises at `floor` or above, by trigram and `simple` full-text search
-        over names and aliases in every language. Those measured like `measure` come first."""
+        over names and aliases in every language. Those measured like `measure` come first. Each
+        carries its short English text from `exercise_texts`, when it has one (F23, G5)."""
+        ...
+
+    async def labels(
+        self, user_id: UUID, *, named: Mapping[str, UUID], near: float
+    ) -> Mapping[str, ExerciseLabel]:
+        """How the card names each typed name's exercise: its `name`, and `usual`, the athlete's
+        own alias of that exercise at similarity `near` or above, when no alias is exactly the
+        typed name. An exercise the athlete can't see is left out (ticket #402)."""
         ...
 
 

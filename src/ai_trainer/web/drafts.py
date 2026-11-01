@@ -6,14 +6,15 @@ template is that sport's extraction template. A pending one is the card, a confi
 session offers to add to it, and once confirmed says it was added (#165). A pending one
 offers the athlete's other sports on its sport chip, and one moved to another sport stays
 under the reply it came with (#163). One that came later on the day of a same-sport session
-asks on its card whether it is that session, and waits for the pick to be confirmed (#166). Its
-payload is read only through the plugin's model
+asks on its card whether it is that session, and waits for the pick to be confirmed (#166). A
+name the app couldn't settle asks on an exercise card in the draft's place, and each answer stays
+as a row above what follows (F23, #402). Its payload is read only through the plugin's model
 (ADR-0022), and the sport-specific card body, edit fields and summary are the plugin's own
 partials."""
 
 import logging
 from collections.abc import Callable, Collection, Iterable, Iterator, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 from uuid import UUID
 from zoneinfo import ZoneInfo
@@ -22,10 +23,12 @@ from pydantic import BaseModel, JsonValue, ValidationError
 
 from ai_trainer.application.reply import asking_sports, sports_to_switch_to
 from ai_trainer.domain.chat import ChatMessage, ChatRole
-from ai_trainer.domain.clarification import StoredClarification
+from ai_trainer.domain.clarification import EXERCISE_PURPOSE, StoredClarification
+from ai_trainer.domain.exercises import ExerciseLabel
 from ai_trainer.domain.sports.base import SportPlugin
 from ai_trainer.domain.sports.registry import SportRegistry, UnknownSportError
 from ai_trainer.domain.training import DRAFT_FAILED_TEMPLATE_ID, StoredDraft, joins_day
+from ai_trainer.web.clarifications import ChoiceCard
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +52,15 @@ class DraftCard:
     switch_to: tuple[SportPlugin, ...] = ()
     # The question still open on a pending draft's card (B16, ticket #166; B37, ticket #397).
     question: StoredClarification | None = None
+    # How the card names each settled entry, by its name as typed (F23, ticket #402).
+    labels: Mapping[str, ExerciseLabel] = field(default_factory=dict)
+    # The draft's answered exercise questions, as the rows above its card (ticket #402).
+    named: tuple[ChoiceCard, ...] = ()
+
+    @property
+    def asks_name(self) -> bool:
+        """Whether an exercise question takes the card's place until it's answered (F23, #402)."""
+        return self.question is not None and self.question.purpose == EXERCISE_PURPOSE
 
     @property
     def adds_at(self) -> str | None:
@@ -112,6 +124,19 @@ def open_questions(
     }
 
 
+def answered_names(
+    questions: Iterable[StoredClarification], draft_id: UUID
+) -> tuple[StoredClarification, ...]:
+    """The exercise questions the athlete answered on this draft, oldest first (ticket #402)."""
+    return tuple(
+        question
+        for question in questions
+        if question.draft_id == draft_id
+        and question.purpose == EXERCISE_PURPOSE
+        and question.status == "answered"
+    )
+
+
 def draft_cards(
     messages: Sequence[ChatMessage],
     drafts: Iterable[StoredDraft],
@@ -121,12 +146,13 @@ def draft_cards(
     athlete_sports: Sequence[str] = (),
     log_id: UUID | None = None,
     questions: Iterable[StoredClarification] = (),
+    labels: Mapping[UUID, Mapping[str, ExerciseLabel]] | None = None,
 ) -> Mapping[UUID, Sequence[DraftCard]]:
     """The cards to show under each assistant message, keyed by its ID. `log_id` is the
     athlete's message that `messages` answer, when the list starts with its reply. A draft
     moved to a sport its log's reply never extracted goes under that reply's last extraction
     part (#163). `questions` are the conversation's, and a pending card shows its own open one
-    (#166)."""
+    (#166). `labels` name each draft's settled entries, by the draft's ID (#402)."""
     pending = _drafts_by_log(drafts)
     cards: dict[UUID, list[DraftCard]] = {}
     last_extraction: dict[UUID, UUID] = {}
@@ -141,6 +167,8 @@ def draft_cards(
             athlete_sports=athlete_sports,
             question=asking.get(draft.id),
             asking=asking_sports(shown, draft.message_id),
+            labels=(labels or {}).get(draft.id, {}),
+            named=answered_names(shown, draft.id),
         )
 
     for log, part_id, sport_id in _extraction_parts(messages, log_id, sports):
@@ -227,11 +255,14 @@ def draft_card(
     athlete_sports: Sequence[str] = (),
     question: StoredClarification | None = None,
     asking: Collection[str] = (),
+    labels: Mapping[str, ExerciseLabel] | None = None,
+    named: Sequence[StoredClarification] = (),
 ) -> DraftCard | None:
     """`None` when its sport is unknown, or when a pending draft's stored payload no longer
     reads: the page still renders, without that card. A pending card's chip offers
     `athlete_sports`, as `sports_to_switch_to` narrows them, without the sports still `asking`
-    on its log (#164), and asks `question` (#166)."""
+    on its log (#164), and asks `question` (#166). `labels` name its settled entries and `named`
+    are its answered exercise questions, shown as rows above it (#402)."""
     try:
         sport = sports.get(draft.sport_id)
     except UnknownSportError:
@@ -268,6 +299,8 @@ def draft_card(
         is_today=draft.draft.occurred_on == today,
         switch_to=switch_to,
         question=question if draft.status == "pending" else None,
+        labels=labels or {},
+        named=tuple(ChoiceCard(answered) for answered in named),
     )
 
 

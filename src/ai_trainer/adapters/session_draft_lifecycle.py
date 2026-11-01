@@ -322,14 +322,18 @@ async def settle_name(
     settle: Callable[[Mapping[str, JsonValue]], dict[str, JsonValue]],
     asks: Clarification | None,
     answered_at: datetime,
+    typed_name: str | None = None,
 ) -> StoredDraft:
     """One transaction (ticket #397), locked and closed as `settle_session` is: the payload is
     read under the draft row's lock, so an edit racing the tap isn't lost, and the card's next
-    question goes in with it."""
+    question goes in with it. `typed_name` goes on the closed question for its row (#402)."""
     row = await _locked_pending(session, user_id, draft_id)
     await _close_question(
         session, user_id, draft_id, clarification_id, option_id, closed_at=answered_at
     )
+    if typed_name is not None:
+        closed = await session.get_one(ClarificationOrm, clarification_id)
+        closed.clarification = {**closed.clarification, "typed_name": typed_name}
     draft = SessionDraft.model_validate(row.draft)
     row.draft = draft.model_copy(update={"payload": settle(draft.payload)}).model_dump(mode="json")
     ask(session, row, asks, answered_at)

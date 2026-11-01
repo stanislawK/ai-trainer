@@ -28,6 +28,8 @@ from ai_trainer.application.reply.clarification import (
     SessionSettled,
     abandon_clarification,
     answer_clarification,
+    keep_typed_name,
+    open_exercise_question,
 )
 from ai_trainer.application.reply.retry import RetriedDraft, RetryFailed, retry_draft
 from ai_trainer.application.reply.route import route_message
@@ -65,6 +67,8 @@ __all__ = [
     "change_draft_sport",
     "find_message",
     "find_saved_reply",
+    "keep_typed_name",
+    "open_exercise_question",
     "retry_draft",
     "route_message",
     "sports_to_switch_to",

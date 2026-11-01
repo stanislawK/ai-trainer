@@ -128,8 +128,12 @@ class SessionDraftRepositoryPort(Protocol):
         settle: Callable[[Mapping[str, JsonValue]], dict[str, JsonValue]],
         asks: Clarification | None,
         answered_at: datetime,
+        typed_name: str | None = None,
     ) -> StoredDraft:
-        """In one transaction, closes the user's open exercise question `clarification_id` on
+        """`typed_name` is the name the athlete gave in the card's name field, stored on the
+        closed question for its row (ticket #402).
+
+        In one transaction, closes the user's open exercise question `clarification_id` on
         their pending draft `draft_id`, as answered with `option_id` or abandoned with `None`,
         replaces the draft's payload with `settle` of it, read under the draft row's lock so an
         edit racing the tap isn't lost, and stores `asks`, the card's next question, `open`

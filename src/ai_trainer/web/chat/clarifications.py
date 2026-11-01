@@ -1,6 +1,8 @@
 """The choice card's answers: a tap on its options, or "Let me type instead" (B16, B17, B23,
 F9, ADR-0015, tickets #162, #164 and #166)."""
 
+from uuid import UUID
+
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse
 
@@ -11,12 +13,17 @@ from ai_trainer.application.reply import (
     SessionSettled,
     abandon_clarification,
     answer_clarification,
+    keep_typed_name,
+    open_exercise_question,
 )
 from ai_trainer.domain.clarification import (
+    EXERCISE_PURPOSE,
     ClarificationNotFoundError,
     ClarificationResolvedError,
+    StoredClarification,
     UnknownOptionError,
 )
+from ai_trainer.domain.exercises import ExerciseNameError
 from ai_trainer.domain.training import (
     DraftConfirmedError,
     DraftDiscardedError,
@@ -44,6 +51,9 @@ class _ClarificationRoutes:
         ctx = self._ctx
         reply = answered.reply
         athlete = await ctx.athlete_sports(user)
+        questions = await ctx.replies.clarifications.list_shown(
+            user.id, answered.clarification.conversation_id
+        )
         return ctx.templates.TemplateResponse(
             request,
             "partials/chat/choice_answer.html",
@@ -65,12 +75,88 @@ class _ClarificationRoutes:
                     log_id=answered.clarification.message_id,
                     # Every question of the conversation: a sport still asking how to read
                     # this log is no chip on its cards (ticket #164).
-                    questions=await ctx.replies.clarifications.list_shown(
-                        user.id, answered.clarification.conversation_id
-                    ),
+                    questions=questions,
+                    labels=await ctx.draft_labels(user, reply.drafts, questions),
                 ),
             },
         )
+
+    async def _settled(
+        self, request: Request, question_id: UUID, settled: SessionSettled, *, user: User
+    ) -> HTMLResponse:
+        """The draft's next card after an answer on it. An answered exercise question stays as a
+        row above that card (F23, ticket #402)."""
+        ctx = self._ctx
+        card = await ctx.shown_card(user, settled.draft)
+        question = await ctx.replies.clarifications.get(user.id, question_id)
+        if question.purpose != EXERCISE_PURPOSE:
+            return ctx.templates.TemplateResponse(request, card.template, {"card": card})
+        return ctx.templates.TemplateResponse(
+            request,
+            "partials/chat/exercise_answer.html",
+            {"answer": ChoiceCard(question), "card": card},
+        )
+
+    def _name_field(
+        self,
+        request: Request,
+        question: StoredClarification,
+        *,
+        value: str | None = None,
+        error: bool = False,
+    ) -> HTMLResponse:
+        return self._ctx.templates.TemplateResponse(
+            request,
+            "partials/chat/exercise_name_field.html",
+            {"question": question, "value": value, "error": error},
+            status_code=UNPROCESSABLE if error else 200,
+        )
+
+    async def _open_question(self, request: Request, clarification_id: str) -> StoredClarification:
+        user: User = request.state.user
+        try:
+            return await open_exercise_question(
+                user.id, parse_id(clarification_id), services=self._ctx.replies
+            )
+        except ClarificationNotFoundError:
+            raise HTTPException(status_code=NOT_FOUND) from None
+        except ClarificationResolvedError:
+            raise HTTPException(status_code=CONFLICT) from None
+
+    async def name_field(self, request: Request, clarification_id: str) -> HTMLResponse:
+        """ "Let me type instead" on the exercise card: its name field, holding the name as typed.
+        Nothing is written, and the question stays open (F23, ticket #402)."""
+        return self._name_field(request, await self._open_question(request, clarification_id))
+
+    async def exercise_card(self, request: Request, clarification_id: str) -> HTMLResponse:
+        """The name field's Back: the exercise card again. Nothing is written (ticket #402)."""
+        return self._ctx.templates.TemplateResponse(
+            request,
+            "partials/chat/exercise_card.html",
+            {"question": await self._open_question(request, clarification_id)},
+        )
+
+    async def keep_name(self, request: Request, clarification_id: str) -> HTMLResponse:
+        """ "Use this name" (F23, ticket #402): keeps the typed name for every entry of the name
+        and answers with the row and the draft's next card. A blank or too long name is this
+        field again, as typed and marked (422), with nothing written. An answered question, or
+        one on a confirmed or discarded draft, is a 409, another user's or an unknown one a
+        404."""
+        ctx = self._ctx
+        user: User = request.state.user
+        question = await self._open_question(request, clarification_id)
+        form = await request.form()
+        raw = form.get("name", "")
+        name = raw if isinstance(raw, str) else ""
+        try:
+            settled = await keep_typed_name(user.id, question.id, name, services=ctx.replies)
+        except ExerciseNameError:
+            return self._name_field(request, question, value=name, error=True)
+        except ClarificationNotFoundError, DraftNotFoundError:
+            raise HTTPException(status_code=NOT_FOUND) from None
+        except ClarificationResolvedError, DraftConfirmedError, DraftDiscardedError:
+            raise HTTPException(status_code=CONFLICT) from None
+        return await self._settled(request, question.id, settled, user=user)
 
     async def answer(self, request: Request, clarification_id: str) -> HTMLResponse:
         """A choice card's tap (B17, B23, F9, ADR-0015): the option IDs the athlete picked
@@ -96,8 +182,7 @@ class _ClarificationRoutes:
         except UnknownOptionError:
             raise HTTPException(status_code=UNPROCESSABLE) from None
         if isinstance(answered, SessionSettled):
-            settled = await ctx.shown_card(user, answered.draft)
-            return ctx.templates.TemplateResponse(request, settled.template, {"card": settled})
+            return await self._settled(request, parsed_id, answered, user=user)
         if isinstance(answered, ReplyFailed):
             card = ChoiceCard(await ctx.replies.clarifications.get(user.id, parsed_id))
             return ctx.templates.TemplateResponse(
@@ -140,5 +225,14 @@ def build_clarifications_router(ctx: ChatContext) -> APIRouter:
     )
     router.post("/clarifications/{clarification_id}/abandon", response_class=HTMLResponse)(
         routes.abandon
+    )
+    router.get("/clarifications/{clarification_id}/name", response_class=HTMLResponse)(
+        routes.name_field
+    )
+    router.post("/clarifications/{clarification_id}/name", response_class=HTMLResponse)(
+        routes.keep_name
+    )
+    router.get("/clarifications/{clarification_id}/card", response_class=HTMLResponse)(
+        routes.exercise_card
     )
     return router

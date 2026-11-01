@@ -97,6 +97,48 @@ def answered(payload: GymPayload, subject: str, option_id: str) -> GymPayload:
     )
 
 
+def typed(payload: GymPayload, subject: str, name: str) -> GymPayload:
+    """The payload as the card's name field reads it (ticket #402): every entry of `subject` takes
+    `name` and keeps it, like "Keep my name". An entry already typed as `name` shares the answer,
+    or lends its exercise when it is settled, so one name never holds two answers on a draft."""
+    old, new = _key(subject), _key(name)
+    lent = next(
+        (
+            exercise.exercise_id
+            for exercise in payload.activities
+            if _key(exercise.name_as_typed) == new and exercise.exercise_id is not None
+        ),
+        None,
+    )
+    answer: dict[str, object] = {"keep_name": True} if lent is None else {"exercise_id": lent}
+
+    def renamed(exercise: Exercise) -> Exercise:
+        key = _key(exercise.name_as_typed)
+        if key == old:
+            return exercise.model_copy(
+                update={"name_as_typed": name, "exercise_id": None, "keep_name": False, **answer}
+            )
+        return exercise.model_copy(update=answer) if key == new else exercise
+
+    return payload.model_copy(
+        update={"activities": [renamed(exercise) for exercise in payload.activities]}
+    )
+
+
+def named(payload: GymPayload) -> dict[str, UUID]:
+    """The exercise of each settled entry, by its name as typed."""
+    return {
+        exercise.name_as_typed: exercise.exercise_id
+        for exercise in payload.activities
+        if exercise.exercise_id is not None
+    }
+
+
+def reads_as(typed_name: str, name: str) -> bool:
+    """Whether a typed name is the exercise's own, so there's no "you wrote" line to show."""
+    return _key(typed_name) == _key(name)
+
+
 def keys_of(payload: GymPayload) -> frozenset[str]:
     """Each name on the draft once, as the draft groups them."""
     return frozenset(_key(exercise.name_as_typed) for exercise in payload.activities)

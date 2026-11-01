@@ -92,7 +92,8 @@ class Exercise(BaseModel):
 
 
 class ExerciseCandidate(BaseModel):
-    """A shortlisted exercise for a typed name (ADR-0031): what a choice card tells it apart by."""
+    """A shortlisted exercise for a typed name (ADR-0031): what a choice card tells it apart by.
+    `how` is how it's done, from `exercise_texts` and never from a model (invariant 6, F23)."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -100,6 +101,23 @@ class ExerciseCandidate(BaseModel):
     name: str
     equipment: str | None = None
     target: str | None = None
+    how: str | None = None
+
+
+class ExerciseLabel(BaseModel):
+    """How a draft's card names a settled entry (F23, ticket #402): the exercise's `name`, then
+    either `usual`, the athlete's own alias a near match came from, or `wrote`, the name as typed
+    when it reads differently from `name`."""
+
+    model_config = ConfigDict(frozen=True)
+
+    name: str
+    usual: str | None = None
+    wrote: str | None = None
+
+
+class ExerciseNameError(Exception):
+    """A typed exercise name is blank or too long to store as an alias (ticket #402)."""
 
 
 class ExerciseAlias(BaseModel):

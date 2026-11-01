@@ -1,8 +1,9 @@
-{#- What a confirmed gym draft logged, for its "Logged … to <date>" row (tickets #159 and #398): one exercise by its name ("Squat", "Plank"), several by their count ("3 exercises"). What was done, per exercise, is the block list under the row, `logged_gym_lines.html`. -#}
+{#- What a confirmed gym draft logged, for its "Logged … to <date>" row (tickets #159 and #398): one exercise by its name, canonical when settled (#402), else as typed ("Squat", "Plank"), several by their count ("3 exercises"). What was done, per exercise, is the block list under the row, `logged_gym_lines.html`. -#}
 {%- from "components/gym_copy.html" import exercise_name -%}
 {%- set exercises = card.payload.activities -%}
 {%- if exercises | length == 1 -%}
-{{ exercise_name(exercises[0].name_as_typed) }}
+{%- set label = card.labels.get(exercises[0].name_as_typed) -%}
+{{ label.name if label else exercise_name(exercises[0].name_as_typed) }}
 {%- else -%}
 {{ exercises | length }} exercises
 {%- endif -%}

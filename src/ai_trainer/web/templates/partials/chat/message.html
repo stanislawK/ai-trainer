@@ -1,5 +1,5 @@
 {%- from "components/avatar.html" import avatar -%}
-{%- from "components/choice_card.html" import choice_card -%}
+{%- from "components/choice_card.html" import choice_card, exercise_answer -%}
 {%- if message.role == "assistant" -%}
 {%- set cards = draft_cards.get(message.id, []) -%}
 {%- set choice = (choice_cards or {}).get(message.id) -%}
@@ -12,6 +12,9 @@
 <div class="chat-message flex flex-col gap-4">
   <p class="text-[16px] leading-6 pl-9 whitespace-pre-wrap break-words">{{ message.text }}</p>
   {%- for card in cards %}
+  {%- for answer in card.named %}
+  {{ exercise_answer(answer) }}
+  {%- endfor %}
   {% include card.template %}
   {%- endfor %}
 </div>

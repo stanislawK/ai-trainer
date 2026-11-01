@@ -15,6 +15,7 @@ from ai_trainer.domain.exercises import (
     ExerciseCandidate,
     ExerciseDetail,
     ExerciseEntry,
+    ExerciseLabel,
     ExerciseMeasure,
 )
 
@@ -40,6 +41,11 @@ class EmptyExercises:
         limit: int,
     ) -> Sequence[ExerciseCandidate]:
         return []
+
+    async def labels(
+        self, user_id: UUID, *, named: Mapping[str, UUID], near: float
+    ) -> Mapping[str, ExerciseLabel]:
+        return {}
 
     async def describe(
         self, user_id: UUID, exercise_ids: Sequence[UUID], *, lang: str

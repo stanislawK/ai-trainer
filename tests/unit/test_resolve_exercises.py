@@ -34,7 +34,7 @@ from ai_trainer.domain.clarification import (
     UnknownOptionError,
 )
 from ai_trainer.domain.conversation import Intent
-from ai_trainer.domain.exercises import MAX_EXERCISE_NAME, ExerciseCandidate
+from ai_trainer.domain.exercises import MAX_EXERCISE_NAME, ExerciseCandidate, ExerciseLabel
 from ai_trainer.domain.feedback import FeedbackKind
 from ai_trainer.domain.sports.gym.extraction import GymExtraction
 from ai_trainer.domain.sports.gym.payload import GymPayload
@@ -104,6 +104,11 @@ class _Names:
         assert sport_id == "gym"
         self.shortlisted.append((name, measure, floor, limit))
         return list(self.candidates)[:limit]
+
+    async def labels(
+        self, user_id: UUID, *, named: Mapping[str, UUID], near: float
+    ) -> Mapping[str, ExerciseLabel]:
+        return {typed: ExerciseLabel(name=_BARBELL.name) for typed in named}
 
 
 def _lift(name: str = "bench press", reps: int = 8) -> dict[str, object]:
@@ -218,11 +223,8 @@ async def test_an_unsettled_name_asks_on_the_card_with_candidates_and_keep_my_na
         str(_DUMBBELL.id),
         KEEP_NAME_OPTION,
     ]
-    assert asked.options[0].params == {
-        "name": "Barbell Bench Press",
-        "detail": "barbell, pectorals",
-    }
-    assert asked.options[1].params == {"name": "Dumbbell Bench Press", "detail": "dumbbell"}
+    assert asked.options[0].params == {"name": "Barbell Bench Press", "how": ""}
+    assert asked.options[1].params == {"name": "Dumbbell Bench Press", "how": ""}
     assert asked.options[2].params == {"name": "bench press"}
 
 
