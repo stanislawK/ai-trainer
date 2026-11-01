@@ -165,11 +165,39 @@ class GymExtraction(SessionExtraction):
         )
 
     def to_payload(self) -> GymPayload:
-        return GymPayload(activities=[exercise.to_exercise() for exercise in self.activities])
+        return GymPayload(
+            activities=_merge_neighbours([exercise.to_exercise() for exercise in self.activities])
+        )
 
 
 def _key(name: str) -> str:
     return name.strip().casefold()
+
+
+def _merge_neighbours(exercises: Sequence[Exercise]) -> list[Exercise]:
+    """The model lists one activity per scheme, so a pyramid ("10 @ 60, 8 @ 70, 6 @ 80") comes
+    as three one-set entries; payload v2 holds it as one entry of three sets, and the athlete
+    names it once (ADR-0032, ticket #410). Neighbours merge when they match in name (case
+    folded), side, implements, RIR and measure, and the merge stays within `MAX_SETS`."""
+    merged: list[Exercise] = []
+    for exercise in exercises:
+        previous = merged[-1] if merged else None
+        if previous is not None and _merges(previous, exercise):
+            merged[-1] = previous.model_copy(update={"sets": [*previous.sets, *exercise.sets]})
+        else:
+            merged.append(exercise)
+    return merged
+
+
+def _merges(first: Exercise, second: Exercise) -> bool:
+    return (
+        _key(first.name_as_typed) == _key(second.name_as_typed)
+        and first.per_side == second.per_side
+        and first.implements == second.implements
+        and first.rir == second.rir
+        and first.measure == second.measure
+        and len(first.sets) + len(second.sets) <= MAX_SETS
+    )
 
 
 class GymQuestion(ExtractionQuestion):

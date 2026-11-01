@@ -7,6 +7,7 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
+from ai_trainer.domain.clarification import ChoiceOption
 from ai_trainer.domain.sports.gym.edit import apply_gym_edit
 from ai_trainer.domain.sports.gym.extraction import GymExtraction
 from ai_trainer.domain.sports.gym.normalize import normalize_load, to_kg
@@ -279,3 +280,100 @@ def test_the_registry_wires_gym_to_its_extraction_template_and_payload() -> None
     assert plugin.extraction.payload_type is GymPayload
     assert plugin.extraction.payload_version == GYM_PAYLOAD_VERSION
     assert plugin.extraction.apply_edit is apply_gym_edit
+
+
+def _scheme(name: str, reps: int, load_kg: float, **fields: Any) -> dict[str, Any]:
+    return {
+        "name": name,
+        "sets": 1,
+        "reps": reps,
+        "load": {"original": f"{load_kg:g}", "value": load_kg, "unit": "kg"},
+    } | fields
+
+
+def _pyramid(*activities: dict[str, Any]) -> GymPayload:
+    return _extraction(activities=list(activities)).to_payload()
+
+
+def _reps_at_kg(payload: GymPayload) -> list[list[tuple[int | None, float | None]]]:
+    return [
+        [
+            (gym_set.reps, None if gym_set.load is None else gym_set.load.kg)
+            for gym_set in entry.sets
+        ]
+        for entry in payload.activities
+    ]
+
+
+def test_a_pyramid_of_three_schemes_becomes_one_entry_of_three_sets() -> None:
+    payload = _pyramid(_scheme("bench", 10, 60), _scheme("bench", 8, 70), _scheme("bench", 6, 80))
+
+    (bench,) = payload.activities
+    assert bench.name_as_typed == "bench"
+    assert _reps_at_kg(payload) == [[(10, 60), (8, 70), (6, 80)]]
+
+
+def test_2x5_then_1x3_merge_into_three_sets_in_typed_order() -> None:
+    payload = _pyramid(_scheme("squat", 5, 100, sets=2), _scheme("squat", 3, 110))
+
+    assert _reps_at_kg(payload) == [[(5, 100), (5, 100), (3, 110)]]
+
+
+def test_a_name_differing_only_in_case_and_space_merges_under_the_first() -> None:
+    payload = _pyramid(_scheme("Bench", 10, 60), _scheme(" bench ", 8, 70))
+
+    (bench,) = payload.activities
+    assert bench.name_as_typed == "Bench"
+    assert len(bench.sets) == 2
+
+
+@pytest.mark.parametrize(
+    "second",
+    [
+        {"rir": 2},
+        {"per_side": True},
+        {"implements": 2},
+        {"duration": {"value": 30, "unit": "s"}, "load": None, "reps": None},
+        {"name": "squat"},
+    ],
+    ids=["rir", "side", "implements", "measure", "name"],
+)
+def test_entries_that_differ_stay_separate(second: dict[str, Any]) -> None:
+    payload = _pyramid(_scheme("bench", 10, 60), _scheme("bench", 8, 70) | second)
+
+    assert len(payload.activities) == 2
+
+
+def test_the_same_lift_with_another_exercise_between_stays_separate() -> None:
+    payload = _pyramid(
+        _scheme("bench", 10, 60), {"name": "pull-ups", "sets": 3}, _scheme("bench", 8, 70)
+    )
+
+    assert [entry.name_as_typed for entry in payload.activities] == ["bench", "pull-ups", "bench"]
+
+
+def test_a_merge_past_100_sets_leaves_the_entries_separate() -> None:
+    payload = _pyramid(_scheme("bench", 5, 60, sets=60), _scheme("bench", 5, 70, sets=41))
+
+    assert [len(entry.sets) for entry in payload.activities] == [60, 41]
+
+
+def test_a_merge_up_to_100_sets_still_merges() -> None:
+    payload = _pyramid(_scheme("bench", 5, 60, sets=60), _scheme("bench", 5, 70, sets=40))
+
+    assert [len(entry.sets) for entry in payload.activities] == [100]
+
+
+def test_a_movement_answer_still_names_every_scheme() -> None:
+    extraction = _extraction(
+        activities=[_scheme("bench", 10, 60), _scheme("bench", 8, 70)]
+    ).answered(
+        ChoiceOption(
+            id="bench press",
+            copy_key="gym_reading_movement",
+            params={"exercise": "bench", "movement": "bench press", "others": ""},
+        )
+    )
+
+    (entry,) = extraction.to_payload().activities
+    assert entry.name_as_typed == "bench press"

@@ -183,6 +183,26 @@ async def test_5x5_squat_then_3_sets_of_pull_ups_ends_with_a_gym_card_of_both() 
     assert (stored.sport_id, stored.payload_version) == ("gym", 4)
 
 
+async def test_a_typed_pyramid_ends_with_one_bench_block_on_the_card() -> None:
+    pyramid = GymExtraction.model_validate(
+        {
+            "occurred_on": _TODAY,
+            "date_source": "assumed_today",
+            "activities": [
+                {"name": "bench", "sets": 1, "reps": reps, "load": {"original": kg, "value": kg}}
+                for reps, kg in ((10, "60"), (8, "70"), (6, "80"))
+            ],
+        }
+    )
+    client, user_id, chat, _ = _client(pyramid)
+    asked = await _logged(chat, user_id, "bench 10 @ 60, 8 @ 70, 6 @ 80")
+
+    card = _card(_final(client.get(f"/messages/{asked.id}/reply").text))
+
+    (bench,) = _exercises(card)
+    assert _text(bench) == "Bench 10 @ 60 kg · 8 @ 70 kg · 6 @ 80 kg"
+
+
 async def test_bench_yesterday_is_a_card_dated_yesterday() -> None:
     client, user_id, chat, _ = _client(BENCH_YESTERDAY)
     asked = await _logged(chat, user_id, f"Bench yesterday 3{_TIMES}8 @ 60")
