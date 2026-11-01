@@ -1,39 +1,98 @@
-{#- A gym draft's own fields in its edit form (ticket #159): one group per exercise, as on the card, with its name on its own line, then sets, reps, load in kg and RIR side by side. A load left as shown keeps what was typed (pounds); a changed one is in kg. Runs inside `partials/chat/draft_edit.html`, which passes `card`, `values` and `errors`. -#}
+{#- A gym draft's own fields in its edit form (tickets #159 and #398; Gym Measures mock, layout B): one group per exercise with an `lg-field` name and an `lg-select` measure, Each side, Implements and RIR, then one row per set with `lg-field`s labelled by the measure (reps, kg, s, m or band), a remove control, and an Add set control, so one set of a pyramid can be corrected. A blank field stays blank and is saved as nothing, never 0. A load left as shown keeps what was typed (pounds); a changed one is in kg. Time is in seconds and distance in metres. Every set's five fields are posted, the ones the measure doesn't use hidden, so a value the athlete didn't touch is kept; `static/js/gym_sets.js` shows and hides them when the measure changes, and adds and removes rows from the `<template>` (its set index is `__set__`). Runs inside `partials/chat/draft_edit.html`, which passes `card`, `values` and `errors`. -#}
 {%- from "components/gym_copy.html" import kg_value -%}
 {%- from "components/draft_field.html" import field_value, field_error, error_hint -%}
-<fieldset class="flex flex-col gap-3">
+{%- from "components/icon.html" import icon -%}
+{%- set measures = {
+  "load_reps": {"label": "Reps and load", "shows": ["reps", "load"]},
+  "reps": {"label": "Reps", "shows": ["reps"]},
+  "time": {"label": "Time", "shows": ["duration", "load"]},
+  "distance": {"label": "Distance", "shows": ["distance", "load"]},
+  "band_reps": {"label": "Reps with a band", "shows": ["reps", "band"]},
+} -%}
+{%- set set_fields = [
+  ("reps", "Reps", "numeric", "Enter reps, 1 or more."),
+  ("load", "kg", "decimal", "Enter a load in kg above 0."),
+  ("duration", "s", "numeric", "Enter seconds, up to 86400."),
+  ("distance", "m", "decimal", "Enter metres, up to 9999999.9."),
+  ("band", "Band", "text", "Enter the band's name."),
+] -%}
+{#- One set's row. `gym_set` is none for a set the athlete added; `index` is its position, or `__set__` in the template. -#}
+{% macro set_row(row, index, gym_set, shown, values, errors, draft_id, only) -%}
+  {%- set prefix = row ~ "sets." ~ index ~ "." %}
+  {%- set stored = {
+    "reps": gym_set.reps if gym_set else none,
+    "load": kg_value(gym_set.load.kg) if gym_set and gym_set.load else none,
+    "duration": gym_set.duration_s if gym_set else none,
+    "distance": kg_value(gym_set.distance_m) if gym_set and gym_set.distance_m is not none else none,
+    "band": gym_set.band_label if gym_set else none,
+  } %}
+  <div class="flex flex-wrap items-end gap-2" data-set-row>
+    <span class="w-6 shrink-0 pb-3 text-[12px] text-base-content/70 tabular-nums" data-set-number>{{ index + 1 if index is number else "" }}</span>
+    {%- for field, label, mode, message in set_fields %}
+    <label class="flex flex-col gap-1 flex-1 min-w-16{% if field not in shown %} hidden{% endif %}" data-field="{{ field }}">
+      <span class="text-[12px] text-base-content/70">{{ label }}</span>
+      <input type="{{ 'text' if field == 'band' else 'number' }}" name="{{ prefix }}{{ field }}" inputmode="{{ mode }}"{% if field != 'band' %} min="0"{% if mode == 'decimal' %} step="any"{% endif %}{% endif %} class="lg-field tabular-nums" value="{{ field_value(prefix ~ field, values, stored[field]) }}"{{ field_error(prefix ~ field, errors, draft_id) }}>
+    </label>
+    {%- endfor %}
+    {#- Which stored set this row came from, so a set removed above it doesn't pair it with another; blank for a set the athlete added. -#}
+    <input type="hidden" name="{{ prefix }}src" value="{{ field_value(prefix ~ 'src', values, index if gym_set else none) }}">
+    <button type="button" class="lg lg-ghost lg-icon lg-sm shrink-0 mb-1" data-remove-set aria-label="Remove set{% if index is number %} {{ index + 1 }}{% endif %}"{% if only %} disabled{% endif %}><span class="absolute -inset-x-px -inset-y-1" aria-hidden="true"></span>{{ icon("x", "size-4") }}</button>
+    {%- for field, label, mode, message in set_fields %}
+    {% call error_hint(prefix ~ field, errors, draft_id) %}{{ message }}{% endcall %}
+    {%- endfor %}
+  </div>
+{%- endmacro %}
+<fieldset class="flex flex-col gap-4 divide-y divide-base-content/10">
   <legend class="sr-only">Exercises</legend>
   {%- for exercise in card.payload.activities %}
   {%- set row = "activities." ~ loop.index0 ~ "." %}
-  {%- set first = exercise.sets[0] %}
-  <div class="flex flex-col gap-1" role="group" aria-label="Exercise {{ loop.index }}">
+  {%- set measure = field_value(row ~ "measure", values, exercise.measure) %}
+  {%- set shown = measures[measure].shows if measure in measures else measures[exercise.measure].shows %}
+  {#- The rows come from what was typed when the form comes back rejected, else from the draft. -#}
+  {%- set typed = namespace(count=0) %}
+  {%- for key in values %}{% if key.startswith(row ~ "sets.") %}{% set typed.count = [typed.count, (key[(row ~ "sets.") | length:].split(".")[0]) | int + 1] | max %}{% endif %}{% endfor %}
+  {#- At most the 100 sets an exercise can hold: a posted key can't ask for more rows. -#}
+  {%- set count = ([typed.count, 100] | min) if typed.count else exercise.sets | length %}
+  {%- set each_side = values[row ~ "per_side"] == "1" if (row ~ "per_side") in values else exercise.per_side %}
+  <div class="flex flex-col gap-3 pt-4 first:pt-0" role="group" aria-label="Exercise {{ loop.index }}" data-exercise data-shows='{{ measures | tojson }}'>
     <label class="flex flex-col gap-1">
       <span class="text-[12px] text-base-content/70">Exercise</span>
       <input type="text" name="{{ row }}name" class="lg-field" value="{{ field_value(row ~ 'name', values, exercise.name_as_typed) }}"{{ field_error(row ~ 'name', errors, card.draft.id) }}>
     </label>
     {% call error_hint(row ~ "name", errors, card.draft.id) %}Enter the exercise's name.{% endcall %}
-    <div class="grid grid-cols-4 gap-2">
-      <label class="flex flex-col gap-1">
-        <span class="text-[12px] text-base-content/70">Sets</span>
-        <input type="number" name="{{ row }}sets" inputmode="numeric" min="1" max="100" class="lg-field tabular-nums" value="{{ field_value(row ~ 'sets', values, exercise.sets | length) }}"{{ field_error(row ~ 'sets', errors, card.draft.id) }}>
+    <div class="grid grid-cols-2 gap-2">
+      <label class="flex flex-col gap-1 col-span-2">
+        <span class="text-[12px] text-base-content/70">Measured by</span>
+        <select name="{{ row }}measure" class="lg-field lg-select" data-measure{{ field_error(row ~ 'measure', errors, card.draft.id) }}>
+          {%- for key, option in measures.items() %}
+          <option value="{{ key }}"{% if key == measure %} selected{% endif %}>{{ option.label }}</option>
+          {%- endfor %}
+        </select>
       </label>
       <label class="flex flex-col gap-1">
-        <span class="text-[12px] text-base-content/70">Reps</span>
-        <input type="number" name="{{ row }}reps" inputmode="numeric" min="1" class="lg-field tabular-nums" value="{{ field_value(row ~ 'reps', values, first.reps) }}"{{ field_error(row ~ 'reps', errors, card.draft.id) }}>
-      </label>
-      <label class="flex flex-col gap-1">
-        <span class="text-[12px] text-base-content/70">Load (kg)</span>
-        <input type="number" name="{{ row }}load" inputmode="decimal" min="0" step="any" class="lg-field tabular-nums" value="{{ field_value(row ~ 'load', values, kg_value(first.load.kg) if first.load else none) }}"{{ field_error(row ~ 'load', errors, card.draft.id) }}>
+        <span class="text-[12px] text-base-content/70">Implements</span>
+        <input type="number" name="{{ row }}implements" inputmode="numeric" min="1" max="4" class="lg-field tabular-nums" value="{{ field_value(row ~ 'implements', values, exercise.implements) }}"{{ field_error(row ~ 'implements', errors, card.draft.id) }}>
       </label>
       <label class="flex flex-col gap-1">
         <span class="text-[12px] text-base-content/70">RIR</span>
         <input type="number" name="{{ row }}rir" inputmode="numeric" min="0" max="10" class="lg-field tabular-nums" value="{{ field_value(row ~ 'rir', values, exercise.rir) }}"{{ field_error(row ~ 'rir', errors, card.draft.id) }}>
       </label>
+      <input type="hidden" name="{{ row }}per_side" value="0">
+      <label class="flex items-center gap-3 min-h-11 col-span-2">
+        <input type="checkbox" name="{{ row }}per_side" value="1" class="checkbox"{% if each_side %} checked{% endif %}>
+        <span class="text-[16px]">Each side</span>
+      </label>
     </div>
-    {% call error_hint(row ~ "sets", errors, card.draft.id) %}Enter sets, from 1 to 100.{% endcall %}
-    {% call error_hint(row ~ "reps", errors, card.draft.id) %}Enter reps, 1 or more.{% endcall %}
-    {% call error_hint(row ~ "load", errors, card.draft.id) %}Enter a load in kg above 0.{% endcall %}
+    {% call error_hint(row ~ "measure", errors, card.draft.id) %}Pick what it is measured by.{% endcall %}
+    {% call error_hint(row ~ "implements", errors, card.draft.id) %}Enter 1 to 4 implements.{% endcall %}
     {% call error_hint(row ~ "rir", errors, card.draft.id) %}Enter RIR from 0 to 10.{% endcall %}
+    <div class="flex flex-col gap-3" data-sets>
+      {%- for index in range(count) %}
+      {{ set_row(row, index, exercise.sets[index] if index < exercise.sets | length else none, shown, values, errors, card.draft.id, count == 1) }}
+      {%- endfor %}
+      <template data-set-template>{{ set_row(row, "__set__", none, shown, {}, [], card.draft.id, false) }}</template>
+    </div>
+    <button type="button" class="lg lg-ghost lg-sm self-start" data-add-set>{{ icon("plus", "size-4") }}Add set</button>
   </div>
   {%- endfor %}
 </fieldset>

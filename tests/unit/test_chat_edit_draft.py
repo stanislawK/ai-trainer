@@ -362,6 +362,46 @@ def test_form_changes_nests_the_activity_rows_by_position() -> None:
     }
 
 
+def test_form_changes_nests_each_exercises_sets_by_position() -> None:
+    assert form_changes(
+        [
+            ("activities.0.name", "bench"),
+            ("activities.0.sets.1.reps", "8"),
+            ("activities.0.sets.0.reps", "10"),
+            ("activities.0.sets.0.load", "60"),
+            ("activities.1.sets.0.duration", "45"),
+        ]
+    ) == {
+        "activities": [
+            {"name": "bench", "sets": [{"reps": "10", "load": "60"}, {"reps": "8"}]},
+            {"sets": [{"duration": "45"}]},
+        ],
+    }
+
+
+def test_form_changes_closes_up_a_gap_left_by_a_removed_set() -> None:
+    assert form_changes(
+        [("activities.0.sets.0.reps", "10"), ("activities.0.sets.2.reps", "6")]
+    ) == {"activities": [{"sets": [{"reps": "10"}, {"reps": "6"}]}]}
+
+
+@pytest.mark.parametrize(
+    "pairs",
+    [
+        [("activities.0.sets.x.reps", "3")],
+        [("activities.0.sets.100.reps", "3")],
+        [("activities.0.sets.-1.reps", "3")],
+        [("activities.0.tempo.0.reps", "3")],
+        [("activities.99.sets.0.reps", "3")],
+        [("activities.0.sets.0.reps.x", "3")],
+    ],
+)
+def test_form_changes_drops_a_set_key_that_isnt_a_set_row_field(
+    pairs: list[tuple[str, str]],
+) -> None:
+    assert form_changes(pairs) == {}
+
+
 @pytest.mark.parametrize(
     "pairs",
     [

@@ -31,6 +31,8 @@ logger = logging.getLogger(__name__)
 
 # An edit form posts at most this many rows of one list, e.g. a climbing draft's activities.
 _MAX_FORM_ROWS = 50
+# An edit form posts at most this many sets of one exercise (a gym exercise's `MAX_SETS`).
+_MAX_FORM_SETS = 100
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,6 +80,12 @@ class DraftCard:
     def summary_template(self) -> str:
         """The confirmed row's "what was logged", e.g. `Hades 8a` (the Chat mock's state 9)."""
         return f"partials/chat/logged_{self.sport.id}.html"
+
+    @property
+    def detail_template(self) -> str:
+        """What the confirmed row shows under it, when the sport has such a partial (ticket
+        #398); a sport without one shows the row alone."""
+        return f"partials/chat/logged_{self.sport.id}_lines.html"
 
     @property
     def template(self) -> str:
@@ -265,19 +273,39 @@ def draft_card(
 
 def form_changes(pairs: Iterable[tuple[str, str]]) -> dict[str, JsonValue]:
     """The edit form's fields as the plugin's edit reads them (ticket #158): `rpe` stays a
-    field, and `activities.0.count` becomes the `count` of row 0 of `activities`. A key that is
-    neither, or a row past the form's limit, is dropped."""
+    field, and `activities.0.count` becomes the `count` of row 0 of `activities`. A row that
+    has its own rows, `activities.0.sets.1.reps`, nests them the same way under that row's
+    `sets` (ticket #398), in position order with any gap closed. A key that is none of these,
+    or a row past the form's limit, is dropped."""
     changes: dict[str, JsonValue] = {}
     rows: dict[str, dict[int, dict[str, JsonValue]]] = {}
+    sets: dict[tuple[str, int], dict[int, dict[str, JsonValue]]] = {}
     for key, value in pairs:
         parts = key.split(".")
         if len(parts) == 1:
             changes[key] = value
-            continue
-        if len(parts) != 3 or not parts[1].isdigit() or int(parts[1]) >= _MAX_FORM_ROWS:
-            continue
-        name, index, field = parts
-        rows.setdefault(name, {}).setdefault(int(index), {})[field] = value
+        elif len(parts) == 3 and _row_index(parts[1], _MAX_FORM_ROWS) is not None:
+            rows.setdefault(parts[0], {}).setdefault(int(parts[1]), {})[parts[2]] = value
+        elif len(parts) == 5 and _is_set_key(parts):
+            row = sets.setdefault((parts[0], int(parts[1])), {})
+            row.setdefault(int(parts[3]), {})[parts[4]] = value
+    for (name, index), by_position in sets.items():
+        rows.setdefault(name, {}).setdefault(index, {})["sets"] = [
+            by_position[position] for position in sorted(by_position)
+        ]
     for name, by_index in rows.items():
         changes[name] = [by_index.get(index, {}) for index in range(max(by_index) + 1)]
     return changes
+
+
+def _row_index(text: str, limit: int) -> int | None:
+    return int(text) if text.isdigit() and int(text) < limit else None
+
+
+def _is_set_key(parts: list[str]) -> bool:
+    """`activities.<row>.sets.<position>.<field>`, within the form's limits."""
+    return (
+        parts[2] == "sets"
+        and _row_index(parts[1], _MAX_FORM_ROWS) is not None
+        and _row_index(parts[3], _MAX_FORM_SETS) is not None
+    )

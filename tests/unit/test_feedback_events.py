@@ -43,12 +43,27 @@ async def _gym_draft(drafts: InMemoryDraftRepository, user_id):  # type: ignore[
 
 
 def _form(**row: str) -> dict:  # type: ignore[type-arg]
+    """The edit form for one squat exercise, as shown: `sets` is the number of set rows it posts
+    (#398), each with `reps` and `load`."""
+    one_set = {
+        "reps": row.get("reps", "5"),
+        "load": row.get("load", ""),
+        "duration": "",
+        "distance": "",
+        "band": "",
+    }
     return {
         "occurred_on": FROZEN_NOW.date().isoformat(),
         "duration_min": "",
         "rpe": "",
         "feeling": "",
-        "activities": [{"name": "squat", "sets": "5", "reps": "5", "load": "", "rir": "", **row}],
+        "activities": [
+            {
+                "name": row.get("name", "squat"),
+                "rir": row.get("rir", ""),
+                "sets": [one_set] * int(row.get("sets", "5")),
+            }
+        ],
     }
 
 

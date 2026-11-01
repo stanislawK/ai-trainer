@@ -10,10 +10,13 @@ from uuid import UUID
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from pydantic import JsonValue
 
 from ai_trainer.domain.chat import ChatMessage, ChatRole
 from ai_trainer.domain.conversation import Intent
+from ai_trainer.domain.sports.base import DateSource
 from ai_trainer.domain.sports.gym.extraction import GymExtraction
+from ai_trainer.domain.sports.gym.payload import GymPayload
 from ai_trainer.domain.training import SessionDraft, StoredDraft
 from ai_trainer.web.icons import render_icon
 from ai_trainer.web.templating import build_templates
@@ -96,6 +99,26 @@ async def _draft(
     extraction: GymExtraction,
 ) -> StoredDraft:
     """The athlete's gym log, its extraction reply, and the pending gym draft under it."""
+    return await _pending(
+        chat,
+        drafts,
+        user_id,
+        extraction.to_payload().model_dump(mode="json"),
+        occurred_on=extraction.occurred_on,
+        date_source=extraction.date_source,
+    )
+
+
+async def _pending(
+    chat: InMemoryChatRepository,
+    drafts: InMemoryDraftRepository,
+    user_id: UUID,
+    payload: dict[str, JsonValue],
+    *,
+    occurred_on: date = _TODAY,
+    date_source: DateSource = "assumed_today",
+) -> StoredDraft:
+    """The same, for a gym payload given as stored."""
     conversation_id = await chat.conversation_of(user_id)
     log = await chat.add(user_id, conversation_id, ChatRole.USER, "my lifts", FROZEN_NOW)
     await chat.add(
@@ -114,10 +137,10 @@ async def _draft(
         log.id,
         "gym",
         SessionDraft(
-            occurred_on=extraction.occurred_on,
-            date_source=extraction.date_source,
+            occurred_on=occurred_on,
+            date_source=date_source,
             timezone="Europe/Warsaw",
-            payload=extraction.to_payload().model_dump(mode="json"),
+            payload=payload,
         ),
         payload_version=1,
         created_at=FROZEN_NOW,
@@ -210,7 +233,7 @@ async def test_an_exercise_shows_only_what_the_log_said(
     ("extraction", "summary"),
     [
         (SQUAT_AND_PULL_UPS, "2 exercises"),
-        (BENCH_YESTERDAY, f"Bench 3 {_TIMES} 8"),
+        (BENCH_YESTERDAY, "Bench"),
         (
             GymExtraction.model_validate(
                 {
@@ -219,7 +242,7 @@ async def test_an_exercise_shows_only_what_the_log_said(
                     "activities": [{"name": "pull-ups", "sets": 3}],
                 }
             ),
-            "Pull-ups 3 sets",
+            "Pull-ups",
         ),
         (
             GymExtraction.model_validate(
@@ -264,66 +287,371 @@ async def test_confirmed_lifts_stay_logged_on_a_reload_and_their_undo_removes_th
     assert drafts.removed_sessions == [stored.session_id]
 
 
-async def test_the_edit_form_carries_each_exercises_name_sets_reps_kg_and_rir() -> None:
+_PYRAMID_PAYLOAD: dict[str, JsonValue] = {
+    "sport": "gym",
+    "activities": [
+        {
+            "name_as_typed": "bench",
+            "measure": "load_reps",
+            "rir": 2,
+            "sets": [
+                {"reps": 10, "load": {"original": "60", "value": 60, "unit": "kg", "kg": 60}},
+                {"reps": 8, "load": {"original": "70 kg", "value": 70, "unit": "kg", "kg": 70}},
+                {"reps": 6, "load": {"original": "80", "value": 80, "unit": "kg", "kg": 80}},
+            ],
+        }
+    ],
+}
+_PLANK_AND_RED_BAND_ROWS: dict[str, JsonValue] = {
+    "sport": "gym",
+    "activities": [
+        {"name_as_typed": "plank", "measure": "time", "sets": [{"duration_s": 45}] * 3},
+        {
+            "name_as_typed": "rows",
+            "measure": "band_reps",
+            "sets": [{"reps": 10, "band_label": "red"}] * 3,
+        },
+    ],
+}
+_EDIT_BASE = {"occurred_on": "2026-10-02", "duration_min": "", "rpe": "", "feeling": ""}
+_KG_6 = {"original": "6", "value": 6, "unit": "kg", "kg": 6}
+_KG_24 = {"original": "24", "value": 24, "unit": "kg", "kg": 24}
+_KG_60 = {"original": "60", "value": 60, "unit": "kg", "kg": 60}
+
+
+def _set_fields(exercise: int, index: int, **fields: str) -> dict[str, str]:
+    blank = {"reps": "", "load": "", "duration": "", "distance": "", "band": ""}
+    return {
+        f"activities.{exercise}.sets.{index}.{name}": v for name, v in {**blank, **fields}.items()
+    }
+
+
+def _pyramid_form(**changes: str) -> dict[str, str]:
+    """What the edit form posts for `_PYRAMID_PAYLOAD` as shown, with `changes` over it."""
+    form = {
+        **_EDIT_BASE,
+        "activities.0.name": "bench",
+        "activities.0.measure": "load_reps",
+        "activities.0.per_side": "0",
+        "activities.0.implements": "",
+        "activities.0.rir": "2",
+        **_set_fields(0, 0, reps="10", load="60"),
+        **_set_fields(0, 1, reps="8", load="70"),
+        **_set_fields(0, 2, reps="6", load="80"),
+    }
+    return {**form, **changes}
+
+
+def _stored_exercise(drafts: InMemoryDraftRepository, user_id: UUID) -> dict[str, JsonValue]:
+    (stored,) = drafts.all_of(user_id)
+    activities = stored.draft.payload["activities"]
+    assert isinstance(activities, list)
+    exercise = activities[0]
+    assert isinstance(exercise, dict)
+    return exercise
+
+
+def _stored_sets(drafts: InMemoryDraftRepository, user_id: UUID) -> list[JsonValue]:
+    sets = _stored_exercise(drafts, user_id)["sets"]
+    assert isinstance(sets, list)
+    return sets
+
+
+async def test_a_plank_draft_shows_3_x_45_s_and_its_logged_card_shows_the_same() -> None:
     client, user_id, chat, drafts = _client()
-    draft = await _draft(chat, drafts, user_id, DEADLIFT_IN_LB)
+    draft = await _pending(chat, drafts, user_id, _PLANK_AND_RED_BAND_ROWS)
+
+    plank, rows = _exercises(_card(client.get(f"/drafts/{draft.id}", headers=_HTMX).text))
+    logged = _text(client.post(f"/drafts/{draft.id}/confirm", headers=_HTMX).text)
+
+    assert _text(plank) == f"Plank 3 {_TIMES} 45 s"
+    assert _text(rows) == f"Rows 3 {_TIMES} 10 · red band"
+    assert f"Plank 3 {_TIMES} 45 s" in logged
+    assert f"Rows 3 {_TIMES} 10 · red band" in logged
+    assert "Logged 2 exercises to Fri 2 Oct" in logged
+
+
+@pytest.mark.parametrize(
+    ("exercise", "shown"),
+    [
+        (
+            {"per_side": True, "rir": 2, "sets": [{"reps": 12}] * 3},
+            f"Lunge 3 {_TIMES} 12 each side · RIR 2",
+        ),
+        (
+            {"implements": 2, "sets": [{"reps": 12, "load": _KG_6}] * 3},
+            f"Lunge 3 {_TIMES} 12 · 2 {_TIMES} 6 kg",
+        ),
+        (
+            {
+                "per_side": True,
+                "implements": 2,
+                "rir": 2,
+                "sets": [{"reps": 12, "load": _KG_6}] * 3,
+            },
+            f"Lunge 3 {_TIMES} 12 each side · 2 {_TIMES} 6 kg · RIR 2",
+        ),
+        (
+            {"implements": 2, "sets": [{"distance_m": 40, "load": _KG_24}] * 2},
+            f"Lunge 2 {_TIMES} 40 m · 2 {_TIMES} 24 kg",
+        ),
+        ({"sets": [{"reps": 10, "load": _KG_60}]}, "Lunge 10 reps · 60 kg"),
+        ({"sets": [{}] * 4}, "Lunge 4 sets"),
+        ({"sets": [{"duration_s": 30}]}, "Lunge 30 s"),
+        ({"per_side": True, "sets": [{}] * 3}, "Lunge 3 sets each side"),
+        (
+            {"per_side": True, "implements": 2, "sets": [{"load": _KG_6}]},
+            f"Lunge each side · 2 {_TIMES} 6 kg",
+        ),
+        ({"sets": [{"distance_m": 1234567}]}, "Lunge 1234567 m"),
+    ],
+)
+async def test_sides_implements_and_the_other_measures_show_on_the_card(
+    exercise: dict[str, JsonValue], shown: str
+) -> None:
+    client, user_id, chat, drafts = _client()
+    payload: dict[str, JsonValue] = {
+        "sport": "gym",
+        "activities": [{"name_as_typed": "lunge", "measure": "reps", **exercise}],
+    }
+    draft = await _pending(chat, drafts, user_id, payload)
+
+    (row,) = _exercises(_card(client.get(f"/drafts/{draft.id}", headers=_HTMX).text))
+
+    assert _text(row) == shown
+
+
+async def test_a_long_distance_prefills_the_form_exactly_not_in_exponent_form() -> None:
+    client, user_id, chat, drafts = _client()
+    payload: dict[str, JsonValue] = {
+        "sport": "gym",
+        "activities": [
+            {"name_as_typed": "ride", "measure": "distance", "sets": [{"distance_m": 1234567.5}]}
+        ],
+    }
+    draft = await _pending(chat, drafts, user_id, payload)
 
     form = client.get(f"/drafts/{draft.id}/edit", headers=_HTMX).text
 
-    for name, value in (
-        ("activities.0.name", "deadlift"),
-        ("activities.0.sets", "3"),
-        ("activities.0.reps", "5"),
-        ("activities.0.load", "142.88"),
-        ("activities.0.rir", "2"),
-    ):
-        assert re.search(rf'<input[^>]*name="{re.escape(name)}"[^>]*value="{value}"', form), name
+    assert re.search(r'name="activities\.0\.sets\.0\.distance"[^>]*value="1234567\.5"', form)
+
+
+async def test_a_pyramid_in_one_entry_shows_each_sets_reps_at_its_load() -> None:
+    client, user_id, chat, drafts = _client()
+    draft = await _pending(chat, drafts, user_id, _PYRAMID_PAYLOAD)
+
+    (row,) = _exercises(_card(client.get(f"/drafts/{draft.id}", headers=_HTMX).text))
+
+    assert _text(row) == "Bench 10 @ 60 kg · 8 @ 70 kg · 6 @ 80 kg · RIR 2"
+
+
+async def test_a_value_the_log_didnt_give_is_left_out_of_the_card_and_blank_in_the_form() -> None:
+    client, user_id, chat, drafts = _client()
+    payload: dict[str, JsonValue] = {
+        "sport": "gym",
+        "activities": [{"name_as_typed": "lunge", "measure": "reps", "sets": [{"reps": 8}, {}]}],
+    }
+    draft = await _pending(chat, drafts, user_id, payload)
+
+    (row,) = _exercises(_card(client.get(f"/drafts/{draft.id}", headers=_HTMX).text))
+    form = client.get(f"/drafts/{draft.id}/edit", headers=_HTMX).text
+
+    assert _text(row) == "Lunge 8"
+    for field in ("reps", "load", "duration", "distance", "band"):
+        name = rf"activities\.0\.sets\.1\.{field}"
+        assert re.search(rf'<input[^>]*name="{name}"[^>]*value=""', form), field
+    assert not re.search(r'<input[^>]*name="activities\.0\.(implements|rir)"[^>]*value="0"', form)
+
+
+async def test_the_edit_form_has_each_exercises_fields_and_a_row_per_set() -> None:
+    client, user_id, chat, drafts = _client()
+    draft = await _pending(chat, drafts, user_id, _PYRAMID_PAYLOAD)
+
+    form = client.get(f"/drafts/{draft.id}/edit", headers=_HTMX).text
+
+    assert re.search(r'<input[^>]*name="activities\.0\.name"[^>]*value="bench"', form)
+    assert re.search(r'<select[^>]*name="activities\.0\.measure"', form)
+    assert re.search(r'<option value="load_reps" selected', form)
+    assert re.search(r'<input[^>]*type="checkbox"[^>]*name="activities\.0\.per_side"', form)
+    assert re.search(r'<input[^>]*name="activities\.0\.implements"', form)
+    assert re.search(r'<input[^>]*name="activities\.0\.rir"[^>]*value="2"', form)
+    for index, (reps, load) in enumerate((("10", "60"), ("8", "70"), ("6", "80"))):
+        for name, value in (("reps", reps), ("load", load)):
+            field = rf'name="activities\.0\.sets\.{index}\.{name}"[^>]*value="{value}"'
+            assert re.search(rf"<input[^>]*{field}", form), (index, name)
+    assert "activities.0.sets.3." not in form.split("<template")[0]
+    assert "data-add-set" in form
+    assert form.count("data-remove-set") >= 3
+
+
+async def test_each_set_row_names_its_stored_set_and_a_lone_row_cannot_be_removed() -> None:
+    client, user_id, chat, drafts = _client()
+    payload: dict[str, JsonValue] = {
+        "sport": "gym",
+        "activities": [
+            {"name_as_typed": "bench", "measure": "reps", "sets": [{"reps": 5}, {"reps": 3}]},
+            {"name_as_typed": "plank", "measure": "time", "sets": [{"duration_s": 45}]},
+        ],
+    }
+    draft = await _pending(chat, drafts, user_id, payload)
+
+    form = client.get(f"/drafts/{draft.id}/edit", headers=_HTMX).text
+
+    assert re.search(r'<input type="hidden" name="activities\.0\.sets\.0\.src" value="0"', form)
+    assert re.search(r'<input type="hidden" name="activities\.0\.sets\.1\.src" value="1"', form)
+    assert re.search(
+        r'<input type="hidden" name="activities\.0\.sets\.__set__\.src" value=""', form
+    )
+    removes = re.findall(r"<button[^>]*data-remove-set[^>]*>", form)
+    # Bench's two sets and its template row, then the plank's lone set.
+    assert [" disabled" in button for button in removes[:4]] == [False, False, False, True]
+
+
+async def test_a_crafted_set_key_cannot_ask_for_a_hundred_thousand_rows() -> None:
+    client, user_id, chat, drafts = _client()
+    draft = await _pending(chat, drafts, user_id, _PYRAMID_PAYLOAD)
+
+    response = client.post(
+        f"/drafts/{draft.id}/edit",
+        headers=_HTMX,
+        data=_pyramid_form(
+            **_set_fields(0, 1, reps="8", load="heavy"),
+            **{"activities.0.sets.99999.reps": "1"},
+        ),
+    )
+
+    assert response.status_code == 422
+    assert response.text.count('name="activities.0.sets.100.reps"') == 0
+    assert response.text.count("data-set-row") <= 101 + 4
+
+
+async def test_an_unticked_each_side_posted_after_its_hidden_zero_stays_off() -> None:
+    client, user_id, chat, drafts = _client()
+    payload: dict[str, JsonValue] = {
+        "sport": "gym",
+        "activities": [
+            {
+                "name_as_typed": "lunge",
+                "measure": "reps",
+                "per_side": True,
+                "sets": [{"reps": 12}],
+            }
+        ],
+    }
+    draft = await _pending(chat, drafts, user_id, payload)
+    unticked = {
+        **_EDIT_BASE,
+        "activities.0.name": "lunge",
+        "activities.0.per_side": "0",
+        **_set_fields(0, 0, reps="12"),
+    }
+    ticked = {**unticked, "activities.0.per_side": ["0", "1"]}
+
+    client.post(f"/drafts/{draft.id}/edit", headers=_HTMX, data=unticked)
+    off = _stored_exercise(drafts, user_id)["per_side"]
+    client.post(f"/drafts/{draft.id}/edit", headers=_HTMX, data=ticked)
+    on = _stored_exercise(drafts, user_id)["per_side"]
+
+    assert (off, on) == (False, True)
+
+
+async def test_editing_one_set_of_a_pyramid_changes_only_that_set() -> None:
+    client, user_id, chat, drafts = _client()
+    draft = await _pending(chat, drafts, user_id, _PYRAMID_PAYLOAD)
+    old = GymPayload.model_validate(_PYRAMID_PAYLOAD).model_dump(mode="json")["activities"][0][
+        "sets"
+    ]
+
+    response = client.post(
+        f"/drafts/{draft.id}/edit",
+        headers=_HTMX,
+        data=_pyramid_form(**_set_fields(0, 1, reps="7", load="72.5")),
+    )
+
+    assert response.status_code == 200
+    sets = _stored_sets(drafts, user_id)
+    assert [sets[0], sets[2]] == [old[0], old[2]]
+    middle = sets[1]
+    assert isinstance(middle, dict)
+    assert middle["reps"] == 7
+    assert middle["load"] == {"original": "72.5 kg", "value": 72.5, "unit": "kg", "kg": 72.5}
+    assert "Bench 10 @ 60 kg · 7 @ 72.5 kg · 6 @ 80 kg · RIR 2" in _text(_card(response.text))
+
+
+async def test_clearing_a_value_saves_it_as_null() -> None:
+    client, user_id, chat, drafts = _client()
+    draft = await _pending(chat, drafts, user_id, _PYRAMID_PAYLOAD)
+
+    response = client.post(
+        f"/drafts/{draft.id}/edit",
+        headers=_HTMX,
+        data=_pyramid_form(**_set_fields(0, 0), **{"activities.0.rir": ""}),
+    )
+
+    assert response.status_code == 200
+    assert _stored_sets(drafts, user_id)[0] == {
+        "reps": None,
+        "load": None,
+        "duration_s": None,
+        "distance_m": None,
+        "band_label": None,
+    }
+    assert _stored_exercise(drafts, user_id)["rir"] is None
+
+
+async def test_a_set_added_in_the_form_is_saved_and_a_removed_one_is_gone() -> None:
+    client, user_id, chat, drafts = _client()
+    draft = await _pending(chat, drafts, user_id, _PYRAMID_PAYLOAD)
+    data = {
+        key: value
+        for key, value in _pyramid_form().items()
+        if not key.startswith("activities.0.sets.1.")
+    }
+    data = {key.replace("sets.2.", "sets.1."): value for key, value in data.items()}
+    data.update(_set_fields(0, 2, reps="4", load="90"))
+
+    response = client.post(f"/drafts/{draft.id}/edit", headers=_HTMX, data=data)
+
+    assert response.status_code == 200
+    assert "Bench 10 @ 60 kg · 6 @ 80 kg · 4 @ 90 kg · RIR 2" in _text(_card(response.text))
 
 
 async def test_saving_an_untouched_load_keeps_the_lb_as_typed() -> None:
     client, user_id, chat, drafts = _client()
     draft = await _draft(chat, drafts, user_id, DEADLIFT_IN_LB)
+    (before,) = drafts.all_of(user_id)
+    old = dict(before.draft.payload)
+    sets = {
+        key: value
+        for index in range(3)
+        for key, value in _set_fields(0, index, reps="5", load="142.88").items()
+    }
 
     response = client.post(
         f"/drafts/{draft.id}/edit",
         headers=_HTMX,
-        data={
-            "occurred_on": "2026-10-02",
-            "duration_min": "",
-            "rpe": "",
-            "feeling": "",
-            "activities.0.name": "deadlift",
-            "activities.0.sets": "4",
-            "activities.0.reps": "5",
-            "activities.0.load": "142.88",
-            "activities.0.rir": "2",
-        },
+        data={**_EDIT_BASE, "activities.0.name": "deadlift", "activities.0.rir": "2", **sets},
     )
 
     assert response.status_code == 200
     (stored,) = drafts.all_of(user_id)
-    payload = DEADLIFT_IN_LB.to_payload().model_dump(mode="json")
-    deadlift = payload["activities"][0]
-    assert stored.draft.payload == {
-        **payload,
-        "activities": [{**deadlift, "sets": [deadlift["sets"][0]] * 4}],
-    }
-    assert f"Deadlift 4 {_TIMES} 5 · 142.9 kg" in _text(_card(response.text))
+    assert stored.draft.payload == old
+    assert f"Deadlift 3 {_TIMES} 5 · 142.9 kg · RIR 2" in _text(_card(response.text))
 
 
-async def test_a_rejected_load_comes_back_marked_and_writes_nothing() -> None:
+async def test_a_rejected_set_value_is_marked_in_its_row_and_writes_nothing() -> None:
     client, user_id, chat, drafts = _client()
-    draft = await _draft(chat, drafts, user_id, DEADLIFT_IN_LB)
+    draft = await _pending(chat, drafts, user_id, _PYRAMID_PAYLOAD)
 
     response = client.post(
         f"/drafts/{draft.id}/edit",
         headers=_HTMX,
-        data={"occurred_on": "2026-10-02", "activities.0.load": "heavy"},
+        data=_pyramid_form(**_set_fields(0, 1, reps="8", load="heavy")),
     )
 
     assert response.status_code == 422
     assert re.search(
-        r'<input[^>]*name="activities\.0\.load"[^>]*value="heavy"[^>]*aria-invalid="true"',
+        r'<input[^>]*name="activities\.0\.sets\.1\.load"[^>]*value="heavy"[^>]*aria-invalid="true"',
         response.text,
     )
     (stored,) = drafts.all_of(user_id)
@@ -354,8 +682,7 @@ async def test_a_v1_draft_still_shows_its_card_and_its_edit_form() -> None:
 
     for name, value in (
         ("activities.0.name", "deadlift"),
-        ("activities.0.sets", "3"),
-        ("activities.0.reps", "5"),
-        ("activities.0.load", "142.88"),
+        ("activities.0.sets.2.reps", "5"),
+        ("activities.0.sets.2.load", "142.88"),
     ):
         assert re.search(rf'<input[^>]*name="{re.escape(name)}"[^>]*value="{value}"', form), name
