@@ -46,17 +46,35 @@ def spellings_of(payload: GymPayload, exercises: Collection[Exercise]) -> tuple[
     )
 
 
-def with_exercises(payload: GymPayload, exercise_ids: Mapping[str, UUID]) -> GymPayload:
-    """The payload with each entry named in `exercise_ids`, by its name as typed, settled."""
+def with_exercises(
+    payload: GymPayload, exercise_ids: Mapping[str, UUID], *, jev_pick: bool = False
+) -> GymPayload:
+    """The payload with each entry named in `exercise_ids`, by its name as typed, settled;
+    `jev_pick` marks them as Jev's pick rather than the athlete's own answer."""
     return payload.model_copy(
         update={
             "activities": [
-                exercise.model_copy(update={"exercise_id": exercise_ids[exercise.name_as_typed]})
+                exercise.model_copy(
+                    update={
+                        "exercise_id": exercise_ids[exercise.name_as_typed],
+                        "jev_pick": jev_pick,
+                    }
+                )
                 if exercise.name_as_typed in exercise_ids
                 else exercise
                 for exercise in payload.activities
             ]
         }
+    )
+
+
+def overridden_picks(before: GymPayload, after: GymPayload) -> int:
+    """How many of Jev's picks on `before` an edit undid, entry by entry: the pick no longer
+    stands on `after`, because the name changed (ticket #399)."""
+    return sum(
+        1
+        for old, new in zip(before.activities, after.activities, strict=False)
+        if old.jev_pick and not new.jev_pick
     )
 
 

@@ -19,7 +19,7 @@ Actions job.
 import argparse
 import asyncio
 import sys
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from pathlib import Path
 
 from pydantic import BaseModel
@@ -39,6 +39,7 @@ from ai_trainer.llm.conversation import build_prompt_registry
 from ai_trainer.llm.decision_gateway import OPENROUTER_SYSTEM_ONE_BASE_URL
 from ai_trainer.llm.decisions.loader import DECISIONS_ROOT, DecisionSetLoader
 from ai_trainer.llm.evals.decisions import run_decision_eval
+from ai_trainer.llm.evals.exercise_shortlist_smoke import run_exercise_shortlist_smoke
 from ai_trainer.llm.evals.jev_check import JevCheck, configure_jev_check
 from ai_trainer.llm.evals.router_fast import FastPathAccuracyError, run_router_fast_eval
 from ai_trainer.llm.evals.runner import (
@@ -56,6 +57,7 @@ from ai_trainer.llm.evals.smoke import (
     run_smoke_set,
     smoke_ids,
 )
+from ai_trainer.llm.exercise_shortlist import EXERCISE_SHORTLIST_ID, EXERCISE_SHORTLIST_VERSION
 from ai_trainer.llm.extract import ActivitiesMatch, DateMatch, QuestionMatch
 from ai_trainer.llm.gateway import provider_config, reasoning_at
 from ai_trainer.llm.onboarding import (
@@ -86,6 +88,9 @@ _REPO_ROOT = Path(__file__).resolve().parents[4]
 _EVALS_ROOT = _REPO_ROOT / "evals"
 _PROMPTS_ROOT = Path(__file__).resolve().parent.parent / "prompts"
 _DECISIONS_ROOT = DECISIONS_ROOT
+
+# A decision set's smoke runner: it grades the set's cases on Jev, not on a prompt template.
+type DecisionSmokeRunner = Callable[[SmokeSet, Model], Awaitable[list[SmokeCaseResult]]]
 
 # Each decision set's probability questions and the `Settings` field holding the threshold
 # its label is graded at (ADR-0020); the baseline records the values.
@@ -158,6 +163,7 @@ def _active_versions(sports: SportRegistry) -> dict[str, int]:
         },
         ROUTER_FAST_ID: ROUTER_FAST_VERSION,
         SAFETY_SCREEN_ID: SAFETY_SCREEN_VERSION,
+        EXERCISE_SHORTLIST_ID: EXERCISE_SHORTLIST_VERSION,
     }
 
 
@@ -298,10 +304,13 @@ async def execute_smoke(
     versions: Mapping[str, int],
     model_for: Callable[[str], tuple[Model, str]],
     judge: Callable[[], tuple[Model, str]],
+    decision_runners: Mapping[str, DecisionSmokeRunner] | None = None,
 ) -> int:
     """Runs one smoke set, or all of them, once per case (ADR-0034). Every set is read and
     checked first; `model_for` and `judge` are called only after that, so a typo or a bad set
-    makes no model call. A test injects scripted models through them."""
+    makes no model call. A test injects scripted models through them. A set named in
+    `decision_runners` is a decision set: its runner grades it on Jev, with no prompt template."""
+    runners = decision_runners or {}
     ids = smoke_ids(smoke_root) if args.all else [args.smoke_id]
     if not ids:
         print(f"No smoke sets in {smoke_root}", file=sys.stderr)
@@ -325,6 +334,7 @@ async def execute_smoke(
                 version=versions[smoke_set.template_id],
                 model=model,
                 model_id=model_id,
+                decision_runner=runners.get(smoke_set.template_id),
             )
     except SmokeError as exc:
         print(str(exc), file=sys.stderr)
@@ -340,18 +350,22 @@ async def _run_one_smoke_set(
     version: int,
     model: Model,
     model_id: str,
+    decision_runner: DecisionSmokeRunner | None = None,
 ) -> int:
     """Prints a set's cases and returns how many failed outside `known_gaps`."""
     _print_header(smoke_set.id, version, model_id)
-    results = await run_smoke_set(
-        smoke_set,
-        registry=registry,
-        version=version,
-        model=model,
-        model_id=model_id,
-        evaluator_types=_evaluators_for(smoke_set.template_id),
-        expected_output_types=_expected_output_types(smoke_set.template_id),
-    )
+    if decision_runner is not None:
+        results = await decision_runner(smoke_set, model)
+    else:
+        results = await run_smoke_set(
+            smoke_set,
+            registry=registry,
+            version=version,
+            model=model,
+            model_id=model_id,
+            evaluator_types=_evaluators_for(smoke_set.template_id),
+            expected_output_types=_expected_output_types(smoke_set.template_id),
+        )
     for result in results:
         print(_smoke_line(result), flush=True)
     return sum(result.counts_as_failure for result in results)
@@ -522,7 +536,20 @@ def _main_smoke(args: argparse.Namespace, settings: Settings) -> int:
 
     versions = _active_versions(default_sport_registry())
 
+    async def exercise_shortlist(smoke_set: SmokeSet, model: Model) -> list[SmokeCaseResult]:
+        return await run_exercise_shortlist_smoke(
+            smoke_set, model, threshold=settings.exercise_pick_threshold
+        )
+
+    decision_runners: dict[str, DecisionSmokeRunner] = {EXERCISE_SHORTLIST_ID: exercise_shortlist}
+
     def model_for(template_id: str) -> tuple[Model, str]:
+        if template_id in decision_runners:
+            api_key = _api_key(settings)
+            if api_key is None:
+                raise SmokeError("No OpenRouter key; nothing was run")
+            decision_model = _decision_model(settings, model_override=args.model, api_key=api_key)
+            return decision_model, decision_model.model_name
         template = registry.get(template_id, versions[template_id])
         model = _model_under_test(
             template, settings, model_override=args.model, provider=openrouter()
@@ -541,6 +568,7 @@ def _main_smoke(args: argparse.Namespace, settings: Settings) -> int:
             versions=versions,
             model_for=model_for,
             judge=judge,
+            decision_runners=decision_runners,
         )
     )
 

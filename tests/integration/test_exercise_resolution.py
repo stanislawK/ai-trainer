@@ -3,7 +3,7 @@ from a log through its question to the confirm, on the real repositories and the
 An alias, a custom exercise and a link are written only by the confirm."""
 
 import asyncio
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import replace
 from datetime import datetime, timedelta
 from typing import Any
@@ -32,7 +32,7 @@ from ai_trainer.application.reply import (
 from ai_trainer.domain.chat import ChatRole
 from ai_trainer.domain.clarification import KEEP_NAME_OPTION, StoredClarification
 from ai_trainer.domain.conversation import Intent
-from ai_trainer.domain.exercises import ExerciseMeasure
+from ai_trainer.domain.exercises import ExerciseCandidate, ExerciseMeasure
 from ai_trainer.domain.sports.gym.extraction import GymExtraction
 from ai_trainer.domain.sports.gym.payload import GymPayload
 from ai_trainer.domain.training import SessionDraft, StoredDraft
@@ -51,6 +51,7 @@ from tests.integration.test_session_continuity_repository import (
     _athlete,
     _Clock,
 )
+from tests.picker_support import ScriptedPicker
 
 SessionFactory = Callable[[], AsyncSession]
 _LIMITS = ResolutionLimits(near_match=0.75, candidate_floor=0.25, shortlist_size=4)
@@ -78,9 +79,12 @@ def _extraction(*names: str) -> GymExtraction:
 class _Logger:
     """One athlete logging through the reply, on the real draft, question and session stores."""
 
-    def __init__(self, factory: SessionFactory, athlete: _Athlete) -> None:
+    def __init__(
+        self, factory: SessionFactory, athlete: _Athlete, picker: ScriptedPicker | None = None
+    ) -> None:
         self.factory = factory
         self.athlete = athlete
+        self.picker = picker or ScriptedPicker()
         self.user_id = athlete.user_id
         self.exercises = SqlAlchemyExerciseRepository(factory)
         self.conversation = ScriptedConversation(
@@ -94,7 +98,10 @@ class _Logger:
             conversation=self.conversation,
             settlers={
                 "gym": ResolveExercises(
-                    self.exercises, question=self.conversation.exercise_question, limits=_LIMITS
+                    self.exercises,
+                    self.picker,
+                    question=self.conversation.exercise_question,
+                    limits=_LIMITS,
                 )
             },
         )
@@ -148,9 +155,21 @@ def _later(draft: StoredDraft) -> datetime:
     return draft.created_at + timedelta(seconds=1)
 
 
-async def _logger(factory: SessionFactory, sub: str) -> _Logger:
+async def _logger(
+    factory: SessionFactory, sub: str, picker: ScriptedPicker | None = None
+) -> _Logger:
     await import_catalogue(source=sample_source(), exercises=SqlAlchemyExerciseRepository(factory))
-    return _Logger(factory, await _athlete(factory, sub))
+    return _Logger(factory, await _athlete(factory, sub), picker)
+
+
+class _PicksBarbell(ScriptedPicker):
+    """Jev, confident of "Barbell Bench Press" whenever the real shortlist offers it."""
+
+    async def pick(
+        self, user_id: UUID, name: str, candidates: Sequence[ExerciseCandidate]
+    ) -> ExerciseCandidate | None:
+        await super().pick(user_id, name, candidates)
+        return next((c for c in candidates if c.name == "Barbell Bench Press"), None)
 
 
 def _option(question: StoredClarification, name: str) -> str:
@@ -218,6 +237,50 @@ async def test_picking_a_candidate_and_confirming_stores_one_alias(
     assert alias.alias == "bench press"
     assert alias.exercise_id == UUID(picked)
     assert await _entry_ids(db_session_factory, logger.user_id) == [UUID(picked)]
+
+
+async def test_a_jev_pick_stores_its_alias_only_at_confirm(
+    db_session_factory: SessionFactory,
+) -> None:
+    picker = _PicksBarbell()
+    logger = await _logger(db_session_factory, "resolve-jev", picker)
+
+    draft, asked = await logger.log("bench press")
+
+    assert asked == ()
+    [exercise] = GymPayload.model_validate(draft.draft.payload).activities
+    assert exercise.exercise_id is not None
+    assert exercise.jev_pick
+    assert [name for _, name, _ in picker.asked] == ["bench press"]
+    # Jev's pick is on the draft and nowhere else.
+    assert await logger.exercises.user_aliases(logger.user_id) == []
+    assert await _entry_ids(db_session_factory, logger.user_id) == []
+
+    await logger.confirm(draft)
+
+    [alias] = await logger.exercises.user_aliases(logger.user_id)
+    assert (alias.alias, alias.exercise_id) == ("bench press", exercise.exercise_id)
+    assert await _entry_ids(db_session_factory, logger.user_id) == [exercise.exercise_id]
+    # From now on history answers, with no second call to Jev.
+    again, asked_again = await logger.log("Bench  Press")
+    assert asked_again == ()
+    assert len(picker.asked) == 1
+    [repeat] = GymPayload.model_validate(again.draft.payload).activities
+    assert repeat.exercise_id == exercise.exercise_id
+    assert not repeat.jev_pick
+
+
+async def test_discarding_a_draft_jev_filled_stores_nothing(
+    db_session_factory: SessionFactory,
+) -> None:
+    logger = await _logger(db_session_factory, "resolve-jev-discard", _PicksBarbell())
+
+    draft, _ = await logger.log("bench press")
+    await logger.drafts.discard(logger.user_id, draft.id, discarded_at=_later(draft))
+
+    assert await logger.exercises.user_aliases(logger.user_id) == []
+    assert await _custom_rows(db_session_factory, logger.user_id) == []
+    assert await _entry_ids(db_session_factory, logger.user_id) == []
 
 
 async def test_keep_my_name_creates_a_custom_exercise_only_that_athlete_sees(

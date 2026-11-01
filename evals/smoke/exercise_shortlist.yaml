@@ -1,0 +1,66 @@
+# Smoke set for the exercise_shortlist decision (ADR-0034, #399): 5 cases, graded in code, run
+# once on Jev. Each case is a typed gym name and the shortlist the app would offer; `pick` is the
+# candidate's name when the app should fill the exercise with no card, or `none` when the card
+# should ask (Jev says none, is torn between two, or is below the Settings threshold).
+# Names 3-5 are cut from evals/field/gym/2026-10-28-first-gym-session.md; the candidates are
+# catalogue names (ADR-0031). There is no judge: a decision is graded by its outcome.
+name: exercise_shortlist
+cases:
+- name: pull ups
+  metadata:
+    source: evals/field/gym/2026-10-28-first-gym-session.md
+  inputs:
+    prompt: Pull ups
+    deps:
+      candidates:
+      - {name: Pull-up, equipment: body weight, target: lats}
+      - {name: Chin-up, equipment: body weight, target: biceps}
+      - {name: Band Assisted Pull-up, equipment: band, target: lats}
+  expected_output:
+    pick: Pull-up
+- name: polish squat
+  metadata:
+    source: Polish names are best effort until M3 (ADR-0031); an easy case in another language
+  inputs:
+    prompt: przysiad ze sztangą
+    deps:
+      candidates:
+      - {name: Barbell Squat, equipment: barbell, target: glutes}
+      - {name: Dumbbell Squat, equipment: dumbbell, target: glutes}
+  expected_output:
+    pick: Barbell Squat
+- name: bench press fits two
+  metadata:
+    source: evals/field/gym/2026-10-28-first-gym-session.md
+  inputs:
+    prompt: Bench press
+    deps:
+      candidates:
+      - {name: Barbell Bench Press, equipment: barbell, target: pectorals}
+      - {name: Dumbbell Bench Press, equipment: dumbbell, target: pectorals}
+      - {name: Smith Machine Bench Press, equipment: leverage machine, target: pectorals}
+  expected_output:
+    pick: none
+- name: rising straight arms
+  metadata:
+    source: evals/field/gym/2026-10-28-first-gym-session.md
+  inputs:
+    prompt: rising straight arms on both sides
+    deps:
+      candidates:
+      - {name: Dumbbell Lateral Raise, equipment: dumbbell, target: delts}
+      - {name: Dumbbell Front Raise, equipment: dumbbell, target: delts}
+      - {name: Cable Standing Rear Delt Row, equipment: cable, target: delts}
+  expected_output:
+    pick: none
+- name: triceps arm bent to 90
+  metadata:
+    source: evals/field/gym/2026-10-28-first-gym-session.md
+  inputs:
+    prompt: Triceps - straightening arm bent to 90 degr
+    deps:
+      candidates:
+      - {name: Triceps Dip, equipment: body weight, target: triceps}
+      - {name: Close-Grip Bench Press, equipment: barbell, target: triceps}
+  expected_output:
+    pick: none

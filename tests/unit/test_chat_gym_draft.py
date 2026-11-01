@@ -157,7 +157,7 @@ async def test_5x5_squat_then_3_sets_of_pull_ups_ends_with_a_gym_card_of_both() 
     assert _text(squat) == f"Squat 5 {_TIMES} 5 · 100 kg"
     assert _text(pull_ups) == "Pull-ups 3 sets"
     (stored,) = drafts.all_of(user_id)
-    assert (stored.sport_id, stored.payload_version) == ("gym", 3)
+    assert (stored.sport_id, stored.payload_version) == ("gym", 4)
 
 
 async def test_bench_yesterday_is_a_card_dated_yesterday() -> None:

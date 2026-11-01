@@ -1,4 +1,5 @@
-from collections.abc import Collection, Mapping
+from collections.abc import Collection, Mapping, Sequence
+from dataclasses import dataclass
 from typing import Protocol
 from uuid import UUID
 
@@ -7,14 +8,35 @@ from pydantic import JsonValue
 from ai_trainer.domain.clarification import Clarification
 
 
+@dataclass(frozen=True, slots=True)
+class DecisionRef:
+    """A Jev decision a draft carries, and the draft fields it filled: what a
+    `decision_overridden` event names (ADR-0034), never a value."""
+
+    decision_id: str
+    version: int
+    fields: tuple[str, ...]
+
+
 class DraftSettlerPort(Protocol):
     """What a sport settles on a draft before it is confirmed, mapped by `sport_id` in the
     composition root, so core code never branches on a sport (ADR-0006). The gym's settles
-    exercise names (B37, ADR-0031). It makes no model call: it runs on the logging hot path (G14).
-    Every method is scoped to one `user_id` from the authenticated session."""
+    exercise names (B37, ADR-0031). It runs on the logging hot path (G14): history is a database
+    read, and a name history doesn't know costs at most one Jev decision call, bounded by its
+    timeout. Every method is scoped to one `user_id` from the authenticated session."""
 
-    async def settle(self, user_id: UUID, payload: Mapping[str, JsonValue]) -> dict[str, JsonValue]:
-        """The payload with what the athlete's history already knows filled in."""
+    async def settle(
+        self, user_id: UUID, payload: Mapping[str, JsonValue], *, pick: bool = True
+    ) -> dict[str, JsonValue]:
+        """The payload with what the athlete's history already knows filled in, then, unless
+        `pick` is off, what Jev confidently picks for a name history doesn't know. The athlete
+        confirms it all; nothing is stored here."""
+        ...
+
+    def overridden_picks(
+        self, before: Mapping[str, JsonValue], after: Mapping[str, JsonValue]
+    ) -> Sequence[DecisionRef]:
+        """The Jev decisions whose pick an edit from `before` to `after` undid."""
         ...
 
     async def next_question(
