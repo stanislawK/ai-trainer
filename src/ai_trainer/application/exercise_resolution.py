@@ -173,7 +173,9 @@ class ResolveExercises:
             return {}
         found = await self._names.labels(user_id, named=named, near=self._limits.near_match)
         return {
-            typed: _label_of(typed, label, answered=typed in answered)
+            typed: _label_of(
+                typed, label, answered=any(gym_names.reads_as(typed, name) for name in answered)
+            )
             for typed, label in found.items()
         }
 

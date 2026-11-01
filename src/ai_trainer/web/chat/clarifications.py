@@ -77,6 +77,7 @@ class _ClarificationRoutes:
                     # this log is no chip on its cards (ticket #164).
                     questions=questions,
                     labels=await ctx.draft_labels(user, reply.drafts, questions),
+                    answers=ctx.draft_answers(reply.drafts, questions),
                 ),
             },
         )
@@ -144,19 +145,20 @@ class _ClarificationRoutes:
         404."""
         ctx = self._ctx
         user: User = request.state.user
-        question = await self._open_question(request, clarification_id)
+        parsed_id = parse_id(clarification_id)
         form = await request.form()
         raw = form.get("name", "")
         name = raw if isinstance(raw, str) else ""
         try:
-            settled = await keep_typed_name(user.id, question.id, name, services=ctx.replies)
+            settled = await keep_typed_name(user.id, parsed_id, name, services=ctx.replies)
         except ExerciseNameError:
+            question = await self._open_question(request, clarification_id)
             return self._name_field(request, question, value=name, error=True)
         except ClarificationNotFoundError, DraftNotFoundError:
             raise HTTPException(status_code=NOT_FOUND) from None
         except ClarificationResolvedError, DraftConfirmedError, DraftDiscardedError:
             raise HTTPException(status_code=CONFLICT) from None
-        return await self._settled(request, question.id, settled, user=user)
+        return await self._settled(request, parsed_id, settled, user=user)
 
     async def answer(self, request: Request, clarification_id: str) -> HTMLResponse:
         """A choice card's tap (B17, B23, F9, ADR-0015): the option IDs the athlete picked

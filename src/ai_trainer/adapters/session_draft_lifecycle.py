@@ -332,8 +332,13 @@ async def settle_name(
         session, user_id, draft_id, clarification_id, option_id, closed_at=answered_at
     )
     if typed_name is not None:
-        closed = await session.get_one(ClarificationOrm, clarification_id)
-        closed.clarification = {**closed.clarification, "typed_name": typed_name}
+        closed = await session.execute(
+            select(ClarificationOrm).where(
+                ClarificationOrm.user_id == user_id, ClarificationOrm.id == clarification_id
+            )
+        )
+        question = closed.scalar_one()
+        question.clarification = {**question.clarification, "typed_name": typed_name}
     draft = SessionDraft.model_validate(row.draft)
     row.draft = draft.model_copy(update={"payload": settle(draft.payload)}).model_dump(mode="json")
     ask(session, row, asks, answered_at)

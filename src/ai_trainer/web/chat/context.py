@@ -84,12 +84,14 @@ class ChatContext:
         questions: Iterable[StoredClarification] = (),
     ) -> Mapping[UUID, Mapping[str, ExerciseLabel]]:
         """How each draft's card names its settled entries, by the draft's ID, for a sport that
-        settles names (F23, ticket #402). A payload that no longer reads has no labels."""
+        settles names (F23, ticket #402). A payload that no longer reads has no labels, and a
+        discarded or undone draft's row shows no names, so it reads none."""
         shown = list(questions)
         labels: dict[UUID, Mapping[str, ExerciseLabel]] = {}
         for draft in drafts:
             settler = self.replies.settlers.get(draft.sport_id)
-            if settler is None:
+            undone = draft.status == "confirmed" and draft.session_id is None
+            if settler is None or undone or draft.status == "discarded":
                 continue
             answered = {
                 question.clarification.subject or "" for question in answered_names(shown, draft.id)
@@ -99,6 +101,34 @@ class ChatContext:
                     user.id, draft.draft.payload, answered=answered
                 )
         return labels
+
+    def current_answers(
+        self, draft: StoredDraft, questions: Iterable[StoredClarification]
+    ) -> tuple[StoredClarification, ...]:
+        """The draft's answered exercise questions whose name is still on it: a sport change or
+        a rename leaves a row that no longer says what will be logged (ticket #402)."""
+        settler = self.replies.settlers.get(draft.sport_id)
+        if settler is None:
+            return ()
+        answers = answered_names(questions, draft.id)
+        try:
+            return tuple(
+                answer
+                for answer in answers
+                if settler.mentions(
+                    draft.draft.payload,
+                    answer.clarification.typed_name or answer.clarification.subject or "",
+                )
+            )
+        except ValidationError:
+            return ()
+
+    def draft_answers(
+        self, drafts: Iterable[StoredDraft], questions: Iterable[StoredClarification]
+    ) -> Mapping[UUID, tuple[StoredClarification, ...]]:
+        """`current_answers` of each draft, by the draft's ID."""
+        shown = list(questions)
+        return {draft.id: self.current_answers(draft, shown) for draft in drafts}
 
     async def reply_cards(
         self, user: User, message_id: UUID, done: ReplyDone
@@ -112,12 +142,14 @@ class ChatContext:
             log_id=message_id,
             questions=done.clarifications,
             labels=await self.draft_labels(user, done.drafts, done.clarifications),
+            answers=self.draft_answers(done.drafts, done.clarifications),
         )
 
     async def shown_card(self, user: User, draft: StoredDraft) -> DraftCard:
         """A pending draft whose payload no longer reads has no card, so it is not found. A
         pending one asks its open same-session question (#166), and its chip offers no sport
-        still asking how to read its log (#164)."""
+        still asking how to read its log (#164). Its response also removes the rows above it that
+        an edit or a sport change made stale, since it swaps only the card (#402)."""
         pending = draft.status == "pending"
         asked = (
             await self.replies.clarifications.list_shown(user.id, draft.conversation_id)
@@ -125,6 +157,7 @@ class ChatContext:
             else ()
         )
         labels = await self.draft_labels(user, [draft], asked)
+        current = self.current_answers(draft, asked)
         card = draft_card(
             draft,
             sports=self.sports,
@@ -133,6 +166,9 @@ class ChatContext:
             question=open_questions(asked).get(draft.id),
             asking=asking_sports(asked, draft.message_id),
             labels=labels.get(draft.id),
+            dropped=tuple(
+                answer for answer in answered_names(asked, draft.id) if answer not in current
+            ),
         )
         if card is None:
             raise HTTPException(status_code=NOT_FOUND)

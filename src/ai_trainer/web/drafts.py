@@ -56,6 +56,8 @@ class DraftCard:
     labels: Mapping[str, ExerciseLabel] = field(default_factory=dict)
     # The draft's answered exercise questions, as the rows above its card (ticket #402).
     named: tuple[ChoiceCard, ...] = ()
+    # On a swap of the card alone, the rows above it that no longer hold (ticket #402).
+    dropped: tuple[StoredClarification, ...] = ()
 
     @property
     def asks_name(self) -> bool:
@@ -153,12 +155,14 @@ def draft_cards(
     log_id: UUID | None = None,
     questions: Iterable[StoredClarification] = (),
     labels: Mapping[UUID, Mapping[str, ExerciseLabel]] | None = None,
+    answers: Mapping[UUID, Sequence[StoredClarification]] | None = None,
 ) -> Mapping[UUID, Sequence[DraftCard]]:
     """The cards to show under each assistant message, keyed by its ID. `log_id` is the
     athlete's message that `messages` answer, when the list starts with its reply. A draft
     moved to a sport its log's reply never extracted goes under that reply's last extraction
     part (#163). `questions` are the conversation's, and a pending card shows its own open one
-    (#166). `labels` name each draft's settled entries, by the draft's ID (#402)."""
+    (#166). `labels` name each draft's settled entries and `answers` are the rows above it, both
+    by the draft's ID (#402)."""
     pending = _drafts_by_log(drafts)
     cards: dict[UUID, list[DraftCard]] = {}
     last_extraction: dict[UUID, UUID] = {}
@@ -174,7 +178,7 @@ def draft_cards(
             question=asking.get(draft.id),
             asking=asking_sports(shown, draft.message_id),
             labels=(labels or {}).get(draft.id, {}),
-            named=answered_names(shown, draft.id),
+            named=(answers or {}).get(draft.id, ()),
         )
 
     for log, part_id, sport_id in _extraction_parts(messages, log_id, sports):
@@ -263,6 +267,7 @@ def draft_card(
     asking: Collection[str] = (),
     labels: Mapping[str, ExerciseLabel] | None = None,
     named: Sequence[StoredClarification] = (),
+    dropped: tuple[StoredClarification, ...] = (),
 ) -> DraftCard | None:
     """`None` when its sport is unknown, or when a pending draft's stored payload no longer
     reads: the page still renders, without that card. A pending card's chip offers
@@ -307,6 +312,7 @@ def draft_card(
         question=question if draft.status == "pending" else None,
         labels=labels or {},
         named=tuple(ChoiceCard(answered) for answered in named),
+        dropped=dropped,
     )
 
 

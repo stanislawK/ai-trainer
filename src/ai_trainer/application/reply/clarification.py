@@ -128,14 +128,7 @@ async def answer_clarification(
         raise ClarificationResolvedError(clarification_id)
     if question.purpose in (SAME_SESSION_PURPOSE, EXERCISE_PURPOSE):
         settled = await _settle_on_card(user_id, question, option_ids, services)
-        await _record_choice(
-            user_id,
-            question,
-            template_id=settled.draft.template_id,
-            template_version=settled.draft.template_version,
-            services=services,
-        )
-        return settled
+        return await _recorded(user_id, question, settled, services)
     picked = _chosen(question, option_ids)
     reading = question.purpose == READING_PURPOSE
     sport = question.clarification.sport if reading else picked
@@ -206,6 +199,20 @@ async def _record_choice(
             template_version=template_version,
             fields=(question.purpose,),
         )
+
+
+async def _recorded(
+    user_id: UUID, question: StoredClarification, settled: SessionSettled, services: ReplyServices
+) -> SessionSettled:
+    """An answer on a draft's card, once its feedback event is recorded."""
+    await _record_choice(
+        user_id,
+        question,
+        template_id=settled.draft.template_id,
+        template_version=settled.draft.template_version,
+        services=services,
+    )
+    return settled
 
 
 async def _settle_on_card(
@@ -334,23 +341,17 @@ async def keep_typed_name(
     """ "Use this name" on the exercise card (F23, ADR-0015, ticket #402): like "Keep my name", with
     the name the athlete typed, so a confirm makes the custom exercise and it isn't asked about
     again (B37). The question's answer is still the `keep` option's ID (invariant 4). Raises
-    `ExerciseNameError` for a blank or too long name, with nothing written, and as
-    `open_exercise_question` and `_settle_name` do."""
+    `ExerciseNameError` for a blank or too long name, or one holding a NUL, which PostgreSQL can't
+    store in a JSONB document, with nothing written, and as `open_exercise_question` and
+    `_settle_name` do."""
     question = await open_exercise_question(user_id, clarification_id, services=services)
     typed_name = name.strip()
-    if not typed_name or len(typed_name) > MAX_EXERCISE_NAME:
+    if not typed_name or len(typed_name) > MAX_EXERCISE_NAME or "\x00" in typed_name:
         raise ExerciseNameError
     settled = await _settle_name(
         user_id, question, KEEP_NAME_OPTION, services, typed_name=typed_name
     )
-    await _record_choice(
-        user_id,
-        question,
-        template_id=settled.draft.template_id,
-        template_version=settled.draft.template_version,
-        services=services,
-    )
-    return settled
+    return await _recorded(user_id, question, settled, services)
 
 
 async def abandon_clarification(

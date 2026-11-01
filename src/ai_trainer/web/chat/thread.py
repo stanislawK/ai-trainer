@@ -111,6 +111,7 @@ class _ThreadRoutes:
                 log_id=log_id,
                 questions=asked,
                 labels=await ctx.draft_labels(user, shown, asked),
+                answers=ctx.draft_answers(shown, asked),
             )
             questions = choice_cards(history, asked, log_id=log_id)
         local_hour = ctx.clock.now().astimezone(ZoneInfo(user.timezone)).hour
