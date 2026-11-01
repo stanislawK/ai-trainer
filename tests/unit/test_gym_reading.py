@@ -178,8 +178,9 @@ def test_a_unit_answer_sets_the_unit_of_every_load_typed_without_one() -> None:
 
     answered = log.answered(_unit("bench", "60", "kg", "lb").options()[1])
 
-    loads = [e.sets[0].load for e in answered.to_payload().activities]
-    assert [(load.unit, load.kg) for load in loads if load is not None] == [("lb", 27.22)] * 3
+    # The two bench schemes are neighbours, so they read as one entry of ten sets (#410).
+    loads = [s.load for e in answered.to_payload().activities for s in e.sets]
+    assert [(load.unit, load.kg) for load in loads if load is not None] == [("lb", 27.22)] * 15
 
 
 def test_a_unit_answer_leaves_a_load_typed_with_its_unit() -> None:

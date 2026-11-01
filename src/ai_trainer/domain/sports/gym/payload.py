@@ -90,11 +90,12 @@ class _ExerciseV1(BaseModel):
 
 
 class Exercise(BaseModel):
-    """One exercise at one scheme: the same lift at another weight or rep count is another
-    entry. `exercise_id` stays empty until the name is settled (ADR-0031), and `keep_name` says
-    the athlete kept their own name, which a confirm makes a custom exercise (ticket #397).
-    `jev_pick` says `exercise_id` is Jev's pick rather than the athlete's own answer, so an edit
-    that undoes it is a `decision_overridden` signal (ticket #399).
+    """One exercise with its sets: a pyramid is one entry of several sets, which extraction
+    builds by merging neighbouring schemes of the same lift (ticket #410). `exercise_id` stays
+    empty until the name is settled (ADR-0031), and `keep_name` says the athlete kept their own
+    name, which a confirm makes a custom exercise (ticket #397). `jev_pick` says `exercise_id`
+    is Jev's pick rather than the athlete's own answer, so an edit that undoes it is a
+    `decision_overridden` signal (ticket #399).
     `implements` of 2 with a load means that load in each hand."""
 
     exercise_id: UUID | None = None
