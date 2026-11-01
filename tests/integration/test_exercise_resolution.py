@@ -696,7 +696,7 @@ async def test_use_this_name_makes_a_custom_exercise_on_confirm(
     db_session_factory: SessionFactory,
 ) -> None:
     logger = await _logger(db_session_factory, "resolve-typed")
-    _, [question] = await logger.log("bench press", "bench press")
+    _, [question] = await logger.log("bench press", "bench  press")
 
     settled = await keep_typed_name(
         logger.user_id, question.id, " floor press ", services=logger.services

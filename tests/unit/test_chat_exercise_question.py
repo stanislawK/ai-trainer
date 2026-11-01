@@ -236,7 +236,7 @@ async def test_let_me_type_opens_the_name_field_and_back_returns() -> None:
 
 
 async def test_use_this_name_renames_and_keeps_the_name() -> None:
-    app = _App("bench press", "bench press")
+    app = _App("bench press", "bench  press")
     draft_id, question_id, _ = await app.card()
 
     response = app.client.post(
