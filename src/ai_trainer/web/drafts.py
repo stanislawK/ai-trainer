@@ -63,6 +63,12 @@ class DraftCard:
         return self.question is not None and self.question.purpose == EXERCISE_PURPOSE
 
     @property
+    def names_first(self) -> bool:
+        """Whether the exercise card or its rows open this card's place, so the draft's intro
+        line, which says to check the draft, has nothing to introduce (the mock, ticket #402)."""
+        return self.asks_name or bool(self.named)
+
+    @property
     def adds_at(self) -> str | None:
         """When the session this draft adds to began, as `HH:MM` in the draft's own timezone
         (ADR-0014): "Add to the session at 11:10" (B16). `None` when it extends no session, or

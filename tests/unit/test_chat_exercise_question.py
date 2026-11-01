@@ -569,3 +569,19 @@ async def test_the_name_field_is_only_for_an_exercise_question() -> None:
 
     assert app.client.get(f"/clarifications/{question_id}/name").status_code == 404
 
+
+async def test_the_draft_line_is_left_out_while_the_exercise_card_asks_and_after() -> None:
+    line = '<p class="text-[16px] leading-6 pl-9'
+    settled = _App("bench", matched={"bench": _BARBELL.id})
+    assert line in _flat(await settled.reply())
+
+    app = _App()
+    _, question_id, body = await app.card()
+    assert line not in _flat(body)
+
+    app.client.post(
+        f"/clarifications/{question_id}/answer",
+        data={"option_ids": [KEEP_NAME_OPTION]},
+        headers=_HTMX,
+    )
+    assert line not in _flat(app.client.get("/").text)

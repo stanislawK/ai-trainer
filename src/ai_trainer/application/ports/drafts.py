@@ -130,15 +130,13 @@ class SessionDraftRepositoryPort(Protocol):
         answered_at: datetime,
         typed_name: str | None = None,
     ) -> StoredDraft:
-        """`typed_name` is the name the athlete gave in the card's name field, stored on the
-        closed question for its row (ticket #402).
-
-        In one transaction, closes the user's open exercise question `clarification_id` on
+        """In one transaction, closes the user's open exercise question `clarification_id` on
         their pending draft `draft_id`, as answered with `option_id` or abandoned with `None`,
         replaces the draft's payload with `settle` of it, read under the draft row's lock so an
         edit racing the tap isn't lost, and stores `asks`, the card's next question, `open`
-        (ticket #397). No alias or exercise is written before the confirm. Raises as
-        `settle_session` does; none of them changes anything."""
+        (ticket #397). `typed_name` is kept on the closed question for its row (ticket #402). No
+        alias or exercise is written before the confirm. Raises as `settle_session` does; none of
+        them changes anything."""
         ...
 
     async def undo(self, user_id: UUID, draft_id: UUID, *, undone_at: datetime) -> StoredDraft:
