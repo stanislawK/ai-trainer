@@ -1,0 +1,18 @@
+goal: >-
+  The name an amateur athlete typed for a gym exercise in their training log, which may be in
+  any language, Polish included, and may be a short form, a paraphrase or a description of the
+  movement. Below it is a short list of exercises from the app's catalogue that might be the
+  one they meant, each with its equipment and the muscle it works.
+questions:
+  exercise:
+    kind: choice
+    question: >-
+      Which exercise from the list is the one the athlete named? Pick one only when the name
+      clearly points at it, with the same movement and the same equipment; when two entries fit
+      equally well, or the name says nothing about equipment that tells them apart, none of them
+      is clearly the one.
+    open: true
+    options:
+      none: >-
+        None of the exercises listed is clearly the one the athlete named: the name describes a
+        different movement, or it fits two or more of them equally well.

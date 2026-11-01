@@ -10,6 +10,7 @@ from pydantic import ValidationError
 
 from ai_trainer.application.drafts import CardQuestions, confirm_draft, edit_draft
 from ai_trainer.application.exercise_resolution import ResolutionLimits, ResolveExercises
+from ai_trainer.application.feedback import FeedbackRecorder
 from ai_trainer.application.reply import (
     ReplyDone,
     SessionSettled,
@@ -34,6 +35,7 @@ from ai_trainer.domain.clarification import (
 )
 from ai_trainer.domain.conversation import Intent
 from ai_trainer.domain.exercises import MAX_EXERCISE_NAME, ExerciseCandidate
+from ai_trainer.domain.feedback import FeedbackKind
 from ai_trainer.domain.sports.gym.extraction import GymExtraction
 from ai_trainer.domain.sports.gym.payload import GymPayload
 from ai_trainer.domain.sports.registry import default_sport_registry
@@ -58,6 +60,8 @@ from tests.chat_support import (
     ScriptedConversation,
     reply_services,
 )
+from tests.feedback_support import InMemoryFeedbackEvents
+from tests.picker_support import ScriptedPicker
 
 _BARBELL = ExerciseCandidate(
     id=uuid4(), name="Barbell Bench Press", equipment="barbell", target="pectorals"
@@ -120,9 +124,11 @@ def _gym(*activities: dict[str, object]) -> GymExtraction:
 class _Athlete:
     """A gym athlete logging through the reply, with the real resolver over scripted names."""
 
-    def __init__(self, names: _Names | None = None) -> None:
+    def __init__(self, names: _Names | None = None, picker: ScriptedPicker | None = None) -> None:
         self.user_id = uuid4()
         self.names = names or _Names()
+        self.picker = picker or ScriptedPicker()
+        self.events = InMemoryFeedbackEvents()
         self.chat = InMemoryChatRepository()
         self.drafts = InMemoryDraftRepository()
         self.clarifications = InMemoryClarificationRepository()
@@ -139,9 +145,13 @@ class _Athlete:
             conversation=self.conversation,
             settlers={
                 "gym": ResolveExercises(
-                    self.names, question=self.conversation.exercise_question, limits=_LIMITS
+                    self.names,
+                    self.picker,
+                    question=self.conversation.exercise_question,
+                    limits=_LIMITS,
                 )
             },
+            feedback=FeedbackRecorder(self.events, clock=FixedClock()),
         )
 
     async def log(self, *activities: dict[str, object]) -> tuple[StoredDraft, ReplyDone]:
@@ -221,7 +231,8 @@ async def test_the_shortlist_reads_the_names_measure_and_the_limits() -> None:
 
     await athlete.log(_lift())
 
-    assert athlete.names.shortlisted == [("bench press", "load_reps", 0.25, 4)]
+    # Read for Jev's pick and again for the card Jev left, each with the same arguments.
+    assert set(athlete.names.shortlisted) == {("bench press", "load_reps", 0.25, 4)}
 
 
 async def test_no_candidate_above_the_floor_offers_only_keep_my_name() -> None:
@@ -234,9 +245,10 @@ async def test_no_candidate_above_the_floor_offers_only_keep_my_name() -> None:
     assert question.clarification.allow_free_text
 
 
-async def test_resolving_a_log_makes_no_model_call() -> None:
-    """The extraction is the log's only model call: the resolver holds no gateway at all, and
-    every read it makes is a database one (G14, ADR-0031)."""
+async def test_resolving_a_log_makes_no_text_model_call() -> None:
+    """The extraction is the log's only text-model call: the resolver's one other model, Jev's
+    pick, is a decision call through its own port, and a tap or a confirm makes none (G14,
+    ADR-0031)."""
     athlete = _Athlete()
 
     draft, done = await athlete.log(_lift(), _lift("row"))
@@ -568,6 +580,7 @@ async def _edit(athlete: _Athlete, draft: StoredDraft, *names: str) -> StoredDra
         _names_edit(*names),  # type: ignore[arg-type]  # the form's own shape
         drafts=athlete.services.drafts,
         sports=default_sport_registry(),
+        feedback=athlete.services.feedback,
         questions=CardQuestions(
             clarifications=athlete.clarifications,
             settlers=athlete.services.settlers,
@@ -695,3 +708,139 @@ async def test_a_same_session_question_first_reads_no_shortlist() -> None:
     await athlete.log(_lift())
 
     assert athlete.names.shortlisted == []
+    assert athlete.picker.asked == []
+
+
+# --- Jev's pick (ticket #399) --------------------------------------------------------------
+
+
+async def test_a_confident_jev_pick_fills_the_exercise_and_asks_nothing() -> None:
+    athlete = _Athlete(picker=ScriptedPicker({"bench press": _DUMBBELL}))
+
+    draft, done = await athlete.log(_lift(reps=10), _lift("Bench  Press", reps=8), _lift("row"))
+
+    [question] = done.clarifications  # only the row, which Jev did not pick
+    assert question.clarification.subject == "row"
+    first, second, row = (await athlete.stored(draft)).activities
+    assert (first.exercise_id, second.exercise_id) == (_DUMBBELL.id, _DUMBBELL.id)
+    assert first.jev_pick
+    assert second.jev_pick
+    assert row.exercise_id is None
+    assert not row.jev_pick
+
+
+async def test_a_confident_jev_pick_leaves_no_card_at_all() -> None:
+    athlete = _Athlete(picker=ScriptedPicker({"bench press": _BARBELL}))
+
+    draft, done = await athlete.log(_lift())
+
+    assert done.clarifications == ()
+    assert athlete.open_question() is None
+    assert (await athlete.stored(draft)).activities[0].exercise_id == _BARBELL.id
+
+
+async def test_jev_is_asked_once_per_name_with_the_shortlist_it_was_given() -> None:
+    athlete = _Athlete()
+
+    await athlete.log(_lift(reps=10), _lift("Bench  Press", reps=8), _lift("row"))
+
+    asked = {name: candidates for _, name, candidates in athlete.picker.asked}
+    assert sorted(asked) == ["bench press", "row"]
+    assert asked["bench press"] == (_BARBELL, _DUMBBELL)
+    assert {user_id for user_id, _, _ in athlete.picker.asked} == {athlete.user_id}
+
+
+async def test_a_pick_jev_declined_leaves_the_card_with_its_candidates() -> None:
+    athlete = _Athlete(picker=ScriptedPicker())
+
+    draft, done = await athlete.log(_lift())
+
+    [question] = done.clarifications
+    assert [option.id for option in question.clarification.options] == [
+        str(_BARBELL.id),
+        str(_DUMBBELL.id),
+        KEEP_NAME_OPTION,
+    ]
+    [exercise] = (await athlete.stored(draft)).activities
+    assert exercise.exercise_id is None
+    assert not exercise.jev_pick
+
+
+async def test_an_empty_shortlist_skips_jev() -> None:
+    athlete = _Athlete(_Names(candidates=()))
+
+    await athlete.log(_lift("xyzzy"))
+
+    assert athlete.picker.asked == []
+
+
+async def test_a_name_the_athletes_history_knows_is_never_put_to_jev() -> None:
+    athlete = _Athlete(_Names({"bench press": _BARBELL.id}))
+
+    await athlete.log(_lift())
+
+    assert athlete.picker.asked == []
+
+
+async def test_an_exercise_picked_by_jev_makes_a_row_on_no_alias_before_the_confirm() -> None:
+    """The picker and the resolver write nothing: the alias is the confirm's (invariant 1)."""
+    athlete = _Athlete(picker=ScriptedPicker({"bench press": _BARBELL}))
+
+    await athlete.log(_lift())
+
+    assert athlete.names.aliases == {}
+
+
+async def test_renaming_an_exercise_jev_picked_is_a_decision_overridden_event() -> None:
+    athlete = _Athlete(picker=ScriptedPicker({"bench press": _BARBELL}))
+    draft, _ = await athlete.log(_lift())
+
+    edited = await _edit(athlete, draft, "incline press")
+
+    [exercise] = GymPayload.model_validate(edited.draft.payload).activities
+    assert exercise.exercise_id is None
+    assert not exercise.jev_pick
+    [event] = [e for e in athlete.events.events if e.kind is FeedbackKind.DECISION_OVERRIDDEN]
+    assert (event.template_id, event.template_version) == ("exercise_shortlist", 1)
+    assert list(event.fields) == ["exercise_id"]
+    assert event.user_id == athlete.user_id
+
+
+async def test_an_edit_that_keeps_a_jev_picked_name_is_no_override() -> None:
+    athlete = _Athlete(picker=ScriptedPicker({"bench press": _BARBELL}))
+    draft, _ = await athlete.log(_lift())
+
+    edited = await _edit(athlete, draft, "bench press")
+
+    [exercise] = GymPayload.model_validate(edited.draft.payload).activities
+    assert exercise.exercise_id == _BARBELL.id
+    assert exercise.jev_pick
+    assert [e for e in athlete.events.events if e.kind is FeedbackKind.DECISION_OVERRIDDEN] == []
+
+
+async def test_renaming_a_name_the_history_settled_is_no_override() -> None:
+    athlete = _Athlete(_Names({"bench press": _BARBELL.id}))
+    draft, _ = await athlete.log(_lift())
+
+    await _edit(athlete, draft, "incline press")
+
+    assert [e for e in athlete.events.events if e.kind is FeedbackKind.DECISION_OVERRIDDEN] == []
+
+
+async def test_a_jev_pick_is_not_asked_before_a_same_session_question_is_answered() -> None:
+    athlete = _Athlete(picker=ScriptedPicker({"bench press": _BARBELL}))
+    morning = SessionSpan(
+        id=uuid4(),
+        occurred_on=THREE_6A_TWO_6B.occurred_on,
+        first_logged_at=FROZEN_NOW.replace(hour=6),
+        last_logged_at=FROZEN_NOW.replace(hour=7),
+    )
+    athlete.sessions.latest[(athlete.user_id, "gym")] = morning
+    athlete.drafts.spans[morning.id] = morning
+
+    draft, done = await athlete.log(_lift())
+
+    [question] = done.clarifications
+    assert question.purpose == SAME_SESSION_PURPOSE
+    assert athlete.picker.asked == []
+    assert (await athlete.stored(draft)).activities[0].exercise_id is None

@@ -178,3 +178,65 @@ def test_versions_lists_a_sets_files_in_order(tmp_path: Path) -> None:
 
     assert DecisionSetLoader(root=tmp_path).versions("sample") == [2, 10]
     assert DecisionSetLoader(root=tmp_path).versions("missing") == []
+
+
+def _entry_property(**added: str) -> dict[str, Any]:
+    decision = DecisionSetLoader(root=FIXTURES).load(
+        "open_sample", 1, added_options={"entry": added}, questions={"entry"}
+    )
+    properties: dict[str, Any] = decision.output_type.model_json_schema()["properties"]
+    return dict(properties["entry"])
+
+
+def test_an_open_choice_lists_the_added_options_before_the_files_own() -> None:
+    prop = _entry_property(first="The first entry.", second="The second entry.")
+
+    assert [(option["const"], option["description"]) for option in prop["anyOf"]] == [
+        ("first", "The first entry."),
+        ("second", "The second entry."),
+        ("none", "None of the other entries is what the athlete meant."),
+    ]
+
+
+def test_an_open_choice_with_one_added_option_has_two() -> None:
+    assert [option["const"] for option in _entry_property(only="The one.")["anyOf"]] == [
+        "only",
+        "none",
+    ]
+
+
+def test_an_open_choice_with_nothing_added_is_refused() -> None:
+    with pytest.raises(ValueError, match="at least two"):
+        DecisionSetLoader(root=FIXTURES).load("open_sample", 1, questions={"entry"})
+
+
+def test_options_added_to_a_closed_choice_are_refused() -> None:
+    with pytest.raises(ValueError, match="closed"):
+        DecisionSetLoader(root=FIXTURES).load(
+            "open_sample",
+            1,
+            questions={"closed"},
+            added_options={"closed": {"green": "A green thing."}},
+        )
+
+
+def test_options_added_to_a_question_the_set_lacks_are_refused() -> None:
+    with pytest.raises(ValueError, match="mood"):
+        DecisionSetLoader(root=FIXTURES).load(
+            "open_sample", 1, added_options={"mood": {"calm": "Calm."}}
+        )
+
+
+def test_an_added_option_named_like_a_file_option_is_refused() -> None:
+    with pytest.raises(ValueError, match="none"):
+        _entry_property(none="Clashes with the file's own.")
+
+
+def test_a_closed_choice_still_needs_two_options_in_its_file(tmp_path: Path) -> None:
+    (tmp_path / "bad").mkdir()
+    (tmp_path / "bad" / "v1.en.yaml").write_text(
+        "goal: g\nquestions:\n  q:\n    kind: choice\n    question: q\n    options:\n      a: A.\n"
+    )
+
+    with pytest.raises(ValidationError):
+        DecisionSetLoader(root=tmp_path).load("bad", 1)

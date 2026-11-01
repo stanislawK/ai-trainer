@@ -10,7 +10,7 @@ Its kind picks the field type `DecisionModel` turns into a question:
 from collections.abc import Collection, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, Self
 
 import yaml
 from pydantic import (
@@ -20,10 +20,12 @@ from pydantic import (
     StringConstraints,
     WithJsonSchema,
     create_model,
+    model_validator,
 )
 from pydantic_ai import Choices
 
 DECISIONS_ROOT = Path(__file__).parent
+MAX_CHOICE_OPTIONS = 255
 
 # Jev reads only these words, never field or option names, so none may be blank (ADR-0020).
 _Text = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
@@ -41,7 +43,16 @@ class _Probability(_Question):
 
 class _Choice(_Question):
     kind: Literal["choice"]
-    options: dict[str, _Text] = Field(min_length=2, max_length=255)
+    # An open choice takes more options at load time, as a shortlist of this one log's
+    # candidates, so its file may hold only the fixed ones (a "none of these").
+    open: bool = False
+    options: dict[str, _Text] = Field(min_length=1, max_length=255)
+
+    @model_validator(mode="after")
+    def _closed_choice_has_two(self) -> Self:
+        if not self.open and len(self.options) < 2:
+            raise ValueError("A closed choice needs at least two options")
+        return self
 
 
 class _Score(_Question):
@@ -85,19 +96,25 @@ class DecisionSetLoader:
         locale: str = "en",
         options: Mapping[str, Collection[str]] | None = None,
         questions: Collection[str] | None = None,
+        added_options: Mapping[str, Mapping[str, str]] | None = None,
     ) -> DecisionSet:
         """`options` keeps only the named options of a choice, in file order, for sets whose
         options depend on the athlete (their sports); the descriptions still come from the
         file. `questions` keeps only the named questions, in file order, for a caller that asks
-        one rubric item of a set (a Jev eval check)."""
+        one rubric item of a set (a Jev eval check). `added_options` gives an open choice the
+        options only the caller knows, name to description, listed before the file's own."""
         path = self._root / decision_id / f"v{version}.{locale}.yaml"
         if not path.is_file():
             raise UnknownDecisionSetError(decision_id, version, locale)
         spec = _DecisionSetFile.model_validate(yaml.safe_load(path.read_text()))
         asked = _asked(spec.questions, questions)
+        added = dict(added_options or {})
+        if unknown := sorted(set(added) - set(asked)):
+            raise ValueError(f"Added options name questions the set lacks: {unknown}")
         kept = dict(options or {})
         fields: dict[str, Any] = {
-            name: _field(name, question, kept.pop(name, None)) for name, question in asked.items()
+            name: _field(name, question, kept.pop(name, None), added.get(name))
+            for name, question in asked.items()
         }
         if kept:
             raise ValueError(f"Runtime options name questions the set lacks: {sorted(kept)}")
@@ -128,17 +145,21 @@ def _asked(
 
 
 def _field(
-    name: str, question: _Probability | _Choice | _Score, only: Collection[str] | None
+    name: str,
+    question: _Probability | _Choice | _Score,
+    only: Collection[str] | None,
+    added: Mapping[str, str] | None = None,
 ) -> tuple[Any, Any]:
     if only is not None and not isinstance(question, _Choice):
         raise ValueError(f"Runtime options given for {name!r}, which is not a choice")
+    if added is not None and not (isinstance(question, _Choice) and question.open):
+        raise ValueError(f"Options added to {name!r}, which is a closed question")
     match question:
         case _Probability():
             return float, Field(ge=0, le=1, description=question.question)
         case _Choice():
-            return Choices(_kept_options(name, question.options, only), name=name), Field(
-                description=question.question
-            )
+            options = _with_added(name, _kept_options(name, question.options, only), added)
+            return Choices(options, name=name), Field(description=question.question)
         case _Score():
             return _levels(question.levels), Field(description=question.question)
 
@@ -155,6 +176,23 @@ def _kept_options(
     if len(kept) < 2:
         raise ValueError(f"Runtime options for {name!r} must leave at least two options")
     return kept
+
+
+def _with_added(
+    name: str, options: dict[str, str], added: Mapping[str, str] | None
+) -> dict[str, str]:
+    if added is None:
+        merged = options
+    else:
+        if clash := sorted(set(added) & set(options)):
+            raise ValueError(f"Options added to {name!r} repeat the file's own: {clash}")
+        merged = {**added, **options}
+    if not 2 <= len(merged) <= MAX_CHOICE_OPTIONS:
+        raise ValueError(
+            f"{name!r} needs at least two options and at most {MAX_CHOICE_OPTIONS}, "
+            f"got {len(merged)}"
+        )
+    return merged
 
 
 def _levels(levels: list[str]) -> Any:  # noqa: ANN401 -- a runtime-built `Literal` type

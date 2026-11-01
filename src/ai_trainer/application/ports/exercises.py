@@ -68,6 +68,21 @@ class ExerciseHistoryPort(Protocol):
         ...
 
 
+class ExercisePickerPort(Protocol):
+    """Picks the exercise a typed name is out of a shortlist, for the draft the athlete still
+    confirms (ADR-0031, ADR-0020). It never raises."""
+
+    decision_id: str
+    decision_version: int
+
+    async def pick(
+        self, user_id: UUID, name: str, candidates: Sequence[ExerciseCandidate]
+    ) -> ExerciseCandidate | None:
+        """The candidate when the pick is confident; `None` for a low-confidence pick, "none of
+        these", a timeout, an error, and an empty shortlist, which makes no call."""
+        ...
+
+
 class ExerciseRepositoryPort(Protocol):
     async def upsert_catalogue(self, exercises: Sequence[CatalogueExercise]) -> CatalogueWrite:
         """Writes the rows and their texts in one transaction, leaving matching rows unwritten.
