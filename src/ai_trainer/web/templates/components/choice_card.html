@@ -1,4 +1,4 @@
-{#- The choice card (F9, ADR-0015, ticket #162), built from the Components Chat mock: a question in the assistant's voice, then large tappable rows (label and what tells the options apart), then a quiet "Let me type instead". Import with `{% from "components/choice_card.html" import choice_card %}`. A tap posts the option's ID, never its label, in one htmx POST and the card swaps for the answered row (and, for a sport, the draft); an option the question never offered is refused by the server. Once answered it collapses to the chosen option, and "Let me type instead" collapses it to a quiet row and hands the composer back. `copy_key` names the option's copy in `components/sport_copy.html`, or, for a reading question, in its sport's copy (`components/climbing_copy.html`, ticket #164; `components/gym_copy.html` and `components/cycling_copy.html`, ticket #206), whose `params` fill its label and hint; a label starts upper case. Single mode only; the multi-select rows wait for the first question that needs them. `choice_options` is the question and its rows alone, for a question asked inside another card: the draft card's same-session question (ticket #166), whose `copy_key` names its copy in `components/session_copy.html` and whose `params` fill it, or its exercise question (ticket #397), which names the typed `subject` after the question, may hold one option and offers "Let me type instead", which swaps in the draft's next card. In v4 (Components Chat v4, #265) the card and its answered row are the content material, the rows `lg-clear lg-row` controls, "Let me type instead" a ghost control, and the skipped row the dashed row with no material, 62 px tall as a discarded draft's. -#}
+{#- The choice card (F9, ADR-0015, ticket #162), built from the Components Chat mock: a question in the assistant's voice, then large tappable rows (label and what tells the options apart), then a quiet "Let me type instead". Import with `{% from "components/choice_card.html" import choice_card %}`. A tap posts the option's ID, never its label, in one htmx POST and the card swaps for the answered row (and, for a sport, the draft); an option the question never offered is refused by the server. Once answered it collapses to the chosen option, and "Let me type instead" collapses it to a quiet row and hands the composer back. `copy_key` names the option's copy in `components/sport_copy.html`, or, for a reading question, in its sport's copy (`components/climbing_copy.html`, ticket #164; `components/gym_copy.html` and `components/cycling_copy.html`, ticket #206), whose `params` fill its label and hint; a label starts upper case. Single mode only; the multi-select rows wait for the first question that needs them. `choice_options` is the question and its rows alone, for a question asked inside another card: the draft card's same-session question (ticket #166), whose `copy_key` names its copy in `components/session_copy.html` and whose `params` fill it. An exercise question has its own card, below (ticket #402). In v4 (Components Chat v4, #265) the card and its answered row are the content material, the rows `lg-clear lg-row` controls, "Let me type instead" a ghost control, and the skipped row the dashed row with no material, 62 px tall as a discarded draft's. -#}
 {%- from "components/icon.html" import icon -%}
 {%- from "components/sport_copy.html" import sport_copy -%}
 {%- from "components/session_copy.html" import session_copy -%}
@@ -22,14 +22,52 @@
 {%- endmacro %}
 {% macro choice_options(question, target, disable) -%}
 <div class="flex flex-col gap-2" role="group" aria-labelledby="choice-{{ question.id }}-question" data-choice-card="{{ question.id }}">
-  <p id="choice-{{ question.id }}-question" class="text-[16px] leading-6">{{ question.clarification.question }}{% if question.clarification.subject %} <span class="font-medium">{{ question.clarification.subject }}</span>{% endif %}</p>
+  <p id="choice-{{ question.id }}-question" class="text-[16px] leading-6">{{ question.clarification.question }}</p>
   {%- for option in question.clarification.options %}
   {{ choice_option(question, option, target, disable) }}
   {%- endfor %}
-  {%- if question.clarification.allow_free_text %}
-  <button type="button" class="lg lg-ghost self-start -ml-3 font-normal text-base-content/70" hx-post="/clarifications/{{ question.id }}/abandon" hx-target="{{ target }}" hx-swap="outerHTML" hx-disable="{{ disable }}" hx-status:4xx="swap:none">Let me type instead</button>
-  {%- endif %}
 </div>
+{%- endmacro %}
+{#- The exercise card (F23, ADR-0031, ticket #402; the Exercise Card mock, layout A): asked in the draft's place, one name at a time, with up to 4 candidates, each with its how-to text from `exercise_texts` clamped to two lines, then "Keep my name" and "Let me type instead". With no candidate only those two remain. No approved media exists until M2m, so a row has no picture and no empty slot. -#}
+{% macro exercise_card(question) -%}
+{%- set subject = question.clarification.subject -%}
+{%- set options = question.clarification.options -%}
+<div class="mat-content rounded-box p-4 flex flex-col gap-3" role="group" aria-labelledby="choice-{{ question.id }}-question" data-choice-card="{{ question.id }}">
+  <p id="choice-{{ question.id }}-question" class="text-[16px] leading-6">{% if options | length > 1 %}Which exercise is “{{ subject }}”?{% else %}I don't have “{{ subject }}” in my list.{% endif %}</p>
+  <div class="flex flex-col gap-2">
+    {%- for option in options %}
+    <button type="button" class="lg lg-clear lg-row" hx-post="/clarifications/{{ question.id }}/answer" hx-vals='{{ {"option_ids": option.id} | tojson }}' hx-target="closest [data-choice-card]" hx-swap="outerHTML" hx-disable="[data-choice-card='{{ question.id }}'] button" hx-status:4xx="swap:none" data-choice-option="{{ option.id }}">
+      {%- if loop.last %}
+      <span class="flex flex-col flex-1 min-w-0"><span class="text-[16px] font-medium">{{ option_label(option) }}</span><span class="text-[13px] lbl-2">{{ option_hint(option) }}</span></span>
+      {%- else %}
+      <span class="flex flex-col flex-1 min-w-0 gap-0.5"><span class="text-[16px] font-medium leading-5">{{ option_label(option) }}</span>{% if option.params.get("how") %}<span class="text-[13px] leading-[18px] lbl-2 line-clamp-2">{{ option.params.how }}</span>{% endif %}</span>
+      {%- endif %}
+      {{ icon("chevron-right", "size-4 lbl-2") }}
+    </button>
+    {%- endfor %}
+  </div>
+  <button type="button" class="lg lg-ghost self-start" hx-get="/clarifications/{{ question.id }}/name" hx-target="closest [data-choice-card]" hx-swap="outerHTML" hx-status:4xx="swap:none">Let me type instead</button>
+</div>
+{%- endmacro %}
+{#- The exercise card's name field (ticket #402): "Let me type instead" swaps it in with the name as typed; Use this name keeps the name, and Back swaps the card in again. A rejected name comes back as typed, marked by `aria-invalid`. -#}
+{% macro exercise_name_field(question, value=none, error=False) -%}
+<form class="mat-content rounded-box p-4 flex flex-col gap-3" novalidate aria-label="Name this exercise" hx-post="/clarifications/{{ question.id }}/name" hx-target="this" hx-swap="outerHTML" hx-disable="find button" hx-status:4xx="swap:none" hx-status:422="swap:outerHTML" data-choice-card="{{ question.id }}">
+  <label class="flex flex-col gap-2"><span class="text-[16px] leading-6">What should this exercise be called?</span><input class="lg-field" name="name" value="{{ question.clarification.subject if value is none else value }}"{% if error %} aria-invalid="true" aria-describedby="choice-{{ question.id }}-name-error"{% endif %}></label>
+  {%- if error %}
+  <p id="choice-{{ question.id }}-name-error" class="text-[13px] text-error" role="alert">Type a name of up to 200 characters.</p>
+  {%- endif %}
+  <div class="flex gap-2"><button type="submit" class="lg lg-tinted flex-1">Use this name</button><button type="button" class="lg lg-clear" hx-get="/clarifications/{{ question.id }}/card" hx-target="closest [data-choice-card]" hx-swap="outerHTML" hx-status:4xx="swap:none">Back</button></div>
+</form>
+{%- endmacro %}
+{#- An answered exercise question's row (ticket #402): "you wrote: …" above the canonical name, or "Kept your name" above the name kept. -#}
+{% macro exercise_answer(card) -%}
+{%- set question = card.clarification -%}
+{%- set document = question.clarification -%}
+{%- set chosen = card.chosen -%}
+<div class="mat-content rounded-box px-4 py-3 flex items-center gap-3" role="status" data-choice-answer="{{ question.id }}">{{ icon("circle-check", "size-5 text-success") }}<div class="flex flex-col flex-1 min-w-0">
+  {%- if chosen and chosen.id != "keep" %}<span class="text-[13px] lbl-2">you wrote: {{ document.subject }}</span><span class="text-[16px] font-medium">{{ chosen.params.name }}</span>
+  {%- else %}<span class="text-[13px] lbl-2">Kept your name</span><span class="text-[16px] font-medium">{{ document.typed_name or document.subject }}</span>
+  {%- endif %}</div></div>
 {%- endmacro %}
 {% macro choice_card(card, error=False) -%}
 {%- set question = card.clarification -%}

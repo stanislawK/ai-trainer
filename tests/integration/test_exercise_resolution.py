@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 from typing import Any
 from uuid import UUID, uuid4
 
+import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -27,10 +28,15 @@ from ai_trainer.application.reply import (
     SessionSettled,
     abandon_clarification,
     answer_clarification,
+    keep_typed_name,
     start_reply,
 )
 from ai_trainer.domain.chat import ChatRole
-from ai_trainer.domain.clarification import KEEP_NAME_OPTION, StoredClarification
+from ai_trainer.domain.clarification import (
+    KEEP_NAME_OPTION,
+    ClarificationNotFoundError,
+    StoredClarification,
+)
 from ai_trainer.domain.conversation import Intent
 from ai_trainer.domain.exercises import ExerciseCandidate, ExerciseMeasure
 from ai_trainer.domain.sports.gym.extraction import GymExtraction
@@ -667,3 +673,102 @@ async def _catalogue_id(factory: SessionFactory, source_ref: str) -> UUID:
             )
         ).scalar_one()
         return found
+
+
+async def test_shortlist_returns_english_instructions(db_session_factory: SessionFactory) -> None:
+    logger = await _logger(db_session_factory, "resolve-how")
+
+    _, [question] = await logger.log("bench press")
+
+    picked = _option(question, "Barbell Bench Press")
+    async with db_session_factory() as db:
+        english = await db.scalar(
+            text("SELECT instructions FROM exercise_texts WHERE exercise_id = :id AND lang = 'en'"),
+            {"id": UUID(picked)},
+        )
+    [option] = [row for row in question.clarification.options if row.id == picked]
+    how = option.params["how"]
+    assert how
+    assert english.startswith(how.removesuffix("…"))
+
+
+async def test_use_this_name_makes_a_custom_exercise_on_confirm(
+    db_session_factory: SessionFactory,
+) -> None:
+    logger = await _logger(db_session_factory, "resolve-typed")
+    _, [question] = await logger.log("bench press", "bench  press")
+
+    settled = await keep_typed_name(
+        logger.user_id, question.id, " floor press ", services=logger.services
+    )
+
+    assert await _custom_rows(db_session_factory, logger.user_id) == []
+    stored = await logger.services.clarifications.get(logger.user_id, question.id)
+    assert stored.clarification.typed_name == "floor press"
+    assert stored.answer_option_ids == (KEEP_NAME_OPTION,)
+    entries = GymPayload.model_validate(settled.draft.draft.payload).activities
+    assert [entry.name_as_typed for entry in entries] == ["floor press", "floor press"]
+
+    await logger.confirm(settled.draft)
+
+    assert await _custom_rows(db_session_factory, logger.user_id) == ["floor press"]
+    again, asked = await logger.log("Floor  Press")
+    assert asked == ()
+    [exercise] = GymPayload.model_validate(again.draft.payload).activities
+    assert exercise.exercise_id is not None
+
+
+async def test_use_this_name_on_another_athletes_question_is_not_found(
+    db_session_factory: SessionFactory,
+) -> None:
+    owner = await _logger(db_session_factory, "resolve-typed-owner")
+    other = await _logger(db_session_factory, "resolve-typed-other")
+    _, [question] = await owner.log("bench press")
+
+    with pytest.raises(ClarificationNotFoundError):
+        await keep_typed_name(other.user_id, question.id, "mine", services=other.services)
+
+    assert (await owner.services.clarifications.get(owner.user_id, question.id)).status == "open"
+
+
+async def test_labels_name_the_exercise_and_only_a_near_alias_is_usual(
+    db_session_factory: SessionFactory,
+) -> None:
+    logger = await _logger(db_session_factory, "resolve-labels")
+    other = await _logger(db_session_factory, "resolve-labels-other")
+    _, [question] = await logger.log("bench press")
+    exercise_id = UUID(_option(question, "Barbell Bench Press"))
+    await logger.exercises.add_user_alias(logger.user_id, exercise_id, "bench press")
+
+    labels = await logger.exercises.labels(
+        logger.user_id,
+        named={"bench press": exercise_id, "bench pres": exercise_id, "bench": exercise_id},
+        near=_LIMITS.near_match,
+    )
+
+    assert labels["bench press"].name == "Barbell Bench Press"
+    assert labels["bench press"].usual is None
+    assert labels["bench pres"].usual == "bench press"
+    assert labels["bench"].usual is None
+    # Another athlete shares the catalogue row but never reads this athlete's alias.
+    theirs = await other.exercises.labels(
+        other.user_id, named={"bench pres": exercise_id}, near=_LIMITS.near_match
+    )
+    assert theirs["bench pres"].usual is None
+
+
+async def test_labels_leave_out_another_athletes_custom_exercise(
+    db_session_factory: SessionFactory,
+) -> None:
+    owner = await _logger(db_session_factory, "resolve-labels-owner")
+    other = await _logger(db_session_factory, "resolve-labels-stranger")
+    custom = await owner.exercises.create_custom(
+        owner.user_id, sport_id="gym", name="my press", default_measure=ExerciseMeasure.REPS
+    )
+
+    assert (
+        await other.exercises.labels(
+            other.user_id, named={"my press": custom.id}, near=_LIMITS.near_match
+        )
+        == {}
+    )

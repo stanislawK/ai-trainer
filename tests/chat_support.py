@@ -495,6 +495,7 @@ class InMemoryDraftRepository:
         settle: Callable[[Mapping[str, JsonValue]], dict[str, JsonValue]],
         asks: Clarification | None,
         answered_at: datetime,
+        typed_name: str | None = None,
     ) -> StoredDraft:
         for index, (owner, stored) in enumerate(self.rows):
             if owner != user_id or stored.id != draft_id:
@@ -514,6 +515,8 @@ class InMemoryDraftRepository:
                 option_ids=[] if option_id is None else [option_id],
                 resolved_at=answered_at,
             )
+            if typed_name is not None:
+                self.questions.name_answer(user_id, clarification_id, typed_name)
             draft = stored.draft.model_copy(update={"payload": settle(stored.draft.payload)})
             stored = stored.model_copy(update={"draft": draft})
             self.rows[index] = (owner, stored)
@@ -648,6 +651,12 @@ class InMemoryClarificationRepository:
             self.rows[index] = (owner, row)
             return row
         raise ClarificationNotFoundError(clarification_id)
+
+    def name_answer(self, user_id: UUID, clarification_id: UUID, typed_name: str) -> None:
+        for index, (owner, row) in enumerate(self.rows):
+            if owner == user_id and row.id == clarification_id:
+                document = row.clarification.model_copy(update={"typed_name": typed_name})
+                self.rows[index] = (owner, row.model_copy(update={"clarification": document}))
 
     async def reopen(self, user_id: UUID, clarification_id: UUID) -> None:
         for index, (owner, row) in enumerate(self.rows):

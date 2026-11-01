@@ -19,7 +19,7 @@ from ai_trainer.application.ports.draft_settling import DecisionRef
 from ai_trainer.application.ports.exercises import ExerciseNamesPort, ExercisePickerPort
 from ai_trainer.application.reply.shared import LOG_KIND
 from ai_trainer.domain.clarification import KEEP_NAME_OPTION, ChoiceOption, Clarification
-from ai_trainer.domain.exercises import ExerciseCandidate
+from ai_trainer.domain.exercises import ExerciseCandidate, ExerciseLabel
 from ai_trainer.domain.sports.gym import names as gym_names
 from ai_trainer.domain.sports.gym.names import GYM_SPORT_ID
 from ai_trainer.domain.sports.gym.payload import Exercise, GymPayload
@@ -39,14 +39,20 @@ class ResolutionLimits:
 
 
 def _candidate_option(candidate: ExerciseCandidate) -> ChoiceOption:
-    told_apart_by = (candidate.equipment, candidate.target)
     return ChoiceOption(
         id=str(candidate.id),
         copy_key=_CANDIDATE_COPY_KEY,
-        params={
-            "name": candidate.name,
-            "detail": ", ".join(part for part in told_apart_by if part),
-        },
+        params={"name": candidate.name, "how": candidate.how or ""},
+    )
+
+
+def _label_of(typed: str, label: ExerciseLabel, *, answered: bool) -> ExerciseLabel:
+    """ "you usually log this as …" for a near match the athlete didn't answer about; otherwise
+    "you wrote: …", unless the typed name already reads as the exercise's (F23, ticket #402)."""
+    if label.usual is not None and not answered:
+        return label
+    return label.model_copy(
+        update={"usual": None, "wrote": None if gym_names.reads_as(typed, label.name) else typed}
     )
 
 
@@ -152,6 +158,26 @@ class ResolveExercises:
     ) -> dict[str, JsonValue]:
         draft = GymPayload.model_validate(payload)
         return gym_names.answered(draft, subject, option_id).model_dump(mode="json")
+
+    def typed(
+        self, payload: Mapping[str, JsonValue], subject: str, name: str
+    ) -> dict[str, JsonValue]:
+        draft = GymPayload.model_validate(payload)
+        return gym_names.typed(draft, subject, name).model_dump(mode="json")
+
+    async def labels(
+        self, user_id: UUID, payload: Mapping[str, JsonValue], *, answered: Collection[str] = ()
+    ) -> Mapping[str, ExerciseLabel]:
+        named = gym_names.named(GymPayload.model_validate(payload))
+        if not named:
+            return {}
+        found = await self._names.labels(user_id, named=named, near=self._limits.near_match)
+        return {
+            typed: _label_of(
+                typed, label, answered=any(gym_names.reads_as(typed, name) for name in answered)
+            )
+            for typed, label in found.items()
+        }
 
     def mentions(self, payload: Mapping[str, JsonValue], subject: str) -> bool:
         return gym_names.mentions(GymPayload.model_validate(payload), subject)

@@ -1,10 +1,10 @@
-{#- User-facing gym formats (G5), shared by the gym draft card, its edit fields and its logged card (tickets #159 and #398). Import with `{% from "components/gym_copy.html" import exercise_name, kg, kg_value, done, exercise_blocks %}`. A name keeps how it was typed but starts upper case ("Squat", "RDL"); a load shows in kg to one decimal ("142.9", "100"). `done` is the one line of what was done (Gym Measures mock, layout B, ticket #398): sets that are all alike read "3 × 12", "3 × 12 each side", "3 × 45 s", "2 × 40 m", "4 sets" or, for one set, "12 reps" and "45 s", then the band ("red band"), the load ("60 kg", and "2 × 6 kg" for two implements, so it can't be read as a rep count) and RIR, joined by " · "; sets that differ read one by one, "10 @ 60 kg · 8 @ 70 kg · 6 @ 80 kg", where "@" is reps at a load. A value the athlete didn't give is left out, never shown as 0. `exercise_blocks` is the card's body: one block per exercise, split by a rule, with its name, that line, and what was typed when a load was in pounds. `gym_readings` is the copy of a reading question's options (ticket #206), keyed by their `copy_key`: `{movement}` is a movement the exercise name may mean, and `{load}` the load as typed without its unit. The exercise question's options (ticket #397) share it: `{name}` is a candidate's name, `{detail}` its equipment and target, and on "Keep my name" `{name}` is the name as typed. -#}
+{#- User-facing gym formats (G5), shared by the gym draft card, its edit fields and its logged card (tickets #159 and #398). Import with `{% from "components/gym_copy.html" import exercise_name, kg, kg_value, done, exercise_blocks %}`. A name keeps how it was typed but starts upper case ("Squat", "RDL"); a load shows in kg to one decimal ("142.9", "100"). `done` is the one line of what was done (Gym Measures mock, layout B, ticket #398): sets that are all alike read "3 × 12", "3 × 12 each side", "3 × 45 s", "2 × 40 m", "4 sets" or, for one set, "12 reps" and "45 s", then the band ("red band"), the load ("60 kg", and "2 × 6 kg" for two implements, so it can't be read as a rep count) and RIR, joined by " · "; sets that differ read one by one, "10 @ 60 kg · 8 @ 70 kg · 6 @ 80 kg", where "@" is reps at a load. A value the athlete didn't give is left out, never shown as 0. `exercise_blocks` is the card's body: one block per exercise, split by a rule, with its name, that line, and what was typed when a load was in pounds. `gym_readings` is the copy of a reading question's options (ticket #206), keyed by their `copy_key`: `{movement}` is a movement the exercise name may mean, and `{load}` the load as typed without its unit. The exercise question's options (tickets #397 and #402) share it: `{name}` is a candidate's name, and its how-to text is the exercise card's own line. A settled entry shows by its `labels` entry (F23, #402): the exercise's name, then, on the draft only (`lines`), "you wrote: …" or "you usually log this as …". -#}
 {% set gym_readings = {
   "gym_reading_movement": {"label": "{movement}", "hint": ""},
   "gym_reading_kg": {"label": "Kilograms", "hint": "{load} kg"},
   "gym_reading_lb": {"label": "Pounds", "hint": "{load} lb"},
-  "gym_exercise_candidate": {"label": "{name}", "hint": "{detail}"},
-  "gym_exercise_keep": {"label": "Keep my name", "hint": "Log it as {name}"},
+  "gym_exercise_candidate": {"label": "{name}", "hint": ""},
+  "gym_exercise_keep": {"label": "Keep my name", "hint": "Log it as you wrote it"},
 } %}
 {% macro exercise_name(name) -%}
 {{ name[:1] | upper }}{{ name[1:] }}
@@ -81,13 +81,19 @@
 {{ typed | unique | join(", ") }}
 {%- endmacro %}
 
-{% macro exercise_blocks(activities) -%}
+{% macro exercise_blocks(activities, labels={}, lines=true) -%}
 <ul class="flex flex-col divide-y divide-base-content/10" aria-label="Exercises">
   {%- for exercise in activities %}
   {%- set line = done(exercise) | trim %}
   {%- set typed = typed_loads(exercise) | trim %}
+  {%- set label = labels.get(exercise.name_as_typed) %}
   <li class="flex flex-col gap-0.5 py-3 first:pt-0 last:pb-0">
-    <span class="text-[16px] font-medium lbl-1">{{ exercise_name(exercise.name_as_typed) }}</span>
+    <span class="text-[16px] font-medium lbl-1">{{ label.name if label else exercise_name(exercise.name_as_typed) }}</span>
+    {%- if label and lines and label.usual %}
+    <span class="text-[12px] lbl-2">you usually log this as {{ label.usual }}</span>
+    {%- elif label and lines and label.wrote %}
+    <span class="text-[12px] lbl-2">you wrote: {{ label.wrote }}</span>
+    {%- endif %}
     {%- if line %}
     <span class="text-[13px] lbl-2 tabular-nums">{{ line }}</span>
     {%- endif %}

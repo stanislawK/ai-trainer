@@ -1,5 +1,5 @@
 {%- from "components/avatar.html" import avatar -%}
-{%- from "components/choice_card.html" import choice_card -%}
+{%- from "components/choice_card.html" import choice_card, exercise_answer -%}
 {%- if message.role == "assistant" -%}
 {%- set cards = draft_cards.get(message.id, []) -%}
 {%- set choice = (choice_cards or {}).get(message.id) -%}
@@ -10,8 +10,13 @@
 {%- elif cards -%}
 {#- A part that introduces draft cards is laid out as the Chat mock's state 8: its line indented to the reply text, then the cards (ticket #154). -#}
 <div class="chat-message flex flex-col gap-4">
+  {%- if cards | rejectattr("names_first") | list %}
   <p class="text-[16px] leading-6 pl-9 whitespace-pre-wrap break-words">{{ message.text }}</p>
+  {%- endif %}
   {%- for card in cards %}
+  {%- for answer in card.named %}
+  {{ exercise_answer(answer) }}
+  {%- endfor %}
   {% include card.template %}
   {%- endfor %}
 </div>

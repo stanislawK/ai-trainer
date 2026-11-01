@@ -1,0 +1,4 @@
+{#- An answer on the exercise card (F23, ticket #402): its row, then the draft's next card, the next name's question or the draft itself. Swapped over the exercise card. -#}
+{%- from "components/choice_card.html" import exercise_answer -%}
+{{ exercise_answer(answer) }}
+{% include card.template %}

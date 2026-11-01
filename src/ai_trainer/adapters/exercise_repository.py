@@ -8,8 +8,11 @@ from sqlalchemy import (
     Row,
     SQLColumnExpression,
     Text,
+    Uuid,
+    and_,
     case,
     cast,
+    column,
     func,
     literal_column,
     or_,
@@ -27,12 +30,15 @@ from ai_trainer.domain.exercises import (
     ExerciseAlias,
     ExerciseCandidate,
     ExerciseDetail,
+    ExerciseLabel,
     ExerciseMeasure,
 )
 
 _CUSTOM_SOURCE = "custom"
 # A description is the start of the imported instructions, short enough for a tool result.
 MAX_DESCRIPTION = 200
+# The exercise card's how-to text: the app is English only in v1 (G5).
+_CARD_LANG = "en"
 # The full-text configuration of ADR-0031's search indexes.
 _SIMPLE: ColumnElement[str] = literal_column("'simple'::regconfig")
 _IMPORTED_COLUMNS = (
@@ -280,7 +286,20 @@ class SqlAlchemyExerciseRepository:
         )
         async with self._session_factory() as session:
             rows = await session.execute(
-                select(ExerciseOrm.id, ExerciseOrm.name, ExerciseOrm.equipment, ExerciseOrm.target)
+                select(
+                    ExerciseOrm.id,
+                    ExerciseOrm.name,
+                    ExerciseOrm.equipment,
+                    ExerciseOrm.target,
+                    ExerciseTextOrm.instructions,
+                )
+                .outerjoin(
+                    ExerciseTextOrm,
+                    and_(
+                        ExerciseTextOrm.exercise_id == ExerciseOrm.id,
+                        ExerciseTextOrm.lang == _CARD_LANG,
+                    ),
+                )
                 .where(ExerciseOrm.sport_id == sport_id, visible_to(user_id), score >= floor)
                 .order_by(
                     (ExerciseOrm.default_measure == measure).desc(),
@@ -290,9 +309,49 @@ class SqlAlchemyExerciseRepository:
                 .limit(limit)
             )
             return [
-                ExerciseCandidate(id=id_, name=found, equipment=equipment, target=target)
-                for id_, found, equipment, target in rows.tuples()
+                ExerciseCandidate(
+                    id=id_, name=found, equipment=equipment, target=target, how=_short(how)
+                )
+                for id_, found, equipment, target, how in rows.tuples()
             ]
+
+    async def labels(
+        self, user_id: UUID, *, named: Mapping[str, UUID], near: float
+    ) -> Mapping[str, ExerciseLabel]:
+        pairs = (
+            func.unnest(cast(list(named), ARRAY(Text)), cast(list(named.values()), ARRAY(Uuid)))
+            .table_valued(column("typed", Text), column("exercise_id", Uuid))
+            .render_derived(name="pairs")
+        )
+        norm = func.exercise_name_norm(pairs.c.typed)
+        similarity = func.similarity(ExerciseAliasOrm.alias_norm, norm)
+        exact = ExerciseAliasOrm.alias_norm == norm
+        async with self._session_factory() as session:
+            names = await session.execute(
+                select(ExerciseOrm.id, ExerciseOrm.name).where(
+                    ExerciseOrm.id.in_(named.values()), visible_to(user_id)
+                )
+            )
+            by_id = dict(names.tuples().all())
+            aliases = await session.execute(
+                select(pairs.c.typed, ExerciseAliasOrm.alias, exact)
+                .distinct(pairs.c.typed)
+                .join(
+                    ExerciseAliasOrm,
+                    and_(
+                        ExerciseAliasOrm.exercise_id == pairs.c.exercise_id,
+                        ExerciseAliasOrm.user_id == user_id,
+                        or_(exact, similarity >= near),
+                    ),
+                )
+                .order_by(pairs.c.typed, exact.desc(), similarity.desc(), ExerciseAliasOrm.alias)
+            )
+            usual = {typed: alias for typed, alias, is_exact in aliases.tuples() if not is_exact}
+        return {
+            typed: ExerciseLabel(name=by_id[exercise_id], usual=usual.get(typed))
+            for typed, exercise_id in named.items()
+            if exercise_id in by_id
+        }
 
     async def describe(
         self, user_id: UUID, exercise_ids: Sequence[UUID], *, lang: str

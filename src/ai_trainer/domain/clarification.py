@@ -54,7 +54,9 @@ class Clarification(BaseModel):
     voice, its options, and the intent it blocks (`pending`). One option is enough only beside
     the free-text escape, which is then the second route (ADR-0015 invariant 2, ticket #397).
     `sport` is the sport whose extraction asked, for a question its tap resumes in that sport
-    (ticket #164). `subject` is the name as typed that an exercise question asks about."""
+    (ticket #164). `subject` is the name as typed that an exercise question asks about, and
+    `typed_name` the name the athlete gave it in the card's name field (ticket #402): text the
+    answered row shows, never read by a model. The answer is still the `keep` option's ID."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -65,6 +67,7 @@ class Clarification(BaseModel):
     pending: str
     sport: str | None = None
     subject: str | None = None
+    typed_name: str | None = None
 
     @model_validator(mode="after")
     def _has_a_second_route(self) -> Self:
