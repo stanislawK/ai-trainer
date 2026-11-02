@@ -8,9 +8,9 @@ in one fresh conversation as a browser would, and confirms each log's draft card
 names exercises (ADR-0031, #397), tapping the first option of each question on a card before
 confirming it. Only a first run meets new names: the athlete's aliases stay in the database. A
 turn is timed from sending the message to the last event of its reply stream, which carries the
-draft card, or the exercise card in its place (#402). Its `llm_calls` rows are the ones the athlete gained during the turn, and its USD is
-their sum: Jev rows carry no cost (ADR-0018). A reply that ends in a timeout or an error, or a
-log with no card, is counted and named.
+draft card, or the exercise card in its place (#402). Its `llm_calls` rows are the ones the
+athlete gained during the turn, and its USD is their sum: Jev rows carry no cost (ADR-0018). A
+reply that ends in a timeout or an error, or a log with no card, is counted and named.
 
 The summary is also written as JSON under `LLM_DEBUG_LOG_DIR`. Like `dev_session.py`, this is a
 script, never a route: it reaches the app's database through `DATABASE_URL` to seed the athlete
