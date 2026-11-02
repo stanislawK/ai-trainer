@@ -10,7 +10,7 @@ Finds sources worth the owner's upload to `/admin/knowledge`. The owner obtains 
 
 ## Inputs
 
-- **Topic**: the part of `$ARGUMENTS` before any covered list (for example `hypertrophy volume`). If it is empty, ask for one and stop.
+- **Topic**: the part of `$ARGUMENTS` before the literal marker `covered:` (for example `hypertrophy volume`), or all of it when there is no marker. If it is empty, ask for one and stop.
 - **Covered list**: what the owner already uploaded, pasted in the arguments or in a file whose path the owner names. Agents can't reach production's `knowledge_sources` (ADR-0023), so never look for it in a database.
   - **Given**: use it as is.
   - **Missing or empty**: start the report with "No covered list given: treating coverage as empty." and carry on.
@@ -25,6 +25,8 @@ Finds sources worth the owner's upload to `/admin/knowledge`. The owner obtains 
    2. coaching books;
    3. expert talks and podcasts;
    4. articles.
+
+   A source that fits none of these (a preprint, a position stand, a guideline) gets the nearest tier with the doubt written in its "Why credible" line; never invent a fifth tier. The owner assigns the final tier at upload, and the tier list itself is still open (`docs/research/knowledge-base.md`, open questions).
 
    The tier names the kind of source, not the certainty of any claim in it (`docs/research/knowledge-base.md`, finding 5). Within a tier, put the best-credentialed and most recent first.
 5. **Report in chat** in the format below.
@@ -43,7 +45,7 @@ Start with the covered-list notice when it applies, then:
 
 **Rejected**: a table of title or link, and the reason.
 
-**Left out: already covered**: a count.
+**Left out: already covered**: a count. **Cut for length**: a count, when it applies.
 
 ## Boundaries
 
@@ -51,4 +53,4 @@ Start with the covered-list notice when it applies, then:
 - Never upload, and never call the app or `ObjectStoragePort`.
 - No paid model call: no OpenRouter `send-message`, `send-batch` or other paid tool, and no eval run.
 - No athlete data in a search query or the report.
-- Keep the list short and reviewable, about ten candidates at most, with the reason for each cut.
+- Keep the candidates reviewable: about ten at most. Credible sources cut only for length are not rejections; report them as a count under "Cut for length", and keep the Rejected table for sources that failed the screen.
