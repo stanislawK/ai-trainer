@@ -109,6 +109,101 @@ def test_admin_emails_parses_a_comma_separated_list(monkeypatch: pytest.MonkeyPa
     assert settings.admin_emails == ["a@example.com", "b@example.com"]
 
 
+OBJECT_STORAGE_KEYS = {
+    "OBJECT_STORAGE_ENDPOINT": "https://account.r2.cloudflarestorage.com",
+    "OBJECT_STORAGE_ACCESS_KEY_ID": "access-key-id-value",
+    "OBJECT_STORAGE_SECRET_ACCESS_KEY": "secret-access-key-value",
+    "OBJECT_STORAGE_UPLOADS_BUCKET": "ai-trainer-uploads",
+}
+
+
+def _set_object_storage(monkeypatch: pytest.MonkeyPatch, **overrides: str) -> None:
+    _set_required_keys(monkeypatch)
+    for key, value in (OBJECT_STORAGE_KEYS | overrides).items():
+        monkeypatch.setenv(key, value)
+
+
+def test_object_storage_is_unset_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    _set_required_keys(monkeypatch)
+    for key in OBJECT_STORAGE_KEYS:
+        monkeypatch.delenv(key, raising=False)
+
+    settings = Settings(_env_file=None)
+
+    assert settings.object_storage_endpoint is None
+    assert settings.object_storage_uploads_bucket is None
+    assert settings.object_storage_region == "auto"
+
+
+def test_blank_object_storage_keys_are_unset(monkeypatch: pytest.MonkeyPatch) -> None:
+    _set_object_storage(monkeypatch, **dict.fromkeys(OBJECT_STORAGE_KEYS, " "))
+
+    settings = Settings(_env_file=None)
+
+    assert settings.object_storage_endpoint is None
+    assert settings.object_storage_access_key_id is None
+    assert settings.object_storage_secret_access_key is None
+    assert settings.object_storage_uploads_bucket is None
+
+
+def test_object_storage_keys_stay_out_of_settings_repr(monkeypatch: pytest.MonkeyPatch) -> None:
+    _set_object_storage(monkeypatch)
+
+    settings = Settings(_env_file=None)
+
+    assert settings.object_storage_endpoint == OBJECT_STORAGE_KEYS["OBJECT_STORAGE_ENDPOINT"]
+    assert settings.object_storage_uploads_bucket == "ai-trainer-uploads"
+    assert "access-key-id-value" not in repr(settings)
+    assert "secret-access-key-value" not in repr(settings)
+
+
+@pytest.mark.parametrize("missing", sorted(OBJECT_STORAGE_KEYS))
+def test_partial_object_storage_settings_refuse_to_start_naming_the_key(
+    monkeypatch: pytest.MonkeyPatch, missing: str
+) -> None:
+    _set_object_storage(monkeypatch, **{missing: ""})
+
+    with pytest.raises(ValidationError) as excinfo:
+        Settings(_env_file=None)
+
+    assert missing in str(excinfo.value)
+    assert "secret-access-key-value" not in str(excinfo.value)
+
+
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        "account.r2.cloudflarestorage.com",
+        "ftp://account.r2.cloudflarestorage.com",
+        "https://account.r2.cloudflarestorage.com/ai-trainer-uploads",
+        "https://key:secret-in-url@account.r2.cloudflarestorage.com",
+    ],
+    ids=["no-scheme", "wrong-scheme", "bucket-in-path", "credentials-in-url"],
+)
+def test_object_storage_endpoint_must_be_an_origin_and_is_never_echoed(
+    monkeypatch: pytest.MonkeyPatch, endpoint: str
+) -> None:
+    _set_object_storage(monkeypatch, OBJECT_STORAGE_ENDPOINT=endpoint)
+
+    with pytest.raises(ValidationError) as excinfo:
+        Settings(_env_file=None)
+
+    assert "OBJECT_STORAGE_ENDPOINT must be an http(s) origin" in str(excinfo.value)
+    assert "secret-in-url" not in str(excinfo.value)
+
+
+def test_object_storage_timeout_must_be_positive(monkeypatch: pytest.MonkeyPatch) -> None:
+    _set_required_keys(monkeypatch)
+    monkeypatch.setenv("OBJECT_STORAGE_TIMEOUT_SECONDS", "0")
+
+    with pytest.raises(ValidationError) as excinfo:
+        Settings(_env_file=None)
+
+    assert [error["loc"] for error in excinfo.value.errors()] == [
+        ("object_storage_timeout_seconds",)
+    ]
+
+
 def test_env_example_lists_every_setting(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("DATABASE_URL", raising=False)
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)

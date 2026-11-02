@@ -19,11 +19,15 @@ Agents never connect to the production host (ADR-0023), so ingestion has to run 
 
 ## Decision
 
-**Object storage.** `ObjectStoragePort` (put, get, delete, presigned get) with one S3-compatible adapter for Cloudflare R2. The library is chosen at the infra ticket through context7. Two buckets, configured in `Settings` with their keys in `.env`:
-- `uploads`: private. Admin-uploaded source files.
-- `media`: public through a custom domain. Catalogue media only (ADR-0031).
+**Object storage.** `ObjectStoragePort` (put, get, delete, presigned get) with one S3-compatible adapter for Cloudflare R2, built on [`obstore`](https://github.com/developmentseed/obstore), chosen by the owner at #420 (2026-11-02). Two buckets, configured in `Settings` with their keys in `.env`:
+- `uploads`: private. Admin-uploaded source files. Settings: `OBJECT_STORAGE_ENDPOINT`, `OBJECT_STORAGE_REGION` (default `auto`), `OBJECT_STORAGE_ACCESS_KEY_ID`, `OBJECT_STORAGE_SECRET_ACCESS_KEY`, `OBJECT_STORAGE_UPLOADS_BUCKET` and `OBJECT_STORAGE_TIMEOUT_SECONDS`. All optional until a feature needs them, so a release never waits on new keys; a partial set refuses to start.
+- `media`: public through a custom domain. Catalogue media only (ADR-0031). Its settings come with the ticket that first uses it.
 
 Neither holds user training data.
+
+- **Library:** `obstore` is natively async, ships its own types, and has no dependencies on Python 3.14 (one Rust wheel). `aiobotocore` would bring `aiohttp` and a `botocore` held to a three-patch range, and needs a stubs package for `mypy --strict`. `obstore` is pre-1.0 (0.12.1), so a breaking change is contained by keeping it in this one adapter.
+- **Local service:** `make start` runs [versitygw](https://github.com/versity/versitygw) v1.10.0, pinned by digest, so development needs no Cloudflare. It checks signatures and link expiry. RustFS and s3proxy passed the same probe (`obstore` round trip, tampered and expired links, a wrong secret) on 2026-11-02, with larger images and a client call to create a bucket. MinIO's community edition is [archived](https://github.com/minio/minio).
+- **Backup:** the `uploads` bucket is **not copied**, decided by the owner at #420. Chunks and their text are in Postgres, which the nightly backup covers (ADR-0023), so search survives a lost file; re-ingesting that source needs the file uploaded again. The owner keeps the originals (`deploy/RUNBOOK.md` section 14). A bucket lock isn't an option, since it would refuse the delete below. The risk accepted: the app's token can delete objects, so a stolen token or a mistaken admin delete loses a file until it is uploaded again.
 
 **Admin upload.** `/admin/knowledge` is visible only to `ADMIN_EMAILS` (ADR-0005). It lists sources with their status, chunk count and embedding model.
 - **The upload form** takes:
@@ -111,6 +115,16 @@ Agents don't upload.
 - `search_knowledge`, with the catalogue texts ingested, is what later improves the exercise shortlist (ADR-0031). That improvement is measured here, not in M1g.
 - ADR-0011 stays the storage decision. Its "follow-up ADR at M3" is this one, and its `/ingest-knowledge` skill becomes `/research-knowledge` plus the upload page.
 - A `search_knowledge` query can be an athlete's question, so it reaches the embedding upstream as it reaches a chat upstream (ADR-0007). What it costs in time, and what a search does when the pinned upstream is down, are for the `search_knowledge` ticket (PRD-0010 G14).
-- ⚠ The `uploads` bucket is the only copy of a source file. ADR-0023's nightly backup covers the database, not R2. Whether to copy the bucket too is decided at the infra ticket.
+- ⚠ The `uploads` bucket is the only copy of a source file in the system, since ADR-0023's nightly backup covers the database, not R2. See *Backup* in the Decision: the owner's originals are the second copy.
 - `deploy/` and `.env.example` gain the R2 settings. The owner creates the buckets and keys; agents never touch Cloudflare (ADR-0023).
+- **Object storage gotchas (#420):**
+  - **A library message never leaves the adapter.** A refusal's text can quote the access key: versitygw's and s3proxy's did, on 2026-11-02. `obstore`'s error text also holds the request's URL. So the domain error carries only the operation and a closed reason, raised `from None`, and the log line names only those and the exception's type.
+  - **A presigned link is a secret.** It holds the key ID and a signature, so nothing logs or prints one. `storage-check` opens links with `urllib`, because `httpx2` logs every request's URL at INFO.
+  - **Credentials go through `credential_provider`, not as keys.** `obstore` reads `AWS_*` from the environment, and a stray `AWS_SESSION_TOKEN` was otherwise signed into every request and link, which would break them. The settings the adapter passes outrank the environment, so nothing else there can redirect it.
+  - **Retries are bounded.** `obstore` defaults to 10 retries over 3 minutes, which an admin's upload would sit through. The adapter uses 2, within `OBJECT_STORAGE_TIMEOUT_SECONDS`.
+  - **A delete is a bulk request.** `obstore` sends every delete as S3's DeleteObjects (`POST /<bucket>?delete`), never `DELETE`. `storage-check` exercises it, on R2 too.
+  - **Links on R2.** They live 1 second to 7 days and can't use a custom domain ([R2 docs](https://developers.cloudflare.com/r2/api/s3/presigned-urls/), read 2026-11-02), so they name the account's S3 endpoint. The adapter refuses a time outside those bounds.
+  - **Links under `make start`.** A link made inside the app container names `storage:7070`, which a browser can't open. Nothing opens one in a browser yet; the admin page's ticket decides this if it needs links.
+  - **versitygw's region.** It refuses a signature for any region but its own, so it runs with `--region auto`, R2's name.
+  - **What CI proves.** CI has no S3 service, so the adapter's tests run on a small server in `tests/object_storage_support.py`, which doesn't verify signatures. A library bump is checked by hand with `make storage-check`.
 - `/admin/knowledge` needs a Claude Design mock before its web ticket (ADR-0019).

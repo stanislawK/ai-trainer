@@ -5,6 +5,7 @@
     uv run ai-trainer import-exercises
     uv run ai-trainer backfill-gym-sessions
     uv run ai-trainer feedback-report [--since <ISO time>]
+    uv run ai-trainer storage-check
 
 `purge-conversations` hard-deletes every conversation last active more than
 `CONVERSATION_RETENTION_DAYS` ago, across users, with its messages by cascade. It prints the
@@ -34,14 +35,23 @@ read or write, never its content, then `backfill-gym-sessions: result=ok ...` (o
 template and field with its count, `<kind> <template|-> <field|-> <count>`, largest first, or
 `no feedback events` when there are none. It reads every user's rows without who made them, and
 a `--since` without a timezone is UTC. It exits 0 either way.
+
+`storage-check` proves the configured `uploads` bucket works (ADR-0033, #420): it puts a probe
+object under `storage-check/`, reads it back, opens a short presigned link until it expires, and
+deletes the object, in about five seconds. It never opens the database. It prints one line,
+`storage-check: result=ok bucket=<name> steps=<steps>` or
+`storage-check: result=failed step=<step> reason=<reason> probe_left=<true|false>`, the second with
+exit code 1, or `storage-check: result=failed reason=not_configured`. It never prints a link or a
+service's own message, which can carry a key.
 """
 
 import argparse
 import asyncio
 import sys
-from collections.abc import Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from datetime import UTC, datetime
 from typing import TextIO
+from uuid import uuid4
 
 import httpx2
 
@@ -52,6 +62,7 @@ from ai_trainer.adapters.exercise_repository import SqlAlchemyExerciseRepository
 from ai_trainer.adapters.exercises_dataset import PinnedDatasetCatalogueSource
 from ai_trainer.adapters.feedback_repository import SqlAlchemyFeedbackEventsRepository
 from ai_trainer.adapters.gym_backfill import SqlAlchemyGymBackfillStore
+from ai_trainer.adapters.object_storage import ObstoreObjectStorage, UrllibPresignedLinks
 from ai_trainer.application.exercise_catalogue import import_catalogue
 from ai_trainer.application.feedback import count_signals
 from ai_trainer.application.gym_backfill import backfill_gym_sessions as run_gym_backfill
@@ -64,6 +75,7 @@ from ai_trainer.application.ports.exercises import (
 from ai_trainer.application.ports.feedback import FeedbackEventsPort
 from ai_trainer.application.ports.gym_backfill import GymBackfillPort
 from ai_trainer.application.retention import purge_expired_conversations
+from ai_trainer.application.storage_check import STEPS, check_storage
 from ai_trainer.domain.exercises import ExerciseCatalogueError, ExerciseDatasetError
 from ai_trainer.llm.debug_report import report
 from ai_trainer.settings import Settings
@@ -73,6 +85,7 @@ LLM_DEBUG_REPORT = "llm-debug-report"
 IMPORT_EXERCISES = "import-exercises"
 BACKFILL_GYM_SESSIONS = "backfill-gym-sessions"
 FEEDBACK_REPORT = "feedback-report"
+STORAGE_CHECK = "storage-check"
 
 
 def _aware_time(value: str) -> datetime:
@@ -115,6 +128,10 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
         "--since",
         type=_aware_time,
         help="Only events at or after this ISO time (UTC when it has no timezone).",
+    )
+    commands.add_parser(
+        STORAGE_CHECK,
+        help="Put, read back and delete a probe object in the uploads bucket; try a short link.",
     )
     return parser.parse_args(argv)
 
@@ -178,6 +195,40 @@ async def feedback_report(
     return 0
 
 
+async def storage_check(
+    settings: Settings, *, sleep: Callable[[float], Awaitable[None]], output: TextIO
+) -> int:
+    endpoint = settings.object_storage_endpoint
+    access_key_id = settings.object_storage_access_key_id
+    secret_access_key = settings.object_storage_secret_access_key
+    bucket = settings.object_storage_uploads_bucket
+    if endpoint is None or access_key_id is None or secret_access_key is None or bucket is None:
+        output.write(f"{STORAGE_CHECK}: result=failed reason=not_configured\n")
+        return 1
+    failure = await check_storage(
+        storage=ObstoreObjectStorage(
+            endpoint=endpoint,
+            region=settings.object_storage_region,
+            access_key_id=access_key_id.get_secret_value(),
+            secret_access_key=secret_access_key.get_secret_value(),
+            bucket=bucket,
+            timeout_seconds=settings.object_storage_timeout_seconds,
+        ),
+        links=UrllibPresignedLinks(timeout_seconds=settings.object_storage_timeout_seconds),
+        sleep=sleep,
+        probe_key=f"storage-check/{uuid4()}",
+    )
+    if failure is not None:
+        probe_left = str(failure.probe_left).lower()
+        output.write(
+            f"{STORAGE_CHECK}: result=failed step={failure.step} reason={failure.reason} "
+            f"probe_left={probe_left}\n"
+        )
+        return 1
+    output.write(f"{STORAGE_CHECK}: result=ok bucket={bucket} steps={','.join(STEPS)}\n")
+    return 0
+
+
 def _import_failed(reason: str, error: Exception, output: TextIO) -> int:
     detail = " ".join(str(error).split())
     output.write(f"import-exercises: result=failed reason={reason} detail={detail}\n")
@@ -189,12 +240,15 @@ async def run(
     *,
     output: TextIO = sys.stdout,
     dataset_transport: httpx2.AsyncBaseTransport | None = None,
+    sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
 ) -> int:
-    """Runs one command and returns its exit code. `dataset_transport` is for tests."""
+    """Runs one command and returns its exit code. `dataset_transport` and `sleep` are for tests."""
     args = parse_args(argv)
     settings = Settings()
     if args.command == LLM_DEBUG_REPORT:
         return report(settings.llm_debug_log_dir, since=args.since, output=output)
+    if args.command == STORAGE_CHECK:
+        return await storage_check(settings, sleep=sleep, output=output)
     engine = build_engine(str(settings.database_url))
     try:
         if args.command == IMPORT_EXERCISES:

@@ -31,6 +31,17 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
+      storage:
+        condition: service_started
+    # The local stand-in for R2 below, by service name as `DATABASE_URL` is in compose.yaml, so
+    # `make start` needs no new `.env` key. The non-secret values match `.env.example`
+    # (tests/ops/test_compose_dev_storage.py).
+    environment:
+      OBJECT_STORAGE_ENDPOINT: http://storage:7070
+      OBJECT_STORAGE_REGION: auto
+      OBJECT_STORAGE_ACCESS_KEY_ID: ai_trainer_dev
+      OBJECT_STORAGE_SECRET_ACCESS_KEY: ai_trainer_dev_secret
+      OBJECT_STORAGE_UPLOADS_BUCKET: ai-trainer-uploads
     # `LLM_DEBUG_LOG=true` writes to /app/.llm-debug (ADR-0018, #178); the bind mount puts
     # those lines on the host, where `jq . .llm-debug/*.jsonl` reads them. Write-only from the
     # container, so none of the bind-mount file-watching trouble above applies. Never in
@@ -79,3 +90,24 @@ services:
       - alembic
       - upgrade
       - head
+
+  # Local S3-compatible storage, so development needs no R2 account (ADR-0033, #420). It checks
+  # signatures and link expiry as R2 does. A bucket is a directory on its posix backend, so
+  # `mkdir` is all the setup it needs. `--region auto` is R2's region name: it refuses any other
+  # than its own. Only on this machine's loopback, with dev-only keys, like `db`.
+  storage:
+    image: versity/versitygw:v1.10.0@sha256:89cad13cc981986ee284cbafea4613f9533ce6fd5f37a2c96c4c4fb8adb3a316
+    entrypoint:
+      - sh
+      - -c
+      - >-
+        mkdir -p /data/ai-trainer-uploads &&
+        exec versitygw --port :7070 --access ai_trainer_dev --secret ai_trainer_dev_secret
+        --region auto posix /data
+    ports:
+      - "127.0.0.1:7070:7070"
+    volumes:
+      - storage_data:/data
+
+volumes:
+  storage_data:

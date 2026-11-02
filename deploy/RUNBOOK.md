@@ -618,6 +618,69 @@ docker exec ai-trainer-prod-app-1 ai-trainer import-exercises
 
 It ends on one line. `import-exercises: result=ok exercises=1315 inserted=1315 updated=0 unchanged=0 texts_written=2629 skipped=10` is the first import of the commit pinned at #375. A later run of the same release reports `inserted=0 updated=0 texts_written=0`. `import-exercises: result=failed reason=<download|catalogue> detail=<why>` with exit code 1 changes no row, so fix the cause and run it again. It needs outbound HTTPS to `raw.githubusercontent.com`.
 
+## 14. Knowledge file storage
+
+Source: ADR-0033. Ticket #420.
+
+Admins' uploaded knowledge files live in a private R2 bucket, `ai-trainer-uploads`, never in the repo or the image. Nothing uses it until the admin upload page ships, and the app starts without these keys, so a release never waits on this section. The public `media` bucket (ADR-0033) gets its steps with the ticket that first uses it.
+
+**Keep the originals.** This bucket isn't backed up (ADR-0033). The nightly backup holds the chunks and their text, so search survives a lost file, but re-ingesting that source needs the file uploaded again. The app's token can delete objects, and a bucket lock would refuse the delete the admin page has to do, so this bucket has neither a lock nor a lifecycle rule.
+
+### 14.1 Bucket and token (laptop, dashboard)
+
+```sh
+npx wrangler r2 bucket create ai-trainer-uploads --location weur
+```
+
+The dashboard does the same: *R2 → Create bucket*, location hint Western Europe, storage class Standard. Leave public access off.
+
+Then *R2 → Manage R2 API tokens → Create API token*:
+
+- Permission **Object Read & Write**.
+- **Apply to specific buckets only:** `ai-trainer-uploads`, nothing else. Don't reuse the backup token, which reaches only `ai-trainer-backups`.
+- No expiry, or a long one with a calendar reminder.
+
+Copy the **Access Key ID**, the **Secret Access Key** (shown once) and the account's S3 endpoint `https://<account-id>.r2.cloudflarestorage.com`, without the bucket on the end.
+
+### 14.2 Settings on the server
+
+Log in with `ssh deploy@<ip>`. Add these to `/opt/ai-trainer/.env`, unquoted, then recreate the app so it reads them:
+
+```sh
+OBJECT_STORAGE_ENDPOINT=https://<account-id>.r2.cloudflarestorage.com
+OBJECT_STORAGE_REGION=auto
+OBJECT_STORAGE_ACCESS_KEY_ID=<access key id>
+OBJECT_STORAGE_SECRET_ACCESS_KEY=<secret access key>
+OBJECT_STORAGE_UPLOADS_BUCKET=ai-trainer-uploads
+OBJECT_STORAGE_TIMEOUT_SECONDS=60
+```
+
+```sh
+/opt/ai-trainer/compose.sh up -d --no-deps app
+```
+
+Set the endpoint, both keys and the bucket together. With only some of them, the app refuses to start and names the missing ones. If that happens during a recreate, `/opt/ai-trainer/compose.sh logs app` shows the message; fix `.env` and run the command again.
+
+### 14.3 Checks (ticket #420 acceptance)
+
+Needs a release that carries `ai-trainer storage-check`. On the server:
+
+```sh
+docker exec ai-trainer-prod-app-1 ai-trainer storage-check
+```
+
+It takes about five seconds. It writes one probe object under `storage-check/`, reads it back, opens a two-second presigned link until it expires, and deletes the object. It never prints a key or a link.
+
+| Line | Meaning |
+|---|---|
+| `storage-check: result=ok bucket=ai-trainer-uploads steps=put,read,link,expiry,delete` | The bucket, the token and link expiry all work. Delete counted too: R2 is asked through DeleteObjects, the only way the app deletes |
+| `result=failed reason=not_configured` | The keys aren't in the app's environment. Recreate the app after editing `.env` |
+| `result=failed step=put reason=denied` | The token is wrong, or isn't scoped to this bucket |
+| `result=failed step=<step> reason=unavailable` | R2 couldn't be reached within `OBJECT_STORAGE_TIMEOUT_SECONDS`, or the bucket or endpoint is wrong. The `object storage … failed` line above it names the exception's type, never its message |
+| `result=failed step=expiry reason=status_200` | A link outlived its time. Check the host's clock with `timedatectl` |
+
+`probe_left=true` on a failed line means the probe object is still in the bucket: delete it under `storage-check/` in the dashboard.
+
 ## Provisioning record
 
 Kept by the owner, privately, outside this repo: it's public, and these are the owner's account details (ADR-0023 ⚠ *Verify at provisioning*). A password manager entry next to the server's other details does. Never commit the values.
