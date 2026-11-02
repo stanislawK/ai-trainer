@@ -2,6 +2,8 @@
 
 **Current:** [PRD 0010 — AI training companion v1.1](0010-ai-training-companion.md) — *Approved.* Gym first: one canonical name per exercise, history checked first (B37), gym measures and bands (B38, B39), the exercise card and media (F23, F24), a sport's own tables (G4), lean evals (G6), admin knowledge upload (B7). Keeps PRD 0009's install card (F22), PRD 0008's Europe first (G15), PRD 0007's AI onboarding (B33–B36, F20, F21) and PRD 0006's gyms and location check (B27–B32, F18, F19).
 
+**In review:** [PRD 0011 — AI training companion v1.2](0011-ai-training-companion.md). Gym before other sports: gym answers from the athlete's own history (B40) and the knowledge base, then gym history, then My gyms and the rest of M2. It supersedes PRD 0010 once the owner approves it.
+
 Only one PRD may be Approved at a time. Older PRDs stay in this folder as history (Deprecated / Superseded).
 
 | No | Title | Status | Supersedes |
@@ -16,5 +18,6 @@ Only one PRD may be Approved at a time. Older PRDs stay in this folder as histor
 | 0008 | [AI training companion v0.9](0008-ai-training-companion.md) | Superseded by 0009 | 0007 |
 | 0009 | [AI training companion v1.0](0009-ai-training-companion.md) | Superseded by 0010 | 0008 |
 | 0010 | [AI training companion v1.1](0010-ai-training-companion.md) | Approved | 0009 |
+| 0011 | [AI training companion v1.2](0011-ai-training-companion.md) | In review | 0010 |
 
 How to add a revision: [docs/templates/README.md](../templates/README.md).
