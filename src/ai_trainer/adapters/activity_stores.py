@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai_trainer.adapters.orm import TrainingSessionOrm
 from ai_trainer.application.ports.activities import ActivityStorePort, LoggedActivities
+from ai_trainer.domain.clarification import Clarification
 from ai_trainer.domain.sports.base import extend_payload, withdraw_payload
 from ai_trainer.domain.sports.registry import SportRegistry
 
@@ -40,6 +41,11 @@ class PayloadActivityStore:
         return withdraw_payload(self._payload_type, log.session_payload, log.addition).model_dump(
             mode="json"
         )
+
+    async def ask(
+        self, tx: AsyncSession, user_id: UUID, log: LoggedActivities
+    ) -> Clarification | None:
+        return None
 
     async def recent(
         self, tx: AsyncSession, user_id: UUID, session_ids: Sequence[UUID]

@@ -18,6 +18,7 @@ tap resumes that extraction with the pick, which can then only draft (B17, ticke
 One module per use case (ticket #332): `turn` (the reply turn), `route`, `extract` (extract
 and save), `clarification`, `change_sport` and `retry`, over what they share in `shared`."""
 
+from ai_trainer.application.reply.band_question import BandPlaced
 from ai_trainer.application.reply.change_sport import (
     asking_sports,
     change_draft_sport,
@@ -49,6 +50,7 @@ from ai_trainer.application.reply.turn import find_saved_reply, start_reply, wit
 
 __all__ = [
     "PART_BREAK",
+    "BandPlaced",
     "ClarificationAnswered",
     "FailedPartNotFoundError",
     "MessageNotFoundError",

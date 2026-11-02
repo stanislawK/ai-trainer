@@ -147,3 +147,31 @@ class SqlAlchemyClarificationRepository:
                 .values(status=_OPEN, answer_option_ids=None, answered_at=None)
             )
             await session.commit()
+
+    async def revise(
+        self, user_id: UUID, clarification_id: UUID, clarification: Clarification
+    ) -> StoredClarification:
+        async with self._session_factory() as session:
+            row = await session.scalar(
+                update(ClarificationOrm)
+                .where(
+                    ClarificationOrm.user_id == user_id,
+                    ClarificationOrm.id == clarification_id,
+                    ClarificationOrm.status == _OPEN,
+                )
+                .values(clarification=clarification.model_dump(mode="json"))
+                .returning(ClarificationOrm)
+            )
+            if row is None:
+                exists = await session.scalar(
+                    select(ClarificationOrm.id).where(
+                        ClarificationOrm.user_id == user_id,
+                        ClarificationOrm.id == clarification_id,
+                    )
+                )
+                if exists is None:
+                    raise ClarificationNotFoundError(clarification_id)
+                raise ClarificationResolvedError(clarification_id)
+            stored = _to_domain(row)
+            await session.commit()
+            return stored

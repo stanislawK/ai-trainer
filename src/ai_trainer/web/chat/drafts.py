@@ -34,7 +34,7 @@ from ai_trainer.web.chat.context import (
     ChatContext,
     parse_id,
 )
-from ai_trainer.web.drafts import DraftCard, draft_card, form_changes
+from ai_trainer.web.drafts import DraftCard, band_questions, draft_card, form_changes
 
 
 class _DraftRoutes:
@@ -138,8 +138,14 @@ class _DraftRoutes:
         except DraftDiscardedError, DraftAwaitingAnswerError:
             raise HTTPException(status_code=CONFLICT) from None
         labels = await ctx.draft_labels(user, [draft])
+        asked = await ctx.replies.clarifications.list_shown(user.id, draft.conversation_id)
         card = draft_card(
-            draft, sports=ctx.sports, today=ctx.local_today(user), labels=labels.get(draft.id)
+            draft,
+            sports=ctx.sports,
+            today=ctx.local_today(user),
+            labels=labels.get(draft.id),
+            # The log may have left a band-order question under the row (B39, ticket #431).
+            bands=band_questions(asked, draft),
         )
         return ctx.templates.TemplateResponse(
             request, "partials/chat/draft_confirmed.html", {"card": card, "draft": draft}

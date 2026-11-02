@@ -10,6 +10,7 @@ from uuid import UUID
 
 from pydantic import JsonValue
 
+from ai_trainer.application.reply.band_question import BandPlaced, answer_band
 from ai_trainer.application.reply.extract import extract, save
 from ai_trainer.application.reply.shared import (
     LOG_KIND,
@@ -22,6 +23,7 @@ from ai_trainer.application.reply.shared import (
 )
 from ai_trainer.domain.chat import ChatMessage, ChatRole
 from ai_trainer.domain.clarification import (
+    BAND_PURPOSE,
     EXERCISE_PURPOSE,
     KEEP_NAME_OPTION,
     NEW_SESSION_OPTION,
@@ -39,7 +41,13 @@ from ai_trainer.domain.exercises import MAX_EXERCISE_NAME, ExerciseNameError
 from ai_trainer.domain.feedback import FeedbackKind
 from ai_trainer.domain.training import StoredDraft
 
-_ANSWERED_PURPOSES = (SPORT_PURPOSE, READING_PURPOSE, SAME_SESSION_PURPOSE, EXERCISE_PURPOSE)
+_ANSWERED_PURPOSES = (
+    SPORT_PURPOSE,
+    READING_PURPOSE,
+    SAME_SESSION_PURPOSE,
+    EXERCISE_PURPOSE,
+    BAND_PURPOSE,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -109,7 +117,7 @@ async def answer_clarification(
     *,
     timezone: str,
     services: ReplyServices,
-) -> ClarificationAnswered | SessionSettled | ReplyFailed:
+) -> ClarificationAnswered | SessionSettled | BandPlaced | ReplyFailed:
     """Resumes the extraction the question blocked with the tapped sport (B23, ADR-0015), or,
     for a reading question, in the sport that asked with the tapped reading, which can then only
     draft (ticket #164). The question is answered, and its reply stored, only once the
@@ -126,6 +134,12 @@ async def answer_clarification(
         raise ClarificationNotFoundError(clarification_id)
     if question.status != "open":
         raise ClarificationResolvedError(clarification_id)
+    if question.purpose == BAND_PURPOSE:
+        placed = await answer_band(user_id, question, option_ids, services=services)
+        await _record_choice(
+            user_id, question, template_id=None, template_version=None, services=services
+        )
+        return placed
     if question.purpose in (SAME_SESSION_PURPOSE, EXERCISE_PURPOSE):
         settled = await _settle_on_card(user_id, question, option_ids, services)
         return await _recorded(user_id, question, settled, services)
@@ -364,7 +378,7 @@ async def abandon_clarification(
     `ClarificationNotFoundError` or `ClarificationResolvedError`, and on a draft's question
     `DraftNotFoundError`, `DraftConfirmedError` or `DraftDiscardedError`."""
     question = await services.clarifications.get(user_id, clarification_id)
-    if not question.clarification.allow_free_text:
+    if not (question.clarification.allow_free_text or question.clarification.skippable):
         raise ClarificationNotFoundError(clarification_id)
     if question.purpose == EXERCISE_PURPOSE:
         return await _settle_name(user_id, question, None, services)

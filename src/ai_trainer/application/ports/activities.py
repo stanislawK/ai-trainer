@@ -4,6 +4,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, JsonValue
 
+from ai_trainer.domain.clarification import Clarification
+
 
 class LoggedActivities(BaseModel):
     """One log's activities in its session: the confirmed draft's payload (`addition`), the
@@ -34,6 +36,12 @@ class ActivityStorePort[Tx](Protocol):
     async def withdraw(self, tx: Tx, user_id: UUID, log: LoggedActivities) -> dict[str, JsonValue]:
         """Takes the log's activities back from a session that keeps other logs (B4, B16), and
         returns the payload the session keeps. Called before the log's source row goes."""
+        ...
+
+    async def ask(self, tx: Tx, user_id: UUID, log: LoggedActivities) -> Clarification | None:
+        """The question the just-written log leaves for the athlete, if its sport has one, e.g.
+        where a new resistance band ranks (B39, ticket #431). It is asked after the log is saved,
+        blocks nothing, and is stored in the same transaction."""
         ...
 
     async def recent(

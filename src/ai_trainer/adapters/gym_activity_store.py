@@ -11,15 +11,28 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai_trainer.adapters.exercise_names import settle_names
+from ai_trainer.adapters.gym_band_order import ask_for_log
 from ai_trainer.adapters.orm import AthleteBandOrm, GymExerciseEntryOrm, GymSetOrm
 from ai_trainer.application.ports.activities import LoggedActivities
+from ai_trainer.domain.clarification import Clarification
 from ai_trainer.domain.sports.base import withdraw_payload
 from ai_trainer.domain.sports.gym.payload import GymPayload
 from ai_trainer.domain.sports.gym.rows import GymEntryRow, entries_of, unit_of
 
 
 class GymActivityStore:
-    """Implements `ActivityStorePort` over the gym's tables."""
+    """Implements `ActivityStorePort` over the gym's tables. `max_options` is the most places a
+    band question offers at once (`max_clarification_options`, ADR-0015)."""
+
+    def __init__(self, *, max_options: int = 5) -> None:
+        self._max_options = max_options
+
+    async def ask(
+        self, tx: AsyncSession, user_id: UUID, log: LoggedActivities
+    ) -> Clarification | None:
+        """Where the log's first unranked band goes among the athlete's bands (B39, ticket
+        #431); the athlete's first band takes rank 1 with no question."""
+        return await ask_for_log(tx, user_id, log.source_id, max_options=self._max_options)
 
     async def add(
         self, tx: AsyncSession, user_id: UUID, log: LoggedActivities

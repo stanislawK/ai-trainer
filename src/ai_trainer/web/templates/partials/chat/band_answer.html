@@ -1,0 +1,6 @@
+{#- The band-order question after a tap or a skip (ticket #431): the card narrowed or its answered or skipped row, then the question about the next band that needs a place, if any. -#}
+{%- from "components/choice_card.html" import band_card -%}
+{{ band_card(card) }}
+{%- if next %}
+{{ band_card(next) }}
+{%- endif %}

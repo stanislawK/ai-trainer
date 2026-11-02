@@ -69,6 +69,27 @@
   {%- else %}<span class="text-[13px] lbl-2">Kept your name</span><span class="text-[16px] font-medium">{{ document.typed_name or document.subject }}</span>
   {%- endif %}</div></div>
 {%- endmacro %}
+{#- The band-order card (B39, ADR-0015, ADR-0032, ticket #431; the Gym Measures mock, band order frames): asked under the logged row, where a new resistance band colour ranks among the athlete's bands. Each row is a place, lightest first, its hint the resulting order, colour names only. More places than a card offers first ask lighter or heavier than a middle band. "Skip for now" takes the place of "Let me type instead": typed text has nowhere to go. Answered it shows the new order; skipped it is the dashed row, and the band stays by its label. -#}
+{% macro band_card(card) -%}
+{%- set question = card.clarification -%}
+{%- set subject = question.clarification.subject -%}
+{%- if question.status == "answered" %}
+{%- set chosen = card.chosen %}
+<div class="chat-message mat-content rounded-box px-4 py-3 flex items-center gap-3" role="status" data-choice-card="{{ question.id }}">{{ icon("circle-check", "size-5 text-success") }}<div class="flex flex-col flex-1 min-w-0"><span class="text-[13px] text-base-content/70">Band order</span><span class="text-[16px] font-medium">{{ chosen.params.order if chosen else subject }}</span></div></div>
+{%- elif question.status == "abandoned" %}
+<div class="chat-message rounded-box min-h-[62px] px-4 py-3 flex items-center gap-3 border border-dashed border-base-content/20 text-base-content/70" role="status" data-choice-card="{{ question.id }}">{{ icon("x", "size-4") }}<span class="flex-1 text-[15px]">Skipped for now. {{ subject }} stays by its name.</span></div>
+{%- else %}
+<div class="chat-message mat-content rounded-box p-4 flex flex-col gap-3" role="group" id="choice-{{ question.id }}" aria-labelledby="choice-{{ question.id }}-question" data-choice-card="{{ question.id }}">
+  <p id="choice-{{ question.id }}-question" class="text-[16px] leading-6">Where does your {{ subject }} band go among your bands?</p>
+  <div class="flex flex-col gap-2">
+    {%- for option in question.clarification.options %}
+    {{ choice_option(question, option, "closest [data-choice-card]", "#choice-" ~ question.id ~ " button") }}
+    {%- endfor %}
+  </div>
+  <button type="button" class="lg lg-ghost self-start -ml-3 font-normal text-base-content/70" hx-post="/clarifications/{{ question.id }}/abandon" hx-target="closest [data-choice-card]" hx-swap="outerHTML" hx-disable="#choice-{{ question.id }} button" hx-status:4xx="swap:none">Skip for now</button>
+</div>
+{%- endif %}
+{%- endmacro %}
 {% macro choice_card(card, error=False) -%}
 {%- set question = card.clarification -%}
 {%- if question.status == "answered" %}

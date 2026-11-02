@@ -240,3 +240,27 @@ async def test_a_reopened_answer_is_open_again_and_an_open_or_abandoned_one_is_l
     assert (await repository.get(user_id, added.id)).status == "abandoned"
     await repository.reopen(uuid4(), added.id)
     assert (await repository.get(user_id, added.id)).status == "abandoned"
+
+
+async def test_an_open_question_is_revised_and_another_users_or_a_closed_one_is_refused(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    repository = SqlAlchemyClarificationRepository(db_session_factory)
+    user_id, conversation_id, message_id = await _log(db_session_factory, "clar-revise")
+    other_id, _, _ = await _log(db_session_factory, "clar-revise-other")
+    added = await repository.add(
+        user_id, conversation_id, message_id, "sport", _QUESTION, created_at=_START
+    )
+    narrower = _QUESTION.model_copy(update={"options": _QUESTION.options[:1]})
+
+    revised = await repository.revise(user_id, added.id, narrower)
+
+    assert revised.status == "open"
+    assert [option.id for option in revised.clarification.options] == ["gym"]
+    assert (await repository.get(user_id, added.id)).clarification == narrower
+    with pytest.raises(ClarificationNotFoundError):
+        await repository.revise(other_id, added.id, _QUESTION)
+    await repository.resolve(user_id, added.id, "abandoned", option_ids=None, resolved_at=_LATER)
+    with pytest.raises(ClarificationResolvedError):
+        await repository.revise(user_id, added.id, _QUESTION)
+    assert (await repository.get(user_id, added.id)).clarification == narrower

@@ -11,7 +11,6 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID
 
-import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -445,11 +444,6 @@ async def test_no_band_is_ranked_without_the_athletes_answer(
     assert bands["black"] is None
 
 
-@pytest.mark.xfail(
-    raises=AssertionError,
-    strict=True,
-    reason="#431: no band-ranking question exists, #400 closed with only its design",
-)
 async def test_a_second_band_colour_asks_once_which_is_harder(
     db_session_factory: SessionFactory, tmp_path: Path
 ) -> None:

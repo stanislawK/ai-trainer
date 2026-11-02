@@ -54,3 +54,12 @@ class ClarificationRepositoryPort(Protocol):
         """Puts the user's `answered` question back to `open` with no answer, for an answer whose
         resumed reply could not be saved. A question that is not `answered` is left as it is."""
         ...
+
+    async def revise(
+        self, user_id: UUID, clarification_id: UUID, clarification: Clarification
+    ) -> StoredClarification:
+        """Replaces the document of the user's `open` question, for a band question narrowed to
+        the half of its places the athlete tapped (ticket #431). Raises
+        `ClarificationNotFoundError` when the user has no such question and
+        `ClarificationResolvedError` when it is not open; neither changes anything."""
+        ...
