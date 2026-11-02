@@ -81,7 +81,8 @@ stop: ## Stop the make start stack (keeps the postgres volume)
 	docker compose -f compose.yaml -f compose.dev.yaml down
 
 down: ## Stop and remove the stack (keeps the postgres volume)
-	docker compose down
+	@# --remove-orphans: without the dev overlay, `make start`'s `storage` would keep running.
+	docker compose down --remove-orphans
 
 logs: ## Follow container logs (includes the one-shot migrate service from `make start`, #64)
 	docker compose -f compose.yaml -f compose.dev.yaml logs -f

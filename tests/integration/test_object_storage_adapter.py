@@ -72,6 +72,33 @@ async def test_ambient_aws_environment_does_not_change_the_requests(
     assert "X-Amz-Security-Token" not in link
 
 
+async def test_ambient_aws_environment_cannot_turn_signing_off(
+    server: S3State, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("AWS_SKIP_SIGNATURE", "true")
+    monkeypatch.setenv("AWS_UNSIGNED_PAYLOAD", "true")
+    monkeypatch.setenv("AWS_DISABLE_BULK_DELETE", "false")
+    storage = _storage(server.endpoint)
+
+    await storage.put(KEY, b"content", content_type="text/plain")
+    await storage.delete(KEY)
+
+    assert all(
+        authorization.startswith("AWS4-HMAC-SHA256") for authorization in server.authorizations
+    )
+    assert len(server.authorizations) == 2
+    assert server.objects == {}
+
+
+async def test_a_content_type_that_cannot_be_a_header_is_refused(server: S3State) -> None:
+    with pytest.raises(ObjectStorageError) as excinfo:
+        await _storage(server.endpoint).put(KEY, b"content", content_type="text/plain\nx: y")
+
+    assert excinfo.value.operation == "put"
+    assert excinfo.value.reason == "invalid_content_type"
+    assert server.objects == {}
+
+
 async def test_get_of_a_missing_object_raises_not_found(server: S3State) -> None:
     with pytest.raises(ObjectNotFoundError) as excinfo:
         await _storage(server.endpoint).get(KEY)
@@ -85,6 +112,12 @@ async def test_delete_removes_the_object(server: S3State) -> None:
     await storage.put(KEY, b"content", content_type="text/plain")
 
     await storage.delete(KEY)
+
+    assert server.objects == {}
+
+
+async def test_deleting_a_missing_object_is_not_a_failure(server: S3State) -> None:
+    await _storage(server.endpoint).delete(KEY)
 
     assert server.objects == {}
 
@@ -180,6 +213,16 @@ async def test_opening_a_link_on_a_dead_service_raises_a_domain_error() -> None:
     assert excinfo.value.operation == "link"
     assert excinfo.value.reason == "unavailable"
     assert "sig=abc" not in str(excinfo.value)
+
+
+async def test_a_link_answered_with_garbage_raises_a_domain_error(server: S3State) -> None:
+    server.answer_garbage = True
+
+    with pytest.raises(ObjectStorageError) as excinfo:
+        await UrllibPresignedLinks(timeout_seconds=5).status(f"{server.endpoint}/x?sig=abc")
+
+    assert excinfo.value.operation == "link"
+    assert excinfo.value.reason == "unavailable"
 
 
 async def test_opening_a_link_logs_nothing_of_it(

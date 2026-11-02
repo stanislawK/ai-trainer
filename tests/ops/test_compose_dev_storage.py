@@ -50,6 +50,12 @@ def test_local_storage_is_pinned_and_published_only_on_this_machine() -> None:
     assert storage["ports"] == ["127.0.0.1:7070:7070"]
 
 
+def test_make_down_also_stops_the_dev_only_storage_service() -> None:
+    makefile = (ROOT / "Makefile").read_text()
+
+    assert "\tdocker compose down --remove-orphans\n" in makefile
+
+
 def test_the_app_waits_for_local_storage_only_in_the_dev_overlay() -> None:
     assert "storage" in _compose()["services"]["app"]["depends_on"]
     base = yaml.safe_load((ROOT / "compose.yaml").read_text())

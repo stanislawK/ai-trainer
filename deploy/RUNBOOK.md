@@ -673,13 +673,14 @@ It takes about five seconds. It writes one probe object under `storage-check/`, 
 
 | Line | Meaning |
 |---|---|
-| `storage-check: result=ok bucket=ai-trainer-uploads steps=put,read,link,expiry,delete` | The bucket, the token and link expiry all work. Delete counted too: R2 is asked through DeleteObjects, the only way the app deletes |
+| `storage-check: result=ok bucket=ai-trainer-uploads steps=put,read,link,expiry,delete` | The bucket, the token, deleting and link expiry all work |
 | `result=failed reason=not_configured` | The keys aren't in the app's environment. Recreate the app after editing `.env` |
 | `result=failed step=put reason=denied` | The token is wrong, or isn't scoped to this bucket |
-| `result=failed step=<step> reason=unavailable` | R2 couldn't be reached within `OBJECT_STORAGE_TIMEOUT_SECONDS`, or the bucket or endpoint is wrong. The `object storage … failed` line above it names the exception's type, never its message |
-| `result=failed step=expiry reason=status_200` | A link outlived its time. Check the host's clock with `timedatectl` |
+| `result=failed step=put reason=not_found` | The bucket doesn't exist. Check `OBJECT_STORAGE_UPLOADS_BUCKET` |
+| `result=failed step=<step> reason=unavailable` | R2 couldn't be reached within `OBJECT_STORAGE_TIMEOUT_SECONDS`, or the endpoint is wrong |
+| `result=failed step=expiry reason=status_<n>` | The expired link didn't answer 400 or 403. With `status_200` it outlived its time, so check the host's clock with `timedatectl` |
 
-`probe_left=true` on a failed line means the probe object is still in the bucket: delete it under `storage-check/` in the dashboard.
+`probe_left=true` on a failed line means the probe object may still be in the bucket: delete it under `storage-check/` in the dashboard. A `step=put reason=unavailable` line can also leave one, if the write landed and only its answer was lost, so look there after a run that failed that way.
 
 ## Provisioning record
 

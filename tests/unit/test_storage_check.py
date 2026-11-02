@@ -2,6 +2,8 @@
 
 from datetime import timedelta
 
+import pytest
+
 from ai_trainer.application.storage_check import (
     LINK_SECONDS,
     WAIT_SECONDS,
@@ -143,10 +145,18 @@ async def test_check_fails_when_a_link_outlives_its_time() -> None:
     assert storage.objects == {}
 
 
-async def test_check_does_not_take_a_server_error_for_an_expired_link() -> None:
-    assert await _check(FakeStorage(), FakeLinks(200, 500)) == StorageCheckFailure(
-        step="expiry", reason="status_500", probe_left=False
+@pytest.mark.parametrize("status", [404, 429, 500])
+async def test_check_takes_only_a_refusal_for_an_expired_link(status: int) -> None:
+    assert await _check(FakeStorage(), FakeLinks(200, status)) == StorageCheckFailure(
+        step="expiry", reason=f"status_{status}", probe_left=False
     )
+
+
+@pytest.mark.parametrize("status", [400, 403])
+async def test_check_accepts_the_statuses_services_refuse_an_expired_link_with(
+    status: int,
+) -> None:
+    assert await _check(FakeStorage(), FakeLinks(200, status)) is None
 
 
 async def test_check_fails_when_the_delete_fails() -> None:

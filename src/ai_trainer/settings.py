@@ -342,13 +342,14 @@ class Settings(BaseSettings):
         "onboarding_model",
         "onboarding_provider_preferences",
         "onboarding_reasoning_effort",
+        "object_storage_region",
+        "object_storage_timeout_seconds",
         mode="before",
     )
     @classmethod
-    def _blank_onboarding_setting_is_the_default(
-        cls, value: object, info: ValidationInfo
-    ) -> object:
-        # `.env.example` lists the keys blank, so a copied `.env` keeps the picked defaults.
+    def _blank_setting_is_the_default(cls, value: object, info: ValidationInfo) -> object:
+        # `.env.example` lists the onboarding keys blank, so a copied `.env` keeps the picked
+        # defaults. A storage key blanked along with the others means the same.
         if isinstance(value, str) and not value.strip():
             assert info.field_name is not None
             return cls.model_fields[info.field_name].default

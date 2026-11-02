@@ -1,7 +1,9 @@
 from typing import Literal
 
 ObjectStorageOperation = Literal["put", "get", "delete", "presign", "link"]
-ObjectStorageFailureReason = Literal["not_found", "denied", "unavailable", "invalid_key"]
+ObjectStorageFailureReason = Literal[
+    "not_found", "denied", "unavailable", "invalid_key", "invalid_content_type"
+]
 
 
 class ObjectStorageError(Exception):

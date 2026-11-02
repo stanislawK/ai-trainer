@@ -3,17 +3,13 @@
 import asyncio
 import logging
 from datetime import timedelta
+from http.client import HTTPException
 from typing import TYPE_CHECKING
 from urllib.error import HTTPError
 from urllib.request import urlopen
 
 import obstore
-from obstore.exceptions import (
-    BaseError,
-    InvalidPathError,
-    PermissionDeniedError,
-    UnauthenticatedError,
-)
+from obstore.exceptions import InvalidPathError, PermissionDeniedError, UnauthenticatedError
 from obstore.store import S3Store
 
 from ai_trainer.domain.object_storage import (
@@ -34,14 +30,13 @@ _MAX_RETRIES = 2
 # R2's and SigV4's own bounds on a presigned link (ADR-0033).
 _SHORTEST_LINK = timedelta(seconds=1)
 _LONGEST_LINK = timedelta(days=7)
-# What obstore raises, per its stubs: `BaseError`, and the built-in `ValueError` or
-# `FileNotFoundError`. A dropped connection can surface as another `OSError`.
-_LIBRARY_ERRORS = (BaseError, OSError, ValueError)
 
 
 def _domain_error(operation: ObjectStorageOperation, exc: Exception) -> ObjectStorageError:
     """Drops the library's message: a service's refusal can quote the access key, and obstore's
-    error text includes the request's URL."""
+    error text includes the request's URL. Each call catches `Exception`, so nothing else leaves
+    the adapter with its message: obstore also raises built-ins, and a panic in its Rust code
+    arrives as its own type. Signing reports an invalid path as a `TypeError`."""
     match exc:
         case FileNotFoundError():
             return ObjectNotFoundError(operation)
@@ -83,9 +78,17 @@ class ObstoreObjectStorage:
             endpoint=endpoint,
             region=region,
             # Not as keys: a stray AWS_SESSION_TOKEN would then be signed into every request and
-            # link. obstore reads its other settings from AWS_* too; those passed here win.
+            # link. obstore reads its other settings from AWS_* too, so those that change how a
+            # request is signed or addressed are pinned here, and a value passed here wins.
             credential_provider=credentials,
+            skip_signature=False,
+            unsigned_payload=False,
+            s3_express=False,
+            request_payer=False,
             virtual_hosted_style_request=False,
+            # One `DELETE` per object, where a missing object is a success on any S3 service. The
+            # default, DeleteObjects, reports that per key in the response body.
+            disable_bulk_delete=True,
             client_options={
                 "allow_http": endpoint.startswith("http://"),
                 "connect_timeout": _CONNECT_TIMEOUT,
@@ -95,22 +98,25 @@ class ObstoreObjectStorage:
         )
 
     async def put(self, key: str, data: bytes, *, content_type: str) -> None:
+        # obstore panics on a value that can't be a header, and a browser supplies this one.
+        if not (content_type.isascii() and content_type.isprintable()):
+            raise ObjectStorageError("put", "invalid_content_type")
         try:
             await self._store.put_async(key, data, attributes={"Content-Type": content_type})
-        except _LIBRARY_ERRORS as exc:
+        except Exception as exc:
             raise _domain_error("put", exc) from None
 
     async def get(self, key: str) -> bytes:
         try:
             result = await self._store.get_async(key)
             return bytes(await result.bytes_async())
-        except _LIBRARY_ERRORS as exc:
+        except Exception as exc:
             raise _domain_error("get", exc) from None
 
     async def delete(self, key: str) -> None:
         try:
             await self._store.delete_async(key)
-        except _LIBRARY_ERRORS as exc:
+        except Exception as exc:
             raise _domain_error("delete", exc) from None
 
     async def presigned_get(self, key: str, *, expires_in: timedelta) -> str:
@@ -118,8 +124,7 @@ class ObstoreObjectStorage:
             raise ValueError("a presigned link's time must be between 1 second and 7 days")
         try:
             return await obstore.sign_async(self._store, "GET", key, expires_in)
-        except (*_LIBRARY_ERRORS, TypeError) as exc:
-            # Signing reports an invalid path as a `TypeError`, unlike the store's own methods.
+        except Exception as exc:
             raise _domain_error("presign", exc) from None
 
 
@@ -142,5 +147,5 @@ class UrllibPresignedLinks:
     async def status(self, link: str) -> int:
         try:
             return await asyncio.to_thread(_open, link, self._timeout_seconds)
-        except OSError:
+        except OSError, HTTPException:
             raise ObjectStorageError("link", "unavailable") from None

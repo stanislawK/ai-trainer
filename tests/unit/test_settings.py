@@ -146,6 +146,17 @@ def test_blank_object_storage_keys_are_unset(monkeypatch: pytest.MonkeyPatch) ->
     assert settings.object_storage_uploads_bucket is None
 
 
+def test_blank_object_storage_region_and_timeout_are_the_defaults(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _set_object_storage(monkeypatch, OBJECT_STORAGE_REGION=" ", OBJECT_STORAGE_TIMEOUT_SECONDS="")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.object_storage_region == "auto"
+    assert settings.object_storage_timeout_seconds == 60.0
+
+
 def test_object_storage_keys_stay_out_of_settings_repr(monkeypatch: pytest.MonkeyPatch) -> None:
     _set_object_storage(monkeypatch)
 

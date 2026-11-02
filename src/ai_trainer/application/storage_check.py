@@ -19,6 +19,9 @@ LINK_SECONDS = 2
 WAIT_SECONDS = LINK_SECONDS + 3
 
 _PROBE = b"ai-trainer storage-check\n"
+# How S3 services refuse an expired link. Only these prove it: a 429 or a 404 says something else
+# went wrong, and the same link was served a moment before.
+_EXPIRED_STATUSES = frozenset({400, 403})
 
 
 class StorageCheckFailure(BaseModel):
@@ -67,7 +70,7 @@ async def _link_runs_out(
     await sleep(WAIT_SECONDS)
     with _step("expiry"):
         expired = await links.status(link)
-    if not 400 <= expired < 500:
+    if expired not in _EXPIRED_STATUSES:
         raise _StepFailedError("expiry", f"status_{expired}")
 
 

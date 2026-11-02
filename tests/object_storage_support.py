@@ -5,7 +5,6 @@ the test set passes its `X-Amz-Date` + `X-Amz-Expires`, so no test sleeps or rea
 It does not verify signatures: `make storage-check` against versitygw does that.
 """
 
-import re
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -27,6 +26,8 @@ class S3State:
     seconds_after_signing: int = 0
     # Answer every request with this status, its body naming the access key as some services do.
     refuse_with: int | None = None
+    # Answer a GET with bytes that aren't HTTP, as a broken proxy might.
+    answer_garbage: bool = False
     endpoint: str = ""
 
 
@@ -69,6 +70,9 @@ def _handler(state: S3State) -> type[BaseHTTPRequestHandler]:
             self.end_headers()
 
         def do_GET(self) -> None:
+            if state.answer_garbage:
+                self.wfile.write(b"garbage not http\r\n\r\n")
+                return
             if self._refused():
                 return
             query = parse_qs(urlsplit(self.path).query)
@@ -88,16 +92,12 @@ def _handler(state: S3State) -> type[BaseHTTPRequestHandler]:
             self.end_headers()
             self.wfile.write(body)
 
-        def do_POST(self) -> None:
-            # obstore sends every delete as S3's DeleteObjects, `POST /<bucket>?delete`.
-            body = self.rfile.read(int(self.headers.get("Content-Length", "0")))
+        def do_DELETE(self) -> None:
+            state.authorizations.append(self.headers.get("Authorization", ""))
             if self._refused():
                 return
-            keys = re.findall(r"<Key>(.+?)</Key>", body.decode())
-            for key in keys:
-                state.objects.pop(key, None)
-            deleted = "".join(f"<Deleted><Key>{key}</Key></Deleted>" for key in keys)
-            self._send(200, f"<DeleteResult>{deleted}</DeleteResult>".encode())
+            state.objects.pop(self._key(), None)
+            self._send(204)
 
     return Handler
 
