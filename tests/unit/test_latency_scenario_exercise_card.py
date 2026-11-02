@@ -64,16 +64,22 @@ async def test_a_log_left_unconfirmed_on_the_exercise_card_keeps_its_question_op
     assert len(gym.open_questions()) == 1
 
 
+_OPTION = (
+    f"""<button hx-post="/clarifications/{_QUESTION}/answer" """
+    """hx-vals='{"option_ids": "keep"}'></button>"""
+)
+
+
+def _final(card: str) -> str:
+    return f'data: <template hx-target="#reply-{_MESSAGE_ID}">{card}</template>\n\n'
+
+
 async def test_answers_that_never_reach_a_draft_are_a_failure() -> None:
-    option = (
-        f"""<button hx-post="/clarifications/{_QUESTION}/answer" """
-        """hx-vals='{"option_ids": "keep"}'></button>"""
-    )
-    final = f'data: <template hx-target="#reply-{_MESSAGE_ID}">{option}</template>\n\n'
+    card = f'{_OPTION}<button hx-get="/clarifications/{_QUESTION}/name"></button>'
 
     def app(request: httpx2.Request) -> httpx2.Response:
         if request.url.path.endswith("/reply"):
-            return httpx2.Response(200, text=final)
+            return httpx2.Response(200, text=_final(card))
         return httpx2.Response(200, text="<div data-choice-answer></div>")
 
     result = await _play_stub(_stub_app(app))
@@ -81,3 +87,18 @@ async def test_answers_that_never_reach_a_draft_are_a_failure() -> None:
     assert result.outcome == "confirm_no_draft"
     assert result.draft_id is None
     assert summarize([result]).failures == [1]
+
+
+async def test_a_question_that_would_extract_on_its_answer_is_no_card_and_is_not_tapped() -> None:
+    tapped: list[str] = []
+
+    def app(request: httpx2.Request) -> httpx2.Response:
+        if request.url.path.endswith("/reply"):
+            return httpx2.Response(200, text=_final(_OPTION))
+        tapped.append(request.url.path)
+        return httpx2.Response(200, text="")
+
+    result = await _play_stub(_stub_app(app))
+
+    assert result.outcome == "no_card"
+    assert tapped == []

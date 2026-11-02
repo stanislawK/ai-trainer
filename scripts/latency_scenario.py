@@ -8,7 +8,7 @@ in one fresh conversation as a browser would, and confirms each log's draft card
 names exercises (ADR-0031, #397), tapping the first option of each question on a card before
 confirming it. Only a first run meets new names: the athlete's aliases stay in the database. A
 turn is timed from sending the message to the last event of its reply stream, which carries the
-draft card. Its `llm_calls` rows are the ones the athlete gained during the turn, and its USD is
+draft card, or the exercise card in its place (#402). Its `llm_calls` rows are the ones the athlete gained during the turn, and its USD is
 their sum: Jev rows carry no cost (ADR-0018). A reply that ends in a timeout or an error, or a
 log with no card, is counted and named.
 
@@ -65,10 +65,14 @@ _REQUEST_TIMEOUT_S = 30.0
 _HTMX = {"HX-Request": "true"}
 _REPLY_URL = re.compile(r'hx-sse:connect="/messages/([0-9a-f-]{36})/reply"')
 _DRAFT_ID = re.compile(r'data-draft-id="([0-9a-f-]{36})"')
-# A question's first option on a draft card, as `components/choice_card.html` renders it.
+# A question's first option on a draft or exercise card, as `components/choice_card.html` renders
+# it.
 _QUESTION_OPTION = re.compile(
     r'hx-post="(/clarifications/[0-9a-f-]{36}/answer)" hx-vals=\'\{"option_ids": "([^"]+)"\}\''
 )
+# Only the exercise card offers the name field. A sport or reading question's answer extracts the
+# log, so that card isn't what the athlete waited for, and its tap would call a model untimed.
+_EXERCISE_CARD = re.compile(r'hx-get="/clarifications/[0-9a-f-]{36}/name"')
 # A log names few exercises: more questions than this on one card means a tap isn't taking.
 _MAX_CARD_QUESTIONS = 20
 
@@ -135,7 +139,7 @@ class TurnResult:
     text: str
     log: bool
     ms: int
-    # `ok`, `timeout`, `error`, `no_card` (a log whose reply showed no draft card or question),
+    # `ok`, `timeout`, `error`, `no_card` (a log whose reply showed no draft or exercise card),
     # `stream_ended` (no final event), `no_reply` (the message was refused with its composer),
     # `http_<status>`, `transport_<error>` (the connection failed), or `confirm_` and one of
     # the last two or `no_draft` (the answers never reached a draft card).
@@ -206,6 +210,11 @@ async def _events(response: httpx2.Response) -> AsyncIterator[str]:
         yield "\n".join(data)
 
 
+def _draft_on(card: str) -> UUID | None:
+    found = _DRAFT_ID.search(card)
+    return UUID(found.group(1)) if found else None
+
+
 async def _reply(client: httpx2.AsyncClient, message_id: str) -> tuple[str, UUID | None, str]:
     """How the reply ended, the draft card it showed, if any, and the final event's HTML. The
     final event targets the whole reply (`#reply-<id>`); phases and chunks target its parts."""
@@ -221,16 +230,10 @@ async def _reply(client: httpx2.AsyncClient, message_id: str) -> tuple[str, UUID
                     continue
                 if f"/messages/{message_id}/retry" in event:
                     return ("timeout" if "took too long" in event else "error"), None, ""
-                card = _DRAFT_ID.search(event)
-                return "ok", UUID(card.group(1)) if card else None, event
+                return "ok", _draft_on(event), event
     except httpx2.TimeoutException:
         return "timeout", None, ""
     return "stream_ended", None, ""
-
-
-def _draft_on(card: str) -> UUID | None:
-    found = _DRAFT_ID.search(card)
-    return UUID(found.group(1)) if found else None
 
 
 async def _confirm(
@@ -314,8 +317,8 @@ async def play(
             # A dropped connection or a stalled request ends this turn, never the run.
             outcome = f"transport_{type(error).__name__}"
         ms = round((timer() - started) * 1000)
-        # A question in the draft's place is what the athlete waited for (F23, #402).
-        shown = draft_id is not None or _QUESTION_OPTION.search(card) is not None
+        # An exercise card in the draft's place is what the athlete waited for (F23, #402).
+        shown = draft_id is not None or _EXERCISE_CARD.search(card) is not None
         if outcome == "ok" and turn.log and not shown:
             outcome = "no_card"
         if outcome == "ok" and turn.confirm and shown:
