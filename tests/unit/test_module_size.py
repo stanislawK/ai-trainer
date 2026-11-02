@@ -22,7 +22,7 @@ def module_size_problems(root: Path, limit: int, exemptions: Mapping[str, str]) 
     for module in sorted(root.rglob("*.py")):
         path = module.relative_to(root).as_posix()
         seen.add(path)
-        lines = len(module.read_text().splitlines())
+        lines = len(module.read_text(encoding="utf-8").splitlines())
         if path in exemptions:
             if lines <= limit:
                 problems.append(
