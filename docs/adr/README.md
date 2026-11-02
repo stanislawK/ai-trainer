@@ -36,7 +36,7 @@ ADRs own the *how*: stack, architecture, testing and agent workflow. The current
 | 0030 | [Production observability on Grafana Cloud](0030-production-observability-on-grafana-cloud.md) | Accepted | 2026-10-25 |
 | 0031 | [Exercise catalogue, name resolution and media links](0031-exercise-catalogue-and-name-resolution.md) | Accepted | 2026-10-30 |
 | 0032 | [Per-sport activity tables](0032-per-sport-activity-tables.md) | Accepted | 2026-10-30 |
-| 0033 | [Knowledge ingestion and admin upload](0033-knowledge-ingestion-and-admin-upload.md) | Proposed | 2026-10-30 |
+| 0033 | [Knowledge ingestion and admin upload](0033-knowledge-ingestion-and-admin-upload.md) | Accepted | 2026-10-30 |
 | 0034 | [Lean evaluation](0034-lean-evaluation.md) | Accepted | 2026-10-30 |
 | 0035 | [Parallel agent delivery](0035-parallel-agent-delivery.md) | Accepted | 2026-10-30 |
 
