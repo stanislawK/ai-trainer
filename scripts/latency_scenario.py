@@ -135,10 +135,10 @@ class TurnResult:
     text: str
     log: bool
     ms: int
-    # `ok`, `timeout`, `error`, `no_card` (a log whose reply showed no draft card),
+    # `ok`, `timeout`, `error`, `no_card` (a log whose reply showed no draft card or question),
     # `stream_ended` (no final event), `no_reply` (the message was refused with its composer),
     # `http_<status>`, `transport_<error>` (the connection failed), or `confirm_` and one of
-    # the last two.
+    # the last two or `no_draft` (the answers never reached a draft card).
     outcome: str
     calls: tuple[CallRow, ...]
     draft_id: UUID | None = None
@@ -228,12 +228,18 @@ async def _reply(client: httpx2.AsyncClient, message_id: str) -> tuple[str, UUID
     return "stream_ended", None, ""
 
 
+def _draft_on(card: str) -> UUID | None:
+    found = _DRAFT_ID.search(card)
+    return UUID(found.group(1)) if found else None
+
+
 async def _confirm(
-    client: httpx2.AsyncClient, headers: Mapping[str, str], draft_id: UUID, card: str
-) -> str:
+    client: httpx2.AsyncClient, headers: Mapping[str, str], card: str
+) -> tuple[str, UUID | None]:
     """Taps the first option of each question on the card, as an athlete settling it would, then
-    confirms. None of it is in the turn's time: the card has already shown, and no model is
-    called. How it ended: `ok`, or `confirm_` and what went wrong."""
+    confirms the draft the last answer shows: an exercise card names no draft (#402). None of it
+    is in the turn's time: the card has already shown, and no model is called. How it ended, `ok`
+    or `confirm_` and what went wrong, and the draft it reached."""
     try:
         for _ in range(_MAX_CARD_QUESTIONS):
             question = _QUESTION_OPTION.search(card)
@@ -245,14 +251,17 @@ async def _confirm(
                 headers=headers,
             )
             if answered.status_code != httpx2.codes.OK:
-                return f"confirm_http_{answered.status_code}"
+                return f"confirm_http_{answered.status_code}", _draft_on(card)
             card = answered.text
+        draft_id = _draft_on(card)
+        if draft_id is None:
+            return "confirm_no_draft", None
         confirmed = await client.post(f"/drafts/{draft_id}/confirm", headers=headers)
     except httpx2.HTTPError as error:
-        return f"confirm_transport_{type(error).__name__}"
+        return f"confirm_transport_{type(error).__name__}", _draft_on(card)
     if confirmed.status_code != httpx2.codes.OK:
-        return f"confirm_http_{confirmed.status_code}"
-    return "ok"
+        return f"confirm_http_{confirmed.status_code}", draft_id
+    return "ok", draft_id
 
 
 def _row(call: LlmCall) -> CallRow:
@@ -305,10 +314,12 @@ async def play(
             # A dropped connection or a stalled request ends this turn, never the run.
             outcome = f"transport_{type(error).__name__}"
         ms = round((timer() - started) * 1000)
-        if outcome == "ok" and turn.log and draft_id is None:
+        # A question in the draft's place is what the athlete waited for (F23, #402).
+        shown = draft_id is not None or _QUESTION_OPTION.search(card) is not None
+        if outcome == "ok" and turn.log and not shown:
             outcome = "no_card"
-        if outcome == "ok" and turn.confirm and draft_id is not None:
-            outcome = await _confirm(client, headers, draft_id, card)
+        if outcome == "ok" and turn.confirm and shown:
+            outcome, draft_id = await _confirm(client, headers, card)
         new = [call for call in await calls.list_for_user(user_id) if call.id not in seen]
         seen.update(call.id for call in new)
         new.sort(key=lambda call: call.created_at)
