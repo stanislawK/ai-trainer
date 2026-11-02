@@ -20,6 +20,7 @@ from ai_trainer.adapters.clarification_repository import SqlAlchemyClarification
 from ai_trainer.adapters.conversation_repository import SqlAlchemyConversationRepository
 from ai_trainer.adapters.exercise_history import SqlAlchemyExerciseHistory
 from ai_trainer.adapters.exercise_repository import SqlAlchemyExerciseRepository
+from ai_trainer.adapters.exercises_dataset import PinnedDatasetCatalogueSource
 from ai_trainer.adapters.session_draft_repository import SqlAlchemySessionDraftRepository
 from ai_trainer.adapters.training_session_repository import SqlAlchemyTrainingSessionRepository
 from ai_trainer.application.exercise_catalogue import import_catalogue
@@ -181,7 +182,7 @@ class _Replay:
         extraction: GymExtraction,
         *,
         at: datetime | None = None,
-        picks: Mapping[str, str] | None = None,
+        picks: Mapping[str, str | None] | None = None,
     ) -> _Reply:
         """Sends `message`; `picks` maps each typed name the app asks about to the candidate the
         athlete taps, or to `None` for "Keep my name"."""
@@ -204,9 +205,14 @@ class _Replay:
             draft = await self._answer(question, picks or {})
         return _Reply(draft, tuple(done.clarifications))
 
-    async def _answer(self, question: StoredClarification, picks: Mapping[str, str]) -> StoredDraft:
-        typed = question.clarification.options[0].params.get("exercise", "")
-        wanted = picks.get(typed.casefold())
+    async def _answer(
+        self, question: StoredClarification, picks: Mapping[str, str | None]
+    ) -> StoredDraft:
+        typed = question.clarification.subject or ""
+        assert typed.casefold() in picks, (
+            f"the app asked about {typed!r}, which the test never answers"
+        )
+        wanted = picks[typed.casefold()]
         option = KEEP_NAME_OPTION if wanted is None else self._option(question, wanted)
         settled = await answer_clarification(
             self.user_id, question.id, [option], timezone="Europe/Warsaw", services=self.services
@@ -274,8 +280,6 @@ async def _replay(factory: SessionFactory, sub: str, tmp_path: Path) -> _Replay:
         (SAMPLE_CATALOGUE_DIR / "overrides.yaml").read_bytes()
     )
     (tmp_path / "extra.yaml").write_text(_EXTRAS, encoding="utf-8")
-    from ai_trainer.adapters.exercises_dataset import PinnedDatasetCatalogueSource
-
     source = PinnedDatasetCatalogueSource(
         commit=COMMIT,
         fetched_on=FETCHED_ON,
@@ -324,7 +328,7 @@ async def test_lateral_raise_stores_four_sets_with_no_reps_and_two_6_kg_dumbbell
             "2026-10-02",
             _lift("rising straight arms on both sides", sets=4, load=_kg(6), implements=2),
         ),
-        picks={"rising straight arms on both sides": "Dumbbell Lateral Raise"},
+        picks={"rising straight arms on both sides": None},
     )
 
     [entry] = await replay.entries("rising straight arms on both sides")
@@ -375,7 +379,7 @@ async def test_a_week_later_rising_arms_maps_to_the_same_exercise_and_history_sh
             "2026-10-02",
             _lift("rising straight arms on both sides", sets=4, load=_kg(6), implements=2),
         ),
-        picks={"rising straight arms on both sides": "Dumbbell Lateral Raise"},
+        picks={"rising straight arms on both sides": None},
     )
     [first] = await replay.entries("rising straight arms on both sides")
 
@@ -393,7 +397,8 @@ async def test_a_week_later_rising_arms_maps_to_the_same_exercise_and_history_sh
     [second] = await replay.entries("rising arms to sides")
     assert second["exercise_id"] == first["exercise_id"]
     history = await replay.history.entries(replay.user_id, first["exercise_id"], limit=10)
-    assert [entry.sets[0].load_kg for entry in reversed(history)] == [6.0, 7.0]
+    by_day = sorted(history, key=lambda entry: entry.occurred_on)
+    assert [entry.sets[0].load_kg for entry in by_day] == [6.0, 7.0]
 
 
 async def test_plank_stores_a_45_second_hold_with_no_reps_or_load(
@@ -441,7 +446,9 @@ async def test_no_band_is_ranked_without_the_athletes_answer(
 
 
 @pytest.mark.xfail(
-    strict=True, reason="#431: no band-ranking question exists, #400 closed with only its design"
+    raises=AssertionError,
+    strict=True,
+    reason="#431: no band-ranking question exists, #400 closed with only its design",
 )
 async def test_a_second_band_colour_asks_once_which_is_harder(
     db_session_factory: SessionFactory, tmp_path: Path
@@ -455,7 +462,7 @@ async def test_a_second_band_colour_asks_once_which_is_harder(
         for question in await replay.clarifications.list_shown(
             replay.user_id, replay.athlete.conversation_id
         )
-        if question.status == "open" and "red" in str(question.clarification)
+        if question.status == "open" and "red" in question.clarification.model_dump_json()
     ]
 
     assert len(asked) == 1
