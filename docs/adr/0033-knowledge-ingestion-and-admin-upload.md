@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | Proposed |
+| Status | Accepted |
 | Date | 2026-10-30 |
 | Related | PRD-0010 (B7, B8, G1, G5, G10), ADR-0005, ADR-0010, ADR-0011 (details its ingestion; supersedes invariant 3's committed manifest), ADR-0018, ADR-0020, ADR-0023, ADR-0031 |
 
