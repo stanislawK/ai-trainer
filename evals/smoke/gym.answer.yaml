@@ -52,6 +52,29 @@ cases:
   inputs:
     prompt: How is my bench going?
     deps: *deps
+- name: bench, with an incline variant logged too
+  metadata:
+    prd: PRD 0011, "How is my bench going?" answers with real sets, loads and dates
+    field: evals/field/gym/2026-10-28-first-gym-session.md
+    logged:
+    - day: '2026-10-28'
+      typed: Bench press
+      exercise: Barbell Bench Press
+      sets:
+      - {reps: 8, load_kg: 45, load_original: 45kg}
+    - day: '2026-10-30'
+      typed: Incline bench press
+      exercise: Barbell Incline Bench Press
+      sets:
+      - {reps: 10, load_kg: 30, load_original: 30kg}
+    expect:
+      called: [find_exercise, exercise_history]
+      mentions: ['\b45\b']
+      # Bench's numbers never take the incline's 30 kg.
+      forbids: ['(?<!incline )bench press[^.]{0,40}\b30\b']
+  inputs:
+    prompt: How is my bench going?
+    deps: *deps
 - name: bench, no history
   metadata:
     prd: PRD 0011, the same question with no bench press logged says so and gives no numbers

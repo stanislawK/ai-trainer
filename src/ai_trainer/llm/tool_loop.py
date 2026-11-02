@@ -23,8 +23,9 @@ def _text_of(event: AgentStreamEvent) -> str | None:
 
 async def stream_run_text(run: AgentRun[Any, str], put: Callable[[str], Awaitable[None]]) -> bool:
     """Hands `put` each piece of text the run's model requests make, in order, with a break
-    between requests and no leading blank text. Whether any text came."""
-    said = False
+    between requests and no leading blank text. Whether the last request said anything: a
+    "Let me check." before the tools is no answer on its own."""
+    said = request_said = False
     async for node in run:
         if not Agent.is_model_request_node(node):
             continue
@@ -38,4 +39,4 @@ async def stream_run_text(run: AgentRun[Any, str], put: Callable[[str], Awaitabl
                     await put(REQUEST_BREAK)
                 said = request_said = True
                 await put(text)
-    return said
+    return request_said

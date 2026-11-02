@@ -52,33 +52,41 @@ class SqlAlchemyExerciseHistory:
     ) -> Sequence[LoggedName]:
         typed = func.exercise_name_norm(name)
         as_typed = func.exercise_name_norm(GymExerciseEntryOrm.name_as_typed)
+        canonical = func.exercise_name_norm(ExerciseOrm.name)
         score = func.max(
+            func.greatest(_fit(as_typed, typed), func.coalesce(_fit(canonical, typed), 0.0))
+        )
+        # The whole name alike, not one inside the other: "bench press" against "incline bench
+        # press" fits as words but isn't close.
+        close = func.max(
             func.greatest(
-                _fit(as_typed, typed),
-                func.coalesce(_fit(func.exercise_name_norm(ExerciseOrm.name), typed), 0.0),
+                func.similarity(as_typed, typed),
+                func.coalesce(func.similarity(canonical, typed), 0.0),
             )
         )
         entries = func.count(GymExerciseEntryOrm.id)
+        shown = func.coalesce(ExerciseOrm.name, func.min(GymExerciseEntryOrm.name_as_typed))
         # Linked entries group by their exercise; typed-only ones by the name as typed.
         typed_only_name = case((GymExerciseEntryOrm.exercise_id.is_(None), as_typed))
         async with self._session_factory() as session:
             rows = await session.execute(
-                select(
-                    GymExerciseEntryOrm.exercise_id,
-                    func.coalesce(ExerciseOrm.name, func.min(GymExerciseEntryOrm.name_as_typed)),
-                    entries,
-                )
+                select(GymExerciseEntryOrm.exercise_id, shown, entries, close)
                 .outerjoin(ExerciseOrm, ExerciseOrm.id == GymExerciseEntryOrm.exercise_id)
                 .where(GymExerciseEntryOrm.user_id == user_id)
                 .group_by(GymExerciseEntryOrm.exercise_id, ExerciseOrm.name, typed_only_name)
                 .having(score >= near)
-                .order_by(score.desc(), entries.desc(), GymExerciseEntryOrm.exercise_id)
+                .order_by(close.desc(), score.desc(), entries.desc(), shown)
                 .limit(limit)
             )
-            return [
-                LoggedName(exercise_id=exercise_id, name=logged, entries=count)
-                for exercise_id, logged, count in rows.tuples()
-            ]
+            found = rows.tuples().all()
+        # A name close to the one asked about stands alone: the variants that only contain it
+        # are other exercises, whose numbers would be reported as this one's.
+        if any(similar >= near for *_, similar in found):
+            found = [row for row in found if row[3] >= near]
+        return [
+            LoggedName(exercise_id=exercise_id, name=logged, entries=count)
+            for exercise_id, logged, count, _ in found
+        ]
 
     async def _read(
         self, user_id: UUID, which: ColumnElement[bool], limit: int

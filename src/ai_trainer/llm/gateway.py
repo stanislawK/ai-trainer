@@ -309,9 +309,9 @@ class OpenRouterGateway:
             capabilities=[call.recorder] if call.recorder is not None else None,
         ) as run:
             state.streamed = run
-            said = await stream_run_text(run, put)
-        if not said:
-            raise UnexpectedModelBehavior("the tool loop ended with no text")
+            answered = await stream_run_text(run, put)
+        if not answered:
+            raise UnexpectedModelBehavior("the tool loop ended with no answer")
 
     def _recorder(
         self, template_id: str, template_version: int, model_id: str

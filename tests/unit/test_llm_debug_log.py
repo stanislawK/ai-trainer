@@ -14,15 +14,15 @@ from pydantic import PostgresDsn, SecretStr
 from pydantic_ai import ModelMessage, ModelResponse, TextPart, models
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 
+from ai_trainer.application.ports.llm_gateway import ToolLoop
 from ai_trainer.domain.llm_calls import LlmCallOutcome, NewLlmCall
 from ai_trainer.llm.debug_log import LlmDebugLog, build_debug_log
 from ai_trainer.llm.decision_gateway import OpenRouterDecisionGateway
 from ai_trainer.llm.gateway import OpenRouterGateway
+from ai_trainer.mcp.toolset import build_toolset
 from ai_trainer.settings import Settings
 from tests.chat_support import FROZEN_NOW, FixedClock
 from tests.unit.test_decision_gateway import STATE, FakeJev, _refuse, _sample
-from ai_trainer.application.ports.llm_gateway import ToolLoop
-from ai_trainer.mcp.toolset import build_toolset
 from tests.unit.test_gateway_tools import _server, _tool_then_answer
 from tests.unit.test_llm_gateway import FakeLlmCallsRepository, Greeting
 

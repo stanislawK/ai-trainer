@@ -4,6 +4,7 @@ reads the tools the way the template asks and says what a test needs."""
 
 import json
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -196,6 +197,41 @@ async def test_each_way_a_reply_can_miss_fails_the_case(
     assert not result.passed
     assert miss in result.detail
     assert reply in result.detail
+
+
+async def test_a_number_said_before_the_tools_fails_the_case(tmp_path: Path) -> None:
+    """The app shows every request's text, so the grader reads all of it, not the last."""
+    root = _set_with(tmp_path, _case({"logged": [_BENCH], "expect": {"forbids": [r"\b80\b"]}}))
+
+    def guesses_first(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        if not _returns(messages):
+            return ModelResponse(
+                parts=[
+                    TextPart("Last time you benched 80 kg, let me check."),
+                    ToolCallPart("find_exercise", {"name": "bench"}),
+                ]
+            )
+        return ModelResponse(parts=[TextPart("You benched 45 kg on 28 Oct.")])
+
+    (result,) = await _run(root, FunctionModel(guesses_first))
+
+    assert not result.passed
+    assert "80 kg" in result.detail
+    assert "45 kg" in result.detail
+
+
+async def test_a_set_for_a_template_no_sport_names_is_refused(tmp_path: Path) -> None:
+    root = _set_with(tmp_path, _case({"logged": [_BENCH], "expect": {}}))
+    smoke_set = read_smoke_set("gym.answer", smoke_root=root)
+
+    with pytest.raises(SmokeError, match="no sport names"):
+        await run_answer_smoke(
+            replace(smoke_set, template_id="rowing.answer"),
+            _reading(lambda _: "Fine."),
+            registry=_REGISTRY,
+            version=1,
+            max_requests=6,
+        )
 
 
 async def test_a_failed_call_fails_its_case_alone(tmp_path: Path) -> None:

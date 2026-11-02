@@ -322,6 +322,26 @@ async def test_a_loop_that_ends_with_no_text_is_an_error() -> None:
     assert end.result.outcome is LlmCallOutcome.ERROR
 
 
+async def test_a_preamble_with_no_answer_after_the_tools_is_an_error() -> None:
+    """ "Let me check." is not the answer: the last request must say something."""
+    repository = FakeLlmCallsRepository()
+    gateway = _gateway(repository)
+
+    async def checks_then_says_nothing(messages: list[ModelMessage], info: AgentInfo) -> _Stream:
+        if _returned(messages):
+            yield "  "
+        else:
+            yield "Let me check your history."
+            yield _tool_call("lookup")
+
+    with gateway.tool_agent.override(model=FunctionModel(stream_function=checks_then_says_nothing)):
+        _, end = await _collect(_stream(gateway))
+
+    assert end.result.output is None
+    assert end.result.outcome is LlmCallOutcome.ERROR
+    assert [row.outcome for row in repository.recorded] == [LlmCallOutcome.ERROR]
+
+
 async def test_a_consumer_stopping_early_leaves_one_cancelled_row() -> None:
     repository = FakeLlmCallsRepository()
     gateway = _gateway(repository)

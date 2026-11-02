@@ -12,7 +12,7 @@ from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 from pydantic import BaseModel, ValidationError
 from pydantic_ai import Agent, UsageLimits
-from pydantic_ai.messages import ModelMessage, ModelResponse, ToolCallPart
+from pydantic_ai.messages import ModelMessage, ModelResponse, TextPart, ToolCallPart
 from pydantic_ai.models import Model
 
 from ai_trainer.application.exercise_lookup import ExerciseFinder
@@ -36,10 +36,10 @@ from ai_trainer.domain.training import SessionSummary
 from ai_trainer.llm.evals.inputs import EvalCaseInputs
 from ai_trainer.llm.evals.smoke import SmokeCaseResult, SmokeError, SmokeSet
 from ai_trainer.llm.prompts.registry import PromptRegistry
+from ai_trainer.llm.tool_loop import REQUEST_BREAK
 from ai_trainer.mcp.server import build_mcp_server
 from ai_trainer.mcp.toolset import build_toolset
 
-_GYM = "gym"
 _LIMITS = ResolutionLimits(near_match=0.75, candidate_floor=0.25, shortlist_size=4)
 
 
@@ -104,7 +104,8 @@ def _fits(one: str, other: str) -> bool:
 class _CaseHistory:
     """Implements the ports the tools read, over one case's fixture. The case has one athlete."""
 
-    def __init__(self, logged: Sequence[_Logged], catalogue: Sequence[str]) -> None:
+    def __init__(self, sport_id: str, logged: Sequence[_Logged], catalogue: Sequence[str]) -> None:
+        self._sport_id = sport_id
         self._logged = logged
         self._catalogue = catalogue
 
@@ -125,10 +126,11 @@ class _CaseHistory:
             },
             reverse=True,
         )
-        if sport_id not in (None, _GYM):
+        if sport_id not in (None, self._sport_id):
             return []
         return [
-            SessionSummary(id=_id(str(day)), sport_id=_GYM, occurred_on=day) for day in days[:limit]
+            SessionSummary(id=_id(str(day)), sport_id=self._sport_id, occurred_on=day)
+            for day in days[:limit]
         ]
 
     async def match_user_aliases(
@@ -177,7 +179,7 @@ class _CaseHistory:
             if _id(name) == exercise_id:
                 return Exercise(
                     id=exercise_id,
-                    sport_id=_GYM,
+                    sport_id=self._sport_id,
                     owner_user_id=None,
                     name=name,
                     default_measure=ExerciseMeasure.LOAD_REPS,
@@ -288,6 +290,26 @@ def _called(messages: Sequence[ModelMessage]) -> set[str]:
     }
 
 
+def _shown(messages: Sequence[ModelMessage]) -> str:
+    """The text of every model request, as the app streams and saves it (`stream_run_text`):
+    a "Let me check." before the tools is graded too, not only the last request's text."""
+    said = [
+        spoken
+        for message in messages
+        if isinstance(message, ModelResponse)
+        if (spoken := "".join(p.content for p in message.parts if isinstance(p, TextPart))).strip()
+    ]
+    return REQUEST_BREAK.join(said)
+
+
+def _sport_of(template_id: str) -> str:
+    """The sport whose plugin names this answer template."""
+    for plugin in default_sport_registry().all():
+        if plugin.answers is not None and plugin.answers.template_id == template_id:
+            return plugin.id
+    raise SmokeError(f"no sport names {template_id!r} as its answer template")
+
+
 def _misses(reply: str, called: set[str], expect: _Expect) -> list[str]:
     """What the reply got wrong, in words for the run's output."""
     misses = [
@@ -315,10 +337,11 @@ async def run_answer_smoke(
     max_requests: int,
 ) -> list[SmokeCaseResult]:
     """Runs each case once, in order. A case whose call fails fails alone."""
+    sport_id = _sport_of(smoke_set.template_id)
     template = registry.get(smoke_set.template_id, version)
     results: list[SmokeCaseResult] = []
     for case in _read_cases(smoke_set):
-        fake = _CaseHistory(case.metadata.logged, case.metadata.catalogue)
+        fake = _CaseHistory(sport_id, case.metadata.logged, case.metadata.catalogue)
         server = build_mcp_server(
             TrainingHistory(fake, default_sport_registry()),
             ExerciseFinder(fake, _LIMITS, fake),
@@ -336,8 +359,9 @@ async def run_answer_smoke(
         except Exception as error:
             results.append(_result(smoke_set, case.name, f"the call failed: {error}"))
             continue
-        misses = _misses(result.output, _called(result.all_messages()), case.metadata.expect)
-        detail = f"{'; '.join(misses)}; got {result.output!r}" if misses else ""
+        reply = _shown(result.all_messages())
+        misses = _misses(reply, _called(result.all_messages()), case.metadata.expect)
+        detail = f"{'; '.join(misses)}; got {reply!r}" if misses else ""
         results.append(_result(smoke_set, case.name, detail))
     return results
 

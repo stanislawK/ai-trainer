@@ -24,7 +24,8 @@ from ai_trainer.domain.llm_calls import ProviderPreferences, ReasoningEffort
 from ai_trainer.domain.sports.base import AnswerSpec
 from ai_trainer.domain.sports.registry import SportRegistry
 from ai_trainer.domain.training import DRAFT_FAILED_TEMPLATE_ID
-from ai_trainer.llm.answer import answer_template, answer_templates, build_answer_deps
+from ai_trainer.llm.answer import answer_template as build_answer_template
+from ai_trainer.llm.answer import answer_templates, build_answer_deps
 from ai_trainer.llm.chitchat import build_chitchat_deps, chitchat_template
 from ai_trainer.llm.extract import build_extract_deps, extract_template, extract_templates
 from ai_trainer.llm.onboarding import onboarding_templates
@@ -202,7 +203,7 @@ class LlmConversation:
         return TemplateRef(id=spec.template_id, version=spec.version)
 
     def stream_answer(self, context: ReplyContext, sport_id: str) -> AsyncGenerator[LlmStreamEvent]:
-        template = answer_template(self._answer_spec(sport_id))
+        template = build_answer_template(self._answer_spec(sport_id))
         deps = build_answer_deps(
             message=context.message,
             history=_turns(context.history),

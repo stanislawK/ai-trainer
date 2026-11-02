@@ -2,8 +2,13 @@
 #421's plan gate): Jev names the sport, an athlete's only sport stands in when it can't, and
 otherwise the question gets "not yet", with no guess and no card."""
 
+import asyncio
+import contextlib
+from collections.abc import Sequence
+from dataclasses import dataclass, field
 from uuid import UUID, uuid4
 
+from ai_trainer.application.ports.conversation import Extraction, ReplyContext
 from ai_trainer.application.reply import (
     PART_BREAK,
     ReplyChunk,
@@ -199,6 +204,76 @@ async def test_a_log_and_a_question_get_a_draft_and_an_answer() -> None:
     assert [sport for _, sport in conversation.extracted] == ["climbing"]
     assert [sport for _, sport in conversation.answered] == ["gym"]
     assert len(_done(events).messages) == 2
+
+
+async def test_a_logs_extraction_starts_before_the_questions_sport_is_read() -> None:
+    """G14: a log and a question in one message; the log never waits on Jev."""
+    release = asyncio.Event()
+    conversation = ScriptedConversation()
+    question = ScriptedQuestionSport(sport="gym", answer_after=release)
+
+    replying = asyncio.ensure_future(
+        _reply(
+            "Climbed 3 6A, how is my bench going?",
+            [Intent(kind="log_session", sport="climbing"), Intent(kind="ask_training_question")],
+            conversation=conversation,
+            question_sport=question,
+        )
+    )
+    started = conversation.extract_started.setdefault("climbing", asyncio.Event())
+    await asyncio.wait_for(started.wait(), timeout=1)
+
+    assert question.asked
+    assert not replying.done()
+    release.set()
+    events, _, _, _, _ = await replying
+    assert len(_done(events).messages) == 2
+
+
+@dataclass
+class _Stalling(ScriptedConversation):
+    """Records each extraction cancelled before it answered."""
+
+    cancelled: list[str] = field(default_factory=list)
+
+    async def extract(
+        self,
+        context: ReplyContext,
+        sport_id: str,
+        *,
+        recent: Sequence[str] = (),
+        answers: Sequence[str] = (),
+        may_ask: bool = True,
+    ) -> Extraction:
+        try:
+            return await super().extract(
+                context, sport_id, recent=recent, answers=answers, may_ask=may_ask
+            )
+        except asyncio.CancelledError:
+            self.cancelled.append(sport_id)
+            raise
+
+
+async def test_a_reader_who_leaves_while_the_sport_is_read_cancels_the_extraction() -> None:
+    conversation = _Stalling(extract_waits={"climbing": asyncio.Event()})
+    question = ScriptedQuestionSport(sport="gym", answer_after=asyncio.Event())
+
+    replying = asyncio.ensure_future(
+        _reply(
+            "Climbed 3 6A, how is my bench going?",
+            [Intent(kind="log_session", sport="climbing"), Intent(kind="ask_training_question")],
+            conversation=conversation,
+            question_sport=question,
+        )
+    )
+    started = conversation.extract_started.setdefault("climbing", asyncio.Event())
+    await asyncio.wait_for(started.wait(), timeout=1)
+    replying.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await replying
+    await asyncio.sleep(0)
+
+    assert conversation.cancelled == ["climbing"]
 
 
 async def test_a_log_turn_never_asks_which_sport_a_question_is_about() -> None:

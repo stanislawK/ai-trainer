@@ -346,17 +346,21 @@ async def test_mcp_exercise_find_lists_the_athletes_logged_exercise_for_a_short_
     assert logged["entries"] == 2
 
 
-async def test_mcp_exercise_find_keeps_logged_names_next_to_a_settled_exercise(
+async def test_mcp_exercise_find_keeps_a_variant_out_when_the_name_itself_was_logged(
     world: _World, db_session_factory: SessionFactory
 ) -> None:
-    await _typed_only(db_session_factory, world.alice, "Bench press close grip", date(2026, 10, 5))
+    """'incline bench press' holds 'bench press' as words, but is another exercise (#421)."""
+    await _typed_only(db_session_factory, world.alice, "Incline bench press", date(2026, 10, 5))
 
-    found = await _call(world, world.alice, "find_exercise", {"name": "bench press"})
+    exact = await _call(world, world.alice, "find_exercise", {"name": "bench press"})
+    short = await _call(world, world.alice, "find_exercise", {"name": "bench"})
 
-    assert found["data"]["source"] == "history"
-    assert {logged["name"] for logged in found["data"]["logged"]} == {
+    assert exact["data"]["source"] == "history"
+    assert [logged["exercise_id"] for logged in exact["data"]["logged"]] == [str(world.bench)]
+    # A name close to neither lists both, each under its own name.
+    assert {logged["name"] for logged in short["data"]["logged"]} == {
         "Barbell Bench Press",
-        "Bench press close grip",
+        "Incline bench press",
     }
 
 
@@ -390,6 +394,20 @@ async def test_mcp_exercise_find_never_lists_another_exercise_that_only_looks_cl
 
     assert "Bent over row" not in str(bench)
     assert "Leg press" not in str(press)
+
+
+async def test_mcp_exercise_find_lists_equally_fitting_names_in_the_same_order_every_time(
+    world: _World, db_session_factory: SessionFactory
+) -> None:
+    for name in ("Rows cable", "Rows band", "Rows dumbbell"):
+        await _typed_only(db_session_factory, world.alice, name, date(2026, 10, 22))
+
+    first = await _call(world, world.alice, "find_exercise", {"name": "rows"})
+    second = await _call(world, world.alice, "find_exercise", {"name": "rows"})
+
+    names = [logged["name"] for logged in first["data"]["logged"]]
+    assert names == sorted(names)
+    assert names == [logged["name"] for logged in second["data"]["logged"]]
 
 
 async def test_mcp_exercise_history_reads_a_typed_only_name_newest_first(

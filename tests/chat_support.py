@@ -878,9 +878,13 @@ class ScriptedQuestionSport:
 
     sport: str | None = None
     asked: list[str] = field(default_factory=list)
+    # Answers only once set, when given.
+    answer_after: asyncio.Event | None = None
 
     async def sport_of(self, user_id: UUID, message: str) -> str | None:
         self.asked.append(message)
+        if self.answer_after is not None:
+            await self.answer_after.wait()
         return self.sport
 
 

@@ -168,23 +168,36 @@ async def _fresh_reply(
 
     answers: list[Answer] = []
     intents = with_screened_safety(routing.intents, pain=pain)
-    plan = _plan(
-        intents,
-        extractable(services.sports),
-        answering=answerable(services.sports),
-        # Only a message with a question pays for this: a log's reply waits for nothing more (G14).
-        asked_sport=await question_sport(context, services)
-        if any(intent.kind in _QUESTION_KINDS for intent in intents)
-        else None,
-    )
-    async with aclosing(_answer(context, plan, services)) as events:
-        async for event in events:
-            if isinstance(event, Answer):
-                answers.append(event)
-                continue
-            yield event
-            if isinstance(event, ReplyFailed):
-                return
+    loggable = extractable(services.sports)
+    # Every extraction starts now, before a question's sport is read and so that a log of two
+    # sports waits only as long as the slower one (G14); each part still streams in its place.
+    extractions = {
+        sport: asyncio.ensure_future(extract(context, sport, services))
+        for sport in dict.fromkeys(
+            intent.sport
+            for intent in intents
+            if intent.kind == LOG_KIND and intent.sport in loggable
+        )
+    }
+    try:
+        # Only a message with a question pays for this.
+        asked = (
+            await question_sport(context, services)
+            if any(intent.kind in _QUESTION_KINDS for intent in intents)
+            else None
+        )
+        plan = _plan(intents, loggable, answering=answerable(services.sports), asked_sport=asked)
+        async with aclosing(_answer(context, plan, extractions, services)) as events:
+            async for event in events:
+                if isinstance(event, Answer):
+                    answers.append(event)
+                    continue
+                yield event
+                if isinstance(event, ReplyFailed):
+                    return
+    finally:
+        for extraction in extractions.values():
+            extraction.cancel()
 
     # Saved in its own task: a reader who leaves now can't cut a reply off halfway through.
     saving = asyncio.ensure_future(save(user_id, message, answers, services))
@@ -192,19 +205,15 @@ async def _fresh_reply(
 
 
 async def _answer(
-    context: ReplyContext, plan: Sequence[_Part], services: ReplyServices
+    context: ReplyContext,
+    plan: Sequence[_Part],
+    extractions: Mapping[str, asyncio.Future[Answer | ReplyFailed]],
+    services: ReplyServices,
 ) -> AsyncGenerator[_PartEvent]:
-    """Each part of the plan streamed in its place. A `ReplyFailed` ends the reply, and the
-    reader stops there: a failed chitchat's at once, and a failed extraction's only when
-    nothing the models made came through; else the extraction is kept as a line its Retry can
-    turn into the draft (ticket #161)."""
-    # Every extraction starts now, so a log of two sports waits only as long as the slower one
-    # (G14); each part is still streamed in its place.
-    extractions = {
-        part.sports[0]: asyncio.ensure_future(extract(context, part.sports[0], services))
-        for part in plan
-        if part.specialist == "extract"
-    }
+    """Each part of the plan streamed in its place, the extractions already started. A
+    `ReplyFailed` ends the reply, and the reader stops there: a failed chitchat's at once, and a
+    failed extraction's only when nothing the models made came through; else the extraction is
+    kept as a line its Retry can turn into the draft (ticket #161)."""
     failures: list[ReplyFailed] = []
     answered = came_through = False
     try:
