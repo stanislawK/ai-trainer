@@ -36,7 +36,9 @@ def _reads_in(tree: ast.AST) -> list[int]:
         ):
             lines.append(node.lineno)
         elif isinstance(node, ast.ImportFrom) and node.module == "os" and node.level == 0:
-            lines.extend(node.lineno for a in node.names if a.name in ENVIRONMENT_NAMES)
+            lines.extend(
+                node.lineno for a in node.names if a.name in ENVIRONMENT_NAMES or a.name == "*"
+            )
     return sorted(lines)
 
 
@@ -53,7 +55,7 @@ def environment_read_problems(root: Path, allowed: Mapping[str, str]) -> list[st
         hit_files.add(path)
         if path not in allowed:
             problems.extend(
-                f"{module}:{line} reads the environment outside Settings" for line in lines
+                f"{path}:{line} reads the environment outside Settings" for line in lines
             )
     for path, reason in allowed.items():
         if not reason.strip():
@@ -65,10 +67,9 @@ def environment_read_problems(root: Path, allowed: Mapping[str, str]) -> list[st
     return problems
 
 
-def _write(tmp_path: Path, source: str) -> Path:
-    path = tmp_path / "module.py"
-    path.write_text(source)
-    return path
+def _write(tmp_path: Path, source: str) -> str:
+    (tmp_path / "module.py").write_text(source)
+    return "module.py"
 
 
 def test_src_reads_the_environment_nowhere() -> None:
@@ -110,6 +111,12 @@ def test_detects_from_os_import_environ(tmp_path: Path) -> None:
 
 def test_detects_from_os_import_getenv_among_other_names(tmp_path: Path) -> None:
     path = _write(tmp_path, "from os import getenv, path\n")
+
+    assert [p.split(" ")[0] for p in environment_read_problems(tmp_path, {})] == [f"{path}:1"]
+
+
+def test_detects_a_star_import_from_os(tmp_path: Path) -> None:
+    path = _write(tmp_path, "from os import *\n")
 
     assert [p.split(" ")[0] for p in environment_read_problems(tmp_path, {})] == [f"{path}:1"]
 
