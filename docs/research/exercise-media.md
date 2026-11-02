@@ -52,7 +52,8 @@ This document decides nothing. It compares where exercise pictures could come fr
 - Through the API, Anthropic's commercial terms say the customer "owns its Outputs", and Anthropic "assigns to Customer its right, title and interest (if any) in and to Outputs" ([Commercial Terms](https://www.anthropic.com/legal/commercial-terms), section B, effective 2025-06-17, read 2026-11-02). The words "(if any)" mean the assignment passes on whatever rights exist.
 - The consumer terms assign Outputs the same way, and also say "you will not use our Services for any commercial or business purposes" ([Consumer Terms](https://www.anthropic.com/legal/consumer-terms), sections 4 and 11, effective 2025-10-08, read 2026-11-02). The page says the Commercial Terms govern API keys and the Console, and not Claude.ai or Claude Pro use.
 - Neither page mentions images or SVG, and neither says whether such output is copyrightable.
-- An SVG is text, so it needs no storage service beyond what `media_assets` already plans and no attribution to a third party. Its cost is the tokens to write it, which was not measured here because writing the samples was part of this session and no per-SVG token count was kept.
+- ADR-0031's `media_assets.kind` already allows `drawing` ([ADR-0031, Media links](../adr/0031-exercise-catalogue-and-name-resolution.md), read 2026-11-02), so an SVG needs no new kind. Whether it needs the media bucket or could sit in the table is not decided anywhere read; see Open questions.
+- The cost of an SVG is the tokens to write it. That was not measured: no per-SVG token count was kept while the samples were written, so it is an Open question, not a figure.
 
 ### 4. An image model
 
@@ -65,7 +66,7 @@ This document decides nothing. It compares where exercise pictures could come fr
 
 ### 5. Coverage on the first gym session
 
-Method: the six exercises in the [first gym session](../../evals/field/gym/2026-10-28-first-gym-session.md) are pull-ups, bench press, face pull, dumbbell lateral raise ("two hantles … rising straight arms on both sides"), triceps extension ("straightening arm bent to 90 degr") and anti-rotation with a band. Each option's exercise list was matched by name with a case-insensitive pattern (for example `pull.?up|chin.?up`) and the hits read by eye. A hit means an exercise of that name exists in the set and, for `wger`, has at least one image. It does not mean the picture is the right variant. The scripts are in this ticket's session only; the patterns are given above so the check can be repeated.
+Method: the six exercises in the [first gym session](../../evals/field/gym/2026-10-28-first-gym-session.md) are pull-ups, bench press, face pull, dumbbell lateral raise ("two hantles … rising straight arms on both sides"), triceps extension ("straightening arm bent to 90 degr") and anti-rotation with a band. Each option's exercise list was matched by name with these case-insensitive patterns, and the hits read by eye: `pull.?up|chin.?up`, `bench press`, `face.?pull`, `lateral raise|side raise`, `triceps? .*(extension|kickback)|(extension|kickback).*triceps?|skull` (for `wger`: `tricep.*(extension|kickback)|(extension|kickback).*tricep|skull|french press`), and `pallof|anti.?rotation`. The lists read were [`data/exercises.json` at `7455efa`](https://github.com/hasaneyldrm/exercises-dataset/blob/7455efa/data/exercises.json), [`dist/exercises.json` at `f00c92c`](https://github.com/yuhonas/free-exercise-db/blob/f00c92c7dcf1216a928a52c3706c7ce8e2f71ed5/dist/exercises.json), and the `wger` image listing and per-exercise names from its [public API](https://wger.de/api/v2/exerciseimage/) (read 2026-11-02, counts will drift). A hit means an exercise of that name exists in the set and, for `wger`, has at least one image. It does not mean the picture is the right variant. The matching scripts were not committed, so the counts can be reproduced only by repeating these patterns.
 
 | Exercise | Gym visual (`7455efa`, 1,324) | `wger` (`dde7407`, 279 with images) | `free-exercise-db` (`f00c92c`, 876) |
 |---|---|---|---|
@@ -83,14 +84,14 @@ Six exercises are a smoke check on one athlete's one session, not a coverage rat
 
 ### 6. Options as the owner sees them
 
-Five samples, each with the open-set picture, a Claude-written SVG, and the two options that could not be shown, are in [Exercise media samples](https://claude.ai/design/p/f96f5229-4162-4b6c-a704-641a8024066a?file=Exercise+media+samples.html) (Claude Design, read 2026-11-02). The exercises are pull-ups, bench press, face pull, dumbbell lateral raise and Pallof press. Form-accuracy risk per option:
+Five samples are in one Claude Design page, [Exercise media samples](https://claude.ai/design/p/f96f5229-4162-4b6c-a704-641a8024066a?file=Exercise+media+samples.html) (Claude Design, read 2026-11-02). The exercises are pull-ups, bench press, face pull, dumbbell lateral raise and Pallof press, one section each. Each section shows the `wger` picture and a Claude-written SVG for real. The image-model and Gym visual cards are in the page too, but only as empty cards that say why no picture is shown. Form-accuracy risk per option:
 
 | Option | Form-accuracy risk |
 |---|---|
 | `wger` image | Depends on the picture. Line-art pairs by a named author (bench press, lateral raise) show start and end. A single photo (pull-ups) does not. Name matches can pick the wrong variant (face pull is the dumbbell bent-over row-like move). Some pictures are AI-flagged (two of three for Pallof press). |
 | Claude-written SVG | Stick figures draw a plausible shape and can hide errors: grip, scapular position, elbow flare, and rotation resistance cannot be shown reliably. Every sample was drawn once and none was reviewed by a coach. |
-| Image model | Not generated. Assumed highest, because a model can draw plausible bodies with the wrong joint angles. This is a judgment from the option's nature, not a measurement, and it is the first thing a paid sample would test. |
-| Gym visual | Not shown because their terms are unread. A catalogue with one consistent animated style is likely lowest, but each match still needs a name check, as for any option. |
+| Image model | Not generated, so unknown. No source read measures it. See Open questions. |
+| Gym visual | Not shown because their terms are unread, so unknown. Its dataset links one picture and one animation to each exercise, and each match still needs a name check, as for any option. |
 
 ## Comparison
 
@@ -107,9 +108,9 @@ Five samples, each with the open-set picture, a Claude-written SVG, and the two 
 These are inputs for the owner and for the M2m ticket. None of them decides anything, and none contradicts ADR-0031: it already says no media is imported "until a source with a license we hold is chosen".
 
 - Treat `free-exercise-db` images as unusable. Its text and JSON may still be useful as data, which is outside this ticket.
-- Before choosing, read Gym visual's terms in a browser and ask them for a quote. It is the only option that covers 4 of 6 first-session exercises, and it has the same ids as the catalogue ADR-0031 already imports. If the price or app-use rule rules it out, the answer is already in hand.
+- Before choosing, read Gym visual's terms in a browser and ask them for a quote. It is the only option that covers 4 of 6 first-session exercises, and it is the dataset ADR-0031 already imports ([ADR-0031](../adr/0031-exercise-catalogue-and-name-resolution.md), read 2026-11-02), so its media would need no name matching. If the price or app-use rule rules it out, the answer is already in hand.
 - Consider `wger` as the free fallback only if the project can meet CC BY-SA attribution (author, licence link) per image, and only after deciding what the 104 images with no author, and the 46 AI-flagged ones, mean for G10's "shown with its source". The admin review step in F24 is where such a picture would be skipped.
-- An SVG set is the only option with no rights risk from a third party, and it can cover face pull. Its limit is form accuracy, which a human reviewer must judge. The samples let the owner judge whether the style is acceptable at all.
+- An SVG set involves no third-party image owner, and it can cover face pull. Whether such output can be owned at all is an Open question, and its limit is form accuracy, which a human reviewer must judge. The samples let the owner judge whether the style is acceptable at all.
 - Run a small image-model sample only if the owner asks. It is the one paid step and the least known on rights.
 - If the owner picks an option that changes ADR-0031's media tables or the PRD's F24 wording, that change goes through `/update-docs`.
 
@@ -122,8 +123,9 @@ These are inputs for the owner and for the M2m ticket. None of them decides anyt
 - **OpenAI's terms on output.** HTTP 403 on 2026-11-02. Settled by reading them in a browser, or by dropping OpenAI from the shortlist.
 - **Copyrightability of AI output.** The US Copyright Office report on copyrightability was not read. It is a US view, and the project is Europe first. Settled by reading that report and an EU source, and it bears on whether an SVG or an image-model picture can be owned at all.
 - **Which Anthropic terms govern a Claude-written SVG used in the product.** The consumer terms bar commercial use and the commercial terms assign outputs. Which applies depends on the account used to write the SVG. Settled by the owner.
+- **Cost of an SVG, and where it is stored.** No per-SVG token count was kept, and no source read says whether a drawing belongs in the media bucket or the table. Settled by writing one SVG with a token count kept, and by the M2m ticket.
 - **Per-image cost of the image models.** OpenRouter's `image_output` unit is not stated in the listing. Settled by `get-model` on a chosen model, or by the one paid sample.
-- **Form accuracy of an image model.** Not measured. Settled by a sample the owner asks for.
+- **Form accuracy of an image model and of Gym visual's pictures.** Neither was seen. Settled by a sample the owner asks for, and by reading Gym visual's terms first.
 - **Whether the catalogue's `wger` matches are the right variants.** Hits were matched by name only. Settled by an admin looking at each picture, which F24 already requires.
 
 ## Sources
