@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse
 
 from ai_trainer.application.reply import (
+    BandPlaced,
     ClarificationAnswered,
     MessageNotFoundError,
     ReplyFailed,
@@ -98,6 +99,23 @@ class _ClarificationRoutes:
             {"answer": ChoiceCard(question), "card": card},
         )
 
+    def _band_answer(
+        self,
+        request: Request,
+        question: StoredClarification,
+        following: StoredClarification | None = None,
+    ) -> HTMLResponse:
+        """A band-order question after a tap, narrowing or skip: its card or row, then the
+        question about the next band that needs a place (B39, ticket #431)."""
+        return self._ctx.templates.TemplateResponse(
+            request,
+            "partials/chat/band_answer.html",
+            {
+                "card": ChoiceCard(question),
+                "next": None if following is None else ChoiceCard(following),
+            },
+        )
+
     def _name_field(
         self,
         request: Request,
@@ -185,6 +203,8 @@ class _ClarificationRoutes:
             raise HTTPException(status_code=UNPROCESSABLE) from None
         if isinstance(answered, SessionSettled):
             return await self._settled(request, parsed_id, answered, user=user)
+        if isinstance(answered, BandPlaced):
+            return self._band_answer(request, answered.clarification, answered.next)
         if isinstance(answered, ReplyFailed):
             card = ChoiceCard(await ctx.replies.clarifications.get(user.id, parsed_id))
             return ctx.templates.TemplateResponse(
@@ -214,6 +234,8 @@ class _ClarificationRoutes:
             return self._ctx.templates.TemplateResponse(
                 request, settled.template, {"card": settled}
             )
+        if isinstance(skipped, BandPlaced):
+            return self._band_answer(request, skipped.clarification, skipped.next)
         return self._ctx.templates.TemplateResponse(
             request, "partials/chat/choice_card.html", {"card": ChoiceCard(skipped)}
         )

@@ -14,6 +14,7 @@ from pydantic import JsonValue
 from starlette.templating import Jinja2Templates
 
 from ai_trainer.application.feedback import FeedbackRecorder
+from ai_trainer.application.ports.band_order import BandOrderPort
 from ai_trainer.application.ports.clock import ClockPort
 from ai_trainer.application.ports.conversation import (
     Extraction,
@@ -652,6 +653,19 @@ class InMemoryClarificationRepository:
             return row
         raise ClarificationNotFoundError(clarification_id)
 
+    async def revise(
+        self, user_id: UUID, clarification_id: UUID, clarification: Clarification
+    ) -> StoredClarification:
+        for index, (owner, row) in enumerate(self.rows):
+            if owner != user_id or row.id != clarification_id:
+                continue
+            if row.status != "open":
+                raise ClarificationResolvedError(clarification_id)
+            row = row.model_copy(update={"clarification": clarification})
+            self.rows[index] = (owner, row)
+            return row
+        raise ClarificationNotFoundError(clarification_id)
+
     def name_answer(self, user_id: UUID, clarification_id: UUID, typed_name: str) -> None:
         for index, (owner, row) in enumerate(self.rows):
             if owner == user_id and row.id == clarification_id:
@@ -924,6 +938,7 @@ def reply_services(
     recent_sessions: int = 10,
     feedback: FeedbackRecorder | None = None,
     settlers: Mapping[str, DraftSettlerPort] | None = None,
+    band_orders: Mapping[str, BandOrderPort] | None = None,
 ) -> ReplyServices:
     drafts = drafts or InMemoryDraftRepository()
     clarifications = clarifications or InMemoryClarificationRepository()
@@ -947,6 +962,7 @@ def reply_services(
         recent_sessions=recent_sessions,
         feedback=feedback,
         settlers=settlers or {},
+        band_orders=band_orders or {},
     )
 
 
@@ -964,6 +980,7 @@ def include_chat(
     feedback: FeedbackRecorder | None = None,
     settlers: Mapping[str, DraftSettlerPort] | None = None,
     question_sport: ScriptedQuestionSport | None = None,
+    band_orders: Mapping[str, BandOrderPort] | None = None,
 ) -> InMemoryChatRepository:
     """Mounts the chat router on an in-memory repository and a scripted conversation, and
     returns the repository."""
@@ -979,6 +996,7 @@ def include_chat(
         feedback=feedback,
         settlers=settlers,
         question_sport=question_sport,
+        band_orders=band_orders,
     )
     app.include_router(
         build_chat_router(

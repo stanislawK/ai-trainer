@@ -39,6 +39,7 @@ from ai_trainer.adapters.exercise_repository import SqlAlchemyExerciseRepository
 from ai_trainer.adapters.feedback_repository import SqlAlchemyFeedbackEventsRepository
 from ai_trainer.adapters.google_oauth import AuthlibGoogleOAuthClient
 from ai_trainer.adapters.gym_activity_store import GymActivityStore
+from ai_trainer.adapters.gym_band_order import SqlAlchemyBandOrder
 from ai_trainer.adapters.health import PsycopgDatabaseHealth
 from ai_trainer.adapters.llm_calls_repository import SqlAlchemyLlmCallsRepository
 from ai_trainer.adapters.log_records import configure_logging
@@ -139,10 +140,11 @@ def build_llm_conversation(
     )
 
 
-def build_activity_stores(sports: SportRegistry) -> ActivityStores:
+def build_activity_stores(sports: SportRegistry, max_options: int = 5) -> ActivityStores:
     """Where each sport keeps its activities (ADR-0032): its own tables where it has them,
-    otherwise the session's payload."""
-    return ActivityStores(sports, {"gym": GymActivityStore()})
+    otherwise the session's payload. `max_options` is `max_clarification_options`, the most
+    places a band question offers at once (ticket #431)."""
+    return ActivityStores(sports, {"gym": GymActivityStore(max_options=max_options)})
 
 
 def build_draft_settlers(
@@ -260,7 +262,7 @@ def create_app(  # noqa: PLR0915 -- composition root: objects are built only her
     health_port = PsycopgDatabaseHealth(str(settings.database_url))
     app.include_router(build_health_router(health_port))
     sport_registry = app.state.sport_registry
-    activity_stores = build_activity_stores(sport_registry)
+    activity_stores = build_activity_stores(sport_registry, settings.max_clarification_options)
     llm_calls = MeteredLlmCallsRepository(SqlAlchemyLlmCallsRepository(session_factory), metrics)
     debug_log = build_debug_log(settings, clock)
     # One budget for text calls and decision calls (ADR-0029). Evals build their own gateways.
@@ -338,6 +340,7 @@ def create_app(  # noqa: PLR0915 -- composition root: objects are built only her
         # (ADR-0034).
         feedback=FeedbackRecorder(SqlAlchemyFeedbackEventsRepository(session_factory), clock=clock),
         settlers=build_draft_settlers(settings, session_factory, conversation, decisions),
+        band_orders={"gym": SqlAlchemyBandOrder(session_factory)},
     )
     app.include_router(
         build_chat_router(

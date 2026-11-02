@@ -656,7 +656,7 @@ async def test_two_dumbbells_store_implements_2_and_6_kg(
     ]
 
 
-async def test_red_band_stores_label_and_an_unranked_band(
+async def test_red_band_stores_label_and_is_the_first_band_at_rank_1(
     db_session_factory: Callable[[], AsyncSession],
 ) -> None:
     athlete = await _athlete(db_session_factory, "gym-band")
@@ -664,7 +664,7 @@ async def test_red_band_stores_label_and_an_unranked_band(
     confirmed = await _logged(athlete, "red band rows 3x10", _gym(_band("red")))
 
     ((band_id, label, rank),) = await _bands(db_session_factory, athlete.user_id)
-    assert (label, rank) == ("red", None)
+    assert (label, rank) == ("red", 1)
     assert await _entries(db_session_factory, confirmed.session_id) == [
         (1, "rows", "band_reps", None, False, None, None, None, "red band rows 3x10")
     ]
@@ -704,7 +704,7 @@ async def test_two_bands_in_one_log_are_two_bands(
 
     assert [row[1:] for row in await _bands(db_session_factory, athlete.user_id)] == [
         ("black", None),
-        ("red", None),
+        ("red", 1),
     ]
 
 
@@ -774,7 +774,7 @@ async def test_undoing_a_log_keeps_the_band_it_added(
 
     await athlete.drafts.undo(athlete.user_id, confirmed.id, undone_at=_LATER)
 
-    assert [row[1:] for row in await _bands(db_session_factory, athlete.user_id)] == [("red", None)]
+    assert [row[1:] for row in await _bands(db_session_factory, athlete.user_id)] == [("red", 1)]
 
 
 async def test_two_spellings_of_one_band_in_a_log_are_one_band(
@@ -785,7 +785,7 @@ async def test_two_spellings_of_one_band_in_a_log_are_one_band(
     confirmed = await _logged(athlete, "bands", _gym(_band("Red"), _band("red")))
 
     ((band_id, _, rank),) = await _bands(db_session_factory, athlete.user_id)
-    assert rank is None
+    assert rank == 1
     rows = await _sets(db_session_factory, confirmed.session_id)
     assert {row[-2] for row in rows} == {band_id}
     assert {row[-1] for row in rows} == {"Red", "red"}

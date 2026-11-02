@@ -8,6 +8,7 @@ from typing import Literal
 from uuid import UUID
 
 from ai_trainer.application.feedback import FeedbackRecorder
+from ai_trainer.application.ports.band_order import BandOrderPort
 from ai_trainer.application.ports.chat import ChatRepositoryPort, ConversationRepositoryPort
 from ai_trainer.application.ports.clarifications import ClarificationRepositoryPort
 from ai_trainer.application.ports.clock import ClockPort
@@ -112,6 +113,8 @@ class ReplyServices:
     settlers: Mapping[str, DraftSettlerPort] = field(default_factory=dict)
     # Which sport a training question is about (ADR-0008 amendment at #421's plan gate).
     question_sport: QuestionSportPort = NO_QUESTION_SPORT
+    # A sport's own scale of resistance bands, by sport ID: where a new colour ranks (ticket #431).
+    band_orders: Mapping[str, BandOrderPort] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)

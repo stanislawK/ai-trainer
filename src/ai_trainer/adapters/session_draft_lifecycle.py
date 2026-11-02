@@ -257,23 +257,48 @@ async def confirm(
     await session.flush()
     # The sport's activities, in its own tables or the payload (ADR-0032), with the source row
     # they came from.
-    training.payload = await store_of(row.sport_id).add(
-        session,
-        user_id,
-        LoggedActivities(
-            session_id=training.id,
-            source_id=source.id,
-            session_payload=session_payload,
-            addition=draft.payload,
-        ),
+    logged = LoggedActivities(
+        session_id=training.id,
+        source_id=source.id,
+        session_payload=session_payload,
+        addition=draft.payload,
     )
+    training.payload = await store_of(row.sport_id).add(session, user_id, logged)
     row.status = CONFIRMED
     row.session_id = training.id
     row.resolved_at = confirmed_at
     await session.flush()
+    await _ask_after_log(session, row, store_of(row.sport_id), logged, confirmed_at)
     confirmed = await with_span(session, user_id, row)
     await session.commit()
     return confirmed
+
+
+async def _ask_after_log(
+    session: AsyncSession,
+    row: SessionDraftOrm,
+    store: ActivityStore,
+    logged: LoggedActivities,
+    at: datetime,
+) -> None:
+    """The question the sport's store leaves after the log (ticket #431), stored in the confirm's
+    transaction. It belongs to the athlete's message, not to the draft: the draft is confirmed and
+    its card blocks on nothing."""
+    asks = await store.ask(session, row.user_id, logged)
+    if asks is None:
+        return
+    session.add(
+        ClarificationOrm(
+            user_id=row.user_id,
+            conversation_id=row.conversation_id,
+            message_id=row.message_id,
+            draft_id=None,
+            purpose=asks.pending,
+            clarification=asks.model_dump(mode="json"),
+            status=OPEN,
+            created_at=at,
+        )
+    )
 
 
 async def settle_session(

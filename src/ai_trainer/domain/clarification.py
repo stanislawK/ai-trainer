@@ -31,6 +31,9 @@ SAME_SESSION_NEW_COPY_KEY = "same_session_new"
 EXERCISE_PURPOSE = "exercise"
 # The exercise question's "Keep my name" option; its others' IDs are the candidate exercises'.
 KEEP_NAME_OPTION = "keep"
+# Where a new resistance band colour ranks among the athlete's bands (B39, ADR-0032, ticket
+# #431). It blocks nothing: the log is saved, and the band shows by its label until it is placed.
+BAND_PURPOSE = "band"
 
 type ClarificationMode = Literal["single", "multi"]
 type ClarificationStatus = Literal["open", "answered", "abandoned"]
@@ -64,6 +67,8 @@ class Clarification(BaseModel):
     options: tuple[ChoiceOption, ...] = Field(min_length=1)
     mode: ClarificationMode = "single"
     allow_free_text: bool = True
+    # Whether the card offers "Skip for now" though it has no free text (ticket #431).
+    skippable: bool = False
     pending: str
     sport: str | None = None
     subject: str | None = None

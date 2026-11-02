@@ -23,7 +23,7 @@ from pydantic import BaseModel, JsonValue, ValidationError
 
 from ai_trainer.application.reply import asking_sports, sports_to_switch_to
 from ai_trainer.domain.chat import ChatMessage, ChatRole
-from ai_trainer.domain.clarification import EXERCISE_PURPOSE, StoredClarification
+from ai_trainer.domain.clarification import BAND_PURPOSE, EXERCISE_PURPOSE, StoredClarification
 from ai_trainer.domain.exercises import ExerciseLabel
 from ai_trainer.domain.sports.base import SportPlugin
 from ai_trainer.domain.sports.registry import SportRegistry, UnknownSportError
@@ -58,6 +58,8 @@ class DraftCard:
     named: tuple[ChoiceCard, ...] = ()
     # On a swap of the card alone, the rows above it that no longer hold (ticket #402).
     dropped: tuple[StoredClarification, ...] = ()
+    # The band-order questions its log left, under the confirmed row (B39, ticket #431).
+    bands: tuple[ChoiceCard, ...] = ()
 
     @property
     def asks_name(self) -> bool:
@@ -132,6 +134,20 @@ def open_questions(
     }
 
 
+def band_questions(
+    questions: Iterable[StoredClarification], draft: StoredDraft
+) -> tuple[StoredClarification, ...]:
+    """The band-order questions the log of a confirmed draft left, oldest first (ticket #431).
+    They belong to the athlete's message, not to the draft, and block nothing."""
+    if draft.status != "confirmed" or draft.session_id is None:
+        return ()
+    return tuple(
+        question
+        for question in questions
+        if question.purpose == BAND_PURPOSE and question.message_id == draft.message_id
+    )
+
+
 def answered_names(
     questions: Iterable[StoredClarification], draft_id: UUID
 ) -> tuple[StoredClarification, ...]:
@@ -179,6 +195,7 @@ def draft_cards(
             asking=asking_sports(shown, draft.message_id),
             labels=(labels or {}).get(draft.id, {}),
             named=(answers or {}).get(draft.id, ()),
+            bands=band_questions(shown, draft),
         )
 
     for log, part_id, sport_id in _extraction_parts(messages, log_id, sports):
@@ -268,6 +285,7 @@ def draft_card(
     labels: Mapping[str, ExerciseLabel] | None = None,
     named: Sequence[StoredClarification] = (),
     dropped: tuple[StoredClarification, ...] = (),
+    bands: Sequence[StoredClarification] = (),
 ) -> DraftCard | None:
     """`None` when its sport is unknown, or when a pending draft's stored payload no longer
     reads: the page still renders, without that card. A pending card's chip offers
@@ -313,6 +331,7 @@ def draft_card(
         labels=labels or {},
         named=tuple(ChoiceCard(answered) for answered in named),
         dropped=dropped,
+        bands=tuple(ChoiceCard(band) for band in bands),
     )
 
 
