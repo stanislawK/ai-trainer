@@ -14,7 +14,12 @@ from starlette.types import Message, Receive, Scope, Send
 from ai_trainer.application.budgeted_gateways import BudgetedDecisionGateway, BudgetedLlmGateway
 from ai_trainer.application.model_budget import ModelCallBudget
 from ai_trainer.application.ports.decision_gateway import DecisionResult
-from ai_trainer.application.ports.llm_gateway import LlmGatewayResult, LlmStreamEvent, StreamEnd
+from ai_trainer.application.ports.llm_gateway import (
+    LlmGatewayResult,
+    LlmStreamEvent,
+    StreamEnd,
+    ToolLoop,
+)
 from ai_trainer.application.sliding_window import SlidingWindow
 from ai_trainer.domain.chat import ChatRole
 from ai_trainer.domain.llm_calls import LlmCallOutcome, ProviderPreferences, ReasoningEffort
@@ -50,6 +55,7 @@ class RecordingGateway:
     def __init__(self) -> None:
         self.runs = 0
         self.streams = 0
+        self.stream_calls: list[dict[str, object]] = []
         self.decisions = 0
         self.started = asyncio.Event()
         self.release: asyncio.Event | None = None
@@ -86,8 +92,22 @@ class RecordingGateway:
         model_id: str,
         instructions: str,
         prompt: str,
+        tool_loop: ToolLoop | None = None,
+        provider: ProviderPreferences | None = None,
+        reasoning_effort: ReasoningEffort | None = None,
+        session_id: str | None = None,
+        timeout_seconds: float | None = None,
     ) -> AsyncGenerator[LlmStreamEvent]:
         self.streams += 1
+        self.stream_calls.append(
+            {
+                "tool_loop": tool_loop,
+                "provider": provider,
+                "reasoning_effort": reasoning_effort,
+                "session_id": session_id,
+                "timeout_seconds": timeout_seconds,
+            }
+        )
         yield StreamEnd(
             result=LlmGatewayResult(
                 output="ok", friendly_error=None, outcome=LlmCallOutcome.SUCCESS
@@ -109,6 +129,55 @@ class RecordingGateway:
 
 def _budget(clock: FakeClock, *, per_hour: int, in_flight: int) -> ModelCallBudget:
     return ModelCallBudget(clock, per_hour=per_hour, in_flight=in_flight)
+
+
+async def _tool_stream(gateway: BudgetedLlmGateway, user_id: UUID) -> list[LlmStreamEvent]:
+    return [
+        event
+        async for event in gateway.stream(
+            user_id=user_id,
+            template_id="gym.answer",
+            template_version=1,
+            model_id="m",
+            instructions="i",
+            prompt="p",
+            tool_loop=ToolLoop(max_requests=6),
+            reasoning_effort="low",
+            session_id="key",
+            timeout_seconds=9.0,
+        )
+    ]
+
+
+async def test_a_tool_stream_counts_once_and_reaches_the_gateway_whole() -> None:
+    gateway = RecordingGateway()
+    user_id = uuid4()
+    text = _text(gateway, _budget(FakeClock(), per_hour=1, in_flight=1))
+
+    await _tool_stream(text, user_id)
+
+    assert gateway.stream_calls == [
+        {
+            "tool_loop": ToolLoop(max_requests=6),
+            "provider": None,
+            "reasoning_effort": "low",
+            "session_id": "key",
+            "timeout_seconds": 9.0,
+        }
+    ]
+
+
+async def test_a_refused_tool_stream_sends_nothing_and_writes_no_row() -> None:
+    gateway = RecordingGateway()
+    user_id = uuid4()
+    text = _text(gateway, _budget(FakeClock(), per_hour=1, in_flight=1))
+    await _tool_stream(text, user_id)
+
+    (refused,) = await _tool_stream(text, user_id)
+
+    assert gateway.streams == 1
+    assert isinstance(refused, StreamEnd)
+    assert refused.result.outcome is LlmCallOutcome.RATE_LIMITED
 
 
 def _text(gateway: RecordingGateway, budget: ModelCallBudget) -> BudgetedLlmGateway:

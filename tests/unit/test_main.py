@@ -1,3 +1,5 @@
+from typing import Any
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -21,6 +23,7 @@ from pydantic_ai.models.test import TestModel
 from sqlalchemy.ext.asyncio import AsyncEngine
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from ai_trainer.llm.gateway import OpenRouterGateway
 from ai_trainer.main import _build_tracer_provider, _traces_endpoint, app_factory, create_app
 from ai_trainer.settings import Settings
 
@@ -149,6 +152,23 @@ def test_create_app_builds_the_mcp_toolset_and_mounts_no_mcp_route() -> None:
     assert not [
         path for route in app.routes if "mcp" in (path := getattr(route, "path", "")).lower()
     ]
+
+
+async def test_the_gateway_answers_through_the_apps_mcp_toolset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The one toolset on `app.state` is the one the specialists' gateway was given (#421)."""
+    built: list[object] = []
+
+    def recording(*args: Any, **kwargs: Any) -> OpenRouterGateway:
+        built.append(kwargs.get("toolset"))
+        return OpenRouterGateway(*args, **kwargs)
+
+    monkeypatch.setattr("ai_trainer.main.OpenRouterGateway", recording)
+
+    app = create_app(_settings())
+
+    assert built == [app.state.mcp_toolset]
 
 
 def test_create_app_serves_the_ai_onboarding_cards() -> None:

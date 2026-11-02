@@ -81,10 +81,21 @@ class ExtractionSpec(BaseModel):
     recent: RecentContext | None = None
 
 
+class AnswerSpec(BaseModel):
+    """The template that answers questions about a sport (B40, ADR-0008): its ID and version
+    under `llm/prompts/`. A sport without one keeps the "not yet" reply."""
+
+    model_config = ConfigDict(frozen=True)
+
+    template_id: str
+    version: int
+
+
 class SportPlugin(BaseModel):
     """What the app knows about a sport (ADR-0006): an ID, the key its label is looked up by
     in templates (G5), its Lucide icon and, once the sport can be logged, its extraction
-    template. Load calculators join this as they land."""
+    template, and once it can be asked about, its answer template. Load calculators join this
+    as they land."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -92,6 +103,7 @@ class SportPlugin(BaseModel):
     label_key: str
     icon: str
     extraction: ExtractionSpec | None = None
+    answers: AnswerSpec | None = None
 
 
 # Every sport payload carries its activities under this key (ADR-0006, ADR-0022).

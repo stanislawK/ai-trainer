@@ -148,6 +148,13 @@ layers = [
     "ai_trainer.application",
     "ai_trainer.domain",
 ]
+# Allowed by name: the answer smoke set runs on the real server and hook, on in-memory fakes, so
+# it grades the tool descriptions the app publishes (ADR-0034, #421). The app's own path keeps them
+# apart: `main.py` hands the gateway its toolset.
+ignore_imports = [
+    "ai_trainer.llm.evals.answer_smoke -> ai_trainer.mcp.server",
+    "ai_trainer.llm.evals.answer_smoke -> ai_trainer.mcp.toolset",
+]
 
 [[tool.importlinter.contracts]]
 # ADR-0003 invariant 3: concrete classes are created only in the composition

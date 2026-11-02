@@ -346,6 +346,7 @@ def _app(
         sports=sports_with_rowing(),
         router_model=settings.router_model,
         chitchat_model=settings.chitchat_model,
+        answer_model=settings.answer_model,
         extract_model=settings.extract_model,
         history_turns=settings.chat_history_turns,
         router_timeout_seconds=router_timeout,
@@ -482,7 +483,7 @@ async def test_log_my_row_gets_the_not_yet_reply_and_only_the_router_row(
 
     assert chitchat.instructions == []
     [_, reply] = await _history(db_session_factory, user.id)
-    assert (reply.template_id, reply.template_version, reply.sports) == ("not_yet", 1, ("rowing",))
+    assert (reply.template_id, reply.template_version, reply.sports) == ("not_yet", 2, ("rowing",))
     calls = await SqlAlchemyLlmCallsRepository(db_session_factory).list_for_user(user.id)
     assert sorted(call.template_id for call in calls) == ["router", "router_fast", "safety_screen"]
 

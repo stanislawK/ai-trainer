@@ -19,6 +19,7 @@ from tests.chat_support import (
     UNLOGGABLE_SPORT,
     InMemoryChatRepository,
     ScriptedConversation,
+    ScriptedQuestionSport,
     include_chat,
     sign_in_as,
 )
@@ -151,6 +152,33 @@ async def test_an_error_ends_the_stream_with_a_retryable_error_row() -> None:
 
     assert "didn't come through" in final
     assert f'hx-get="/messages/{asked.id}/retry"' in final
+
+
+async def test_a_failed_gym_answer_shows_the_retry_row() -> None:
+    conversation = ScriptedConversation(
+        intents=[[Intent(kind="ask_training_question")]],
+        answer_outcomes=[LlmCallOutcome.ERROR, LlmCallOutcome.SUCCESS],
+    )
+    app = FastAPI()
+    chat = include_chat(
+        app,
+        build_templates(),
+        conversation=conversation,
+        question_sport=ScriptedQuestionSport(sport="gym"),
+    )
+    user = sign_in_as(app)
+    client = TestClient(app)
+    asked = await _asked(chat, user.id, "How is my bench going?")
+
+    final = _sse_data(client.get(f"/messages/{asked.id}/reply").text)[-1]
+
+    assert len(conversation.answered) == 1
+    assert "didn't come through" in final
+    assert f'hx-get="/messages/{asked.id}/retry"' in final
+    # Nothing was saved, so the retry streams a fresh answer.
+    retried = client.get(f"/messages/{asked.id}/reply").text
+    assert len(conversation.answered) == 2
+    assert "is 45 kg." in retried
 
 
 async def test_retry_swaps_the_error_row_for_a_fresh_placeholder_and_the_stream_replies() -> None:

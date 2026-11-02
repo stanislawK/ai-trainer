@@ -76,6 +76,18 @@ def test_kinds_match_keeps_repeated_log_session() -> None:
     assert IntentKindsMatch().evaluate(_ctx(twice, expected)) is False
 
 
+def test_kinds_match_takes_any_kind_the_metadata_names_as_alike() -> None:
+    expected = _output(_intent("request_report"))
+    alike = {"acceptable_kinds": ["ask_training_question", "request_report"]}
+
+    question = _output(_intent("ask_training_question"))
+    plan = _output(_intent("request_plan"))
+
+    assert IntentKindsMatch().evaluate(_ctx(question, expected, alike)) is True
+    assert IntentKindsMatch().evaluate(_ctx(plan, expected, alike)) is False
+    assert IntentKindsMatch().evaluate(_ctx(question, expected)) is False
+
+
 def test_kinds_match_ignores_a_trailing_kind_the_metadata_makes_optional() -> None:
     expected = _output(_intent("wellbeing_or_injury"))
     with_log = _output(_intent("wellbeing_or_injury"), _intent("log_session", sport="cycling"))

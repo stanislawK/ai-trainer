@@ -10,11 +10,11 @@ from dataclasses import dataclass
 from typing import Literal
 from uuid import UUID
 
-from ai_trainer.application.ports.conversation import ReplyContext
-from ai_trainer.application.ports.llm_gateway import StreamEnd
+from ai_trainer.application.ports.conversation import ReplyContext, TemplateRef
+from ai_trainer.application.ports.llm_gateway import LlmStreamEvent, StreamEnd
 from ai_trainer.application.reply.clarification import ask_sport
 from ai_trainer.application.reply.extract import draft_failed, extract, save
-from ai_trainer.application.reply.route import route_message
+from ai_trainer.application.reply.route import question_sport, route_message
 from ai_trainer.application.reply.shared import (
     LOG_KIND,
     PART_BREAK,
@@ -25,6 +25,7 @@ from ai_trainer.application.reply.shared import (
     ReplyFailed,
     ReplyPhase,
     ReplyServices,
+    answerable,
     extractable,
     find_message,
     reply_context,
@@ -34,11 +35,14 @@ from ai_trainer.domain.conversation import Intent, IntentKind
 from ai_trainer.domain.llm_calls import LlmCallOutcome
 from ai_trainer.domain.training import StoredDraft
 
-# Until each specialist ships, these go to `chitchat`; the persona carries G3 (ADR-0008).
+# Until its specialist ships, each of these goes to `chitchat`; the persona carries G3 (ADR-0008).
 _CHITCHAT_KINDS = frozenset({"chitchat", "unclear", "wellbeing_or_injury"})
 _SAFETY_KIND: IntentKind = "wellbeing_or_injury"
+# A question about the athlete's training, in whichever words: "how is my bench going?" routes as
+# either (ADR-0008 amendment at #421's plan gate).
+_QUESTION_KINDS = frozenset({"ask_training_question", "request_report"})
 
-type _Specialist = Literal["chitchat", "extract", "not_yet"]
+type _Specialist = Literal["answer", "chitchat", "extract", "not_yet"]
 # What a part streams: its text, then its answer once it came through, or the failure.
 type _PartEvent = ReplyChunk | ReplyFailed | Answer
 
@@ -58,25 +62,35 @@ def with_screened_safety(intents: Sequence[Intent], *, pain: bool) -> list[Inten
     return list(intents)
 
 
-def _plan(intents: Sequence[Intent], loggable: frozenset[str]) -> list[_Part]:
+def _plan(
+    intents: Sequence[Intent],
+    loggable: frozenset[str],
+    *,
+    answering: frozenset[str] = frozenset(),
+    asked_sport: str | None = None,
+) -> list[_Part]:
     """One part per specialist, safety first and then in message order (ADR-0008 invariant 4).
     Intents bound for the same specialist share one part: the chitchat call sees the whole
-    message, one extraction per sport sees it too, and one "not yet" reply covers every intent
-    that has no specialist yet. `loggable` are the sports whose plugin names an extraction
-    template (ADR-0006)."""
+    message, one extraction per sport sees it too, one answer covers every question, and one
+    "not yet" reply covers every intent that has no specialist yet. `loggable` are the sports
+    whose plugin names an extraction template (ADR-0006), `answering` those that name an answer
+    template, and `asked_sport` the sport the message's questions count as."""
     ordered = sorted(intents, key=lambda intent: intent.kind != _SAFETY_KIND)
     keys: list[tuple[_Specialist, str | None]] = []
     not_yet_sports: list[str] = []
     for intent in ordered:
         key: tuple[_Specialist, str | None]
+        sport = asked_sport if intent.kind in _QUESTION_KINDS else intent.sport
         if intent.kind in _CHITCHAT_KINDS:
             key = ("chitchat", None)
         elif intent.kind == LOG_KIND and intent.sport in loggable:
             key = ("extract", intent.sport)
+        elif intent.kind in _QUESTION_KINDS and asked_sport in answering:
+            key = ("answer", asked_sport)
         else:
             key = ("not_yet", None)
-            if intent.sport is not None and intent.sport not in not_yet_sports:
-                not_yet_sports.append(intent.sport)
+            if sport is not None and sport not in not_yet_sports:
+                not_yet_sports.append(sport)
         if key not in keys:
             keys.append(key)
     return [
@@ -153,15 +167,37 @@ async def _fresh_reply(
     yield ReplyPhase("replying")
 
     answers: list[Answer] = []
-    plan = _plan(with_screened_safety(routing.intents, pain=pain), extractable(services.sports))
-    async with aclosing(_answer(context, plan, services)) as events:
-        async for event in events:
-            if isinstance(event, Answer):
-                answers.append(event)
-                continue
-            yield event
-            if isinstance(event, ReplyFailed):
-                return
+    intents = with_screened_safety(routing.intents, pain=pain)
+    loggable = extractable(services.sports)
+    # Every extraction starts now, before a question's sport is read and so that a log of two
+    # sports waits only as long as the slower one (G14); each part still streams in its place.
+    extractions = {
+        sport: asyncio.ensure_future(extract(context, sport, services))
+        for sport in dict.fromkeys(
+            intent.sport
+            for intent in intents
+            if intent.kind == LOG_KIND and intent.sport in loggable
+        )
+    }
+    try:
+        # Only a message with a question pays for this.
+        asked = (
+            await question_sport(context, services)
+            if any(intent.kind in _QUESTION_KINDS for intent in intents)
+            else None
+        )
+        plan = _plan(intents, loggable, answering=answerable(services.sports), asked_sport=asked)
+        async with aclosing(_answer(context, plan, extractions, services)) as events:
+            async for event in events:
+                if isinstance(event, Answer):
+                    answers.append(event)
+                    continue
+                yield event
+                if isinstance(event, ReplyFailed):
+                    return
+    finally:
+        for extraction in extractions.values():
+            extraction.cancel()
 
     # Saved in its own task: a reader who leaves now can't cut a reply off halfway through.
     saving = asyncio.ensure_future(save(user_id, message, answers, services))
@@ -169,27 +205,23 @@ async def _fresh_reply(
 
 
 async def _answer(
-    context: ReplyContext, plan: Sequence[_Part], services: ReplyServices
+    context: ReplyContext,
+    plan: Sequence[_Part],
+    extractions: Mapping[str, asyncio.Future[Answer | ReplyFailed]],
+    services: ReplyServices,
 ) -> AsyncGenerator[_PartEvent]:
-    """Each part of the plan streamed in its place. A `ReplyFailed` ends the reply, and the
-    reader stops there: a failed chitchat's at once, and a failed extraction's only when
-    nothing the models made came through; else the extraction is kept as a line its Retry can
-    turn into the draft (ticket #161)."""
-    # Every extraction starts now, so a log of two sports waits only as long as the slower one
-    # (G14); each part is still streamed in its place.
-    extractions = {
-        part.sports[0]: asyncio.ensure_future(extract(context, part.sports[0], services))
-        for part in plan
-        if part.specialist == "extract"
-    }
+    """Each part of the plan streamed in its place, the extractions already started. A
+    `ReplyFailed` ends the reply, and the reader stops there: a failed chitchat's at once, and a
+    failed extraction's only when nothing the models made came through; else the extraction is
+    kept as a line its Retry can turn into the draft (ticket #161)."""
     failures: list[ReplyFailed] = []
     answered = came_through = False
     try:
         for part in plan:
             if answered:
                 yield ReplyChunk(PART_BREAK)
-            if part.specialist == "chitchat":
-                async with aclosing(_chitchat(context, part, services)) as stream:
+            if part.specialist in ("chitchat", "answer"):
+                async with aclosing(_streamed(context, part, services)) as stream:
                     async for event in stream:
                         yield event
                         if isinstance(event, Answer):
@@ -226,18 +258,31 @@ async def _fixed(
     return answer, None, True
 
 
-async def _chitchat(
+def _stream_of(
+    context: ReplyContext, part: _Part, services: ReplyServices
+) -> tuple[AsyncGenerator[LlmStreamEvent], TemplateRef]:
+    """The model stream of a part that streams, and the template that makes it."""
+    if part.specialist == "answer":
+        sport = part.sports[0]
+        return (
+            services.conversation.stream_answer(context, sport),
+            services.conversation.answer_template(sport),
+        )
+    return services.conversation.stream_chitchat(context), services.conversation.chitchat_template
+
+
+async def _streamed(
     context: ReplyContext, part: _Part, services: ReplyServices
 ) -> AsyncGenerator[_PartEvent]:
-    """The chitchat part, streamed as it comes, then its answer or its failure."""
-    async with aclosing(services.conversation.stream_chitchat(context)) as stream:
+    """A part that streams, as it comes, then its answer or its failure."""
+    model_stream, template = _stream_of(context, part, services)
+    async with aclosing(model_stream) as stream:
         async for event in stream:
             if not isinstance(event, StreamEnd):
                 yield ReplyChunk(event.text)
             elif event.result.output is None:
                 yield ReplyFailed(outcome=event.result.outcome)
             else:
-                template = services.conversation.chitchat_template
                 yield Answer(event.result.output, template, part.sports)
 
 

@@ -51,6 +51,12 @@ DEFAULT_ONBOARDING_MODEL = "z-ai/glm-5.3-flash"
 DEFAULT_ONBOARDING_PROVIDER = ProviderPreferences(sort="latency", quantizations=["fp8", "nvfp4"])
 DEFAULT_ONBOARDING_REASONING_EFFORT: ReasoningEffort = "low"
 
+# The starting point for `<sport>.answer` (#421), confirmed by its smoke set: what the other
+# templates run on, at `low` effort so a tool loop stays quick.
+DEFAULT_ANSWER_MODEL = "z-ai/glm-5.3-flash"
+DEFAULT_ANSWER_PROVIDER = ProviderPreferences(sort="latency", quantizations=["fp8", "nvfp4"])
+DEFAULT_ANSWER_REASONING_EFFORT: ReasoningEffort = "low"
+
 # A Jev ID carries a version number; aliases such as `~typesafe/jev-latest` move under a
 # calibrated threshold, so they are refused (ADR-0020).
 _VERSIONED_DECISION_MODEL = re.compile(r"^[a-z0-9-]+/jev-\d+\.\d+(\.\d+)?(-\d{8})?$")
@@ -177,6 +183,18 @@ class Settings(BaseSettings):
     onboarding_provider_preferences: ProviderPreferencesSetting = DEFAULT_ONBOARDING_PROVIDER
     onboarding_call_timeout_seconds: CallTimeout = None
     onboarding_reasoning_effort: ReasoningEffort | None = DEFAULT_ONBOARDING_REASONING_EFFORT
+    # One group for the `<sport>.answer` templates, which answer a training question from the
+    # athlete's history through the MCP tools (B40). Defaults so no deploy needs a new key; a
+    # blank key keeps them. The timeout bounds each wait on the model, a whole tool round
+    # included; unset falls back to `llm_call_timeout_seconds`.
+    answer_model: str = DEFAULT_ANSWER_MODEL
+    answer_provider_preferences: ProviderPreferencesSetting = DEFAULT_ANSWER_PROVIDER
+    answer_call_timeout_seconds: CallTimeout = None
+    answer_reasoning_effort: ReasoningEffort | None = DEFAULT_ANSWER_REASONING_EFFORT
+    # The most model requests one answer's tool loop may make. It counts once against
+    # `llm_calls_per_user_per_hour` however many it makes (ADR-0010 amendment at #421's plan
+    # gate), so this bounds what one budgeted call can cost.
+    answer_max_requests: int = Field(default=6, ge=2, le=20)
     # Evals (ADR-0009): pinned, distinct from the model under test, set explicitly on every
     # eval run with `set_default_judge_model`. No default here — a stable/GA OpenRouter model
     # id is an operator choice, not a code default (`.claude/rules/llm.md`).
@@ -195,6 +213,11 @@ class Settings(BaseSettings):
     # only figurative or fatigue wording (0.43-0.77). Recorded in its baseline; change it only
     # through `/tune-prompt safety_screen`.
     safety_screen_pain_threshold: float = Field(default=0.3, ge=0, le=1)
+    # P(sport) at or above this counts a training question as that sport (`question_sport`,
+    # ADR-0008 amendment at #421's plan gate). A miss costs a "not yet" reply; a wrong pick an
+    # answer about the wrong sport, so a new set starts on the side of missing (ADR-0034). It
+    # moves on feedback, through `/tune-prompt question_sport`.
+    question_sport_threshold: float = Field(default=0.7, ge=0, le=1)
     # `router_fast` (ADR-0020 use 1, ADR-0008 amendment): Jev routes a message itself only when
     # P(several requests) is at or below the first, and the picked intent's probability, and a
     # log's sport's, are at or above the others. A miss here costs only the LLM router's call,
@@ -328,6 +351,7 @@ class Settings(BaseSettings):
         "router_call_timeout_seconds",
         "extract_call_timeout_seconds",
         "onboarding_call_timeout_seconds",
+        "answer_call_timeout_seconds",
         "router_reasoning_effort",
         "extract_reasoning_effort",
         "object_storage_endpoint",
@@ -346,14 +370,17 @@ class Settings(BaseSettings):
         "onboarding_model",
         "onboarding_provider_preferences",
         "onboarding_reasoning_effort",
+        "answer_model",
+        "answer_provider_preferences",
+        "answer_reasoning_effort",
         "object_storage_region",
         "object_storage_timeout_seconds",
         mode="before",
     )
     @classmethod
     def _blank_setting_is_the_default(cls, value: object, info: ValidationInfo) -> object:
-        # `.env.example` lists the onboarding keys blank, so a copied `.env` keeps the picked
-        # defaults. A storage key blanked along with the others means the same.
+        # `.env.example` lists the onboarding and answer keys blank, so a copied `.env` keeps the
+        # picked defaults. A storage key blanked along with the others means the same.
         if isinstance(value, str) and not value.strip():
             assert info.field_name is not None
             return cls.model_fields[info.field_name].default

@@ -147,7 +147,7 @@ async def test_every_tool_publishes_a_described_schema_without_a_user_parameter(
     expected = {
         "query_sessions": {"sport", "since", "until", "limit"},
         "find_exercise": {"name"},
-        "exercise_history": {"exercise_id", "limit"},
+        "exercise_history": {"exercise_id", "typed_name", "limit"},
     }
     for name, tool in tools.items():
         assert tool.description is not None

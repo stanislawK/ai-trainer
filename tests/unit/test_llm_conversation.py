@@ -17,6 +17,7 @@ from ai_trainer.application.ports.llm_gateway import (
     LlmStreamEvent,
     StreamEnd,
     TextChunk,
+    ToolLoop,
 )
 from ai_trainer.domain.chat import ChatMessage, ChatRole
 from ai_trainer.domain.conversation import Intent
@@ -34,6 +35,7 @@ from ai_trainer.llm.conversation import (
     SPORT_QUESTION_REPLY_ID,
     LlmConversation,
     build_prompt_registry,
+    session_id,
 )
 from ai_trainer.llm.extract import build_extract_deps
 from ai_trainer.llm.router import ChatTurn, build_router_deps, router_output_type
@@ -97,6 +99,7 @@ class RecordingGateway:
 
 _ROUTER_PREFERENCES = ProviderPreferences(sort="latency")
 _EXTRACT_PREFERENCES = ProviderPreferences(preferred_max_latency={"p90": 2})
+_ANSWER_PREFERENCES = ProviderPreferences(sort="throughput")
 
 
 def _context(conversation_id: UUID = _THREAD, user_id: UUID | None = None) -> ReplyContext:
@@ -135,6 +138,11 @@ def _conversation(
         router_provider=_ROUTER_PREFERENCES,
         router_timeout_seconds=7.5,
         chitchat_model="test/chitchat-model",
+        answer_model="test/answer-model",
+        answer_provider=_ANSWER_PREFERENCES,
+        answer_reasoning_effort="high",
+        answer_timeout_seconds=11.0,
+        answer_max_requests=5,
         extract_model="test/extract-model",
         extract_provider=_EXTRACT_PREFERENCES,
         extract_timeout_seconds=9.0,
@@ -245,10 +253,89 @@ def test_not_yet_is_read_from_its_file_with_no_model_call() -> None:
 
     reply = _conversation(gateway).not_yet()
 
-    assert reply.template == TemplateRef(id=NOT_YET_REPLY_ID, version=1)
-    assert reply.text == (_PROMPTS_ROOT / "not_yet" / "v1.en.md").read_text().strip()
+    assert reply.template == TemplateRef(id=NOT_YET_REPLY_ID, version=2)
+    assert reply.text == (_PROMPTS_ROOT / "not_yet" / "v2.en.md").read_text().strip()
     assert reply.text
     assert (gateway.runs, gateway.streams) == ([], [])
+
+
+def test_not_yet_no_longer_says_logging_is_on_its_way() -> None:
+    reply = _conversation(RecordingGateway()).not_yet().text.lower()
+
+    assert "logging sessions" not in reply
+    assert "log your sessions" in reply
+    assert "gym" in reply
+
+
+def test_a_saved_not_yet_reply_keeps_its_earlier_version_on_disk() -> None:
+    """A row names the file its text came from, so v1 stays (ADR-0008 invariant 2)."""
+    assert (_PROMPTS_ROOT / "not_yet" / "v1.en.md").is_file()
+
+
+async def test_stream_answer_reads_the_sports_template_with_its_settings_and_tools() -> None:
+    gateway = RecordingGateway()
+    context = _context()
+
+    conversation = _conversation(gateway)
+    chunks = [event async for event in conversation.stream_answer(context, "gym")]
+
+    assert isinstance(chunks[-1], StreamEnd)
+    (call,) = gateway.streams
+    assert call["user_id"] == context.user_id
+    assert (call["template_id"], call["template_version"]) == ("gym.answer", 1)
+    assert call["model_id"] == "test/answer-model"
+    assert call["tool_loop"] == ToolLoop(max_requests=5)
+    assert call["provider"] == _ANSWER_PREFERENCES
+    assert call["reasoning_effort"] == "high"
+    assert call["timeout_seconds"] == 11.0
+    assert call["session_id"] == session_id(_THREAD)
+    assert call["prompt"] == context.message
+
+
+async def test_stream_answer_renders_persona_time_and_turns_but_no_identity() -> None:
+    gateway = RecordingGateway()
+    context = _context()
+
+    [_ async for _ in _conversation(gateway).stream_answer(context, "gym")]
+
+    instructions = gateway.streams[0]["instructions"]
+    assert "training companion" in instructions
+    assert "find_exercise" in instructions
+    # 23:30 UTC on 30 Sep is already 1 Oct in Warsaw (ADR-0014).
+    assert "today is 2026-10-01" in instructions
+    assert "- user: earlier" in instructions
+    assert context.message in instructions
+    assert str(context.user_id) not in instructions
+
+
+def test_answer_template_names_the_sports_template() -> None:
+    assert _conversation(RecordingGateway()).answer_template("gym") == TemplateRef(
+        id="gym.answer", version=1
+    )
+
+
+def test_a_sport_with_no_answer_template_is_refused() -> None:
+    with pytest.raises(ValueError, match="names no answer template"):
+        _conversation(RecordingGateway()).answer_template("climbing")
+
+
+def test_build_llm_conversation_reads_the_answer_settings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ANSWER_MODEL", "test/from-settings")
+    monkeypatch.setenv("ANSWER_MAX_REQUESTS", "3")
+    settings = Settings(
+        _env_file=None,
+        database_url=PostgresDsn("postgresql+psycopg://u:p@localhost:5432/db"),
+        openrouter_api_key=SecretStr("test-key"),
+        eval_judge_model="test/judge-model",
+    )
+    gateway = RecordingGateway()
+
+    conversation = build_llm_conversation(settings, default_sport_registry(), gateway)
+
+    assert conversation._answer_model == "test/from-settings"
+    assert conversation._answer_loop == ToolLoop(max_requests=3)
 
 
 _CLIMB_OUTPUT = {

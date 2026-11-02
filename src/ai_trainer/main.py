@@ -72,6 +72,7 @@ from ai_trainer.llm.decision_gateway import OpenRouterDecisionGateway
 from ai_trainer.llm.exercise_shortlist import JevExercisePicker
 from ai_trainer.llm.gateway import OpenRouterGateway
 from ai_trainer.llm.onboarding import LlmOnboardingReader
+from ai_trainer.llm.question_sport import JevQuestionSport
 from ai_trainer.llm.router_fast import JevFastRouter, RouterFastThresholds
 from ai_trainer.llm.safety_screen import JevSafetyScreen
 from ai_trainer.mcp.server import build_mcp_server
@@ -125,6 +126,11 @@ def build_llm_conversation(
         router_timeout_seconds=settings.router_call_timeout_seconds,
         router_reasoning_effort=settings.router_reasoning_effort,
         chitchat_model=settings.chitchat_model,
+        answer_model=settings.answer_model,
+        answer_provider=settings.answer_provider_preferences,
+        answer_reasoning_effort=settings.answer_reasoning_effort,
+        answer_timeout_seconds=settings.answer_call_timeout_seconds,
+        answer_max_requests=settings.answer_max_requests,
         extract_model=settings.extract_model,
         extract_provider=settings.extract_provider_preferences,
         extract_timeout_seconds=settings.extract_call_timeout_seconds,
@@ -264,17 +270,11 @@ def create_app(  # noqa: PLR0915 -- composition root: objects are built only her
         in_flight=settings.llm_calls_in_flight_per_user,
         metrics=metrics,
     )
-    gateway = BudgetedLlmGateway(
-        OpenRouterGateway(settings, llm_calls, debug_log=debug_log), budget
-    )
-    conversation = build_llm_conversation(settings, sport_registry, gateway)
-    decisions = BudgetedDecisionGateway(
-        OpenRouterDecisionGateway(settings, llm_calls, debug_log=debug_log), budget
-    )
     training_sessions = SqlAlchemyTrainingSessionRepository(session_factory, stores=activity_stores)
     exercise_repository = SqlAlchemyExerciseRepository(session_factory)
-    # The MCP server in process, for the specialists to come (ADR-0010). Nothing mounts it
-    # over HTTP: that waits for an amendment on how tokens are issued.
+    exercise_history = SqlAlchemyExerciseHistory(session_factory)
+    # The MCP server in process, which the answer specialists read through (ADR-0010). Nothing
+    # mounts it over HTTP: that waits for an amendment on how tokens are issued.
     app.state.mcp_toolset = build_toolset(
         build_mcp_server(
             TrainingHistory(training_sessions, sport_registry),
@@ -285,11 +285,18 @@ def create_app(  # noqa: PLR0915 -- composition root: objects are built only her
                     candidate_floor=settings.exercise_candidate_floor,
                     shortlist_size=settings.exercise_shortlist_size,
                 ),
+                exercise_history,
             ),
-            ExerciseTrainingHistory(
-                exercise_repository, SqlAlchemyExerciseHistory(session_factory)
-            ),
+            ExerciseTrainingHistory(exercise_repository, exercise_history),
         )
+    )
+    gateway = BudgetedLlmGateway(
+        OpenRouterGateway(settings, llm_calls, debug_log=debug_log, toolset=app.state.mcp_toolset),
+        budget,
+    )
+    conversation = build_llm_conversation(settings, sport_registry, gateway)
+    decisions = BudgetedDecisionGateway(
+        OpenRouterDecisionGateway(settings, llm_calls, debug_log=debug_log), budget
     )
     replies = ReplyServices(
         chat=chat,
@@ -319,6 +326,8 @@ def create_app(  # noqa: PLR0915 -- composition root: objects are built only her
             decisions,
             threshold=settings.safety_screen_pain_threshold,
         ),
+        # Names the sport of a training question (ADR-0008 amendment at #421's plan gate).
+        question_sport=JevQuestionSport(decisions, threshold=settings.question_sport_threshold),
         clock=clock,
         history_turns=settings.chat_history_turns,
         merge_window=timedelta(minutes=settings.session_merge_window_min),

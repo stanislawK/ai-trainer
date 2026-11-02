@@ -40,7 +40,7 @@ Locked by the ADRs cited below; `docs/adr/README.md` carries each ADR's current 
 - Google OAuth (Authlib) with server-side sessions — ADR-0005
 - Sport plugins + `SportRegistry` — ADR-0006
 - OpenRouter through Pydantic AI v2 — ADR-0007
-- Router → specialists; prompt templates as `TemplateStr` files — ADR-0008
+- Router → specialists; prompt templates as `TemplateStr` files; a question goes to its sport's answer specialist when Jev's `question_sport` or the athlete's only sport names one with a template, otherwise "not yet" — ADR-0008
 - Pydantic Evals — ADR-0009
 - FastMCP 4 tools, in-process first — ADR-0010
 - Knowledge base on pgvector with hybrid search — ADR-0011

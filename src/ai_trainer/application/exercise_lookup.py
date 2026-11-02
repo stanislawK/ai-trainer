@@ -10,8 +10,8 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict
 
 from ai_trainer.application.exercise_resolution import ResolutionLimits
-from ai_trainer.application.ports.exercises import ExerciseLookupPort
-from ai_trainer.domain.exercises import ExerciseDetail
+from ai_trainer.application.ports.exercises import ExerciseHistoryPort, ExerciseLookupPort
+from ai_trainer.domain.exercises import ExerciseDetail, LoggedName
 from ai_trainer.domain.sports.gym.names import GYM_SPORT_ID
 
 SHORTLIST_MAX = 4
@@ -22,12 +22,14 @@ _LANG = "en"
 
 class ExerciseLookup(BaseModel):
     """Where the exercises came from: `history` is the one the athlete settled before,
-    `catalogue` a shortlist for a name they have not."""
+    `catalogue` a shortlist for a name they have not. `logged` is what the athlete has logged
+    that fits the name, whichever way they named it (B40)."""
 
     model_config = ConfigDict(frozen=True)
 
     source: Literal["history", "catalogue"]
     exercises: list[ExerciseDetail]
+    logged: list[LoggedName] = []
 
 
 class ExerciseLookupFailed(BaseModel):
@@ -37,21 +39,33 @@ class ExerciseLookupFailed(BaseModel):
 
 
 class ExerciseFinder:
-    def __init__(self, exercises: ExerciseLookupPort, limits: ResolutionLimits) -> None:
+    def __init__(
+        self,
+        exercises: ExerciseLookupPort,
+        limits: ResolutionLimits,
+        history: ExerciseHistoryPort,
+    ) -> None:
         self._exercises = exercises
         self._limits = limits
+        self._history = history
 
     async def find(self, user_id: UUID, name: str) -> ExerciseLookup | ExerciseLookupFailed:
         typed = name.strip()
         if not typed:
             return ExerciseLookupFailed(reason="blank_name")
+        # Near only: a looser match would report another exercise's numbers as this one's.
+        logged = list(
+            await self._history.logged_names(
+                user_id, typed, near=self._limits.near_match, limit=SHORTLIST_MAX
+            )
+        )
         settled = await self._exercises.match_user_aliases(
             user_id, sport_id=GYM_SPORT_ID, names=[typed], near=self._limits.near_match
         )
         if typed in settled:
             found = await self._exercises.describe(user_id, [settled[typed]], lang=_LANG)
             if found:
-                return ExerciseLookup(source="history", exercises=list(found))
+                return ExerciseLookup(source="history", exercises=list(found), logged=logged)
         candidates = await self._exercises.shortlist(
             user_id,
             sport_id=GYM_SPORT_ID,
@@ -63,6 +77,6 @@ class ExerciseFinder:
         described = await self._exercises.describe(
             user_id, [candidate.id for candidate in candidates], lang=_LANG
         )
-        if not described:
+        if not described and not logged:
             return ExerciseLookupFailed(reason="no_match")
-        return ExerciseLookup(source="catalogue", exercises=list(described))
+        return ExerciseLookup(source="catalogue", exercises=list(described), logged=logged)

@@ -16,6 +16,7 @@ from ai_trainer.application.ports.llm_gateway import (
     LlmGatewayResult,
     LlmStreamEvent,
     StreamEnd,
+    ToolLoop,
 )
 from ai_trainer.domain.llm_calls import LlmCallOutcome, ProviderPreferences, ReasoningEffort
 
@@ -78,7 +79,13 @@ class BudgetedLlmGateway:
         model_id: str,
         instructions: str,
         prompt: str,
+        tool_loop: ToolLoop | None = None,
+        provider: ProviderPreferences | None = None,
+        reasoning_effort: ReasoningEffort | None = None,
+        session_id: str | None = None,
+        timeout_seconds: float | None = None,
     ) -> AsyncGenerator[LlmStreamEvent]:
+        # A tool loop holds one slot and counts once; `ToolLoop.max_requests` bounds its requests.
         async with self._budget.hold(user_id) as allowed:
             if not allowed:
                 yield StreamEnd(result=_refused_text())
@@ -90,6 +97,11 @@ class BudgetedLlmGateway:
                 model_id=model_id,
                 instructions=instructions,
                 prompt=prompt,
+                tool_loop=tool_loop,
+                provider=provider,
+                reasoning_effort=reasoning_effort,
+                session_id=session_id,
+                timeout_seconds=timeout_seconds,
             ):
                 yield event
 
