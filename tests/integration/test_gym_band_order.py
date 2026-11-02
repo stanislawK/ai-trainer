@@ -95,8 +95,8 @@ async def test_a_second_band_offers_lighter_and_heavier_than_the_ranked_one(
     question = await _open(replay)
     assert question.clarification.subject == "black"
     assert [(o.copy_key, o.params["order"]) for o in question.clarification.options] == [
-        ("band_place_first", "black < red"),
-        ("band_place_last", "red < black"),
+        ("band_place_first", "black, red"),
+        ("band_place_last", "red, black"),
     ]
     assert question.draft_id is None
 

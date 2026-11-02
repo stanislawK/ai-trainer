@@ -14,8 +14,8 @@ from ai_trainer.domain.clarification import (
 
 PLACE_PREFIX = "place:"
 NARROW_PREFIX = "narrow:"
-# The separator of a resulting order, as a hint shows it: "red < black < green".
-ORDER_SEPARATOR = " < "
+# The separator of a resulting order, as a hint shows it: "red, black, green".
+ORDER_SEPARATOR = ", "
 _SPORT = "gym"
 
 

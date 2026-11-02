@@ -75,12 +75,12 @@
 {%- set subject = question.clarification.subject -%}
 {%- if question.status == "answered" %}
 {%- set chosen = card.chosen %}
-<div class="chat-message mat-content rounded-box px-4 py-3 flex items-center gap-3" role="status" data-choice-card="{{ question.id }}">{{ icon("circle-check", "size-5 text-success") }}<div class="flex flex-col flex-1 min-w-0"><span class="text-[13px] text-base-content/70">Band order</span><span class="text-[16px] font-medium">{{ chosen.params.order if chosen else subject }}</span></div></div>
+<div class="chat-message mat-content rounded-box px-4 py-3 flex items-center gap-3" role="status" data-choice-card="{{ question.id }}">{{ icon("circle-check", "size-5 text-success") }}<div class="flex flex-col flex-1 min-w-0"><span class="text-[13px] text-base-content/70">Your bands, lightest to heaviest</span><span class="text-[16px] font-medium">{{ chosen.params.order if chosen else subject }}</span></div></div>
 {%- elif question.status == "abandoned" %}
-<div class="chat-message rounded-box min-h-[62px] px-4 py-3 flex items-center gap-3 border border-dashed border-base-content/20 text-base-content/70" role="status" data-choice-card="{{ question.id }}">{{ icon("x", "size-4") }}<span class="flex-1 text-[15px]">Skipped for now. {{ subject }} stays by its name.</span></div>
+<div class="chat-message rounded-box min-h-[62px] px-4 py-3 flex items-center gap-3 border border-dashed border-base-content/20 text-base-content/70" role="status" data-choice-card="{{ question.id }}">{{ icon("x", "size-4") }}<span class="flex-1 text-[15px]">Skipped, {{ subject }} stays unordered</span></div>
 {%- else %}
 <div class="chat-message mat-content rounded-box p-4 flex flex-col gap-3" role="group" id="choice-{{ question.id }}" aria-labelledby="choice-{{ question.id }}-question" data-choice-card="{{ question.id }}">
-  <p id="choice-{{ question.id }}-question" class="text-[16px] leading-6">Where does your {{ subject }} band go among your bands?</p>
+  <p id="choice-{{ question.id }}-question" class="text-[16px] leading-6">Where does your {{ subject }} band go, lightest to heaviest?</p>
   <div class="flex flex-col gap-2">
     {%- for option in question.clarification.options %}
     {{ choice_option(question, option, "closest [data-choice-card]", "#choice-" ~ question.id ~ " button") }}

@@ -85,11 +85,11 @@ async def test_a_tap_answers_with_the_new_order_and_a_second_band_asks_next() ->
 
     assert response.status_code == 200
     html = _flat(response.text)
-    assert "Band order" in html
-    assert "red &lt; black &lt; green" in html
+    assert "Your bands, lightest to heaviest" in html
+    assert "red, black, green" in html
     assert app.scale.placed == [("black", 2)]
-    assert "Where does your blue band go among your bands?" in html
-    assert html.index("Band order") < html.index("blue")
+    assert "Where does your blue band go, lightest to heaviest?" in html
+    assert html.index("Your bands, lightest to heaviest") < html.index("blue")
 
 
 async def test_a_card_with_the_rows_in_order_and_skip_in_place_of_typing() -> None:
@@ -107,8 +107,8 @@ async def test_a_card_with_the_rows_in_order_and_skip_in_place_of_typing() -> No
 
     assert html.count("data-choice-option=") == 2
     assert html.index("Lighter than red") < html.index("Heavier than red")
-    assert "black &lt; red" in html
-    assert "red &lt; black" in html
+    assert "black, red" in html
+    assert "red, black" in html
     assert "Skip for now" in html
     assert "Let me type instead" not in html
     assert f'hx-post="/clarifications/{question_id}/abandon"' in html
@@ -123,7 +123,7 @@ async def test_skipping_shows_the_dashed_row_and_keeps_the_band_by_its_label() -
     assert response.status_code == 200
     html = _flat(response.text)
     assert "border-dashed" in html
-    assert "black stays by its name" in html
+    assert "black stays unordered" in html
     assert app.only().status == "abandoned"
     assert app.scale.placed == []
 

@@ -19,8 +19,8 @@ def test_a_second_band_offers_lighter_and_heavier_than_the_ranked_one() -> None:
     first, last = question.options
     assert (first.copy_key, first.params["heavier"]) == ("band_place_first", "red")
     assert (last.copy_key, last.params["lighter"]) == ("band_place_last", "red")
-    assert first.params["order"] == "black < red"
-    assert last.params["order"] == "red < black"
+    assert first.params["order"] == "black, red"
+    assert last.params["order"] == "red, black"
     assert question.subject == "black"
     assert question.sport == "gym"
     assert question.pending == BAND_PURPOSE
@@ -32,7 +32,7 @@ def test_a_place_between_two_bands_names_both_and_the_resulting_order() -> None:
     between = question.options[1]
     assert between.copy_key == "band_place_between"
     assert (between.params["lighter"], between.params["heavier"]) == ("red", "green")
-    assert between.params["order"] == "red < black < green"
+    assert between.params["order"] == "red, black, green"
 
 
 def test_the_card_never_asks_to_skip_by_typing() -> None:
