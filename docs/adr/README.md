@@ -14,7 +14,7 @@ ADRs own the *how*: stack, architecture, testing and agent workflow. The current
 | 0008 | [Conversation routing and prompt templates](0008-conversation-routing-and-prompt-templates.md) | Accepted | 2026-09-16 |
 | 0009 | [Prompt evaluation pipeline](0009-prompt-evaluation-pipeline.md) | Accepted | 2026-09-16 |
 | 0010 | [MCP tools](0010-mcp-tools.md) | Accepted | 2026-09-16 |
-| 0011 | [Knowledge base and ingestion (outline)](0011-knowledge-base-and-ingestion.md) | Proposed | 2026-09-16 |
+| 0011 | [Knowledge base and ingestion (outline)](0011-knowledge-base-and-ingestion.md) | Accepted | 2026-09-16 |
 | 0012 | [Web UI](0012-web-ui.md) | Accepted | 2026-09-16 |
 | 0013 | [Testing and quality](0013-testing-and-quality.md) | Accepted | 2026-09-16 |
 | 0014 | [Time, timezone and session continuity](0014-time-timezone-and-session-continuity.md) | Accepted | 2026-09-16 |
