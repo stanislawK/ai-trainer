@@ -19,10 +19,12 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-_TYPE_IGNORE = re.compile(r"type:\s*ignore(?:\[(?P<code>[^\]]*)\])?(?P<rest>.*)")
+# Each directive must open a comment or follow a `#`, so prose that merely mentions one is not read
+# as a suppression.
+_TYPE_IGNORE = re.compile(r"#\s*type:\s*ignore(?:\[(?P<code>[^\]]*)\])?(?P<rest>.*)")
 _RULE = r"[A-Za-z]+[0-9]+"
-_NOQA = re.compile(rf"\bnoqa\b(?::\s*(?P<code>{_RULE}(?:\s*,\s*{_RULE})*))?(?P<rest>.*)")
-_PRAGMA = re.compile(r"pragma:\s*no cover\b(?P<rest>.*)")
+_NOQA = re.compile(rf"#\s*noqa\b(?::\s*(?P<code>{_RULE}(?:[\s,]+{_RULE})*))?(?P<rest>.*)")
+_PRAGMA = re.compile(r"#\s*pragma:\s*no cover\b(?P<rest>.*)")
 _TYPE_IGNORE_FORM = "# type: ignore[<code>]  # <reason>"
 _DASH_REASON = re.compile(r"^\s*--\s*\S")
 _HASH_REASON = re.compile(r"^\s*#\s*\S")
@@ -36,6 +38,9 @@ class SuppressionViolation:
 
 
 def find_violations(root: Path) -> list[SuppressionViolation]:
+    if not root.is_dir():
+        # A root that is not there would scan nothing and pass, e.g. run from another directory.
+        raise FileNotFoundError(f"{root} is not a directory")
     violations: list[SuppressionViolation] = []
     for path in sorted(root.rglob("*.py")):
         source = path.read_text()
@@ -57,7 +62,7 @@ def _problems(comment: str) -> list[str]:
 
     type_ignore = _TYPE_IGNORE.search(comment)
     if type_ignore:
-        if not type_ignore["code"]:
+        if not (type_ignore["code"] or "").strip():
             problems.append(f"`type: ignore` needs an error code: `{_TYPE_IGNORE_FORM}`")
         elif not _HASH_REASON.match(type_ignore["rest"]):
             problems.append(f"`type: ignore[...]` needs a reason: `{_TYPE_IGNORE_FORM}`")

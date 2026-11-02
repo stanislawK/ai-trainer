@@ -91,3 +91,31 @@ def test_main_prints_violations_and_returns_one(
 
     assert main([tmp_path]) == 1
     assert f"{path}:1" in capsys.readouterr().out
+
+
+def test_ignores_a_comment_that_only_mentions_a_suppression(tmp_path: Path) -> None:
+    _write(
+        tmp_path,
+        "# keep this; no noqa needed here\n"
+        "x = 1  # do not add a bare type: ignore or a pragma: no cover\n",
+    )
+
+    assert find_violations(tmp_path) == []
+
+
+def test_accepts_space_separated_noqa_codes_and_flags_an_empty_type_ignore_code(
+    tmp_path: Path,
+) -> None:
+    path = _write(
+        tmp_path,
+        "import sys  # noqa: F401 E402 -- re-exported\ny: int = 'a'  # type: ignore[ ]  # why\n",
+    )
+
+    violations = find_violations(tmp_path)
+
+    assert [(v.path, v.line) for v in violations] == [(path, 2)]
+
+
+def test_a_missing_root_is_an_error_not_a_pass(tmp_path: Path) -> None:
+    with pytest.raises(FileNotFoundError):
+        find_violations(tmp_path / "missing")
