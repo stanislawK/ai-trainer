@@ -138,7 +138,7 @@ No media is imported until a source with a license we hold is chosen. That is a 
   - **Undo keeps the alias, the links and any custom exercise.** The mapping is the athlete's confirmed answer, not part of the log, the same rule as a band (ADR-0032).
   - **A name past 200 characters stays typed-only,** with no question: the alias and exercise columns can't hold it.
   - **Near-match and "you wrote" text wait for #402** (F23). Until then a near match fills `exercise_id` with nothing on the card to say so. #402 can tell one apart: a filled `exercise_id` with no exact alias.
-  - ⚠ The latency scenario's athlete is climbing-only, so it never reached this code. `make latency-scenario sport=gym` replays gym logs for this path's G14 evidence.
+  - The latency scenario's athlete is climbing-only, so it never reached this code. `make latency-scenario sport=gym` replays gym logs for this path's G14 evidence, recorded below (#415).
 - Owner-approved 2026-11-01, at #402's plan gate (F23). This delivers #397's "Near-match and 'you wrote' text wait for #402":
   - **The card reads names when it renders.** The draft's canonical name and alias match come from a user-scoped `labels` lookup per draft, so nothing new goes in the gym payload. That is two queries per shown gym draft, which a conversation holds few of, and a discarded or undone draft reads none.
   - **Telling a near match apart.** A filled `exercise_id` with no exact alias isn't enough, because a candidate tapped on this draft looks the same until the confirm writes its alias. A near match therefore also needs an alias of that exercise at `exercise_near_match_threshold` or above, on a name the athlete didn't answer about on this draft. It shows that alias: "you usually log this as side raises".
@@ -146,6 +146,34 @@ No media is imported until a source with a license we hold is chosen. That is a 
   - **How-to text.** A candidate's how-to is the start of its English `exercise_texts.instructions` (G5), clamped to two lines by the card and stored on the option's `params`. A custom exercise has no text, so its row has no how-to line.
   - **Media.** `media_assets` and `exercise_media` don't exist until M2m, so the card has no media markup at all, and therefore no empty slot.
   - **"Use this name"** keeps the typed name as "Keep my name" does (ADR-0015, the #402 amendment).
+- **Gym G14 evidence (#415, 2026-11-02).** ⚠ G14 isn't fully met on gym logs. Its other sentence fails: one log in 40 failed on the router's 5 s timeout, which #436 carries. Its time bounds hold as measured here, 1.9 s at the median against 5 s and 4.5 s at p95 against 10 s, but only up to the first card the athlete sees. G14 says "draft card", and on the 16 turns with a new name that first card was the exercise card, so the draft card came after the athlete's tap, outside these figures. Tapping calls no model.
+  - **Setup.** `make latency-scenario sport=gym`, four runs of 10 log turns, on `main` at `de9faa5` plus this ticket's script fix. `.env.example`'s models, routing and timeouts: `z-ai/glm-5.3-flash` on `{"sort":"latency","quantizations":["fp8","nvfp4"]}`, 5 s for the router and 30 s for extraction, and Jev at 2 s. The worktree's own database held the imported catalogue of 1,315 rows. Between runs only the scenario's athlete was deleted, leaving no aliases and no custom exercises, so each run met new names. Percentiles are the scenario's nearest rank, failed turns included.
+
+    | Run | p50 | p95 | Timeouts | Failures | Turns with `exercise_shortlist` |
+    |---|---|---|---|---|---|
+    | 1 | 2.1 s | 3.5 s | 0 | 0 | 1, 2, 5, 9 |
+    | 2 | 1.8 s | 6.8 s | 1 (turn 6) | 0 | 1, 2, 5, 9 |
+    | 3 | 1.9 s | 3.2 s | 0 | 0 | 1, 2, 5, 9 |
+    | 4 | 1.8 s | 4.5 s | 0 | 0 | 1, 2, 5, 9 |
+    | **Pooled, 40 log turns** | **1.9 s** | **4.5 s** (max 6.8 s) | **1** | **0** | |
+
+  - **USD per log turn,** min / median / mean / max: 0.000000 / 0.000148 / 0.000174 / 0.000311. The minimum is the timed-out turn, whose router row records no cost.
+  - **Turns, p50 / p95:**
+    - with a Jev pick on a new name (16): 1.9 s / 4.5 s;
+    - answered from history (24, counting the timed-out turn, which never got as far as naming): 1.7 s / 5.4 s;
+    - through the router (12): 3.1 s / 6.8 s;
+    - without it (28): 1.8 s / 2.2 s.
+  - **Calls, p50 / p95 / max:**
+    - `exercise_shortlist` (20): 242 / 322 / 423 ms;
+    - `gym.extract` (39): 1277 / 1793 / 1853 ms;
+    - `router` (12): 1056 / 5005 / 5005 ms, with one timeout;
+    - `router_fast` (40): 256 / 397 / 1583 ms;
+    - `safety_screen` (40): 246 / 331 / 421 ms.
+  - **Naming isn't the slow step; the router is.** Resolution adds about a quarter of a second per new name, and history answered every repeat with no Jev call (invariant 2). All 12 router calls came from the three logs per run that name two exercises in one message. Run 2's turn 10 took the router 4.7 s for 384 output tokens, against 58–196 on the other successful calls. Whether the timed-out call was a slow upstream or long reasoning can't be told from this run: it logged no tokens and no upstream.
+  - **What these figures leave out:**
+    - Jev's pick wasn't confident on any name: run 4 ended with 5 answered questions for its 5 names, at `exercise_pick_threshold` 0.9, so each new name costs a tap. Only run 4 was checked, because deleting its athlete removes a run's questions. The threshold is tuned from feedback (ADR-0034), not here.
+    - The athlete is gym-only, so a multi-sport athlete's first log also goes through the router (ADR-0026).
+  - **Running it.** Import the catalogue first (`uv run ai-trainer import-exercises`): with none, no candidate passes the floor, Jev isn't called, and the run measures nothing. The scenario's first attempt ended `no_card` on all 10 turns and was thrown away. #402's exercise card has no draft ID, so the script never tapped or confirmed, and history was never reached. The script now counts the exercise card as the shown card and confirms the draft the last answer shows, tested against the real templates. A sport or reading question still counts as `no_card`, because its answer runs an extraction.
 - Verified at the import ticket (#375), on the pinned dataset, 2026-10-31:
   - **Index function.** `unaccent` is only `STABLE`, so an index can't call it. The migration adds `exercise_name_norm(text)`, an `IMMUTABLE` wrapper with an explicit dictionary that also collapses whitespace. The name indexes use it, trigram and full-text, and `alias_norm` is a column generated from it, so a later lookup that calls the same function can't normalize differently from a stored alias.
   - **Source defects, handled in `overrides.yaml`.** Ten pairs of rows share a name after cleaning, two of them differing only in punctuation (`close grip`, `close-grip`), so one of each is skipped: 1,324 − 10 + 1 (Face Pull) = 1,315 rows. Four names hold a mis-encoded degree sign (`45в°`), one a stray `_shoulder` and one a bare `male` with no brackets; they are renamed. The import refuses two rows a person couldn't tell apart and an override naming an unknown row, so a pin bump can't add either unnoticed.
