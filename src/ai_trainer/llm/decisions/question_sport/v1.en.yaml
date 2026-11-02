@@ -1,0 +1,24 @@
+goal: >-
+  A question an amateur athlete (climbing, gym or cycling) asked their training coach, either about
+  how their own training is going or about how to train. It may be in any language, Polish
+  included.
+questions:
+  sport:
+    kind: choice
+    question: >-
+      Which sport is this question about? Judge by the exercises, equipment, units and grades it
+      names. Pick "no sport" when it could equally be about any sport.
+    options:
+      climbing: >-
+        Climbing or bouldering: walls, crags, routes, boulders, hangboards and finger training,
+        sends, grades such as 6A or 7a+.
+      gym: >-
+        Strength training in a gym: lifts and exercises such as bench press, squats, deadlifts,
+        pull-ups and curls, sets and reps, weights in kg, machines, resistance bands, and how to
+        organise lifting such as deloads and rest between sets.
+      cycling: >-
+        Cycling: rides, road, gravel or mountain bikes, the trainer, distances in km, elevation,
+        speed, watts or cadence.
+      none: >-
+        No sport: it names nothing that points to one, such as "how was my week?" or "and last
+        week?".

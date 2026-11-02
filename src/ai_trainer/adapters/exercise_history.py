@@ -1,18 +1,30 @@
 """The athlete's past entries of one exercise, read from the gym's typed rows (ADR-0032,
-ticket #401). Every statement filters by `user_id`, so another athlete's entries are never read."""
+ticket #401), and the names they logged them under (B40, ticket #421). Every statement filters by
+`user_id`, so another athlete's entries are never read."""
 
 from collections.abc import Callable, Sequence
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import ColumnElement, case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ai_trainer.adapters.orm import GymExerciseEntryOrm, GymSetOrm, TrainingSessionOrm
-from ai_trainer.domain.exercises import ExerciseEntry, ExerciseMeasure, LoggedSet
+from ai_trainer.adapters.orm import (
+    ExerciseOrm,
+    GymExerciseEntryOrm,
+    GymSetOrm,
+    TrainingSessionOrm,
+)
+from ai_trainer.domain.exercises import ExerciseEntry, ExerciseMeasure, LoggedName, LoggedSet
 
 
 def _number(value: object) -> float | None:
     return None if value is None else float(str(value))
+
+
+def _fit(name: ColumnElement[str], typed: ColumnElement[str]) -> ColumnElement[float]:
+    """How well two normalized names fit, as one word or phrase inside the other, either way
+    round: "bench" fits "bench press", and "bench press" fits "bench"."""
+    return func.greatest(func.word_similarity(typed, name), func.word_similarity(name, typed))
 
 
 class SqlAlchemyExerciseHistory:
@@ -24,6 +36,53 @@ class SqlAlchemyExerciseHistory:
     async def entries(
         self, user_id: UUID, exercise_id: UUID, *, limit: int
     ) -> Sequence[ExerciseEntry]:
+        return await self._read(user_id, GymExerciseEntryOrm.exercise_id == exercise_id, limit)
+
+    async def typed_entries(
+        self, user_id: UUID, typed_name: str, *, limit: int
+    ) -> Sequence[ExerciseEntry]:
+        unlinked = GymExerciseEntryOrm.exercise_id.is_(None) & (
+            func.exercise_name_norm(GymExerciseEntryOrm.name_as_typed)
+            == func.exercise_name_norm(typed_name)
+        )
+        return await self._read(user_id, unlinked, limit)
+
+    async def logged_names(
+        self, user_id: UUID, name: str, *, near: float, limit: int
+    ) -> Sequence[LoggedName]:
+        typed = func.exercise_name_norm(name)
+        as_typed = func.exercise_name_norm(GymExerciseEntryOrm.name_as_typed)
+        score = func.max(
+            func.greatest(
+                _fit(as_typed, typed),
+                func.coalesce(_fit(func.exercise_name_norm(ExerciseOrm.name), typed), 0.0),
+            )
+        )
+        entries = func.count(GymExerciseEntryOrm.id)
+        # Linked entries group by their exercise; typed-only ones by the name as typed.
+        typed_only_name = case((GymExerciseEntryOrm.exercise_id.is_(None), as_typed))
+        async with self._session_factory() as session:
+            rows = await session.execute(
+                select(
+                    GymExerciseEntryOrm.exercise_id,
+                    func.coalesce(ExerciseOrm.name, func.min(GymExerciseEntryOrm.name_as_typed)),
+                    entries,
+                )
+                .outerjoin(ExerciseOrm, ExerciseOrm.id == GymExerciseEntryOrm.exercise_id)
+                .where(GymExerciseEntryOrm.user_id == user_id)
+                .group_by(GymExerciseEntryOrm.exercise_id, ExerciseOrm.name, typed_only_name)
+                .having(score >= near)
+                .order_by(score.desc(), entries.desc(), GymExerciseEntryOrm.exercise_id)
+                .limit(limit)
+            )
+            return [
+                LoggedName(exercise_id=exercise_id, name=logged, entries=count)
+                for exercise_id, logged, count in rows.tuples()
+            ]
+
+    async def _read(
+        self, user_id: UUID, which: ColumnElement[bool], limit: int
+    ) -> Sequence[ExerciseEntry]:
         async with self._session_factory() as session:
             found = (
                 (
@@ -34,10 +93,7 @@ class SqlAlchemyExerciseHistory:
                             (TrainingSessionOrm.id == GymExerciseEntryOrm.session_id)
                             & (TrainingSessionOrm.user_id == GymExerciseEntryOrm.user_id),
                         )
-                        .where(
-                            GymExerciseEntryOrm.user_id == user_id,
-                            GymExerciseEntryOrm.exercise_id == exercise_id,
-                        )
+                        .where(GymExerciseEntryOrm.user_id == user_id, which)
                         .order_by(
                             TrainingSessionOrm.occurred_on.desc(),
                             TrainingSessionOrm.created_at.desc(),

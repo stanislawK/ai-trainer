@@ -82,6 +82,15 @@ class ConversationModelPort(Protocol):
         """The `chitchat` specialist's reply, streamed as the gateway streams it."""
         ...
 
+    def answer_template(self, sport_id: str) -> TemplateRef:
+        """The template that answers questions about a sport; the sport must name one."""
+        ...
+
+    def stream_answer(self, context: ReplyContext, sport_id: str) -> AsyncGenerator[LlmStreamEvent]:
+        """The sport's answer specialist's reply, read from the athlete's own saved training
+        through its tools; the sport must name one (B40)."""
+        ...
+
     async def extract(
         self,
         context: ReplyContext,

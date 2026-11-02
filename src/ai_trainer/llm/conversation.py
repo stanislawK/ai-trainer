@@ -1,5 +1,5 @@
 """`ConversationModelPort` on the prompt registry and the gateway: the router, the chitchat
-specialist, each sport's extraction template, and the fixed replies (ADR-0008)."""
+specialist, each sport's extraction and answer templates, and the fixed replies (ADR-0008)."""
 
 import hashlib
 from collections.abc import AsyncGenerator, Sequence
@@ -13,7 +13,7 @@ from ai_trainer.application.ports.conversation import (
     Routing,
     TemplateRef,
 )
-from ai_trainer.application.ports.llm_gateway import LlmGatewayPort, LlmStreamEvent
+from ai_trainer.application.ports.llm_gateway import LlmGatewayPort, LlmStreamEvent, ToolLoop
 from ai_trainer.domain.chat import ChatMessage
 from ai_trainer.domain.clarification import (
     READING_QUESTION_TEMPLATE_ID,
@@ -21,8 +21,10 @@ from ai_trainer.domain.clarification import (
 )
 from ai_trainer.domain.conversation import Intent
 from ai_trainer.domain.llm_calls import ProviderPreferences, ReasoningEffort
+from ai_trainer.domain.sports.base import AnswerSpec
 from ai_trainer.domain.sports.registry import SportRegistry
 from ai_trainer.domain.training import DRAFT_FAILED_TEMPLATE_ID
+from ai_trainer.llm.answer import answer_template, answer_templates, build_answer_deps
 from ai_trainer.llm.chitchat import build_chitchat_deps, chitchat_template
 from ai_trainer.llm.extract import build_extract_deps, extract_template, extract_templates
 from ai_trainer.llm.onboarding import onboarding_templates
@@ -30,7 +32,7 @@ from ai_trainer.llm.prompts.registry import PromptRegistry
 from ai_trainer.llm.router import ROUTER_VERSIONS, ChatTurn, build_router_deps, router_template
 
 NOT_YET_REPLY_ID = "not_yet"
-_NOT_YET_VERSION = 1
+_NOT_YET_VERSION = 2
 # The line above a draft card, sent as written (ADR-0008 fixed replies).
 DRAFT_READY_REPLY_ID = "draft_ready"
 _DRAFT_READY_VERSION = 1
@@ -63,6 +65,8 @@ def build_prompt_registry(root: Path, sports: SportRegistry) -> PromptRegistry:
         registry.register(template)
     for onboarding in onboarding_templates():
         registry.register(onboarding)
+    for answer in answer_templates(sports):
+        registry.register(answer)
     return registry
 
 
@@ -94,7 +98,12 @@ class LlmConversation:
         router_model: str,
         chitchat_model: str,
         extract_model: str,
+        answer_model: str,
         history_turns: int,
+        answer_max_requests: int = 6,
+        answer_provider: ProviderPreferences | None = None,
+        answer_reasoning_effort: ReasoningEffort | None = None,
+        answer_timeout_seconds: float | None = None,
         router_provider: ProviderPreferences | None = None,
         extract_provider: ProviderPreferences | None = None,
         router_timeout_seconds: float | None = None,
@@ -116,6 +125,11 @@ class LlmConversation:
         self._router_reasoning_effort = router_reasoning_effort
         self._router_timeout_seconds = router_timeout_seconds
         self._chitchat_model = chitchat_model
+        self._answer_model = answer_model
+        self._answer_loop = ToolLoop(max_requests=answer_max_requests)
+        self._answer_provider = answer_provider
+        self._answer_reasoning_effort = answer_reasoning_effort
+        self._answer_timeout_seconds = answer_timeout_seconds
         self._history_turns = history_turns
 
     @property
@@ -175,6 +189,39 @@ class LlmConversation:
                 self._chitchat.id, self._chitchat.version, deps
             ),
             prompt=context.message,
+        )
+
+    def _answer_spec(self, sport_id: str) -> AnswerSpec:
+        spec = self._sports.get(sport_id).answers
+        if spec is None:
+            raise ValueError(f"sport {sport_id!r} names no answer template")
+        return spec
+
+    def answer_template(self, sport_id: str) -> TemplateRef:
+        spec = self._answer_spec(sport_id)
+        return TemplateRef(id=spec.template_id, version=spec.version)
+
+    def stream_answer(self, context: ReplyContext, sport_id: str) -> AsyncGenerator[LlmStreamEvent]:
+        template = answer_template(self._answer_spec(sport_id))
+        deps = build_answer_deps(
+            message=context.message,
+            history=_turns(context.history),
+            now=context.now,
+            timezone=context.timezone,
+            history_turns=self._history_turns,
+        )
+        return self._gateway.stream(
+            user_id=context.user_id,
+            template_id=template.id,
+            template_version=template.version,
+            model_id=self._answer_model,
+            instructions=self._registry.render_instructions(template.id, template.version, deps),
+            prompt=context.message,
+            tool_loop=self._answer_loop,
+            provider=self._answer_provider,
+            reasoning_effort=self._answer_reasoning_effort,
+            session_id=session_id(context.conversation_id),
+            timeout_seconds=self._answer_timeout_seconds,
         )
 
     async def extract(

@@ -38,9 +38,11 @@ from ai_trainer.llm.chitchat import CHITCHAT_TEMPLATE_ID, chitchat_template
 from ai_trainer.llm.conversation import build_prompt_registry
 from ai_trainer.llm.decision_gateway import OPENROUTER_SYSTEM_ONE_BASE_URL
 from ai_trainer.llm.decisions.loader import DECISIONS_ROOT, DecisionSetLoader
+from ai_trainer.llm.evals.answer_smoke import run_answer_smoke
 from ai_trainer.llm.evals.decisions import run_decision_eval
 from ai_trainer.llm.evals.exercise_shortlist_smoke import run_exercise_shortlist_smoke
 from ai_trainer.llm.evals.jev_check import JevCheck, configure_jev_check
+from ai_trainer.llm.evals.question_sport_smoke import run_question_sport_smoke
 from ai_trainer.llm.evals.router_fast import FastPathAccuracyError, run_router_fast_eval
 from ai_trainer.llm.evals.runner import (
     CaseFailedError,
@@ -74,6 +76,7 @@ from ai_trainer.llm.onboarding import (
 )
 from ai_trainer.llm.prompts.registry import PromptRegistry
 from ai_trainer.llm.prompts.template import PromptTemplate, TemplateOutput
+from ai_trainer.llm.question_sport import QUESTION_SPORT_ID, QUESTION_SPORT_VERSION
 from ai_trainer.llm.router import (
     ACTIVE_ROUTER_VERSION,
     ROUTER_TEMPLATE_ID,
@@ -89,7 +92,8 @@ _EVALS_ROOT = _REPO_ROOT / "evals"
 _PROMPTS_ROOT = Path(__file__).resolve().parent.parent / "prompts"
 _DECISIONS_ROOT = DECISIONS_ROOT
 
-# A decision set's smoke runner: it grades the set's cases on Jev, not on a prompt template.
+# A smoke runner of its own: a decision set's grades its cases on Jev, and an answer template's
+# runs them on the MCP tools, neither of which `run_smoke_set` does.
 type DecisionSmokeRunner = Callable[[SmokeSet, Model], Awaitable[list[SmokeCaseResult]]]
 
 # Each decision set's probability questions and the `Settings` field holding the threshold
@@ -162,8 +166,14 @@ def _active_versions(sports: SportRegistry) -> dict[str, int]:
             if plugin.extraction is not None
         },
         ROUTER_FAST_ID: ROUTER_FAST_VERSION,
+        **{
+            plugin.answers.template_id: plugin.answers.version
+            for plugin in sports.all()
+            if plugin.answers is not None
+        },
         SAFETY_SCREEN_ID: SAFETY_SCREEN_VERSION,
         EXERCISE_SHORTLIST_ID: EXERCISE_SHORTLIST_VERSION,
+        QUESTION_SPORT_ID: QUESTION_SPORT_VERSION,
     }
 
 
@@ -521,6 +531,42 @@ def _model_under_test(
     return OpenRouterModel(model_id, provider=provider, settings=model_settings or None)
 
 
+def _own_runners(
+    settings: Settings, registry: PromptRegistry, versions: Mapping[str, int]
+) -> tuple[dict[str, DecisionSmokeRunner], dict[str, DecisionSmokeRunner]]:
+    """The sets with a runner of their own: the decision sets, then the answer templates."""
+
+    async def exercise_shortlist(smoke_set: SmokeSet, model: Model) -> list[SmokeCaseResult]:
+        return await run_exercise_shortlist_smoke(
+            smoke_set, model, threshold=settings.exercise_pick_threshold
+        )
+
+    async def question_sport(smoke_set: SmokeSet, model: Model) -> list[SmokeCaseResult]:
+        return await run_question_sport_smoke(
+            smoke_set, model, threshold=settings.question_sport_threshold
+        )
+
+    async def answer(smoke_set: SmokeSet, model: Model) -> list[SmokeCaseResult]:
+        return await run_answer_smoke(
+            smoke_set,
+            model,
+            registry=registry,
+            version=versions[smoke_set.template_id],
+            max_requests=settings.answer_max_requests,
+        )
+
+    decision_runners: dict[str, DecisionSmokeRunner] = {
+        EXERCISE_SHORTLIST_ID: exercise_shortlist,
+        QUESTION_SPORT_ID: question_sport,
+    }
+    answer_runners: dict[str, DecisionSmokeRunner] = {
+        plugin.answers.template_id: answer
+        for plugin in default_sport_registry().all()
+        if plugin.answers is not None
+    }
+    return decision_runners, answer_runners
+
+
 def _main_smoke(args: argparse.Namespace, settings: Settings) -> int:
     registry = _default_registry()
     provider: OpenRouterProvider | None = None
@@ -535,13 +581,7 @@ def _main_smoke(args: argparse.Namespace, settings: Settings) -> int:
         return provider
 
     versions = _active_versions(default_sport_registry())
-
-    async def exercise_shortlist(smoke_set: SmokeSet, model: Model) -> list[SmokeCaseResult]:
-        return await run_exercise_shortlist_smoke(
-            smoke_set, model, threshold=settings.exercise_pick_threshold
-        )
-
-    decision_runners: dict[str, DecisionSmokeRunner] = {EXERCISE_SHORTLIST_ID: exercise_shortlist}
+    decision_runners, answer_runners = _own_runners(settings, registry, versions)
 
     def model_for(template_id: str) -> tuple[Model, str]:
         if template_id in decision_runners:
@@ -568,7 +608,7 @@ def _main_smoke(args: argparse.Namespace, settings: Settings) -> int:
             versions=versions,
             model_for=model_for,
             judge=judge,
-            decision_runners=decision_runners,
+            decision_runners={**decision_runners, **answer_runners},
         )
     )
 

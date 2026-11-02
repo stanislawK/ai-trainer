@@ -190,7 +190,12 @@ def kinds_match(actual: list[str], expected: list[str], *, metadata: dict[str, A
     """The same intent kinds in the same order, as `IntentKindsMatch` grades them; also how
     `router_fast`'s eval grades a fast route on the router's cases."""
     optional = metadata.get("optional_trailing_kinds", [])
-    return _collapse_repeats(_strip_trailing(actual, optional)) == _collapse_repeats(expected)
+    # A case whose kinds the app treats alike may list them; any of them reads as the expected one.
+    acceptable = metadata.get("acceptable_kinds", [])
+    kinds = actual
+    if len(expected) == 1 and expected[0] in acceptable:
+        kinds = [expected[0] if kind in acceptable else kind for kind in actual]
+    return _collapse_repeats(_strip_trailing(kinds, optional)) == _collapse_repeats(expected)
 
 
 def sport_hits(actual: list[str], expected: list[str], *, metadata: dict[str, Any]) -> float:
@@ -211,7 +216,8 @@ class IntentKindsMatch(Evaluator[EvalCaseInputs, BaseModel]):
     """Code-graded: the same intent kinds in the same order (pain first, then message order),
     with consecutive repeats of any kind but `log_session` collapsed. A case may list
     `metadata.optional_trailing_kinds`; those kinds at the end of the output are ignored, so a
-    pain case can pass with or without the log that follows it."""
+    pain case can pass with or without the log that follows it. A one-intent case may list
+    `metadata.acceptable_kinds`, the kinds the app treats alike there."""
 
     def evaluate(self, ctx: EvaluatorContext[EvalCaseInputs, BaseModel]) -> bool:
         assert ctx.expected_output is not None

@@ -738,10 +738,34 @@ class ScriptedConversation:
         default_factory=list
     )
     closed_streams: int = 0
+    # The answer specialist (#421): what it streams, how each call ends, and who it was asked.
+    answer_chunks: list[str] = field(default_factory=lambda: ["Your bench ", "is 45 kg."])
+    answer_outcomes: list[LlmCallOutcome] = field(default_factory=lambda: [LlmCallOutcome.SUCCESS])
+    answered: list[tuple[ReplyContext, str]] = field(default_factory=list)
 
     @property
     def chitchat_template(self) -> TemplateRef:
         return CHITCHAT_TEMPLATE
+
+    def answer_template(self, sport_id: str) -> TemplateRef:
+        return TemplateRef(id=f"{sport_id}.answer", version=1)
+
+    async def stream_answer(
+        self, context: ReplyContext, sport_id: str
+    ) -> AsyncGenerator[LlmStreamEvent]:
+        call = len(self.answered)
+        self.answered.append((context, sport_id))
+        outcome = self.answer_outcomes[min(call, len(self.answer_outcomes) - 1)]
+        for chunk in self.answer_chunks:
+            yield TextChunk(chunk)
+        output = "".join(self.answer_chunks) if outcome is LlmCallOutcome.SUCCESS else None
+        yield StreamEnd(
+            LlmGatewayResult(
+                output=output,
+                friendly_error=None if output is not None else "failed",
+                outcome=outcome,
+            )
+        )
 
     async def route(self, context: ReplyContext) -> Routing:
         call = len(self.routed)
@@ -848,6 +872,19 @@ class ScriptedSafetyScreen:
 
 
 @dataclass
+class ScriptedQuestionSport:
+    """Answers every question with `sport`; `None`, the default, is no sport Jev is sure of.
+    Records each message it saw."""
+
+    sport: str | None = None
+    asked: list[str] = field(default_factory=list)
+
+    async def sport_of(self, user_id: UUID, message: str) -> str | None:
+        self.asked.append(message)
+        return self.sport
+
+
+@dataclass
 class ScriptedFastRouter:
     """Answers every message with `intents`; `None`, the default, leaves it to the LLM router.
     `plausible_sports` is what Jev read from the message, `None` when it could not tell, and
@@ -877,6 +914,7 @@ def reply_services(
     conversation: ScriptedConversation | None = None,
     fast_router: ScriptedFastRouter | None = None,
     safety_screen: ScriptedSafetyScreen | None = None,
+    question_sport: ScriptedQuestionSport | None = None,
     history_turns: int = 10,
     max_clarification_options: int = 5,
     recent_sessions: int = 10,
@@ -897,6 +935,7 @@ def reply_services(
         conversation=conversation or ScriptedConversation(),
         fast_router=fast_router or ScriptedFastRouter(),
         safety_screen=safety_screen or ScriptedSafetyScreen(),
+        question_sport=question_sport or ScriptedQuestionSport(),
         clock=FixedClock(),
         history_turns=history_turns,
         merge_window=MERGE_WINDOW,
@@ -920,6 +959,7 @@ def include_chat(
     sessions: InMemoryTrainingSessions | None = None,
     feedback: FeedbackRecorder | None = None,
     settlers: Mapping[str, DraftSettlerPort] | None = None,
+    question_sport: ScriptedQuestionSport | None = None,
 ) -> InMemoryChatRepository:
     """Mounts the chat router on an in-memory repository and a scripted conversation, and
     returns the repository."""
@@ -934,6 +974,7 @@ def include_chat(
         fast_router=fast_router,
         feedback=feedback,
         settlers=settlers,
+        question_sport=question_sport,
     )
     app.include_router(
         build_chat_router(

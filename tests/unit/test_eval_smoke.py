@@ -435,6 +435,10 @@ def test_every_new_smoke_case_names_its_dataset_origin() -> None:
     for smoke_id in _TEMPLATE_SMOKE_IDS:
         for case in read_smoke_set(smoke_id, smoke_root=root).cases:
             assert case.metadata is not None, (smoke_id, case.name)
+            if "dataset" not in case.metadata:
+                # Worded by the Approved PRD until field chats replace it (ADR-0034, #421).
+                assert str(case.metadata["prd"]).startswith("PRD 0011"), (smoke_id, case.name)
+                continue
             origin = ROOT / str(case.metadata["dataset"])
             assert origin.is_file(), (smoke_id, case.metadata["dataset"])
             matches = [

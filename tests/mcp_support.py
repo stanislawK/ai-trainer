@@ -17,6 +17,7 @@ from ai_trainer.domain.exercises import (
     ExerciseEntry,
     ExerciseLabel,
     ExerciseMeasure,
+    LoggedName,
 )
 
 _LIMITS = ResolutionLimits(near_match=0.75, candidate_floor=0.25, shortlist_size=4)
@@ -78,9 +79,19 @@ class EmptyExerciseHistory:
     ) -> Sequence[ExerciseEntry]:
         return []
 
+    async def typed_entries(
+        self, user_id: UUID, typed_name: str, *, limit: int
+    ) -> Sequence[ExerciseEntry]:
+        return []
+
+    async def logged_names(
+        self, user_id: UUID, name: str, *, near: float, limit: int
+    ) -> Sequence[LoggedName]:
+        return []
+
 
 def no_exercise_tools() -> tuple[ExerciseFinder, ExerciseTrainingHistory]:
     return (
-        ExerciseFinder(EmptyExercises(), _LIMITS),
+        ExerciseFinder(EmptyExercises(), _LIMITS, EmptyExerciseHistory()),
         ExerciseTrainingHistory(EmptyExercises(), EmptyExerciseHistory()),
     )

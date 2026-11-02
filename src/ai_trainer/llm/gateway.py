@@ -2,12 +2,13 @@ import asyncio
 import time
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass
-from typing import cast
+from typing import Any, cast
 from uuid import UUID
 
 import httpx2
 from pydantic import BaseModel
-from pydantic_ai import Agent, AgentRetries
+from pydantic_ai import Agent, AgentRetries, AgentRun, UsageLimits
+from pydantic_ai.exceptions import UnexpectedModelBehavior
 from pydantic_ai.models.openrouter import (
     OpenRouterModel,
     OpenRouterModelSettings,
@@ -17,6 +18,7 @@ from pydantic_ai.models.openrouter import (
 from pydantic_ai.models.test import TestModel
 from pydantic_ai.providers.openrouter import OpenRouterProvider
 from pydantic_ai.result import StreamedRunResult
+from pydantic_ai.toolsets import AbstractToolset
 
 from ai_trainer.application.ports.llm_calls import LlmCallsRepositoryPort
 from ai_trainer.application.ports.llm_gateway import (
@@ -24,11 +26,13 @@ from ai_trainer.application.ports.llm_gateway import (
     LlmStreamEvent,
     StreamEnd,
     TextChunk,
+    ToolLoop,
 )
 from ai_trainer.domain.llm_calls import LlmCallOutcome, ProviderPreferences, ReasoningEffort
 from ai_trainer.llm.call_accounting import CallAccountant, CallKey, CallUsage, sum_cost
 from ai_trainer.llm.debug_log import CallRecorder, LlmDebugLog
 from ai_trainer.llm.prompts.registry import output_types
+from ai_trainer.llm.tool_loop import stream_run_text
 from ai_trainer.settings import Settings
 
 TIMEOUT_MESSAGE = "The AI assistant is taking too long to respond. Please try again in a moment."
@@ -47,11 +51,32 @@ class _Done:
 _DONE = _Done()
 
 
+@dataclass(frozen=True, slots=True)
+class _ToolDeps:
+    """What a tool loop's run carries: the user its tools act for, read by the host's
+    `process_tool_call` hook, and nothing else (ADR-0010)."""
+
+    user_id: UUID
+
+
 @dataclass
 class _StreamState:
     """The producer's run, shared so usage can be read however the stream ends."""
 
-    streamed: StreamedRunResult[None, str] | None = None
+    streamed: StreamedRunResult[None, str] | AgentRun[_ToolDeps, str] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _StreamCall:
+    """What the producer needs to make one streamed call."""
+
+    user_id: UUID
+    model_id: str
+    instructions: str
+    prompt: str
+    model_settings: OpenRouterModelSettings
+    tool_loop: ToolLoop | None
+    recorder: CallRecorder | None
 
 
 class OpenRouterGateway:
@@ -70,6 +95,7 @@ class OpenRouterGateway:
         *,
         http_client: httpx2.AsyncClient | None = None,
         debug_log: LlmDebugLog | None = None,
+        toolset: AbstractToolset[Any] | None = None,
     ) -> None:
         self._provider = OpenRouterProvider(
             api_key=settings.openrouter_api_key.get_secret_value(), http_client=http_client
@@ -81,6 +107,9 @@ class OpenRouterGateway:
         # A placeholder model: every real call overrides it via `model=` below. Tests substitute
         # TestModel/FunctionModel through `agent.override()` (ADR-0007) on this same instance.
         self.agent: Agent[None, str] = Agent(TestModel())
+        # The same, for a reply with a tool loop, whose run carries the user.
+        self.tool_agent: Agent[_ToolDeps, str] = Agent(TestModel(), deps_type=_ToolDeps)
+        self._toolset = toolset
 
     async def run[OutputT: BaseModel](
         self,
@@ -100,16 +129,9 @@ class OpenRouterGateway:
         timeout_seconds: float | None = None,
     ) -> LlmGatewayResult[OutputT]:
         model = OpenRouterModel(model_id, provider=self._provider)
-        model_settings = OpenRouterModelSettings(openrouter_cache_instructions=True)
+        model_settings = _model_settings(provider, reasoning_effort, session_id)
         if temperature is not None:
             model_settings["temperature"] = temperature
-        if provider is not None:
-            model_settings["openrouter_provider"] = provider_config(provider)
-        if session_id is not None:
-            # A top-level body field Pydantic AI has no setting for (ADR-0026 Consequences).
-            model_settings["extra_body"] = {"session_id": session_id}
-        if reasoning_effort is not None:
-            model_settings["openrouter_reasoning"] = reasoning_at(reasoning_effort)
         recorder = self._recorder(template_id, template_version, model_id)
         attempt = await self._accountant.attempt(
             CallKey(user_id, template_id, template_version, model_id),
@@ -147,6 +169,11 @@ class OpenRouterGateway:
         model_id: str,
         instructions: str,
         prompt: str,
+        tool_loop: ToolLoop | None = None,
+        provider: ProviderPreferences | None = None,
+        reasoning_effort: ReasoningEffort | None = None,
+        session_id: str | None = None,
+        timeout_seconds: float | None = None,
     ) -> AsyncGenerator[LlmStreamEvent]:
         """Streams a text reply; writes exactly one `llm_calls` row however the stream ends.
 
@@ -158,19 +185,27 @@ class OpenRouterGateway:
         The timeout applies to each wait on the model (the first response, then each chunk), not
         to the whole reply, so a long answer that keeps flowing is never cut off and time the
         consumer spends between chunks never counts against it.
+
+        With `tool_loop` the wait covers a whole tool round too, since no text flows during one.
         """
         started = time.monotonic()
         queue: asyncio.Queue[str | Exception | _Done] = asyncio.Queue()
         state = _StreamState()
+        wait = self._accountant.timeout_seconds if timeout_seconds is None else timeout_seconds
         recorder = self._recorder(template_id, template_version, model_id)
         producer = asyncio.create_task(
             self._pump(
                 queue,
                 state,
-                model_id=model_id,
-                instructions=instructions,
-                prompt=prompt,
-                recorder=recorder,
+                _StreamCall(
+                    user_id=user_id,
+                    model_id=model_id,
+                    instructions=instructions,
+                    prompt=prompt,
+                    model_settings=_model_settings(provider, reasoning_effort, session_id),
+                    tool_loop=tool_loop,
+                    recorder=recorder,
+                ),
             )
         )
         # Stays `CANCELLED` only if the consumer closes the generator at a `yield`.
@@ -181,9 +216,7 @@ class OpenRouterGateway:
         try:
             while True:
                 try:
-                    item = await asyncio.wait_for(
-                        queue.get(), timeout=self._accountant.timeout_seconds
-                    )
+                    item = await asyncio.wait_for(queue.get(), timeout=wait)
                 except TimeoutError:
                     outcome, friendly_error = LlmCallOutcome.TIMEOUT, TIMEOUT_MESSAGE
                     break
@@ -220,32 +253,65 @@ class OpenRouterGateway:
         self,
         queue: asyncio.Queue[str | Exception | _Done],
         state: _StreamState,
-        *,
-        model_id: str,
-        instructions: str,
-        prompt: str,
-        recorder: CallRecorder | None,
+        call: _StreamCall,
     ) -> None:
-        model = OpenRouterModel(model_id, provider=self._provider)
-        model_settings = OpenRouterModelSettings(openrouter_cache_instructions=True)
         try:
-            async with self.agent.run_stream(
-                prompt,
-                model=model,
-                output_type=str,
-                instructions=instructions,
-                model_settings=model_settings,
-                capabilities=[recorder] if recorder is not None else None,
-            ) as streamed:
-                state.streamed = streamed
-                async for text in streamed.stream_text(delta=True, debounce_by=None):
-                    if recorder is not None:
-                        recorder.streamed(text)
-                    await queue.put(text)
+            if call.tool_loop is None:
+                await self._feed_text(queue, state, call)
+            else:
+                await self._feed_tool_loop(queue, state, call, call.tool_loop)
         except Exception as exc:
             await queue.put(exc)
             return
         await queue.put(_DONE)
+
+    async def _feed_text(
+        self, queue: asyncio.Queue[str | Exception | _Done], state: _StreamState, call: _StreamCall
+    ) -> None:
+        async with self.agent.run_stream(
+            call.prompt,
+            model=OpenRouterModel(call.model_id, provider=self._provider),
+            output_type=str,
+            instructions=call.instructions,
+            model_settings=call.model_settings,
+            capabilities=[call.recorder] if call.recorder is not None else None,
+        ) as streamed:
+            state.streamed = streamed
+            async for text in streamed.stream_text(delta=True, debounce_by=None):
+                if call.recorder is not None:
+                    call.recorder.streamed(text)
+                await queue.put(text)
+
+    async def _feed_tool_loop(
+        self,
+        queue: asyncio.Queue[str | Exception | _Done],
+        state: _StreamState,
+        call: _StreamCall,
+        loop: ToolLoop,
+    ) -> None:
+        """Text from every request is streamed, so what is saved is what the athlete saw."""
+        if self._toolset is None:
+            raise RuntimeError("this gateway was built with no toolset")
+
+        async def put(text: str) -> None:
+            if call.recorder is not None:
+                call.recorder.streamed(text)
+            await queue.put(text)
+
+        async with self.tool_agent.iter(
+            call.prompt,
+            model=OpenRouterModel(call.model_id, provider=self._provider),
+            instructions=call.instructions,
+            model_settings=call.model_settings,
+            deps=_ToolDeps(call.user_id),
+            toolsets=[self._toolset],
+            usage_limits=UsageLimits(request_limit=loop.max_requests),
+            capabilities=[call.recorder] if call.recorder is not None else None,
+        ) as run:
+            state.streamed = run
+            said = await stream_run_text(run, put)
+        if not said:
+            raise UnexpectedModelBehavior("the tool loop ended with no text")
 
     def _recorder(
         self, template_id: str, template_version: int, model_id: str
@@ -280,6 +346,22 @@ class OpenRouterGateway:
         await self._accountant.write(
             CallKey(user_id, template_id, template_version, model_id), usage, started, outcome
         )
+
+
+def _model_settings(
+    provider: ProviderPreferences | None,
+    reasoning_effort: ReasoningEffort | None,
+    session_id: str | None,
+) -> OpenRouterModelSettings:
+    model_settings = OpenRouterModelSettings(openrouter_cache_instructions=True)
+    if provider is not None:
+        model_settings["openrouter_provider"] = provider_config(provider)
+    if session_id is not None:
+        # A top-level body field Pydantic AI has no setting for (ADR-0026 Consequences).
+        model_settings["extra_body"] = {"session_id": session_id}
+    if reasoning_effort is not None:
+        model_settings["openrouter_reasoning"] = reasoning_at(reasoning_effort)
+    return model_settings
 
 
 def reasoning_at(effort: ReasoningEffort) -> OpenRouterReasoning:

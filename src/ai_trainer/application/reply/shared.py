@@ -21,6 +21,7 @@ from ai_trainer.application.ports.drafts import SessionDraftRepositoryPort
 from ai_trainer.application.ports.fast_router import FastRouterPort
 from ai_trainer.application.ports.metrics import NO_METRICS, MetricsPort
 from ai_trainer.application.ports.onboarding import OnboardingRepositoryPort
+from ai_trainer.application.ports.question_sport import NO_QUESTION_SPORT, QuestionSportPort
 from ai_trainer.application.ports.safety_screen import SafetyScreenPort
 from ai_trainer.application.ports.training import TrainingSessionRepositoryPort
 from ai_trainer.domain.chat import ChatMessage, ChatRole
@@ -109,6 +110,8 @@ class ReplyServices:
     feedback: FeedbackRecorder | None = None
     # What a sport settles on its drafts, by sport ID: the gym's exercise names (ticket #397).
     settlers: Mapping[str, DraftSettlerPort] = field(default_factory=dict)
+    # Which sport a training question is about (ADR-0008 amendment at #421's plan gate).
+    question_sport: QuestionSportPort = NO_QUESTION_SPORT
 
 
 @dataclass(frozen=True, slots=True)
@@ -127,6 +130,11 @@ class Answer:
 def extractable(sports: SportRegistry) -> frozenset[str]:
     """The sports whose plugin names an extraction template (ADR-0006)."""
     return frozenset(plugin.id for plugin in sports.all() if plugin.extraction is not None)
+
+
+def answerable(sports: SportRegistry) -> frozenset[str]:
+    """The sports whose plugin names an answer template (B40)."""
+    return frozenset(plugin.id for plugin in sports.all() if plugin.answers is not None)
 
 
 async def find_message(

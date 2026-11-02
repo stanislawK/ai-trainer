@@ -13,6 +13,7 @@ from ai_trainer.domain.exercises import (
     ExerciseLabel,
     ExerciseMeasure,
     ImportedCatalogue,
+    LoggedName,
 )
 
 
@@ -75,6 +76,21 @@ class ExerciseHistoryPort(Protocol):
     ) -> Sequence[ExerciseEntry]:
         """At most `limit` of `user_id`'s own entries of the exercise, the latest day first,
         with their sets in order. Another athlete's entries are never read."""
+        ...
+
+    async def typed_entries(
+        self, user_id: UUID, typed_name: str, *, limit: int
+    ) -> Sequence[ExerciseEntry]:
+        """As `entries`, for the typed-only entries whose normalized name is `typed_name`'s
+        (ADR-0031): those with no exercise linked yet."""
+        ...
+
+    async def logged_names(
+        self, user_id: UUID, name: str, *, near: float, limit: int
+    ) -> Sequence[LoggedName]:
+        """At most `limit` exercises `user_id` has logged that fit `name` at `near` or above,
+        best first, by word similarity either way round against the name as typed and the
+        exercise's own name (B40). Typed-only entries of one normalized name are one row."""
         ...
 
 

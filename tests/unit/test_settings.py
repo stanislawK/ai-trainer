@@ -389,6 +389,28 @@ def test_a_blank_onboarding_setting_keeps_its_default(monkeypatch: pytest.Monkey
     assert settings.onboarding_call_timeout_seconds is None
 
 
+def test_answer_settings_default_and_blank_to_their_defaults(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DATABASE_URL", DATABASE_URL)
+    monkeypatch.setenv("OPENROUTER_API_KEY", OPENROUTER_API_KEY)
+    monkeypatch.setenv("EVAL_JUDGE_MODEL", EVAL_JUDGE_MODEL)
+    monkeypatch.setenv("ANSWER_MODEL", " ")
+    monkeypatch.setenv("ANSWER_PROVIDER_PREFERENCES", "")
+    monkeypatch.setenv("ANSWER_CALL_TIMEOUT_SECONDS", " ")
+    monkeypatch.setenv("ANSWER_REASONING_EFFORT", "")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.answer_model == "z-ai/glm-5.3-flash"
+    assert settings.answer_provider_preferences is not None
+    assert settings.answer_provider_preferences.sort == "latency"
+    assert settings.answer_reasoning_effort == "low"
+    assert settings.answer_call_timeout_seconds is None
+    assert settings.answer_max_requests == 6
+    assert settings.question_sport_threshold == 0.7
+
+
 def test_decision_settings_default_to_a_pinned_jev_on_openrouter_and_a_short_timeout(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

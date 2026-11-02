@@ -2,7 +2,7 @@
 
 from collections.abc import Iterable, Sequence
 
-from ai_trainer.domain.sports.base import ExtractionSpec, QuestionSpec, SportPlugin
+from ai_trainer.domain.sports.base import AnswerSpec, ExtractionSpec, QuestionSpec, SportPlugin
 from ai_trainer.domain.sports.climbing.edit import apply_climbing_edit
 from ai_trainer.domain.sports.climbing.extraction import (
     ClimbingExtraction,
@@ -90,6 +90,7 @@ def default_sport_registry() -> SportRegistry:
                     question=QuestionSpec(type=GymQuestion, since_version=3),
                     recent=recent_exercises,
                 ),
+                answers=AnswerSpec(template_id="gym.answer", version=1),
             ),
             SportPlugin(
                 id="cycling",

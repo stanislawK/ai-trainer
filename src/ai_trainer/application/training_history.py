@@ -2,6 +2,7 @@
 `query_sessions` MCP tool. A query that can't be answered comes back as a
 `SessionQueryFailed` value, never a raise, so a tool can turn it into a recovery hint."""
 
+from collections.abc import Sequence
 from datetime import date
 from typing import Literal
 from uuid import UUID
@@ -97,22 +98,23 @@ class ExerciseRef(BaseModel):
 
 class ExerciseHistoryPage(BaseModel):
     """The exercise and the athlete's entries of it, the latest day first; `truncated` when more
-    exist than `limit`."""
+    exist than `limit`. Typed-only entries have no `exercise` (ADR-0031)."""
 
     model_config = ConfigDict(frozen=True)
 
-    exercise: ExerciseRef
+    exercise: ExerciseRef | None
     entries: list[ExerciseEntry]
     truncated: bool
 
 
 class ExerciseHistoryFailed(BaseModel):
     """`not_found` covers an unknown ID and another athlete's alike; `no_entries` an exercise the
-    athlete can see but has never logged."""
+    athlete can see but has never logged, or a name with no typed-only entries; `bad_selector` a
+    call naming the exercise both ways, or neither."""
 
     model_config = ConfigDict(frozen=True)
 
-    reason: Literal["not_found", "no_entries"]
+    reason: Literal["not_found", "no_entries", "bad_selector"]
 
 
 class ExerciseTrainingHistory:
@@ -127,15 +129,35 @@ class ExerciseTrainingHistory:
         exercise = await self._exercises.get(user_id, exercise_id)
         if exercise is None:
             return ExerciseHistoryFailed(reason="not_found")
-        limit = max(1, min(limit, MAX_ENTRIES))
+        limit = _bounded(limit)
         # One row past the limit tells a cut page from an exact one.
         found = await self._history.entries(user_id, exercise_id, limit=limit + 1)
-        if not found:
-            return ExerciseHistoryFailed(reason="no_entries")
-        return ExerciseHistoryPage(
-            exercise=ExerciseRef(
+        return _page(
+            ExerciseRef(
                 id=exercise.id, name=exercise.name, default_measure=exercise.default_measure
             ),
-            entries=list(found[:limit]),
-            truncated=len(found) > limit,
+            found,
+            limit,
         )
+
+    async def typed_entries(
+        self, user_id: UUID, typed_name: str, limit: int = DEFAULT_ENTRIES
+    ) -> ExerciseHistoryPage | ExerciseHistoryFailed:
+        """The user's own typed-only entries of a name, which no exercise is linked to yet."""
+        limit = _bounded(limit)
+        found = await self._history.typed_entries(user_id, typed_name, limit=limit + 1)
+        return _page(None, found, limit)
+
+
+def _bounded(limit: int) -> int:
+    return max(1, min(limit, MAX_ENTRIES))
+
+
+def _page(
+    exercise: ExerciseRef | None, found: Sequence[ExerciseEntry], limit: int
+) -> ExerciseHistoryPage | ExerciseHistoryFailed:
+    if not found:
+        return ExerciseHistoryFailed(reason="no_entries")
+    return ExerciseHistoryPage(
+        exercise=exercise, entries=list(found[:limit]), truncated=len(found) > limit
+    )

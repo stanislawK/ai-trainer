@@ -53,6 +53,16 @@ async def route_message(context: ReplyContext, services: ReplyServices) -> Routi
     return replace(routed, plausible_sports=fast.plausible_sports)
 
 
+async def question_sport(context: ReplyContext, services: ReplyServices) -> str | None:
+    """The sport a question counts as (ADR-0008 amendment at #421's plan gate): the one Jev is
+    confident of, else the athlete's only sport. Otherwise none: neither a guess nor a card, so
+    the question gets "not yet" (B3, B17)."""
+    picked = await services.question_sport.sport_of(context.user_id, context.message)
+    if picked is not None:
+        return picked
+    return context.athlete_sports[0] if len(context.athlete_sports) == 1 else None
+
+
 def _sport_choice(fast: FastRoute, services: ReplyServices) -> tuple[str, ...]:
     """The sports to ask between: one log whose sport Jev left split, and two or more of the
     plausible sports can be logged, likeliest first, cut to `max_clarification_options`. A sport

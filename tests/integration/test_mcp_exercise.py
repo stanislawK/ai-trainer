@@ -33,7 +33,7 @@ from ai_trainer.application.exercise_lookup import ExerciseFinder
 from ai_trainer.application.exercise_resolution import ResolutionLimits
 from ai_trainer.application.ports.exercises import ExerciseHistoryPort
 from ai_trainer.application.training_history import ExerciseTrainingHistory, TrainingHistory
-from ai_trainer.domain.exercises import ExerciseEntry, ExerciseMeasure
+from ai_trainer.domain.exercises import ExerciseEntry, ExerciseMeasure, LoggedName
 from ai_trainer.domain.sports.registry import default_sport_registry
 from ai_trainer.mcp.identity import USER_ID_META_KEY, MissingUserError
 from ai_trainer.mcp.server import build_mcp_server
@@ -58,6 +58,16 @@ class _BrokenHistory:
     async def entries(
         self, user_id: UUID, exercise_id: UUID, *, limit: int
     ) -> Sequence[ExerciseEntry]:
+        raise RuntimeError(f"connection lost for {user_id}")
+
+    async def typed_entries(
+        self, user_id: UUID, typed_name: str, *, limit: int
+    ) -> Sequence[ExerciseEntry]:
+        raise RuntimeError(f"connection lost for {user_id}")
+
+    async def logged_names(
+        self, user_id: UUID, name: str, *, near: float, limit: int
+    ) -> Sequence[LoggedName]:
         raise RuntimeError(f"connection lost for {user_id}")
 
 
@@ -139,15 +149,14 @@ async def world(db_session_factory: SessionFactory) -> _World:
     )
 
     def server_with(history: ExerciseHistoryPort | None) -> Any:
+        logged = history or SqlAlchemyExerciseHistory(db_session_factory)
         return build_mcp_server(
             TrainingHistory(
                 SqlAlchemyTrainingSessionRepository(db_session_factory, stores=STORES),
                 default_sport_registry(),
             ),
-            ExerciseFinder(exercises, _LIMITS),
-            ExerciseTrainingHistory(
-                exercises, history or SqlAlchemyExerciseHistory(db_session_factory)
-            ),
+            ExerciseFinder(exercises, _LIMITS, logged),
+            ExerciseTrainingHistory(exercises, logged),
         )
 
     return _World(alice, bob, bench, alices_custom.id, bobs_custom.id, server_with)
@@ -290,6 +299,162 @@ async def test_mcp_exercise_history_of_an_unlogged_exercise_is_a_failed_result(
 
     assert history["success"] is False
     assert history["recovery_hint"]
+
+
+# --- #421: every entry counts, under whichever name it was logged (B40) ----------------------
+
+
+async def _typed_only(
+    factory: SessionFactory, user_id: UUID, name: str, day: date, reps: int = 8
+) -> None:
+    session_id = await _session(factory, user_id, day, "", "gym")
+    entry_id = uuid4()
+    async with factory() as db:
+        db.add(
+            GymExerciseEntryOrm(
+                id=entry_id,
+                user_id=user_id,
+                session_id=session_id,
+                position=1,
+                exercise_id=None,
+                name_as_typed=name,
+                measure=ExerciseMeasure.LOAD_REPS.value,
+            )
+        )
+        await db.flush()
+        db.add(
+            GymSetOrm(
+                user_id=user_id,
+                entry_id=entry_id,
+                set_no=1,
+                reps=reps,
+                load_kg=Decimal("6"),
+                load_original="6kg",
+            )
+        )
+        await db.commit()
+
+
+async def test_mcp_exercise_find_lists_the_athletes_logged_exercise_for_a_short_name(
+    world: _World,
+) -> None:
+    found = await _call(world, world.alice, "find_exercise", {"name": "bench"})
+
+    (logged,) = found["data"]["logged"]
+    assert logged["exercise_id"] == str(world.bench)
+    assert logged["name"] == "Barbell Bench Press"
+    assert logged["entries"] == 2
+
+
+async def test_mcp_exercise_find_keeps_logged_names_next_to_a_settled_exercise(
+    world: _World, db_session_factory: SessionFactory
+) -> None:
+    await _typed_only(db_session_factory, world.alice, "Bench press close grip", date(2026, 10, 5))
+
+    found = await _call(world, world.alice, "find_exercise", {"name": "bench press"})
+
+    assert found["data"]["source"] == "history"
+    assert {logged["name"] for logged in found["data"]["logged"]} == {
+        "Barbell Bench Press",
+        "Bench press close grip",
+    }
+
+
+async def test_mcp_exercise_find_lists_a_typed_only_name_when_nothing_else_fits(
+    world: _World, db_session_factory: SessionFactory
+) -> None:
+    name = "Rising straight arms on both sides"
+    await _typed_only(db_session_factory, world.alice, name, date(2026, 10, 28))
+    await _typed_only(
+        db_session_factory, world.alice, "rising  straight arms on both sides", date(2026, 10, 29)
+    )
+
+    found = await _call(world, world.alice, "find_exercise", {"name": "rising straight arms"})
+
+    assert found["success"] is True
+    assert found["data"]["exercises"] == []
+    (logged,) = found["data"]["logged"]
+    assert logged["exercise_id"] is None
+    assert logged["entries"] == 2
+
+
+async def test_mcp_exercise_find_never_lists_another_exercise_that_only_looks_close(
+    world: _World, db_session_factory: SessionFactory
+) -> None:
+    # Measured on PostgreSQL 18: these score 0.50 and 0.60 against the names below.
+    await _typed_only(db_session_factory, world.bob, "Bent over row", date(2026, 10, 1))
+    await _typed_only(db_session_factory, world.bob, "Leg press", date(2026, 10, 2))
+
+    bench = await _call(world, world.bob, "find_exercise", {"name": "bench"})
+    press = await _call(world, world.bob, "find_exercise", {"name": "bench press"})
+
+    assert "Bent over row" not in str(bench)
+    assert "Leg press" not in str(press)
+
+
+async def test_mcp_exercise_history_reads_a_typed_only_name_newest_first(
+    world: _World, db_session_factory: SessionFactory
+) -> None:
+    await _typed_only(db_session_factory, world.alice, "Rising arms", date(2026, 10, 21), reps=10)
+    await _typed_only(db_session_factory, world.alice, "rising  ARMS", date(2026, 10, 28), reps=12)
+
+    history = await _call(world, world.alice, "exercise_history", {"typed_name": "rising arms"})
+
+    assert history["success"] is True
+    page = history["data"]
+    assert page["exercise"] is None
+    assert [entry["occurred_on"] for entry in page["entries"]] == ["2026-10-28", "2026-10-21"]
+    assert page["entries"][0]["sets"][0]["reps"] == 12
+
+
+async def test_mcp_exercise_history_by_typed_name_reads_only_unlinked_entries(
+    world: _World,
+) -> None:
+    # Alice's "bench press" entries are linked to the exercise, so they have an ID to read by.
+    history = await _call(world, world.alice, "exercise_history", {"typed_name": "bench press"})
+
+    assert history["success"] is False
+    assert history["recovery_hint"]
+
+
+async def test_mcp_exercise_history_says_when_it_cut_a_typed_only_page(
+    world: _World, db_session_factory: SessionFactory
+) -> None:
+    await _typed_only(db_session_factory, world.alice, "Rising arms", date(2026, 10, 21))
+    await _typed_only(db_session_factory, world.alice, "Rising arms", date(2026, 10, 28))
+
+    history = await _call(
+        world, world.alice, "exercise_history", {"typed_name": "Rising arms", "limit": 1}
+    )
+
+    assert history["data"]["truncated"] is True
+    assert [entry["occurred_on"] for entry in history["data"]["entries"]] == ["2026-10-28"]
+
+
+@pytest.mark.parametrize("both", [True, False], ids=["both", "neither"])
+async def test_mcp_exercise_history_takes_exactly_one_way_to_name_the_exercise(
+    world: _World, both: bool
+) -> None:
+    args = {"exercise_id": str(world.bench), "typed_name": "bench press"} if both else {}
+
+    history = await _call(world, world.alice, "exercise_history", args)
+
+    assert history["success"] is False
+    assert "find_exercise" in history["recovery_hint"]
+
+
+async def test_mcp_exercise_typed_only_names_stay_with_their_athlete(
+    world: _World, db_session_factory: SessionFactory
+) -> None:
+    await _typed_only(db_session_factory, world.bob, "Bobs rising arms", date(2026, 10, 28))
+
+    found = await _call(world, world.alice, "find_exercise", {"name": "Bobs rising arms"})
+    read = await _call(world, world.alice, "exercise_history", {"typed_name": "Bobs rising arms"})
+    own = await _call(world, world.bob, "exercise_history", {"typed_name": "Bobs rising arms"})
+
+    assert "Bobs rising arms" not in str(found)
+    assert read["success"] is False
+    assert own["success"] is True
 
 
 # --- AC3: tenancy ----------------------------------------------------------------------------

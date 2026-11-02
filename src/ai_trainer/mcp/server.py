@@ -73,8 +73,11 @@ def build_mcp_server(
         `name` is the exercise as the athlete wrote it. When the athlete already settled this
         name before, `source` is `history` and that one exercise comes first and alone;
         otherwise `source` is `catalogue` and up to 4 candidates follow, best first, from the
-        shared catalogue and the athlete's own exercises. A name that fits nothing comes back
-        with `success` false and a `recovery_hint`."""
+        shared catalogue and the athlete's own exercises. `logged` lists up to 4 things the
+        athlete has actually logged that fit the name, each with how many entries it has: to
+        read one, pass its `exercise_id` to `exercise_history`, or its `name` as `typed_name`
+        when it has no ID. A catalogue candidate not in `logged` may have no history at all. A
+        name that fits nothing comes back with `success` false and a `recovery_hint`."""
         outcome = await finder.find(current_user_id(ctx), name)
         if isinstance(outcome, ExerciseLookupFailed):
             return _lookup_failed(outcome)
@@ -83,19 +86,28 @@ def build_mcp_server(
     @server.tool
     async def exercise_history(
         ctx: Context,
-        exercise_id: UUID,
+        exercise_id: UUID | None = None,
+        typed_name: str | None = None,
         limit: Annotated[int, Field(ge=1, le=MAX_ENTRIES)] = DEFAULT_ENTRIES,
     ) -> ToolResult[ExerciseHistoryPage]:
         """List the athlete's own past entries of one gym exercise, the latest day first, with
         each entry's day, the name as they typed it and every set's reps, load in kg (and as
-        typed), time, distance and band. Use it to see how an exercise progressed, for example
-        before suggesting a load; don't use it to find an exercise by name (call
-        `find_exercise` first) or for sessions in general (`query_sessions`). `exercise_id`
-        is an ID from `find_exercise`; `limit` is how many entries to return, 1 to 50,
-        default 10. When more entries exist than `limit`, `truncated` is true: raise the
-        limit. An unknown ID, or one the athlete has never logged, comes back with `success`
-        false and a `recovery_hint`."""
-        outcome = await exercise_log.entries(current_user_id(ctx), exercise_id, limit)
+        typed), time, distance and band. Use it to see how an exercise progressed; don't use it
+        to find an exercise by name (call `find_exercise` first) or for sessions in general
+        (`query_sessions`). Pass exactly one of `exercise_id`, an ID from `find_exercise`, and
+        `typed_name`, the `name` of a `logged` row from `find_exercise` that has no ID. `limit`
+        is how many entries to return, 1 to 50, default 10. When more entries exist than
+        `limit`, `truncated` is true: raise the limit. An unknown ID, or an exercise or name the
+        athlete has never logged, comes back with `success` false and a `recovery_hint`."""
+        user_id = current_user_id(ctx)
+        outcome: ExerciseHistoryPage | ExerciseHistoryFailed
+        if (exercise_id is None) == (typed_name is None):
+            outcome = ExerciseHistoryFailed(reason="bad_selector")
+        elif exercise_id is not None:
+            outcome = await exercise_log.entries(user_id, exercise_id, limit)
+        else:
+            assert typed_name is not None  # the first branch took the case of neither
+            outcome = await exercise_log.typed_entries(user_id, typed_name, limit)
         if isinstance(outcome, ExerciseHistoryFailed):
             return _history_failed(outcome)
         return ToolResult.ok(outcome)
@@ -128,6 +140,12 @@ def _history_failed(failure: ExerciseHistoryFailed) -> ToolResult[ExerciseHistor
             return ToolResult[ExerciseHistoryPage].failed(
                 "The athlete has not logged this exercise.",
                 "Say they have no history for it yet; don't report other exercises instead.",
+            )
+        case "bad_selector":
+            return ToolResult[ExerciseHistoryPage].failed(
+                "Pass exactly one of `exercise_id` and `typed_name`.",
+                "Call `find_exercise` with the exercise name, then pass one row's `exercise_id`, "
+                "or its `name` as `typed_name` when it has no ID.",
             )
 
 

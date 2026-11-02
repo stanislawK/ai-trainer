@@ -110,6 +110,47 @@ cases:
       sport: climbing
   metadata:
     dataset: evals/datasets/router.yaml
+# #421: PRD 0011's wording until field chats replace it (ADR-0034's #421 amendment). The app treats
+# `ask_training_question` and `request_report` alike here, so a bench question may be either.
+- name: how my bench is going
+  inputs:
+    prompt: How is my bench going?
+    deps:
+      message: How is my bench going?
+      history: []
+      athlete_sports:
+      - gym
+      today: '2026-11-02'
+      now_local: '2026-11-02T18:30:00+01:00'
+      timezone: Europe/Warsaw
+  expected_output:
+    intents:
+    - kind: request_report
+      confidence: 0.9
+      span: ''
+  metadata:
+    prd: PRD 0011 flow 15
+    acceptable_kinds:
+    - ask_training_question
+    - request_report
+- name: how often to deload
+  inputs:
+    prompt: How often should I deload?
+    deps:
+      message: How often should I deload?
+      history: []
+      athlete_sports:
+      - gym
+      today: '2026-11-02'
+      now_local: '2026-11-02T18:30:00+01:00'
+      timezone: Europe/Warsaw
+  expected_output:
+    intents:
+    - kind: ask_training_question
+      confidence: 0.9
+      span: ''
+  metadata:
+    prd: PRD 0011 flow 15
 evaluators:
 - IntentKindsMatch
 - LogSessionSportMatch

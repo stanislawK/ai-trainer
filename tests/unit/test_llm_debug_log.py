@@ -21,6 +21,9 @@ from ai_trainer.llm.gateway import OpenRouterGateway
 from ai_trainer.settings import Settings
 from tests.chat_support import FROZEN_NOW, FixedClock
 from tests.unit.test_decision_gateway import STATE, FakeJev, _refuse, _sample
+from ai_trainer.application.ports.llm_gateway import ToolLoop
+from ai_trainer.mcp.toolset import build_toolset
+from tests.unit.test_gateway_tools import _server, _tool_then_answer
 from tests.unit.test_llm_gateway import FakeLlmCallsRepository, Greeting
 
 
@@ -192,6 +195,36 @@ async def test_a_streamed_replys_line_has_its_time_to_first_token_and_text(
     assert 0 <= line["ttft_ms"] <= line["latency_ms"]
     assert "Nice send" in json.dumps(line["reply"])
     assert line["partial_reply"] is None
+
+
+async def test_a_tool_loops_line_holds_the_text_the_athlete_saw(tmp_path: Path) -> None:
+    """One line per call, however many requests its tool loop made (#421)."""
+    directory = tmp_path / "llm-debug"
+    gateway = OpenRouterGateway(
+        _settings(directory),
+        FakeLlmCallsRepository(),
+        debug_log=build_debug_log(_settings(directory), FixedClock()),
+        toolset=build_toolset(_server([])),
+    )
+
+    with gateway.tool_agent.override(model=FunctionModel(stream_function=_tool_then_answer)):
+        async with aclosing(
+            gateway.stream(
+                user_id=uuid4(),
+                template_id="gym.answer",
+                template_version=1,
+                model_id="z-ai/glm-5.3-flash",
+                instructions="Answer.",
+                prompt="How is my bench going?",
+                tool_loop=ToolLoop(max_requests=4),
+            )
+        ) as stream:
+            async for _ in stream:
+                pass
+
+    lines = _lines(directory)
+    assert {line["template_id"] for line in lines} == {"gym.answer"}
+    assert any("Your bench is 45 kg." in json.dumps(line["reply"]) for line in lines)
 
 
 async def test_with_the_flag_off_no_file_is_created(tmp_path: Path) -> None:

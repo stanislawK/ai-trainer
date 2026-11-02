@@ -1,0 +1,65 @@
+# Smoke set for the question_sport decision (ADR-0034, #421): graded in code, run once on Jev. Each
+# case is a training question, and `sport` is what the app should read at the Settings threshold:
+# a sport, or `none` when it names none or Jev is unsure. A miss costs a "not yet" reply.
+# Sources (ADR-0034 and its #421 amendment): the Approved PRD's acceptance criteria and flows, the
+# `ask_training_question` cases of evals/datasets/router.yaml, and the owner's field transcript.
+name: question_sport
+cases:
+- name: bench, a gym exercise
+  metadata:
+    prd: PRD 0011 flow 15
+  inputs:
+    prompt: How is my bench going?
+    deps: {}
+  expected_output:
+    sport: gym
+- name: deload, a lifting term with no sport named
+  metadata:
+    prd: PRD 0011 flow 15
+  inputs:
+    prompt: How often should I deload?
+    deps: {}
+  expected_output:
+    sport: gym
+- name: hangboard, climbing
+  metadata:
+    prd: PRD 0011 flow 3
+  inputs:
+    prompt: How often should I hangboard?
+    deps: {}
+  expected_output:
+    sport: climbing
+- name: rest between hard climbing days
+  metadata:
+    dataset: evals/datasets/router.yaml
+  inputs:
+    prompt: How many rest days should I take between hard climbing days?
+    deps: {}
+  expected_output:
+    sport: climbing
+- name: eating before a long ride
+  metadata:
+    dataset: evals/datasets/router.yaml
+  inputs:
+    prompt: What should I eat before a long ride?
+    deps: {}
+  expected_output:
+    sport: cycling
+# Names no sport: Jev reads the bare message, not the logs before it. So this reaches the specialist
+# only for an athlete whose one sport is gym (ADR-0008 amendment at #421's plan gate).
+- name: the owner's question about today's exercises
+  metadata:
+    field: evals/field/gym/2026-10-28-first-gym-session.md
+  inputs:
+    prompt: Did you understand excersises that I did today? If yes write me a summary explaining each excersie
+    deps: {}
+  expected_output:
+    sport: none
+- name: how was my week, no sport
+  metadata:
+    prd: PRD 0011 acceptance criteria (the cross-sport reply)
+  inputs:
+    prompt: How was my week?
+    deps: {}
+  expected_output:
+    sport: none

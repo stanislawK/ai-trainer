@@ -11,7 +11,7 @@ from ai_trainer.application.training_history import (
     ExerciseHistoryPage,
     ExerciseTrainingHistory,
 )
-from ai_trainer.domain.exercises import Exercise, ExerciseEntry, ExerciseMeasure
+from ai_trainer.domain.exercises import Exercise, ExerciseEntry, ExerciseMeasure, LoggedName
 from tests.mcp_support import EmptyExercises
 
 _USER = uuid4()
@@ -37,6 +37,19 @@ class _History:
     async def entries(
         self, user_id: UUID, exercise_id: UUID, *, limit: int
     ) -> Sequence[ExerciseEntry]:
+        return self._read(limit)
+
+    async def typed_entries(
+        self, user_id: UUID, typed_name: str, *, limit: int
+    ) -> Sequence[ExerciseEntry]:
+        return self._read(limit)
+
+    async def logged_names(
+        self, user_id: UUID, name: str, *, near: float, limit: int
+    ) -> Sequence[LoggedName]:
+        return []
+
+    def _read(self, limit: int) -> Sequence[ExerciseEntry]:
         self.asked.append(limit)
         return [
             ExerciseEntry(
@@ -82,8 +95,31 @@ async def test_the_page_names_the_exercise_without_its_owner() -> None:
     )
 
     assert isinstance(result, ExerciseHistoryPage)
+    assert result.exercise is not None
     assert result.exercise.name == "cable fly"
     assert str(_USER) not in result.model_dump_json()
+
+
+async def test_a_typed_only_page_bounds_its_limit_and_names_no_exercise() -> None:
+    history = _History(found=500)
+
+    result = await ExerciseTrainingHistory(_Exercises(), history).typed_entries(
+        _USER, "rising arms", limit=10_000
+    )
+
+    assert history.asked == [MAX_ENTRIES + 1]
+    assert isinstance(result, ExerciseHistoryPage)
+    assert result.exercise is None
+    assert len(result.entries) == MAX_ENTRIES
+    assert result.truncated is True
+
+
+async def test_a_typed_name_with_no_entries_is_no_entries() -> None:
+    result = await ExerciseTrainingHistory(_Exercises(), _History(found=0)).typed_entries(
+        _USER, "rising arms"
+    )
+
+    assert result == ExerciseHistoryFailed(reason="no_entries")
 
 
 async def test_an_exercise_the_athlete_cannot_see_is_not_found() -> None:

@@ -151,6 +151,17 @@ class ExerciseDetail(BaseModel):
     description: str | None = None
 
 
+class LoggedName(BaseModel):
+    """An exercise the athlete has logged, as a lookup shows it (B40): the exercise's `name` and
+    ID, or for typed-only entries the name as typed and no ID (ADR-0031)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    exercise_id: UUID | None
+    name: str
+    entries: int
+
+
 class LoggedSet(BaseModel):
     """One set of a past entry as stored (ADR-0032): a measure the athlete didn't give is `None`,
     never estimated. `load_original` keeps the load as typed."""

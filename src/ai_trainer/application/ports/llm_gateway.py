@@ -32,6 +32,14 @@ class StreamEnd:
 type LlmStreamEvent = TextChunk | StreamEnd
 
 
+@dataclass(frozen=True, slots=True)
+class ToolLoop:
+    """A streamed reply that may call the gateway's tools before it answers (ADR-0010):
+    `max_requests` caps its model requests. Past the cap the call fails like any other."""
+
+    max_requests: int
+
+
 class LlmGatewayPort(Protocol):
     """The only way the application layer reaches a model; Pydantic AI stays in `llm/` (ADR-0007)"""
 
@@ -66,11 +74,20 @@ class LlmGatewayPort(Protocol):
         model_id: str,
         instructions: str,
         prompt: str,
+        tool_loop: ToolLoop | None = None,
+        provider: ProviderPreferences | None = None,
+        reasoning_effort: ReasoningEffort | None = None,
+        session_id: str | None = None,
+        timeout_seconds: float | None = None,
     ) -> AsyncGenerator[LlmStreamEvent]:
         """Yields `TextChunk`s, then one `StreamEnd`; never raises for a model/provider failure.
 
         A consumer that stops early should close the stream (`contextlib.aclosing`) so the call's
         row is written promptly, as `cancelled`; it then gets no `StreamEnd`. After a timeout or
         error `StreamEnd.result.output` is `None`, even if chunks were already yielded.
+
+        With `tool_loop`, the one call and its one row cover every model request of the loop,
+        and `user_id` is the user its tools act for. `timeout_seconds` bounds each wait on the
+        model, as the gateway's default does.
         """
         ...
