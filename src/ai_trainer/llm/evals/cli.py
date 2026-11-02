@@ -44,6 +44,7 @@ from ai_trainer.llm.evals.exercise_shortlist_smoke import run_exercise_shortlist
 from ai_trainer.llm.evals.jev_check import JevCheck, configure_jev_check
 from ai_trainer.llm.evals.question_sport_smoke import run_question_sport_smoke
 from ai_trainer.llm.evals.router_fast import FastPathAccuracyError, run_router_fast_eval
+from ai_trainer.llm.evals.router_fast_smoke import run_router_fast_smoke
 from ai_trainer.llm.evals.runner import (
     CaseFailedError,
     EvalCaseInputs,
@@ -541,6 +542,11 @@ def _own_runners(
             smoke_set, model, threshold=settings.exercise_pick_threshold
         )
 
+    async def router_fast(smoke_set: SmokeSet, model: Model) -> list[SmokeCaseResult]:
+        return await run_router_fast_smoke(
+            smoke_set, model, thresholds=_router_fast_thresholds(settings)
+        )
+
     async def question_sport(smoke_set: SmokeSet, model: Model) -> list[SmokeCaseResult]:
         return await run_question_sport_smoke(
             smoke_set, model, threshold=settings.question_sport_threshold
@@ -557,6 +563,7 @@ def _own_runners(
 
     decision_runners: dict[str, DecisionSmokeRunner] = {
         EXERCISE_SHORTLIST_ID: exercise_shortlist,
+        ROUTER_FAST_ID: router_fast,
         QUESTION_SPORT_ID: question_sport,
     }
     answer_runners: dict[str, DecisionSmokeRunner] = {

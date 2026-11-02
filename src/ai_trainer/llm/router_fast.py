@@ -14,7 +14,7 @@ from ai_trainer.domain.llm_calls import LlmCallOutcome
 from ai_trainer.llm.decisions.loader import DecisionSet, DecisionSetLoader
 
 ROUTER_FAST_ID = "router_fast"
-ROUTER_FAST_VERSION = 1
+ROUTER_FAST_VERSION = 2
 _MULTI_REQUEST = "multi_request"
 _INTENT = "intent"
 _SPORT = "sport"

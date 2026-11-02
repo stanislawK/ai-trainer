@@ -158,7 +158,8 @@ class Settings(BaseSettings):
     # OpenRouter balance across every endpoint; `quantizations` or `only` keep the router on
     # one serving stack, which #127 found its evals need.
     router_provider_preferences: ProviderPreferencesSetting = None
-    # The router's call timeout, set from its measured p95 so a stuck upstream fails fast.
+    # The router's call timeout, above its measured maximum so a slow but normal answer finishes
+    # (G14, ADR-0026); a stuck upstream still fails, later.
     router_call_timeout_seconds: CallTimeout = None
     # The router's reasoning effort, sent as `reasoning.effort` (ADR-0026 step 3). Unset sends
     # none, leaving the model's default (`max` on glm-5.3-flash, OpenRouter `get-model`).
@@ -221,11 +222,14 @@ class Settings(BaseSettings):
     # P(several requests) is at or below the first, and the picked intent's probability, and a
     # log's sport's, are at or above the others. A miss here costs only the LLM router's call,
     # a wrong pick a misrouted reply, so the margins sit on the wrong-route side. Calibrated on
-    # `evals/datasets/router.yaml` at #122: single requests scored P(several) 0.14 or less and
-    # the nearest misroute 0.21; the nearest declined intent 0.75 and every taken log's sport
-    # 0.93 or more. Recorded in the `router_fast` baseline; change them only through
+    # `evals/datasets/router.yaml` at #122: the nearest declined intent 0.75 and every taken log's
+    # sport 0.93 or more. P(several) was re-calibrated at #436 on v2's wording: one sport's
+    # two-exercise logs score 0.24 or less, and pain with a log or a list across two sports 0.43
+    # or more. Two follow-up logs (0.24-0.29) and two same-sport days (0.29) fall under it too,
+    # routed right: same-sport intents share one extraction. v1 can't take this value: it scores
+    # pain with a log 0.24. Recorded in the `router_fast` baseline; change them only through
     # `/tune-prompt router_fast`.
-    router_fast_multi_request_threshold: float = Field(default=0.15, ge=0, le=1)
+    router_fast_multi_request_threshold: float = Field(default=0.3, ge=0, le=1)
     router_fast_intent_threshold: float = Field(default=0.85, ge=0, le=1)
     router_fast_sport_threshold: float = Field(default=0.9, ge=0, le=1)
     # Plausible sports (B23, #123): an athlete's sport with P(sport) at or above this stays in
