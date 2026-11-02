@@ -123,6 +123,9 @@ jobs:
       - name: Check uv pins agree
         run: uv run python scripts/check_uv_pins.py
 
+      - name: Check suppressions carry a reason
+        run: uv run python scripts/check_suppressions.py
+
   test:
     needs: changes
     if: needs.changes.outputs.test == 'true'

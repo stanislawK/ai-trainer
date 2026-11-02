@@ -236,7 +236,7 @@ def dataset_type(
     output_type = reduce(operator.or_, readable) if isinstance(readable, tuple) else readable
     # `output_type` is built at runtime from the template's declared outputs, so mypy cannot
     # accept it as a type argument (valid-type).
-    return Dataset[EvalCaseInputs, output_type, object]  # type: ignore[valid-type]
+    return Dataset[EvalCaseInputs, output_type, object]  # type: ignore[valid-type]  # runtime-built type argument
 
 
 async def run_eval(
@@ -282,7 +282,7 @@ async def run_eval(
         datasets_root / f"{template_id}.yaml",
         # The evaluators grade structured outputs (see the docstring above); the dataset's
         # output parameter is only known at runtime, so mypy sees the wider `TemplateOutput`.
-        custom_evaluator_types=custom_evaluator_types,  # type: ignore[arg-type]
+        custom_evaluator_types=custom_evaluator_types,  # type: ignore[arg-type]  # the output type is runtime-built
     )
 
     report = await dataset.evaluate(
