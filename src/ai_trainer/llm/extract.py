@@ -118,11 +118,11 @@ def extract_templates(sports: SportRegistry) -> list[PromptTemplate[ExtractDeps,
 
 
 def _occurred(output: BaseModel) -> tuple[Any, Any]:
-    return getattr(output, "occurred_on"), getattr(output, "date_source")  # noqa: B009
+    return getattr(output, "occurred_on"), getattr(output, "date_source")  # noqa: B009 -- the output model is built at runtime
 
 
 def _activity_keys(output: BaseModel, *, ignore: set[str]) -> list[str]:
-    activities: list[BaseModel] = getattr(output, "activities")  # noqa: B009
+    activities: list[BaseModel] = getattr(output, "activities")  # noqa: B009 -- the output model is built at runtime
     return sorted(
         json.dumps(
             {k: v for k, v in activity.model_dump(mode="json").items() if k not in ignore},

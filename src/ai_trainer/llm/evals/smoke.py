@@ -132,7 +132,7 @@ def read_smoke_set(
     known_gaps = _read_known_gaps(smoke_id, raw_gaps, {case.name for case in cases})
     has_judge = _names_judge(loaded.get("evaluators")) or any(
         isinstance(case, dict) and _names_judge(case.get("evaluators"))
-        for case in loaded["cases"]  # type: ignore[attr-defined]
+        for case in loaded["cases"]  # type: ignore[attr-defined]  # `loaded` is a mapping of `object` values
     )
 
     if known_templates is not None and template_id not in known_templates:
@@ -167,7 +167,7 @@ async def run_smoke_set(
     dataset = dataset_type(template, expected_output_types=expected_output_types).from_dict(
         dict(smoke_set.dataset),
         # Same as `run_eval`: structured-output evaluators, the dataset's output type is runtime.
-        custom_evaluator_types=evaluator_types,  # type: ignore[arg-type]
+        custom_evaluator_types=evaluator_types,  # type: ignore[arg-type]  # the output type is runtime-built
     )
     task = eval_task(registry, smoke_set.template_id, version, model=model)
     report = await dataset.evaluate(

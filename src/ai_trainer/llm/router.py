@@ -116,7 +116,7 @@ def _discriminated_intent(sport_ids: tuple[str, ...]) -> Any:  # noqa: ANN401 --
         else _intent_model(kind)
         for kind in INTENT_KINDS
     ]
-    return Annotated[Union[tuple(intent_models)], Field(discriminator="kind")]  # noqa: UP007
+    return Annotated[Union[tuple(intent_models)], Field(discriminator="kind")]  # noqa: UP007 -- `Union[...]` takes a runtime tuple; `|` cannot
 
 
 def router_output_type(

@@ -1,5 +1,5 @@
 .PHONY: install css test test-fast test-ops test-unit test-integration coverage lint format format-check \
-	typecheck import-lint squawk uv-pins-check openapi openapi-check check up up-build start stop down logs ps \
+	typecheck import-lint squawk uv-pins-check suppressions-check openapi openapi-check check up up-build start stop down logs ps \
 	health smoke-setup smoke-up smoke-down alloy-check cloud-init-check backup-check migrate purge-conversations import-exercises backfill-gym-sessions llm-report latency-scenario evals e2e-install e2e worktree worktree-rm worktree-prune stack-owner
 
 # The checkout's own database (ADR-0035): the last path segment of DATABASE_URL in its .env,
@@ -53,13 +53,16 @@ squawk: ## Lint the SQL of migration revisions new since origin/main with squawk
 uv-pins-check: ## Fail when the uv pins (Dockerfile, ci.yml, evals.yml) and the uv_build range in pyproject.toml differ (ADR-0002, #310)
 	uv run python scripts/check_uv_pins.py
 
+suppressions-check: ## Fail on a type: ignore, noqa or pragma without a code and a reason (ADR-0002, #440)
+	uv run python scripts/check_suppressions.py
+
 openapi: ## Regenerate the OpenAPI snapshot (docs/api/openapi.json)
 	uv run python scripts/generate_openapi.py
 
 openapi-check: openapi ## Fail if docs/api/openapi.json is out of date (CI drift check)
 	git diff --exit-code -- docs/api/openapi.json
 
-check: lint format-check typecheck import-lint squawk uv-pins-check openapi-check cloud-init-check alloy-check test ## Everything CI runs
+check: lint format-check typecheck import-lint squawk uv-pins-check suppressions-check openapi-check cloud-init-check alloy-check test ## Everything CI runs
 
 up: ## Start app + postgres in the background
 	docker compose up -d

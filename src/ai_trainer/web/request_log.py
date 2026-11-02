@@ -42,7 +42,7 @@ def log_every_request(app: Starlette, metrics: MetricsPort = NO_METRICS) -> None
     def build_logged_stack() -> ASGIApp:
         return ServerErrorMiddleware(RequestLogMiddleware(build_stack(), metrics))
 
-    app.build_middleware_stack = build_logged_stack  # type: ignore[method-assign]
+    app.build_middleware_stack = build_logged_stack  # type: ignore[method-assign]  # wraps the stack Starlette builds, no hook for it
 
 
 class RequestLogMiddleware:
