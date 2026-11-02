@@ -18,7 +18,7 @@ from tests.unit.test_eval_router_fast import Answer, ScriptedJev
 
 ROOT = Path(__file__).resolve().parents[2]
 SMOKE_ROOT = ROOT / "evals" / "smoke"
-THRESHOLDS = RouterFastThresholds(multi_request=0.25, intent=0.85, sport=0.9, plausible_floor=0.1)
+THRESHOLDS = RouterFastThresholds(multi_request=0.3, intent=0.85, sport=0.9, plausible_floor=0.1)
 _LOG = {"intent": ("log_session", 0.99), "sport": ("gym", 0.99)}
 _GYM_LOG = [{"kind": "log_session", "sport": "gym"}]
 _MIN_CASES = 5
@@ -80,7 +80,7 @@ async def test_router_fast_smoke_grades_the_route_the_app_would_take(tmp_path: P
 
 
 async def test_a_log_the_router_would_have_to_decide_fails_a_taken_label(tmp_path: Path) -> None:
-    results = await _run(_set(tmp_path, _case("two lifts", _GYM_LOG)), {"two lifts": (0.26, _LOG)})
+    results = await _run(_set(tmp_path, _case("two lifts", _GYM_LOG)), {"two lifts": (0.31, _LOG)})
 
     [result] = results
     assert not result.passed
@@ -98,6 +98,19 @@ async def test_a_message_the_fast_path_takes_fails_a_router_label(tmp_path: Path
     [result] = results
     assert not result.passed
     assert "wellbeing_or_injury" in result.detail
+
+
+async def test_a_sure_log_with_a_split_sport_fails_a_router_label(tmp_path: Path) -> None:
+    """`route_message` gives such a log the conversation's sport or a sport question, so a list
+    of two sports' activities would lose one of them; it never reaches the LLM router."""
+    split = {"intent": ("log_session", 0.99), "sport": ("gym", 0.6)}
+    root = _set(tmp_path, _case("bench, squat and 3 boulders", None))
+
+    results = await _run(root, {"bench, squat and 3 boulders": (0.2, split)})
+
+    [result] = results
+    assert not result.passed
+    assert "one log, its sport asked" in result.detail
 
 
 async def test_a_log_routed_to_the_wrong_sport_fails(tmp_path: Path) -> None:

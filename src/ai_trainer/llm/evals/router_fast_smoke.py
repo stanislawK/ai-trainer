@@ -16,6 +16,9 @@ from ai_trainer.llm.evals.inputs import EvalCaseInputs
 from ai_trainer.llm.evals.smoke import SmokeCaseResult, SmokeError, SmokeSet
 from ai_trainer.llm.router_fast import RouterFastThresholds, fast_route, router_fast_set
 
+_ONE_LOG = "one log, its sport asked or taken from the conversation"
+type _Route = list[Intent] | str | None
+
 
 class _Deps(BaseModel):
     athlete_sports: list[str]
@@ -75,8 +78,10 @@ async def _route(
     model: Model,
     *,
     thresholds: RouterFastThresholds,
-) -> list[Intent] | None:
-    """The intents the fast path would dispatch, or `None` when the LLM router must decide."""
+) -> _Route:
+    """The intents the fast path would dispatch; `_ONE_LOG` for a log Jev is sure of whose sport
+    it left split, which `route_message` gives the conversation's sport or a sport question, never
+    the LLM router; or `None` when the LLM router must decide."""
     decision_set = router_fast_set(sports, loader=DecisionSetLoader())
     agent: Agent[None, BaseModel] = Agent(model, output_type=decision_set.output_type)
     result = await agent.run(case.inputs.prompt)
@@ -84,12 +89,16 @@ async def _route(
         "probabilities", {}
     )
     route = fast_route(result.output, distributions, athlete_sports=sports, thresholds=thresholds)
-    return None if route.intents is None else list(route.intents)
+    if route.intents is not None:
+        return list(route.intents)
+    return _ONE_LOG if route.single_intent is not None else None
 
 
-def _named(intents: list[Intent] | None) -> str:
+def _named(intents: _Route) -> str:
     if intents is None:
         return "the LLM router"
+    if isinstance(intents, str):
+        return intents
     return ", ".join(
         intent.kind if intent.sport is None else f"{intent.kind} ({intent.sport})"
         for intent in intents

@@ -7,9 +7,10 @@ questions:
     kind: probability
     question: >-
       Does the message hold two or more separate requests or topics, such as a report of a
-      session and a question, a session and a plan request, two sessions in different sports,
+      session and a question, a session and a plan request, activities in two different sports,
       or pain together with anything else? A single request with extra detail, such as a
-      session with how it felt or a session listing several exercises or climbs, counts as one.
+      session with how it felt or a session listing several exercises or climbs of one sport,
+      counts as one.
   intent:
     kind: choice
     question: What is the athlete mainly asking for or telling their coach in this message?

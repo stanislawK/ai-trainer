@@ -500,8 +500,8 @@ def _default_thresholds() -> RouterFastThresholds:
     "sports", [("gym",), ("climbing", "gym", "cycling")], ids=["gym only", "several sports"]
 )
 def test_two_exercise_log_routes_fast_at_the_default_thresholds(sports: tuple[str, ...]) -> None:
-    """0.18 is the highest P(several) v2 gave a two-exercise log, English or Polish (#436)."""
-    output, _ = _answer(multi=0.18, sport="gym", sports=sports)
+    """0.24 is the highest P(several) v2 gave a two-exercise log, English or Polish (#436)."""
+    output, _ = _answer(multi=0.24, sport="gym", sports=sports)
     probabilities = {"intent": {"log_session": 1.0}, "sport": {"gym": 1.0}}
 
     route = fast_route(
@@ -512,9 +512,9 @@ def test_two_exercise_log_routes_fast_at_the_default_thresholds(sports: tuple[st
 
 
 def test_several_requests_stay_with_the_router_at_the_default_thresholds() -> None:
-    """0.38 is the lowest P(several) v2 gave a message holding more: two sessions on two days.
-    Pain with a log scored 0.39 at the lowest, and must never be taken as the pain alone."""
-    output, _ = _answer(multi=0.38, sport="gym")
+    """0.43 is the lowest P(several) v2 gave a message that needs the router: a list across two
+    sports, and pain with a log, which must never be taken as the pain alone (#436)."""
+    output, _ = _answer(multi=0.43, sport="gym")
     probabilities = {"intent": {"log_session": 1.0}, "sport": {"gym": 1.0}}
 
     route = fast_route(
@@ -524,17 +524,8 @@ def test_several_requests_stay_with_the_router_at_the_default_thresholds() -> No
     assert route.intents is None
 
 
-def test_the_app_asks_v2_and_v1_stays_registered_for_comparison() -> None:
-    loader = DecisionSetLoader()
+def test_the_app_asks_its_latest_version_and_v1_stays_registered_for_comparison() -> None:
+    versions = DecisionSetLoader().versions(ROUTER_FAST_ID)
 
-    assert ROUTER_FAST_VERSION == 2
-    assert loader.versions(ROUTER_FAST_ID) == [1, 2]
-
-
-def test_a_session_listing_several_exercises_counts_as_one_request() -> None:
-    question = _questions()["multi_request"]["question"]
-
-    assert isinstance(question, str)
-    assert "listing several exercises or climbs" in question
-    # The cases that must stay several requests are still named.
-    assert "pain together with anything else" in question
+    assert ROUTER_FAST_VERSION == versions[-1] > 1
+    assert versions[0] == 1

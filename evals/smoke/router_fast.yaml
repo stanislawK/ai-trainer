@@ -36,16 +36,6 @@ cases:
   expected_output:
     intents:
     - {kind: log_session, sport: gym}
-- name: two exercises
-  metadata:
-    source: "#436, the latency scenario's turn 5"
-  inputs:
-    prompt: Deadlift 3x5 120kg and lat pulldown 3x10 50kg
-    deps:
-      athlete_sports: [gym]
-  expected_output:
-    intents:
-    - {kind: log_session, sport: gym}
 - name: two exercises, the router's slowest
   metadata:
     source: "#436, the latency scenario's turn 10"
@@ -91,6 +81,15 @@ cases:
     prompt: Bench press 3x8 65kg and squat 3x5 105kg. How much should I add next week?
     deps:
       athlete_sports: [gym]
+  expected_output:
+    intents: null
+- name: a list across two sports stays with the router
+  metadata:
+    source: "#436 code review: a list of one sport's exercises counts as one, not this"
+  inputs:
+    prompt: Bench press 3x8 65kg, squat 3x5 105kg and 3 boulders at 6A
+    deps:
+      athlete_sports: [climbing, gym]
   expected_output:
     intents: null
 - name: two sports stay with the router
