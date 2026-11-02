@@ -230,6 +230,22 @@ def test_env_example_lists_every_setting(monkeypatch: pytest.MonkeyPatch) -> Non
     Settings(_env_file=ENV_EXAMPLE)
 
 
+def test_env_example_gives_the_router_time_above_its_measured_maximum() -> None:
+    """#436 measured 7.5 s: a timeout under it fails a log while the model is still answering
+    normally (G14). The example's threshold matches the code's default, its own value at #436."""
+    lines = dict(
+        line.split("=", 1)
+        for line in ENV_EXAMPLE.read_text().splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    )
+
+    assert float(lines["ROUTER_CALL_TIMEOUT_SECONDS"]) > 7.5
+    assert (
+        float(lines["ROUTER_FAST_MULTI_REQUEST_THRESHOLD"])
+        == Settings.model_fields["router_fast_multi_request_threshold"].default
+    )
+
+
 def test_unknown_key_in_env_file_is_rejected(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

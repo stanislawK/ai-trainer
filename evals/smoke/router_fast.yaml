@@ -1,0 +1,104 @@
+# Smoke set for the router_fast decision (ADR-0034, #436): graded in code, run once on Jev. Each
+# case is a message, the athlete's sports and the route the app should take at the Settings
+# thresholds: `intents` the fast path takes, or `null` when the LLM router should decide. The first
+# three are verbatim from the owner's gym session. The rest are synthetic, for the bug #436 reports
+# (a log naming two exercises reached the router) and for the safety rule that pain with a log
+# must never be taken as the pain alone. There is no judge: a route is graded by its outcome.
+name: router_fast
+cases:
+- name: field pull ups
+  metadata:
+    field: evals/field/gym/2026-10-28-first-gym-session.md
+  inputs:
+    prompt: Gym 8 pull ups 3x
+    deps:
+      athlete_sports: [gym]
+  expected_output:
+    intents:
+    - {kind: log_session, sport: gym}
+- name: field bench press
+  metadata:
+    field: evals/field/gym/2026-10-28-first-gym-session.md
+  inputs:
+    prompt: Bench press 45kg 8 x3
+    deps:
+      athlete_sports: [gym]
+  expected_output:
+    intents:
+    - {kind: log_session, sport: gym}
+- name: field face pull
+  metadata:
+    field: evals/field/gym/2026-10-28-first-gym-session.md
+  inputs:
+    prompt: Face pull 30kg 12reps 4 series
+    deps:
+      athlete_sports: [climbing, gym, cycling]
+  expected_output:
+    intents:
+    - {kind: log_session, sport: gym}
+- name: two exercises
+  metadata:
+    source: "#436, the latency scenario's turn 5"
+  inputs:
+    prompt: Deadlift 3x5 120kg and lat pulldown 3x10 50kg
+    deps:
+      athlete_sports: [gym]
+  expected_output:
+    intents:
+    - {kind: log_session, sport: gym}
+- name: two exercises, the router's slowest
+  metadata:
+    source: "#436, the latency scenario's turn 10"
+  inputs:
+    prompt: Plank 3x70s and bench press 3x8 65kg
+    deps:
+      athlete_sports: [climbing, gym, cycling]
+  expected_output:
+    intents:
+    - {kind: log_session, sport: gym}
+- name: two exercises in polish
+  metadata:
+    source: "#436, Europe first (G15)"
+  inputs:
+    prompt: Wyciskanie 3x8 60kg i przysiady 5x5 100kg
+    deps:
+      athlete_sports: [gym]
+  expected_output:
+    intents:
+    - {kind: log_session, sport: gym}
+- name: pain with a log stays with the router
+  metadata:
+    source: "#436, the safety rule (G3)"
+  inputs:
+    prompt: Squat 5x5 100kg and my knee hurts
+    deps:
+      athlete_sports: [gym]
+  expected_output:
+    intents: null
+- name: pain with a log in polish stays with the router
+  metadata:
+    source: "#436, the safety rule (G3), Europe first (G15)"
+  inputs:
+    prompt: Wyciskanie 3x8 60kg i przysiady 5x5 100kg, boli mnie kolano
+    deps:
+      athlete_sports: [gym]
+  expected_output:
+    intents: null
+- name: a log with a question stays with the router
+  metadata:
+    source: "#436"
+  inputs:
+    prompt: Bench press 3x8 65kg and squat 3x5 105kg. How much should I add next week?
+    deps:
+      athlete_sports: [gym]
+  expected_output:
+    intents: null
+- name: two sports stay with the router
+  metadata:
+    source: "#436"
+  inputs:
+    prompt: Rode 40 km this morning and did bench press 3x8 60kg in the evening
+    deps:
+      athlete_sports: [climbing, gym, cycling]
+  expected_output:
+    intents: null

@@ -64,7 +64,7 @@ from ai_trainer.domain.users import NewUser, User, UserStatus
 from ai_trainer.llm.conversation import LlmConversation, build_prompt_registry
 from ai_trainer.llm.decision_gateway import OpenRouterDecisionGateway
 from ai_trainer.llm.gateway import OpenRouterGateway
-from ai_trainer.llm.router_fast import JevFastRouter, RouterFastThresholds
+from ai_trainer.llm.router_fast import ROUTER_FAST_VERSION, JevFastRouter, RouterFastThresholds
 from ai_trainer.llm.safety_screen import JevSafetyScreen
 from ai_trainer.main import build_activity_stores
 from ai_trainer.settings import Settings
@@ -767,7 +767,11 @@ async def test_a_fast_routed_message_writes_a_router_fast_row_and_no_router_row(
     ]
     calls = await SqlAlchemyLlmCallsRepository(db_session_factory).list_for_user(user.id)
     [fast] = [call for call in calls if call.template_id == "router_fast"]
-    assert (fast.template_version, fast.model, fast.cost) == (1, _JEV_SNAPSHOT, None)
+    assert (fast.template_version, fast.model, fast.cost) == (
+        ROUTER_FAST_VERSION,
+        _JEV_SNAPSHOT,
+        None,
+    )
 
 
 async def test_a_fast_routed_log_takes_its_sport_from_the_athletes_own_sports(

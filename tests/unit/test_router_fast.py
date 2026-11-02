@@ -1,6 +1,6 @@
 """The Jev router fast path (ADR-0020 use 1, ADR-0008 amendment, ticket #122): `router_fast`
-v1 asked of the bare message, one confident intent dispatched from its answer, and `None`, the
-LLM router's turn, for everything else."""
+asked of the bare message, one confident intent dispatched from its answer, and `None`, the LLM
+router's turn, for everything else."""
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -28,6 +28,7 @@ from ai_trainer.llm.router_fast import (
     plausible_sports,
     router_fast_set,
 )
+from ai_trainer.settings import Settings
 
 THRESHOLDS = RouterFastThresholds(multi_request=0.3, intent=0.8, sport=0.8, plausible_floor=0.25)
 ALL_SPORTS = ("climbing", "gym", "cycling")
@@ -474,3 +475,66 @@ def test_a_floor_of_zero_keeps_every_sport_of_the_athlete() -> None:
         "gym",
         "cycling",
     )
+
+
+# Two-exercise logs (#436): one session in one sport, so the LLM router has nothing to add.
+
+
+def _default_thresholds() -> RouterFastThresholds:
+    """The code's defaults, whatever the developer's `.env` holds."""
+
+    def default(name: str) -> float:
+        value = Settings.model_fields[f"router_fast_{name}"].default
+        assert isinstance(value, float)
+        return value
+
+    return RouterFastThresholds(
+        multi_request=default("multi_request_threshold"),
+        intent=default("intent_threshold"),
+        sport=default("sport_threshold"),
+        plausible_floor=default("plausible_sport_floor"),
+    )
+
+
+@pytest.mark.parametrize(
+    "sports", [("gym",), ("climbing", "gym", "cycling")], ids=["gym only", "several sports"]
+)
+def test_two_exercise_log_routes_fast_at_the_default_thresholds(sports: tuple[str, ...]) -> None:
+    """0.18 is the highest P(several) v2 gave a two-exercise log, English or Polish (#436)."""
+    output, _ = _answer(multi=0.18, sport="gym", sports=sports)
+    probabilities = {"intent": {"log_session": 1.0}, "sport": {"gym": 1.0}}
+
+    route = fast_route(
+        output, probabilities, athlete_sports=sports, thresholds=_default_thresholds()
+    )
+
+    assert route.intents == [Intent(kind="log_session", sport="gym")]
+
+
+def test_several_requests_stay_with_the_router_at_the_default_thresholds() -> None:
+    """0.38 is the lowest P(several) v2 gave a message holding more: two sessions on two days.
+    Pain with a log scored 0.39 at the lowest, and must never be taken as the pain alone."""
+    output, _ = _answer(multi=0.38, sport="gym")
+    probabilities = {"intent": {"log_session": 1.0}, "sport": {"gym": 1.0}}
+
+    route = fast_route(
+        output, probabilities, athlete_sports=ALL_SPORTS, thresholds=_default_thresholds()
+    )
+
+    assert route.intents is None
+
+
+def test_the_app_asks_v2_and_v1_stays_registered_for_comparison() -> None:
+    loader = DecisionSetLoader()
+
+    assert ROUTER_FAST_VERSION == 2
+    assert loader.versions(ROUTER_FAST_ID) == [1, 2]
+
+
+def test_a_session_listing_several_exercises_counts_as_one_request() -> None:
+    question = _questions()["multi_request"]["question"]
+
+    assert isinstance(question, str)
+    assert "listing several exercises or climbs" in question
+    # The cases that must stay several requests are still named.
+    assert "pain together with anything else" in question

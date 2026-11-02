@@ -235,5 +235,59 @@ A log takes 19–43 s from send to draft card, with a median of 35 s (ADR-0025).
   - The cold first extraction that set #187's and #188's tail (20–23 s) did not recur: each run's first log took 1.1–2.0 s, its extraction 0.8–1.4 s. #188's single runs reached a 22.8 s p95, so a slow upstream can still push one run past 10 s. The 30 s extraction timeout stays the guard, and the next latency ticket's scenario run (invariant 1) is the check.
   - The scenario's athlete is climbing-only. A multi-sport athlete's first log in a conversation goes through the router, which adds about 1 s here (router p95 1.1 s).
   - Summaries: `.llm-debug/latency-scenario-20261020T1708*.json` and `…T1709*.json`.
+- **Router on two-exercise gym logs (#436, 2026-11-02).** #415 saw one log in 40 fail on the router's 5 s timeout, which G14 rules out. The fix keeps these logs off the router and raises the timeout. The owner approved it at the plan gate. Model, routing, effort and the router template didn't change.
+  - **Why the calls ran long.** Each of the router's three captured gym requests was replayed 20 times as the gateway sends it, with no timeout, and with the upstream and reasoning tokens read from each reply. These are milliseconds over 60 calls per row, for synthetic messages only:
+
+    | Router arm | p50 | p95 | Max | ≥ 5 s | Reasoning tokens, p50 / max | USD, mean |
+    |---|---|---|---|---|---|---|
+    | The app's: default effort, `fp8`+`nvfp4`, one session per conversation | 1613 | 4730 | 7519 | 3 | 58 / 612 | 0.000095 |
+    | A new session per call | 1346 | 3185 | 4302 | 0 | 42 / 468 | 0.000090 |
+    | Effort `low` | 1040 | 2959 | 4100 | 0 | 1 / 151 | 0.000077 |
+    | No quantization filter | 2478 | 26922 | 34250 | 14 | 185 / 3788 | 0.000393 |
+
+    - **Long reasoning sets most of the tail.** glm-5.3-flash defaults to `max`, and one prompt spends 18–612 reasoning tokens. "Plank 3x70s and bench press 3x8 65kg", straight after a plank log, made 2 of the 3 calls over 5 s (7.5 s for 612 tokens, 6.1 s for 465). It also came back with `edit_session` in 5 of 20 calls, which adds a "not yet" reply to the log.
+    - **Upstream wait is a second, smaller cause:** 5.4 s for 145 output tokens, and 4.1 s for 60 at `low`. No call retried.
+    - **The filter now leaves one upstream.** All 60 calls of the app's arm went to Wafer, whose p99 is 6.2–6.7 s. Modal, the fast host the filter was picked for, is now listed as `fp4`, where the Step 4 result lists `nvfp4` (`list-model-endpoints`, 2026-11-02). Extraction uses the same filter. No alternative was measured, so this stays open.
+    - The arms ran one after another, so the session comparison settles nothing.
+  - **Why these logs reached the router.** They shouldn't have. Jev scored two lifts joined by "and" at P(several requests) 0.21–0.34, over the 0.15 threshold, while sure of the intent and the sport at 1.00. Four lifts in a comma list scored 0.08. A declined message has no `single_intent`, so step 5 couldn't catch them either.
+  - **Keeping them off.** `router_fast` v2 adds one clause to the `multi_request` question: "or a session listing several exercises or climbs". The threshold moves from 0.15 to 0.25, through evals (invariant 2). No `decision_overridden` feedback exists yet to move it on (ADR-0034). P(several) on the same messages:
+
+    | Message | v1 | v2 |
+    |---|---|---|
+    | Two-exercise logs, English and Polish | 0.21–0.34 | 0.14–0.18 |
+    | Log and "my knee hurts" | 0.24–0.40 | 0.39–0.54 |
+    | Log and a question or a plan request | 0.73–0.77 | 0.53–0.67 |
+    | Two sessions on two days | 0.47–0.48 | 0.38–0.40 |
+
+    Over the router's 47 labelled cases, 3 repeats each:
+
+    | `multi_request` ≤ | v1 coverage / accuracy | v2 coverage / accuracy |
+    |---|---|---|
+    | 0.15 | 0.631 / 1.000 | 0.638 / 1.000 |
+    | 0.25 | 0.660 / 0.968 | 0.638 / 1.000 |
+    | 0.35 | 0.681 / 0.969 | 0.660 / 1.000 |
+
+    v1 at 0.25 takes "pain ranked first before a log" as the pain alone, in 3 of 3 repeats, so the threshold can't move without the wording. 0.25 sits nearer the logs' 0.18 than the 0.38 above it, because a miss costs one router call and a wrong route a misrouted reply. Same-sport intents already share one extraction, so nothing is lost: a run's 10 logs saved all 13 exercises with the right sets.
+  - **Timeout.** `ROUTER_CALL_TIMEOUT_SECONDS` goes from 5 to 15, twice the measured 7.5 s maximum, as the Step 2 result's rule says. The router still answers mixed messages, so G14 needs this as well. The gym scenario has no such message, so its runs don't exercise the new value; the replay's maximum is the evidence.
+  - **Dropped:**
+    - the threshold alone: the misroute above;
+    - the wording alone at 0.15: the logs land either side of it, at 0.14–0.18;
+    - the timeout alone: every such log still pays the router, 3.1 s against 1.8 s at p50 in #415;
+    - router effort `low`: the fastest arm, but #186 regressed the router at `low`, and mixed messages are what it would still decide. It's the next step if a mixed message times out;
+    - no quantization filter: 55 of 60 calls went to Modal `fp4`, at up to 3,788 reasoning tokens, 34 s and 4× the USD, which repeats #127.
+  - **Result.** `make latency-scenario sport=gym`, four runs of 10 log turns, each on a freshly deleted athlete, with shortlist calls on turns 1, 2, 5 and 9 as in #415. Percentiles are nearest rank. Compared with #415's pooled figures:
+
+    | | #415 | #436 |
+    |---|---|---|
+    | Log-turn p50 / p95 / max | 1.9 s / 4.5 s / 6.8 s | 2.0 s / 2.5 s / 2.9 s |
+    | Single-run p95 | 3.2–6.8 s | 2.0–2.9 s |
+    | Timeouts / failures | 1 / 0 | 0 / 0 |
+    | Turns through the router | 12 of 40 | 0 of 40 |
+    | Two-exercise turns, p50 / p95 | 3.1 s / 6.8 s | 1.9 s / 2.3 s |
+    | USD per log turn, median / mean / max | 0.000148 / 0.000174 / 0.000311 | 0.000125 / 0.000126 / 0.000140 |
+
+    The p50 moved by 0.1 s, within run-to-run variation (run medians 1.6–2.2 s, with a slower `gym.extract` in run 1). `make latency-scenario`, one climbing run: p50 2.0 s, p95 5.0 s, no timeouts or failures and no router calls, against #192's pooled 1.6 s and 3.0 s. Its p95 is one 4.6 s extraction for 451 output tokens. That run's one chat turn took 11.7 s on a `chitchat` call of 80 output tokens, which isn't a log and isn't changed here.
+  - **Evals.** `ai-trainer-evals run router_fast --repeat 3`: accuracy 1.000 on taken cases against the router's 0.993, and coverage 0.631–0.638 against v1's committed 0.624. It is promoted as a reference, since `Settings` says the thresholds are recorded there. `run router --repeat 3`: 0.993, the committed figure, with "mixed log and plan" failing 1 of 3. Smoke sets `router_fast` (new, 10 cases), `router` and `safety` all pass.
+  - **Deployment.** The v2 file and the 0.25 default ship with the code, unless the server's env sets `ROUTER_FAST_MULTI_REQUEST_THRESHOLD`. `ROUTER_CALL_TIMEOUT_SECONDS=15` has to be set on the server, by the owner (ADR-0023).
 - **Owner check:** a low OpenRouter credit balance adds latency ([latency guide](https://openrouter.ai/docs/guides/best-practices/latency-and-performance)).
 - **Status:** ADR-0025 stays the Accepted baseline; the ADR index notes that its options were picked here.
