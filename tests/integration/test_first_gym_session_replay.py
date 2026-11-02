@@ -389,6 +389,7 @@ async def test_a_week_later_rising_arms_maps_to_the_same_exercise_and_history_sh
     )
 
     assert again.questions == ()
+    assert [name for _, name, _ in replay.picker.asked] == ["rising arms to sides"]
     [second] = await replay.entries("rising arms to sides")
     assert second["exercise_id"] == first["exercise_id"]
     history = await replay.history.entries(replay.user_id, first["exercise_id"], limit=10)
