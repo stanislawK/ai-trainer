@@ -18,7 +18,6 @@ from ai_trainer.application.reply import (
     open_exercise_question,
 )
 from ai_trainer.domain.clarification import (
-    BAND_PURPOSE,
     EXERCISE_PURPOSE,
     ClarificationNotFoundError,
     ClarificationResolvedError,
@@ -235,8 +234,8 @@ class _ClarificationRoutes:
             return self._ctx.templates.TemplateResponse(
                 request, settled.template, {"card": settled}
             )
-        if skipped.purpose == BAND_PURPOSE:
-            return self._band_answer(request, skipped)
+        if isinstance(skipped, BandPlaced):
+            return self._band_answer(request, skipped.clarification, skipped.next)
         return self._ctx.templates.TemplateResponse(
             request, "partials/chat/choice_card.html", {"card": ChoiceCard(skipped)}
         )

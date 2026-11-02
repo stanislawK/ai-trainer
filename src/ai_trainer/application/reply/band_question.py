@@ -2,7 +2,6 @@
 the band and moves the heavier ones up, a tap that narrows the places rewrites the open question
 to that half, and the next band that needs a place is asked once this one is settled."""
 
-import asyncio
 from collections.abc import Sequence
 from dataclasses import dataclass
 from uuid import UUID
@@ -15,7 +14,13 @@ from ai_trainer.domain.clarification import (
     StoredClarification,
     UnknownOptionError,
 )
-from ai_trainer.domain.sports.gym.bands import NARROW_PREFIX, band_question, narrowed, place_of
+from ai_trainer.domain.sports.gym.bands import (
+    NARROW_PREFIX,
+    band_question,
+    narrowed,
+    place_of,
+    places_of,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,31 +49,42 @@ async def answer_band(
 ) -> BandPlaced:
     """The tap on an open band question. The option ID is trusted, label text never is: an ID the
     question did not offer, or not exactly one, is an `UnknownOptionError` and nothing changes.
-    The question closes first, with one conditional UPDATE, so two taps at once rank the band
-    once. Raises `ClarificationNotFoundError` for a sport with no band scale."""
+    A card whose ranking changed since it was asked (another card answered meanwhile) is asked
+    again from the athlete's bands as they are, and nothing is ranked from the stale tap. The band
+    is ranked first and the question closed second, with one conditional UPDATE: ranking an
+    already ranked band is a no-op, so two taps at once rank it once, and a failure leaves the
+    card to tap again. Raises `ClarificationNotFoundError` for a sport with no band scale."""
     order = _scale(question, services)
     document = question.clarification
-    if len(option_ids) != 1:
+    if len(option_ids) != 1 or option_ids[0] not in {option.id for option in document.options}:
         raise UnknownOptionError(option_ids)
     picked = option_ids[0]
-    if picked.startswith(NARROW_PREFIX):
-        revised = narrowed(
-            document,
-            picked,
-            await order.ranked(user_id),
-            max_options=services.max_clarification_options,
+    ranked = await order.ranked(user_id)
+    if places_of(document) != len(ranked) + 1:
+        fresh = band_question(
+            document.subject or "", ranked, max_options=services.max_clarification_options
         )
+        return BandPlaced(await services.clarifications.revise(user_id, question.id, fresh))
+    if picked.startswith(NARROW_PREFIX):
+        revised = narrowed(document, picked, ranked, max_options=services.max_clarification_options)
         return BandPlaced(await services.clarifications.revise(user_id, question.id, revised))
-    rank = place_of(document, picked)
+    await order.place(user_id, document.subject or "", place_of(document, picked))
     resolved = await services.clarifications.resolve(
         user_id, question.id, "answered", option_ids=[picked], resolved_at=services.clock.now()
     )
-    try:
-        await order.place(user_id, document.subject or "", rank)
-    except BaseException:
-        # The band was not ranked, so the card goes back to be tapped again.
-        await asyncio.shield(services.clarifications.reopen(user_id, question.id))
-        raise
+    return BandPlaced(resolved, await _ask_next(user_id, question, order, services))
+
+
+async def skip_band(
+    user_id: UUID, question: StoredClarification, *, services: ReplyServices
+) -> BandPlaced:
+    """ "Skip for now": the band keeps `rank` NULL and shows by its label, and the next band that
+    needs a place is asked, one at a time (ADR-0015). Raises `ClarificationNotFoundError` for a
+    sport with no band scale and `ClarificationResolvedError` for a closed question."""
+    order = _scale(question, services)
+    resolved = await services.clarifications.resolve(
+        user_id, question.id, "abandoned", option_ids=None, resolved_at=services.clock.now()
+    )
     return BandPlaced(resolved, await _ask_next(user_id, question, order, services))
 
 

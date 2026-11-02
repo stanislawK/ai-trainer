@@ -10,7 +10,7 @@ from uuid import UUID
 
 from pydantic import JsonValue
 
-from ai_trainer.application.reply.band_question import BandPlaced, answer_band
+from ai_trainer.application.reply.band_question import BandPlaced, answer_band, skip_band
 from ai_trainer.application.reply.extract import extract, save
 from ai_trainer.application.reply.shared import (
     LOG_KIND,
@@ -370,7 +370,7 @@ async def keep_typed_name(
 
 async def abandon_clarification(
     user_id: UUID, clarification_id: UUID, *, services: ReplyServices
-) -> StoredClarification | SessionSettled:
+) -> StoredClarification | SessionSettled | BandPlaced:
     """ "Let me type instead" (F9): closes the question with no answer, and nothing else is
     written. On a draft's exercise question the answer is the draft, whose card asks about its
     next name, if any (ticket #397). A question that offers no such escape, as a same-session one
@@ -380,6 +380,8 @@ async def abandon_clarification(
     question = await services.clarifications.get(user_id, clarification_id)
     if not (question.clarification.allow_free_text or question.clarification.skippable):
         raise ClarificationNotFoundError(clarification_id)
+    if question.purpose == BAND_PURPOSE:
+        return await skip_band(user_id, question, services=services)
     if question.purpose == EXERCISE_PURPOSE:
         return await _settle_name(user_id, question, None, services)
     return await services.clarifications.resolve(

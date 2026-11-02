@@ -62,6 +62,11 @@ async def ask_for_log(
     band of the log, in the order it names them, that has no rank and was never asked about.
     The athlete's first band takes rank 1 here without a question. `None` when nothing is left
     to ask, or another band question is still open."""
+    # The athlete's bands are locked, as `place` locks them, so two confirms at once ask one
+    # question after the other rather than both.
+    await tx.execute(
+        select(AthleteBandOrm.id).where(AthleteBandOrm.user_id == user_id).with_for_update()
+    )
     if await _asking(tx, user_id):
         return None
     labels = await tx.scalars(

@@ -78,6 +78,13 @@ def _place(label: str, ranked: Sequence[str], rank: int) -> ChoiceOption:
     )
 
 
+def places_of(question: Clarification) -> int:
+    """How many places the question was built for, the heaviest rank it can still give: the
+    athlete's ranked bands then, plus one. A question whose ranking has since changed no longer
+    matches the athlete's bands."""
+    return max(int(option.id.rsplit(":", 1)[-1].rsplit("-", 1)[-1]) for option in question.options)
+
+
 def place_of(question: Clarification, option_id: str) -> int:
     """The rank the tapped place gives the band. Raises `UnknownOptionError` for an ID the
     question did not offer, or a narrowing one (ADR-0015 invariant 4)."""

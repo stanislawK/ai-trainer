@@ -155,8 +155,9 @@ async def test_skipping_keeps_the_rank_null_and_the_band_is_not_asked_again(
     skipped = await abandon_clarification(replay.user_id, question.id, services=replay.services)
     await _log_band(replay, "black")
 
-    assert isinstance(skipped, StoredClarification)
-    assert skipped.status == "abandoned"
+    assert isinstance(skipped, BandPlaced)
+    assert skipped.clarification.status == "abandoned"
+    assert skipped.next is None
     assert await replay.bands() == {"red": 1, "black": None}
     assert [q.status for q in await _asked(replay)] == ["abandoned"]
 
@@ -235,9 +236,9 @@ async def test_an_answered_question_cannot_be_answered_again(
     assert await replay.bands() == {"red": 1, "black": 2}
 
 
-async def _seed_ranked(replay: _Replay, labels: list[str]) -> None:
+async def _seed_ranked(replay: _Replay, labels: list[str], *, start: int = 1) -> None:
     async with replay.factory() as db:
-        for rank, label in enumerate(labels, start=1):
+        for rank, label in enumerate(labels, start=start):
             await db.execute(
                 text(
                     "INSERT INTO athlete_bands (id, user_id, label, rank)"
@@ -321,6 +322,48 @@ async def test_a_sport_with_no_band_scale_has_no_band_question_to_answer(
 
     with pytest.raises(ClarificationNotFoundError):
         await _answer(replay, question, "place:2")
+
+
+async def test_a_card_whose_ranking_changed_is_asked_again_and_ranks_nothing(
+    db_session_factory: SessionFactory, tmp_path: Path
+) -> None:
+    replay = await _band_replay(db_session_factory, "bands-stale", tmp_path)
+    await _seed_ranked(replay, ["b1", "b2", "b3", "b4", "b5", "b6"])
+    await _log_band(replay, "black")
+    question = await _open(replay)
+    await _seed_ranked(replay, ["b7"], start=7)
+
+    again = await _answer(replay, question, "narrow:5-7")
+
+    assert again.clarification.status == "open"
+    assert again.clarification.id == question.id
+    assert [o.id for o in again.clarification.clarification.options] == ["narrow:1-4", "narrow:5-8"]
+    assert (await replay.bands())["black"] is None
+
+
+async def test_skipping_asks_the_next_unplaced_band_of_the_log(
+    db_session_factory: SessionFactory, tmp_path: Path
+) -> None:
+    replay = await _band_replay(db_session_factory, "bands-skip-next", tmp_path)
+    await _log_band(replay, "red")
+    await replay.log(
+        "black and green band rows",
+        _extraction(
+            "2026-10-02",
+            _lift("band rows", sets=3, reps=10, band="black"),
+            _lift("band rows", sets=3, reps=10, band="green"),
+        ),
+        picks={"band rows": "Resistance Band Row"},
+    )
+    first = await _open(replay)
+
+    skipped = await abandon_clarification(replay.user_id, first.id, services=replay.services)
+
+    assert isinstance(skipped, BandPlaced)
+    assert skipped.clarification.status == "abandoned"
+    assert skipped.next is not None
+    assert skipped.next.clarification.subject == "green"
+    assert await replay.bands() == {"red": 1, "black": None, "green": None}
 
 
 class _Failing(SqlAlchemyBandOrder):
