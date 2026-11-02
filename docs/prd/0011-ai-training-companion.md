@@ -30,7 +30,6 @@ Amateur athletes with full-time jobs have 3–8 hours a week to train. They can'
 
 - Polish or any language other than English in the interface and replies (v1). Polish text a source already has is stored so search finds it (G5).
 - Strava, Garmin or other wearable sync.
-- External MCP clients. The app's own answers use the MCP tools; outside clients stay deferred (ADR-0010).
 - Native mobile app, and any location use in the background.
 - Full support for imperial units and American grade scales (V, YDS) in v1. They are best effort (G15).
 - Coach or team features.
@@ -84,7 +83,7 @@ Amateur athletes with full-time jobs have 3–8 hours a week to train. They can'
 
 13. **Log a gym session** — Type "4 series two hantles 6kg each - rising straight arms on both sides" → the app has never seen this exercise from the athlete, so it offers the closest candidates it finds, up to four. Each has two lines on how it's done, and a picture when there is one, plus "Keep my name". When it finds none, the athlete just keeps their name → say they pick "Dumbbell lateral raise" → the draft shows Dumbbell lateral raise, 4 sets, two dumbbells of 6 kg each, reps empty because none were given → confirm. Next week "rising arms to sides 4x10 7kg" lands on Dumbbell lateral raise with no question, and history shows 6 kg → 7 kg.
 14. **Log a band or a hold** — "Anti rotations 12 reps each side - red band" → the draft shows the exercise, 12 reps per side and the red band. The first time a second colour appears, the app asks once which of the two is harder. "Plank 45s" is logged as a 45-second hold, and history compares it with last week's 30 s.
-15. **Ask about my gym training** — "How is my bench going?" → the reply gives the sets, loads and dates the athlete logged, and how they changed. With nothing logged for bench press, it says so and gives no numbers. "How often should I deload?" gets no invented advice: until the knowledge base can answer, it says it has no source for that yet.
+15. **Ask about my gym training** — "How is my bench going?" → the reply gives the sets, loads and dates the athlete logged. With nothing logged for bench press, it says so and gives no numbers. "How often should I deload?" gets no invented advice: until the knowledge base can answer, it says it has no source for that yet.
 
 A single message can mix flows, e.g. a log and a question (B14).
 
@@ -165,7 +164,7 @@ IDs are stable across revisions. Never reuse a retired ID.
 
   A value the message doesn't give stays empty and is never estimated.
 - **B39** — Resistance bands. The athlete's band colours are their own ordered scale, lightest to heaviest. A colour is stored as named. Its place in the order comes only from the athlete, asked once on a choice card when a new colour appears. It is never guessed from the colour, so progress from one band to a heavier one can be shown.
-- **B40** — Gym answers from the athlete's own history. A question about the athlete's gym training ("how is my bench going?") is answered from their saved sessions: real sets, loads and dates, and only their own (G1). With no history on it, the app says so and gives no numbers. A general training question that needs a source gets no invented advice: until the knowledge base can answer it (B8), the app says it has no source yet. Safety goes first (G3). Owner-directed 2026-11-01.
+- **B40** — Gym answers from the athlete's own history. A question about the athlete's gym training ("how is my bench going?") is answered from their saved sessions: real sets, loads and dates, and only their own (G1). History counts every entry they logged for that exercise, whether under a catalogue name, a name they kept or the name as typed (B37). With no history on it, the app says so and gives no numbers. A general training question that needs a source gets no invented advice: until the knowledge base can answer it (B8), the app says it has no source yet. Safety goes first (G3). Owner-directed 2026-11-01.
 
 ### Frontend (F)
 
@@ -222,7 +221,8 @@ IDs are stable across revisions. Never reuse a retired ID.
 - [ ] The same question with no bench press logged says so and gives no numbers.
 - [ ] "How often should I deload?", with no source for it in the knowledge base, says it has no source yet and invents no advice.
 - [ ] Answering a gym question never reads another athlete's sessions.
-- [ ] A climbing or cycling training question gets the "not yet" reply until the rest of M2 lands.
+- [ ] Asked about an exercise they kept under their own name, the athlete gets the sets they logged under it, not "no history".
+- [ ] History lists the athlete's gym sessions. Editing a saved set changes what history and the exercise's progress show, and deleting a session removes its exercises and sets.
 - [ ] Setting a goal produces a long-term plan and a week plan within the stated availability.
 - [ ] Reporting a missed session produces an adjusted week proposal, and the previous plan version is kept.
 - [ ] The weekly report shows per-sport and cross-sport load and flags overlapping finger / pulling load when present.
@@ -307,6 +307,7 @@ IDs are stable across revisions. Never reuse a retired ID.
 - Offline use: a service worker, cached pages or queued messages. v1 is installable but needs a connection.
 - Syncing the theme choice across devices.
 - Exposing prompt templates as MCP prompts to external clients.
+- External MCP clients of any kind, owner-directed 2026-11-01. Gym answers run inside the app (ADR-0010).
 - Project tracking: matching a logged `attempt` on a named route to a later `redpoint`, and counting that as goal progress (B9).
 - Route lookup for sports other than climbing (cycling segments). The `ExternalRouteSource` port (ADR-0016) is shaped so this is an adapter, not a redesign. Gym exercises come from an imported catalogue (B37), not a live lookup.
 - Exercise catalogues for climbing and cycling. Their tables can reuse the gym catalogue's shape (ADR-0031).
@@ -333,12 +334,12 @@ IDs are stable across revisions. Never reuse a retired ID.
 | M1g Gym exercises | Exercise catalogue import with Polish aliases, typed gym tables, gym measures and bands, history-first name resolution, the exercise card, exercise MCP tools | B37–B39, F23 |
 | M1z Ship it | Production host behind the owner's Cloudflare domain, release pipeline only the owner can trigger, offsite backups, migration safety. The first production deploy waits for M1a, M1, M1o and M1g | G12, G13 |
 | M2q Gym answers | The first specialist on the in-process MCP server, with its template and smoke set, answering gym questions from the athlete's history; the "not yet" text corrected | B40, G2, G3 |
-| M3 Know it | The knowledge-base and hybrid-search research documents, the `/research-knowledge` skill, the embedding-model spike, the admin upload page, ingestion including the catalogue's texts, hybrid `search_knowledge`, cited Q&A on gym questions, a better exercise shortlist | B7, B8, B37 |
+| M3 Know it | The knowledge-base and hybrid-search research documents, the `/research-knowledge` skill, the embedding-model spike, the admin upload page, ingestion including the catalogue's texts, hybrid `search_knowledge`, cited Q&A on gym questions, a better exercise shortlist | B7, B8 (gym), B37 |
 | M2m Show me | The licensed media source, media storage, linking media to exercises with admin review, media on the exercise card | F24 |
 | M2g Gym history | History for gym sessions, built from the History mock: reading, editing and deleting them, and one exercise's progress over time; exercise media there when it exists | B4 (gym: read, update, delete), F3 (gym), F24 (in history) |
 | M2a My gyms | The athlete's gyms with their disciplines and grading, gym grades and the Polish (Kurtyka) scale on climbing drafts, the venue on the draft card and its choice card, My gyms in onboarding and Settings | B27–B29, F18 |
 | M2b Find my gym | The spike on OpenStreetMap coverage, the gym directory import, the location opt-in in onboarding and Settings, the location check on logs | B30–B32, F19 |
-| M2 See it | History for the other sports, with reading, editing and deleting saved sessions; cited answers to climbing and cycling questions; cross-sport load, weekly report, statistics per sport | B4 (read, update, delete), B5, B6, B12, F3, F5, F12 |
+| M2 See it | History for the other sports, with reading, editing and deleting saved sessions; cited answers to climbing and cycling questions; cross-sport load, weekly report, statistics per sport | B4 (other sports: read, update, delete), B5, B6, B8 (climbing, cycling), B12, F3 (other sports), F5, F12 |
 | M4 Plan it | Goals, long-term and weekly plans, re-planning | B9–B11, F4 |
 | M5 Explore it | Grade conversion and route identity, the 8a.nu route lookup, crag geography, area recommendations | B18–B22, F10, G10 |
 
@@ -358,6 +359,6 @@ M1e and M1g come before M1z, approved in the gym-exercises plan on 2026-10-30. T
 
 Gym comes first after M1z, owner-directed 2026-11-01: M2q and M3, then M2g, then M2a and M2b, then the rest of M2. Gym is the sport the owner logs, questions still end on a fixed "not yet", and naming a new exercise stays weak until M3's search. M2q needs no knowledge base, so it lands first and M3 adds citations to it. M2m is listed after M3 because it follows the media research and blocks nothing; M2g shows its media when it exists.
 
-Climbing and cycling questions keep the "not yet" reply until the rest of M2, owner-directed 2026-11-02, so B8 is complete only then.
+Climbing and cycling questions keep the "not yet" reply until the rest of M2, owner-directed 2026-11-02, so B8 is complete only then. How a question counts as gym, including one that names no sport, is settled at M2q's plan gate and recorded in this PRD or ADR-0008 there.
 
 G13 binds from the first production deploy onward. From then on, every schema change preserves existing data (ADR-0024).
