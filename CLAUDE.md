@@ -64,7 +64,7 @@ Locked by the ADRs cited below; `docs/adr/README.md` carries each ADR's current 
 - Production telemetry through one pinned Grafana Alloy container to Grafana Cloud: app OTLP, container and journal logs, host, Caddy and Postgres metrics; JSON logs with trace and request IDs; dashboards and alerts as JSON in `deploy/grafana/`, imported by the owner — ADR-0030
 - Exercise catalogue (`exercises`, `exercise_texts`, `exercise_aliases`) imported from a pinned dataset commit; gym names resolved history first, then a best-effort catalogue shortlist plus Jev, then the exercise card; media linked per catalogue exercise — ADR-0031
 - A sport owns its activity tables (`gym_exercise_entries`, `gym_sets`, `athlete_bands`), written on confirm through the plugin's `ActivityStore`; drafts stay JSONB — ADR-0032
-- Knowledge uploaded by admins at `/admin/knowledge` to a private R2 bucket behind `ObjectStoragePort`, ingested in-process; `qwen/qwen3-embedding-8b` embeddings at `vector(1024)`, pinned to one upstream; hybrid `search_knowledge` with reciprocal rank fusion — ADR-0033
+- Knowledge uploaded by admins at `/admin/knowledge` to a private R2 bucket behind `ObjectStoragePort` (`obstore`, versitygw under `make start`), ingested in-process; `qwen/qwen3-embedding-8b` embeddings at `vector(1024)`, pinned to one upstream; hybrid `search_knowledge` with reciprocal rank fusion — ADR-0033
 - Lean evals: per-change smoke sets from `evals/field/` transcripts, code-graded and run once; full runs on demand; safety always judged; content-free `feedback_events` — ADR-0034
 - Parallel agent delivery: `model:`/`risk:` labels per ticket, a checklist plan critic (human plan gate only for `risk:high`), the acceptance gate for UI tickets only, draft PRs as the review gate, one worktree and database per ticket, run from its own Claude tab in the main window — ADR-0035
 
@@ -98,6 +98,7 @@ uv run ai-trainer llm-debug-report [--since <ISO time>]   # summarize LLM_DEBUG_
 uv run ai-trainer import-exercises   # upsert the exercise catalogue from the dataset commit pinned in Settings; a second run changes nothing (ADR-0031)
 uv run ai-trainer backfill-gym-sessions   # write gym sessions logged before the typed tables into them, payloads untouched; a second run writes nothing (ADR-0032)
 uv run ai-trainer feedback-report [--since <ISO time>]   # counts of the content-free feedback events per kind, template and field; "no feedback events" when empty (ADR-0034)
+uv run ai-trainer storage-check   # put, read back and delete a probe object in the configured uploads bucket, and try a short presigned link; `make storage-check` runs it on `make start` with no R2 account (ADR-0033)
 make latency-scenario [sport=gym]   # replay the latency scenario on `make start`, p50/p95 per log turn (ADR-0026; costs money); sport=gym exercises gym naming (ADR-0031)
 uv run playwright install chromium   # one-time browser download for e2e
 uv run pytest tests/e2e -n 0     # e2e specs, serial (needs `docker compose up`; excluded from `uv run pytest`)

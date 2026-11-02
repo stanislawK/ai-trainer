@@ -56,6 +56,37 @@ DEFAULT_ONBOARDING_REASONING_EFFORT: ReasoningEffort = "low"
 _VERSIONED_DECISION_MODEL = re.compile(r"^[a-z0-9-]+/jev-\d+\.\d+(\.\d+)?(-\d{8})?$")
 # The only hosts `LLM_DEBUG_LOG` may run behind (#278); `localhost.example.com` is public.
 _LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1"})
+# Set together or not at all (ADR-0033). `object_storage_region` has a default, so it isn't one.
+_OBJECT_STORAGE_KEYS = (
+    "object_storage_endpoint",
+    "object_storage_access_key_id",
+    "object_storage_secret_access_key",
+    "object_storage_uploads_bucket",
+)
+
+
+def _origin(value: str) -> str | None:
+    """`value` as a lower-case http(s) origin, or None when it is anything else."""
+    try:
+        parts = urlsplit(value.strip())
+        host = parts.hostname or ""
+        port = parts.port
+    except ValueError:
+        return None
+    # An IPv6 literal or a trailing-dot host would never match the Host header Starlette's
+    # trusted-host check compares, locking the app out of every request.
+    has_host = bool(host) and ":" not in host and not host.endswith(".") and port != 0
+    if (
+        parts.scheme not in ("http", "https")
+        or not has_host
+        or parts.path not in ("", "/")
+        or parts.query
+        or parts.fragment
+        or parts.username is not None
+        or parts.password is not None
+    ):
+        return None
+    return f"{parts.scheme}://{parts.netloc.lower()}"
 
 
 class Settings(BaseSettings):
@@ -188,6 +219,15 @@ class Settings(BaseSettings):
     # A sport's extraction reads its context from this many of the athlete's latest sessions
     # in that sport, e.g. the climbing kinds they do (ticket #164).
     extract_recent_sessions: int = Field(default=10, ge=1)
+    # The private `uploads` bucket on an S3-compatible service (ADR-0033): R2 in production,
+    # versitygw under `make start`. R2 takes `auto` as its region. The timeout bounds one request
+    # with its retries.
+    object_storage_endpoint: str | None = None
+    object_storage_region: str = "auto"
+    object_storage_access_key_id: SecretStr | None = None
+    object_storage_secret_access_key: SecretStr | None = None
+    object_storage_uploads_bucket: str | None = None
+    object_storage_timeout_seconds: float = Field(default=60.0, gt=0)
 
     # Google sign-in (ADR-0005). No Google access or refresh token is ever stored.
     # Required and non-blank: a blank value otherwise fails only on Google's own page.
@@ -239,30 +279,36 @@ class Settings(BaseSettings):
     @field_validator("public_base_url")
     @classmethod
     def _origin_only(cls, value: str) -> str:
-        message = (
-            "PUBLIC_BASE_URL must be an http(s) origin without a path, such as "
-            f"http://localhost:8000, not {value!r}"
-        )
-        try:
-            parts = urlsplit(value.strip())
-            host = parts.hostname or ""
-            port = parts.port
-        except ValueError:
-            raise ValueError(message) from None
-        # An IPv6 literal or a trailing-dot host would never match the Host header Starlette's
-        # trusted-host check compares, locking the app out of every request.
-        has_host = bool(host) and ":" not in host and not host.endswith(".") and port != 0
-        if (
-            parts.scheme not in ("http", "https")
-            or not has_host
-            or parts.path not in ("", "/")
-            or parts.query
-            or parts.fragment
-            or parts.username is not None
-            or parts.password is not None
-        ):
-            raise ValueError(message)
-        return f"{parts.scheme}://{parts.netloc.lower()}"
+        origin = _origin(value)
+        if origin is None:
+            raise ValueError(
+                "PUBLIC_BASE_URL must be an http(s) origin without a path, such as "
+                f"http://localhost:8000, not {value!r}"
+            )
+        return origin
+
+    @field_validator("object_storage_endpoint")
+    @classmethod
+    def _object_storage_endpoint_is_an_origin(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        origin = _origin(value)
+        if origin is None:
+            # Never echoes the value: credentials pasted into the URL would reach the log.
+            raise ValueError(
+                "OBJECT_STORAGE_ENDPOINT must be an http(s) origin without a path or credentials, "
+                "such as http://localhost:7070"
+            )
+        return origin
+
+    @model_validator(mode="after")
+    def _object_storage_all_or_nothing(self) -> Self:
+        # Unset is fine until the admin upload ticket needs it, so a release never waits on new
+        # keys. Half set is a mistake that should stop the app at start, not at an admin's upload.
+        missing = [key.upper() for key in _OBJECT_STORAGE_KEYS if getattr(self, key) is None]
+        if 0 < len(missing) < len(_OBJECT_STORAGE_KEYS):
+            raise ValueError(f"object storage is only partly set; missing {', '.join(missing)}")
+        return self
 
     @model_validator(mode="after")
     def _llm_debug_log_only_on_localhost(self) -> Self:
@@ -280,6 +326,10 @@ class Settings(BaseSettings):
         "onboarding_call_timeout_seconds",
         "router_reasoning_effort",
         "extract_reasoning_effort",
+        "object_storage_endpoint",
+        "object_storage_access_key_id",
+        "object_storage_secret_access_key",
+        "object_storage_uploads_bucket",
         mode="before",
     )
     @classmethod
@@ -292,13 +342,14 @@ class Settings(BaseSettings):
         "onboarding_model",
         "onboarding_provider_preferences",
         "onboarding_reasoning_effort",
+        "object_storage_region",
+        "object_storage_timeout_seconds",
         mode="before",
     )
     @classmethod
-    def _blank_onboarding_setting_is_the_default(
-        cls, value: object, info: ValidationInfo
-    ) -> object:
-        # `.env.example` lists the keys blank, so a copied `.env` keeps the picked defaults.
+    def _blank_setting_is_the_default(cls, value: object, info: ValidationInfo) -> object:
+        # `.env.example` lists the onboarding keys blank, so a copied `.env` keeps the picked
+        # defaults. A storage key blanked along with the others means the same.
         if isinstance(value, str) and not value.strip():
             assert info.field_name is not None
             return cls.model_fields[info.field_name].default

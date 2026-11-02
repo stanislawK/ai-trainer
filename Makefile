@@ -1,6 +1,6 @@
 .PHONY: install css test test-fast test-ops test-unit test-integration coverage lint format format-check \
 	typecheck import-lint squawk uv-pins-check suppressions-check openapi openapi-check check up up-build start stop down logs ps \
-	health smoke-setup smoke-up smoke-down alloy-check cloud-init-check backup-check migrate purge-conversations import-exercises backfill-gym-sessions llm-report latency-scenario evals e2e-install e2e worktree worktree-rm worktree-prune stack-owner
+	health smoke-setup smoke-up smoke-down alloy-check cloud-init-check backup-check migrate purge-conversations import-exercises backfill-gym-sessions storage-check llm-report latency-scenario evals e2e-install e2e worktree worktree-rm worktree-prune stack-owner
 
 # The checkout's own database (ADR-0035): the last path segment of DATABASE_URL in its .env,
 # read by compose.yaml, so `make start` in a ticket's worktree serves `ai_trainer_wt<n>`.
@@ -81,7 +81,8 @@ stop: ## Stop the make start stack (keeps the postgres volume)
 	docker compose -f compose.yaml -f compose.dev.yaml down
 
 down: ## Stop and remove the stack (keeps the postgres volume)
-	docker compose down
+	@# --remove-orphans: without the dev overlay, `make start`'s `storage` would keep running.
+	docker compose down --remove-orphans
 
 logs: ## Follow container logs (includes the one-shot migrate service from `make start`, #64)
 	docker compose -f compose.yaml -f compose.dev.yaml logs -f
@@ -173,6 +174,9 @@ import-exercises: ## Upsert the exercise catalogue from the pinned dataset commi
 
 backfill-gym-sessions: ## Write gym sessions logged before the typed tables into them; payloads stay as stored, a second run writes nothing (ADR-0032); needs the stack's database up
 	uv run ai-trainer backfill-gym-sessions
+
+storage-check: ## Put, read back and delete a probe object in the local uploads bucket and try a short presigned link (ADR-0033); runs in the app container, needs `make start` and no R2 account
+	docker compose -f compose.yaml -f compose.dev.yaml exec -T app ai-trainer storage-check
 
 llm-report: ## Summarize the LLM debug log per template and model (#179); fails when there is no log. Usage: make llm-report [since=2026-10-18T20:00Z]
 	uv run ai-trainer llm-debug-report $(if $(since),--since $(since))
