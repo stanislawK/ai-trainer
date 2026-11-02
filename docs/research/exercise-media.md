@@ -45,7 +45,7 @@ This document decides nothing. It compares where exercise pictures could come fr
 - The catalogue ADR-0031 already imports ([`hasaneyldrm/exercises-dataset`](https://github.com/hasaneyldrm/exercises-dataset), 1,324 exercises at `7455efa`) licenses its data and instruction text under MIT. Its media is © Gym visual and excluded from that licence ([LICENSE](https://github.com/hasaneyldrm/exercises-dataset/blob/main/LICENSE), read 2026-11-02).
 - The repository holds the media "with the rights holder's separate written permission", at 180×180 only, with the attribution "© Gym visual — https://gymvisual.com/". Reusing it "is governed by Gym visual's Terms & Conditions" and the repository "does not grant you any rights to the media" ([NOTICE.md](https://github.com/hasaneyldrm/exercises-dataset/blob/main/NOTICE.md), read 2026-11-02).
 - The terms page ([gymvisual.com terms](https://gymvisual.com/content/3-terms-and-conditions-of-use)) and the site root both returned HTTP 403 to two automated fetches on 2026-11-02. Their terms, price and app-use rules are not read. See Open questions.
-- Each record in the dataset links one `gif_url` and one `image` and carries the attribution string (`gif_url` and `image` fields of `data/exercises.json` at `7455efa`, read 2026-11-02). Linking media to the catalogue exercise therefore needs no matching step.
+- Each record in the dataset links one `gif_url` and one `image` and carries the attribution string (`gif_url` and `image` fields of `data/exercises.json` at `7455efa`, read 2026-11-02). Media for this dataset's exercises is therefore already attached to the same rows ADR-0031 imports, so no matching between two datasets is needed. A picture can still be the wrong variant, which F24's admin review checks.
 
 ### 3. Claude-written SVGs
 
@@ -57,7 +57,7 @@ This document decides nothing. It compares where exercise pictures could come fr
 
 ### 4. An image model
 
-- Prices as OpenRouter lists them, from `list-models` on 2026-11-02, for models whose output includes images: `google/gemini-3-pro-image`, `google/gemini-3.1-flash-image`, `google/gemini-2.5-flash-image`, `openai/gpt-5-image` and `openai/gpt-5-image-mini`, plus preview variants of two Gemini models. The `image_output` figures it prints are of the order of $0.00003 to $0.00012 per image. Their unit is not documented in the result, so they are not turned into a per-exercise cost here.
+- Prices as OpenRouter lists them, from `list-models` on 2026-11-02, for models whose output includes images: `google/gemini-3-pro-image`, `google/gemini-3.1-flash-image`, `google/gemini-2.5-flash-image`, `openai/gpt-5-image` and `openai/gpt-5-image-mini`, plus preview variants of two Gemini models. The `image_output` field it prints holds figures between 0.00003 and 0.00012, labelled `/image`. The result does not say what that unit is, and such small amounts suggest it is not a price per picture, so no per-exercise cost is derived here.
 - Google's Gemini API terms: "Google won't claim ownership over that content", Google "may generate the same or similar content for others", and use of generated content "may require the provision of attribution to your users" ([Gemini API additional terms](https://ai.google.dev/gemini-api/terms), effective 2026-03-23, read 2026-11-02). The page text read has no rule on watermarks.
 - OpenAI's terms returned HTTP 403 to an automated fetch ([OpenAI terms of use](https://openai.com/policies/terms-of-use/), 2026-11-02) and are not read.
 - wger itself carries an "AI generated" flag and shows 46 such images ([wger API](https://wger.de/api/v2/exerciseimage/), 2026-11-02), which shows the open-set maintainers treat provenance as something to record.
@@ -76,9 +76,9 @@ Method: the six exercises in the [first gym session](../../evals/field/gym/2026-
 | Dumbbell lateral raise | exact: `dumbbell lateral raise` | name only: Lateral Raises (dumbbell not in the name) | family (8 hits, e.g. Side Lateral Raise) |
 | Triceps extension | family (49 hits); the exact movement is open | family: Barbell, Overhead, Cable | family (32 hits) |
 | Anti-rotation (Pallof) | family: `band horizontal pallof press`, `band vertical pallof press` | exact: Pallof Press | exact: Pallof Press |
-| Clear hit | 4 of 6, plus 2 families | 3 of 6, plus 3 weaker | 2 of 6, plus 4 families |
+| Clear hit | 3 of 6, plus 2 families, 1 none | 3 of 6, plus 3 weaker | 2 of 6, plus 4 families |
 
-"Family" means several variants exist and picking the one the athlete did needs a choice, which is the work the exercise card (F23) already does. ADR-0031 records that "Face pull" is not in the Gym visual dataset, and this measure agrees ([ADR-0031 Consequences](../adr/0031-exercise-catalogue-and-name-resolution.md)).
+"Exact" means the set has an exercise under the plain name; "family" and "weaker" are my judgment of how close the hits are, and the patterns are broad (for example `skull` and `kickback` both count toward triceps). "Family" means several variants exist and picking the one the athlete did needs a choice, which is the work the exercise card (F23) already does. ADR-0031 records that "Face pull" is not in the Gym visual dataset, and this measure agrees ([ADR-0031 Consequences](../adr/0031-exercise-catalogue-and-name-resolution.md)).
 
 Six exercises are a smoke check on one athlete's one session, not a coverage rate for the catalogue.
 
@@ -88,7 +88,7 @@ Five samples are in one Claude Design page, [Exercise media samples](https://cla
 
 | Option | Form-accuracy risk |
 |---|---|
-| `wger` image | Depends on the picture. Line-art pairs by a named author (bench press, lateral raise) show start and end. A single photo (pull-ups) does not. Name matches can pick the wrong variant (face pull is the dumbbell bent-over row-like move). Some pictures are AI-flagged (two of three for Pallof press). |
+| `wger` image | Depends on the picture. The line-art pairs by Everkinetic (bench press, lateral raise) show start and end. A single photo (pull-ups) does not. A name match can pick the wrong variant: the face pull hit is "Dumbbell Bent Over Face Pull", not a cable face pull. Some pictures are AI-flagged: two of the three Pallof press pictures. These details come from the API records for [bench press](https://wger.de/api/v2/exerciseimage/?exercise=73), [lateral raise](https://wger.de/api/v2/exerciseimage/?exercise=348), [pull-ups](https://wger.de/api/v2/exerciseimage/?exercise=475), [face pull](https://wger.de/api/v2/exerciseimage/?exercise=1639) and [Pallof press](https://wger.de/api/v2/exerciseimage/?exercise=1194) (read 2026-11-02). |
 | Claude-written SVG | Stick figures draw a plausible shape and can hide errors: grip, scapular position, elbow flare, and rotation resistance cannot be shown reliably. Every sample was drawn once and none was reviewed by a coach. |
 | Image model | Not generated, so unknown. No source read measures it. See Open questions. |
 | Gym visual | Not shown because their terms are unread, so unknown. Its dataset links one picture and one animation to each exercise, and each match still needs a name check, as for any option. |
@@ -99,8 +99,8 @@ Five samples are in one Claude Design page, [Exercise media samples](https://cla
 |---|---|---|---|---|
 | `free-exercise-db` images | Repository Unlicense; the images' rights are unknown and likely infringing (finding 1) | Not applicable: no licence to attribute under | 2 clear + 4 families of 6, 876 exercises | Free to copy; legal exposure unquantified |
 | `wger` images | Per image: CC BY-SA 4 (295) or CC BY-SA 3 (88), by named authors | Yes: author and licence link per image; 104 have no author listed | 3 clear + 3 weaker of 6, 279 exercises with images | Free; storage only |
-| Gym visual | © Gym visual, own licence required | Yes: "© Gym visual — https://gymvisual.com/" | 4 clear + 2 families of 6, 1,324 exercises, already matched to ADR-0031's catalogue | Not read; Open question |
-| Claude-written SVG | Outputs assigned to the customer under the Commercial Terms; copyrightability not settled | No third party; our own credit line is a choice | Any exercise we write one for | Tokens per SVG, not measured |
+| Gym visual | © Gym visual, own licence required | Yes: "© Gym visual — https://gymvisual.com/" | 3 clear + 2 families + 1 none of 6, 1,324 exercises, the same rows as ADR-0031's catalogue; media is 180×180 only | Not read; Open question |
+| Claude-written SVG | Outputs assigned to the customer under the Commercial Terms (API, Console); the Consumer Terms bar commercial use, so the account used to write an SVG matters (the samples were written in a Claude Code session); copyrightability not settled | No third party; our own credit line is a choice | Any exercise we write one for | Tokens per SVG, not measured |
 | Image model (per provider) | Gemini: Google claims no ownership; OpenAI: not read; others: not read | Gemini: "may require" attribution to users | Any exercise we generate | Provider prices as listed on OpenRouter, unit unclear; none run |
 
 ## Recommendations for this project
@@ -108,7 +108,7 @@ Five samples are in one Claude Design page, [Exercise media samples](https://cla
 These are inputs for the owner and for the M2m ticket. None of them decides anything, and none contradicts ADR-0031: it already says no media is imported "until a source with a license we hold is chosen".
 
 - Treat `free-exercise-db` images as unusable. Its text and JSON may still be useful as data, which is outside this ticket.
-- Before choosing, read Gym visual's terms in a browser and ask them for a quote. It is the only option that covers 4 of 6 first-session exercises, and it is the dataset ADR-0031 already imports ([ADR-0031](../adr/0031-exercise-catalogue-and-name-resolution.md), read 2026-11-02), so its media would need no name matching. If the price or app-use rule rules it out, the answer is already in hand.
+- Before choosing, read Gym visual's terms in a browser and ask them for a quote. It has the largest catalogue (1,324 exercises) and 3 clear hits plus 2 families on the first session, with no face pull. It is the dataset ADR-0031 already imports ([ADR-0031](../adr/0031-exercise-catalogue-and-name-resolution.md), read 2026-11-02), so its media needs no matching between datasets. Its media is 180×180 only ([NOTICE.md](https://github.com/hasaneyldrm/exercises-dataset/blob/main/NOTICE.md)), which the owner should check against the F23 card's media slot. If the price, the size or the app-use rule rules it out, the answer is already in hand.
 - Consider `wger` as the free fallback only if the project can meet CC BY-SA attribution (author, licence link) per image, and only after deciding what the 104 images with no author, and the 46 AI-flagged ones, mean for G10's "shown with its source". The admin review step in F24 is where such a picture would be skipped.
 - An SVG set involves no third-party image owner, and it can cover face pull. Whether such output can be owned at all is an Open question, and its limit is form accuracy, which a human reviewer must judge. The samples let the owner judge whether the style is acceptable at all.
 - Run a small image-model sample only if the owner asks. It is the one paid step and the least known on rights.
