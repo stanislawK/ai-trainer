@@ -153,9 +153,45 @@ def test_caddyfile_requires_the_aop_client_certificate_and_sets_hsts() -> None:
     assert mode_lines == ["mode require_and_verify"]
     assert 'Strict-Transport-Security "max-age=31536000"' in caddyfile
     assert "reverse_proxy app:8000" in caddyfile
-    assert "max_size 256KiB" in caddyfile
+    assert "request_body @not_knowledge_upload {\n\t\tmax_size 256KiB" in caddyfile
     # Only 443/tcp is published, so HTTP/3 must not be advertised.
     assert "protocols h1 h2" in caddyfile
+
+
+def test_only_the_knowledge_upload_may_send_up_to_cloudflares_100_mb() -> None:
+    """ADR-0029 as amended at #422: one route gets a larger body cap, and the two matchers
+    exclude each other, so the 256 KiB cap can't also apply to the upload. `caddy adapt` reads
+    them as `max_size: 100000000` on `POST /admin/knowledge/sources` and `262144` on `not` it."""
+    caddyfile = (ROOT / "deploy" / "Caddyfile").read_text()
+    assert "@knowledge_upload {\n\t\tmethod POST\n\t\tpath /admin/knowledge/sources\n\t}" in (
+        caddyfile
+    )
+    assert (
+        "@not_knowledge_upload {\n\t\tnot {\n\t\t\tmethod POST\n"
+        "\t\t\tpath /admin/knowledge/sources\n\t\t}\n\t}"
+    ) in caddyfile
+    assert "request_body @knowledge_upload {\n\t\tmax_size 100MB\n\t}" in caddyfile
+    assert "request_body @not_knowledge_upload {\n\t\tmax_size 256KiB\n\t}" in caddyfile
+    # No third, unmatched `request_body` that would cap the upload too.
+    directives = [
+        line.strip() for line in caddyfile.splitlines() if line.strip().startswith("request_body")
+    ]
+    assert directives == [
+        "request_body @knowledge_upload {",
+        "request_body @not_knowledge_upload {",
+    ]
+
+
+def test_the_largest_upload_setting_fits_under_caddys_cap_with_the_form_around_it() -> None:
+    from ai_trainer.settings import Settings
+
+    ceiling_mb = next(
+        meta.le
+        for meta in Settings.model_fields["knowledge_max_upload_mb"].metadata
+        if hasattr(meta, "le")
+    )
+    # The other fields and the multipart framing are a few kilobytes; leave a full megabyte.
+    assert ceiling_mb * 1024 * 1024 + 1_000_000 <= 100_000_000
 
 
 def test_alloy_is_never_on_edge_and_publishes_nothing(compose: dict[str, Any]) -> None:

@@ -24,6 +24,7 @@ EXPECTED_TABLES = {
     "gym_exercise_entries",
     "gym_sets",
     "athlete_bands",
+    "knowledge_sources",
 }
 
 

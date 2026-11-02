@@ -32,9 +32,25 @@ https://{$SITE_HOST} {
 
 	header Strict-Transport-Security "max-age=31536000"
 
-	# No upload exists. Chat and onboarding forms are a few kilobytes (ADR-0029).
+	# Chat and onboarding forms are a few kilobytes (ADR-0029). The one upload, an admin's
+	# knowledge file (ADR-0033, #422), may reach Cloudflare's own 100 MB cap; the app enforces
+	# KNOWLEDGE_MAX_UPLOAD_MB below that. The two matchers exclude each other, since both
+	# limits would otherwise apply and the smaller would win.
 	# `request_body` is in the stock caddy:2.11.7 image. A larger body is 413.
-	request_body {
+	@knowledge_upload {
+		method POST
+		path /admin/knowledge/sources
+	}
+	@not_knowledge_upload {
+		not {
+			method POST
+			path /admin/knowledge/sources
+		}
+	}
+	request_body @knowledge_upload {
+		max_size 100MB
+	}
+	request_body @not_knowledge_upload {
 		max_size 256KiB
 	}
 

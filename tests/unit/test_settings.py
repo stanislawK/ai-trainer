@@ -168,6 +168,24 @@ def test_object_storage_keys_stay_out_of_settings_repr(monkeypatch: pytest.Monke
     assert "secret-access-key-value" not in repr(settings)
 
 
+def test_the_knowledge_upload_limit_defaults_to_50_mb(monkeypatch: pytest.MonkeyPatch) -> None:
+    _set_required_keys(monkeypatch)
+    monkeypatch.delenv("KNOWLEDGE_MAX_UPLOAD_MB", raising=False)
+
+    assert Settings(_env_file=None).knowledge_max_upload_mb == 50
+
+
+@pytest.mark.parametrize("value", ["0", "-1", "91"])
+def test_a_knowledge_upload_limit_outside_1_to_90_mb_refuses_to_start(
+    monkeypatch: pytest.MonkeyPatch, value: str
+) -> None:
+    _set_required_keys(monkeypatch)
+    monkeypatch.setenv("KNOWLEDGE_MAX_UPLOAD_MB", value)
+
+    with pytest.raises(ValidationError, match="knowledge_max_upload_mb"):
+        Settings(_env_file=None)
+
+
 @pytest.mark.parametrize("missing", sorted(OBJECT_STORAGE_KEYS))
 def test_partial_object_storage_settings_refuse_to_start_naming_the_key(
     monkeypatch: pytest.MonkeyPatch, missing: str

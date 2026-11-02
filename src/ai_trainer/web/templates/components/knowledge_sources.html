@@ -1,0 +1,188 @@
+{% from "components/icon.html" import icon %}
+{#- The knowledge page's copy and pieces (B7, ADR-0033, the Knowledge mock from #419). Values are
+    the domain's closed sets; every word the admin reads is here (G5). -#}
+{% set tier_labels = {
+  "peer_reviewed": "Peer-reviewed",
+  "coaching_book": "Coaching book",
+  "article_or_transcript": "Article or transcript",
+  "catalogue": "Exercise catalogue",
+} %}
+{% set type_labels = {
+  "research_paper": "Research paper",
+  "book": "Book",
+  "talk_or_podcast": "Talk or podcast",
+  "article": "Article",
+  "catalogue": "Exercise catalogue",
+} %}
+{% set language_labels = {"en": "English", "pl": "Polish"} %}
+{% set status_copy = {
+  "uploaded": {"label": "Uploaded", "badge": "badge badge-soft", "busy": false},
+  "ingesting": {"label": "Ingesting", "badge": "badge badge-soft badge-primary", "busy": true},
+  "ingested": {"label": "Ingested", "badge": "badge badge-success", "busy": false},
+  "failed": {"label": "Failed", "badge": "badge badge-error", "busy": false},
+} %}
+{% set file_types_hint = "PDF, EPUB, Markdown, text, .vtt or .srt" %}
+
+{#- Bytes as the browser's script shows them: KB under a megabyte, else MB to one decimal. -#}
+{% macro file_size(size) -%}
+{%- if size < 1048576 %}{{ [1, (size / 1024) | round | int] | max }} KB{% else %}{{ "%g" | format((size / 1048576) | round(1)) }} MB{% endif -%}
+{%- endmacro %}
+
+{% macro byline(source) -%}
+{%- if source.author %}{{ source.author }} · {% endif %}{{ tier_labels[source.evidence_tier] }}
+{%- endmacro %}
+
+{% macro status_badge(source, extra="") -%}
+{%- set copy = status_copy[source.status] -%}
+<span class="{{ copy.badge }} {{ extra }}">{% if copy.busy %}<span class="loading loading-spinner loading-xs"></span>{% endif %}{{ copy.label }}</span>
+{%- endmacro %}
+
+{#- Re-ingest on ingested and failed sources only; Delete on every stored one, even ingesting. -#}
+{% macro reingest_button(source, phone) -%}
+{%- if source.status in ("ingested", "failed") %}
+<button
+  type="button"
+  class="lg lg-clear lg-sm{% if not phone %} whitespace-nowrap{% endif %}"
+  hx-post="/admin/knowledge/sources/{{ source.id }}/reingest"
+  hx-target="#knowledge"
+  hx-swap="outerHTML"
+><span class="absolute inset-x-0 -inset-y-1" aria-hidden="true"></span>{% if phone %}{{ icon("refresh-cw", "size-4") }}{% endif %}Re-ingest</button>
+{%- endif %}
+{%- endmacro %}
+
+{% macro delete_button(source, phone) -%}
+<button
+  type="button"
+  class="lg lg-quiet lg-sm"
+  data-knowledge-delete="knowledge-delete-{{ source.id }}"
+><span class="absolute inset-x-0 -inset-y-1" aria-hidden="true"></span>{% if phone %}{{ icon("trash-2", "size-4") }}{% endif %}Delete</button>
+{%- endmacro %}
+
+{% macro source_card(source) -%}
+<li class="mat-content rounded-box p-4 flex flex-col gap-2" data-source-id="{{ source.id }}" data-status="{{ source.status }}">
+  <div class="flex items-start gap-3">
+    <span class="flex flex-col flex-1 min-w-0"><span class="text-[16px] font-medium break-words">{{ source.title }}</span><span class="text-[13px] lbl-2">{{ byline(source) }}</span></span>
+    {{ status_badge(source, "shrink-0") }}
+  </div>
+  {%- if source.status == "uploaded" %}
+  <span class="text-[13px] lbl-2">Waiting to be ingested</span>
+  {%- endif %}
+  {%- if source.status == "failed" and source.error %}
+  <p class="text-[13px]">{{ source.error }}</p>
+  {%- endif %}
+  <div class="flex gap-2">
+    {{ reingest_button(source, true) }}
+    {{ delete_button(source, true) }}
+  </div>
+</li>
+{%- endmacro %}
+
+{#- No chunks exist until ingestion (#423), so chunks and model read "—" until then. -#}
+{% macro source_row(source) -%}
+<tr class="border-base-content/10" data-source-id="{{ source.id }}" data-status="{{ source.status }}">
+  <td><span class="flex flex-col"><span class="font-medium">{{ source.title }}</span><span class="text-[13px] lbl-2">{{ byline(source) }}</span>
+    {%- if source.status == "failed" and source.error %}<span class="text-[13px] mt-1">{{ source.error }}</span>{% endif %}</span></td>
+  <td>{{ status_badge(source, "whitespace-nowrap") }}</td>
+  <td class="text-right tabular-nums">—</td>
+  <td class="text-[13px] font-mono lbl-2 whitespace-nowrap">—</td>
+  <td><div class="flex justify-end gap-2">
+    {{ reingest_button(source, false) }}
+    {{ delete_button(source, false) }}
+  </div></td>
+</tr>
+{%- endmacro %}
+
+{#- Asks before a delete: the bucket holds the only copy of the file (ADR-0033). -#}
+{% macro delete_dialog(source) -%}
+<dialog id="knowledge-delete-{{ source.id }}" class="modal bg-base-300/60" aria-label="Delete this source">
+  <div class="modal-box lgs lgs-thick relative w-[92%] max-w-[440px] p-5 flex flex-col gap-3">
+    <h3 class="text-[17px] font-semibold">Delete this source?</h3>
+    <p class="text-[14px]">“{{ source.title }}” leaves the knowledge base, and the uploaded file is removed. This can't be undone.</p>
+    <div class="flex justify-end gap-2">
+      <form method="dialog"><button class="lg lg-ghost"><span class="absolute inset-x-0 -inset-y-0.5" aria-hidden="true"></span>Cancel</button></form>
+      <button
+        type="button"
+        class="lg lg-danger"
+        hx-delete="/admin/knowledge/sources/{{ source.id }}"
+        hx-target="#knowledge"
+        hx-swap="outerHTML"
+      ><span class="absolute inset-x-0 -inset-y-0.5" aria-hidden="true"></span>Delete source</button>
+    </div>
+  </div>
+  <form method="dialog" class="modal-backdrop"><button>close</button></form>
+</dialog>
+{%- endmacro %}
+
+{#- The browser's own row while the file is on its way, before any `status` exists; the request
+    can't report progress (htmx 4 sends through fetch), so the bar is indeterminate. -#}
+{% macro uploading_templates() -%}
+<template id="knowledge-uploading-card">
+  <li class="mat-content rounded-box p-4 flex flex-col gap-2" data-uploading>
+    <div class="flex items-start gap-3">
+      <span class="flex flex-col flex-1 min-w-0"><span class="text-[16px] font-medium break-words" data-uploading-title></span><span class="text-[13px] lbl-2" data-uploading-byline></span></span>
+      <span class="badge badge-soft badge-primary shrink-0">Uploading</span>
+    </div>
+    <progress class="progress progress-primary w-full" aria-label="Upload progress"></progress>
+    <div class="flex gap-2">
+      <button type="button" class="lg lg-quiet lg-sm" data-knowledge-cancel><span class="absolute inset-x-0 -inset-y-1" aria-hidden="true"></span>{{ icon("x", "size-4") }}Cancel</button>
+    </div>
+  </li>
+</template>
+<template id="knowledge-uploading-row">
+  <tr class="border-base-content/10" data-uploading>
+    <td><span class="flex flex-col"><span class="font-medium" data-uploading-title></span><span class="text-[13px] lbl-2" data-uploading-byline></span><progress class="progress progress-primary w-full mt-2" aria-label="Upload progress"></progress></span></td>
+    <td><span class="badge badge-soft badge-primary whitespace-nowrap">Uploading</span></td>
+    <td class="text-right tabular-nums">—</td>
+    <td class="text-[13px] font-mono lbl-2 whitespace-nowrap">—</td>
+    <td><div class="flex justify-end gap-2"><button type="button" class="lg lg-quiet lg-sm" data-knowledge-cancel><span class="absolute inset-x-0 -inset-y-1" aria-hidden="true"></span>Cancel</button></div></td>
+  </tr>
+</template>
+{%- endmacro %}
+
+{#- One field's message, shown when the server marked it or the browser's own check fails. -#}
+{% macro field_error(sheet, name, message) -%}
+<p class="label text-error text-[13px]" data-error-for="{{ name }}"{% if name not in sheet.problems %} hidden{% endif %}>{{ message }}</p>
+{%- endmacro %}
+
+{% macro invalid(sheet, name) -%}
+aria-invalid="{{ 'true' if name in sheet.problems else 'false' }}"
+{%- endmacro %}
+
+{% macro notice(sheet, max_upload_mb) -%}
+{%- if sheet.notice == "already" and sheet.existing %}
+{%- set existing = sheet.existing %}
+<div class="rounded-2xl bg-base-content/10 p-3 flex flex-col gap-2" role="alert">
+  {%- if existing.status == "failed" %}
+  <div class="flex items-start gap-3">{{ icon("circle-alert", "size-5 shrink-0 text-error") }}<p class="text-[14px] leading-5">This file is already here as “{{ existing.title }}”, and its last ingest failed{% if existing.error %}: {{ existing.error }}{% else %}.{% endif %}</p></div>
+  <button
+    type="button"
+    class="lg lg-clear lg-sm self-start ml-8"
+    hx-post="/admin/knowledge/sources/{{ existing.id }}/reingest"
+    hx-target="#knowledge"
+    hx-swap="outerHTML"
+  ><span class="absolute inset-x-0 -inset-y-1" aria-hidden="true"></span>{{ icon("refresh-cw", "size-4") }}Re-ingest</button>
+  {%- elif existing.status == "ingested" %}
+  <div class="flex items-start gap-3">{{ icon("info", "size-5 shrink-0 text-info") }}<p class="text-[14px] leading-5">This file is already ingested as “{{ existing.title }}”. Nothing changed.</p></div>
+  {%- else %}
+  <div class="flex items-start gap-3">{{ icon("info", "size-5 shrink-0 text-info") }}<p class="text-[14px] leading-5">This file is already here as “{{ existing.title }}”, still {{ existing.status }}. Nothing changed.</p></div>
+  {%- endif %}
+</div>
+{%- elif sheet.notice == "storage_not_configured" %}
+<div class="rounded-2xl bg-base-content/10 p-3 flex items-start gap-3" role="alert">{{ icon("circle-alert", "size-5 shrink-0 text-error") }}<p class="text-[14px] leading-5">File storage isn't set up, so nothing was uploaded.</p></div>
+{%- elif sheet.notice == "storage_failed" %}
+<div class="rounded-2xl bg-base-content/10 p-3 flex items-start gap-3" role="alert">{{ icon("circle-alert", "size-5 shrink-0 text-error") }}<p class="text-[14px] leading-5">The file couldn't be stored. Nothing was uploaded; try again.</p></div>
+{%- endif %}
+{%- endmacro %}
+
+{% macro file_errors(sheet, max_upload_mb) -%}
+{%- set problem = sheet.problems.get("file") %}
+<p class="text-error text-[13px]" data-error-for="file" data-problem="missing"{% if problem != "missing" %} hidden{% endif %}>Choose a file to upload.</p>
+<p class="text-error text-[13px]" data-error-for="file" data-problem="unlisted_type"{% if problem != "unlisted_type" %} hidden{% endif %}>That file type isn't supported. Use {{ file_types_hint }}.</p>
+<p
+  class="text-error text-[13px]"
+  data-error-for="file"
+  data-problem="too_large"
+  data-template="This file is {size}. The limit is {{ max_upload_mb }} MB."
+  {% if problem != "too_large" %}hidden{% endif %}
+>{% if sheet.file_size %}This file is {{ file_size(sheet.file_size) }}. {% endif %}The limit is {{ max_upload_mb }} MB.</p>
+{%- endmacro %}

@@ -32,12 +32,24 @@ Neither holds user training data.
 **Admin upload.** `/admin/knowledge` is visible only to `ADMIN_EMAILS` (ADR-0005). It lists sources with their status, chunk count and embedding model.
 - **The upload form** takes:
   - the file: PDF, EPUB, Markdown, plain text, or a transcript as `.txt`, `.vtt` or `.srt`, under `knowledge_max_upload_mb`;
-  - the source's details: title, author, source type, evidence tier, language, sports, topics, license note and source URL.
-- **Actions:** re-ingest and delete. Delete removes the file, the source and its chunks.
+  - the source's details: title, author, source type, evidence tier, language, sports, topics, license note and source URL. Required are the file, title, source type, evidence tier, language, license note and at least one sport. Author, topics (comma-separated, trimmed and lowercased) and source URL (`http` or `https`) are optional. A missing author drops out of the byline with its separator.
+- **Closed sets** (owner-chosen at #422's plan gate, 2026-11-02):
+  - **Evidence tier.** It is ranked and names the *kind* of source, not the certainty of any claim (`docs/research/knowledge-base.md` rec 8). The order is `peer_reviewed` "Peer-reviewed", then `coaching_book` "Coaching book", then `article_or_transcript` "Article or transcript". These are ADR-0011's three, and the curation ranking below maps onto them. `catalogue` "Exercise catalogue" is reserved for the catalogue's rows and never offered on the form.
+  - **Source type:** `research_paper`, `book`, `talk_or_podcast` (a transcript is uploaded as this) and `article`. `catalogue` is reserved, as for the tier.
+  - **Language:** `en`, `pl` (PRD G5).
+- **Actions:** re-ingest and delete. Delete removes the file, the source and its chunks. Re-ingest sets an `ingested` or `failed` source back to `uploaded`. It clears `error` and `ingested_at` and records the admin; the worker then replaces the chunks in one transaction. On `uploaded` or `ingesting` it changes nothing.
+- **Without storage settings** the page still lists sources. An upload is refused inline ("File storage isn't set up"), with nothing stored.
+- **Upload progress.** The file goes up through htmx, which sends through `fetch`, and `fetch` can't report upload progress ([htmx 4 docs](https://github.com/bigskysoftware/htmx/blob/v4.0.0/www/src/content/patterns/03-file-upload.md), via context7, 2026-11-02). So the Uploading row shows an indeterminate bar, and its Cancel aborts the request.
 - Every form is CSRF-protected.
 
 **Manifest in the database.** `knowledge_sources` is the manifest:
 - It gains `storage_key`, `status` (`uploaded`, `ingesting`, `ingested`, `failed`), `error`, `uploaded_at` and `ingested_at`.
+- It also gains three columns about the file:
+  - `file_type` (`pdf`, `epub`, `markdown`, `text`, `vtt`, `srt`), checked against the file's bytes as well as its extension, so the worker picks a reader without sniffing again;
+  - `file_name`;
+  - `size_bytes`.
+- And `uploaded_by_user_id`, the admin who uploaded the source or last asked for a re-ingest. It is the acting user of the source's embedding calls, since `llm_calls.user_id` is NOT NULL. Its foreign key is `ON DELETE SET NULL`, because a source outlives its uploader's account.
+- The catalogue's rows have no file, so `storage_key` and the file columns are nullable. A CHECK keeps every set closed, keeps the license note non-blank and requires at least one sport (invariant 5).
 - A content hash already identifies a source (ADR-0011), so re-uploading the same file is a no-op.
 - Nothing about sources is committed to git any more. That supersedes ADR-0011 invariant 3's manifest, while its "files stay out of git" stands.
 
@@ -125,7 +137,20 @@ Agents don't upload.
   - **Deletes are single requests.** `obstore` defaults to S3's DeleteObjects, which reports a missing object per key in the response body. `disable_bulk_delete` sends one `DELETE` per object, where a missing object is a success.
   - **Library failures are caught broadly.** The adapter catches `Exception` around each `obstore` call, because a panic in its Rust code arrives as its own type, and a bad header value panics. A content type that can't be a header is refused before the call.
   - **Links on R2.** They live 1 second to 7 days and can't use a custom domain ([R2 docs](https://developers.cloudflare.com/r2/api/s3/presigned-urls/), read 2026-11-02), so they name the account's S3 endpoint. The adapter refuses a time outside those bounds.
-  - **Links under `make start`.** A link made inside the app container names `storage:7070`, which a browser can't open. Nothing opens one in a browser yet; the admin page's ticket decides this if it needs links.
+  - **Links under `make start`.** A link made inside the app container names `storage:7070`, which a browser can't open. Nothing opens one in a browser yet. The admin page (#422) needs no links, since it never shows a source's file.
   - **versitygw's region.** It refuses a signature for any region but its own, so it runs with `--region auto`, R2's name.
   - **What CI proves.** CI has no S3 service, so the adapter's tests run on a small server in `tests/object_storage_support.py`, which doesn't verify signatures. A library bump is checked by hand with `make storage-check`.
 - `/admin/knowledge` needs a Claude Design mock before its web ticket (ADR-0019).
+- **Owner-directed amendment, 2026-11-02 (#422's plan gate).** The owner settled four things there, which the Decision now records:
+  - the closed sets, which `docs/research/knowledge-base.md` and the Knowledge design row had left to that gate;
+  - the required fields;
+  - the manifest's file columns and `uploaded_by_user_id`;
+  - re-ingest, the unset-storage refusal and the indeterminate upload bar.
+
+  The body cap on the upload route is ADR-0029's amendment of the same date.
+- **Upload gotchas (#422):**
+  - **The admin check comes first.** The upload's body and every source ID are parsed by hand after the admin check, as on the users page, so a non-admin gets 403, never 422 or 404.
+  - **Reads are bounded.** The service reads at most one byte past `knowledge_max_upload_mb`, enough to tell a file is too large.
+  - **The form is closed.** Starlette spools the file to disk, so the route opens the form with `async with request.form(...)`, which closes it.
+  - **Order of writes.** The object is put before its row is written. A failed or duplicate insert deletes the object again, so a row never names a missing file. A duplicate is `INSERT … ON CONFLICT DO NOTHING` on `content_hash`.
+  - **Tests need unique files.** Tests share one database, so each upload test needs its own bytes. A second insert of a hash that another test's open transaction holds waits for that transaction to end.

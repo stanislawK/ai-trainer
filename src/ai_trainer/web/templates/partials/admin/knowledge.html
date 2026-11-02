@@ -1,0 +1,162 @@
+{% from "components/icon.html" import icon %}
+{% from "components/admin_tabs.html" import admin_tabs %}
+{% from "components/sport_copy.html" import sport_copy %}
+{% from "components/knowledge_sources.html" import tier_labels, type_labels, language_labels, file_types_hint, source_card, source_row, delete_dialog, file_size, uploading_templates, field_error, invalid, notice, file_errors with context %}
+{#- The knowledge page's region (B7, ADR-0033, the Knowledge mock from #419). Every action renders
+    it whole: the list, and the upload sheet open after a refusal or notice with the answers kept.
+    `static/js/knowledge_upload.js` opens the sheet and the dialogs, runs the browser's own checks,
+    and shows the Uploading row while the file is sent. -#}
+{% set answers = sheet.answers %}
+<div class="flex flex-col gap-4 px-4 pt-14 lg:pt-2 lg:w-[960px] lg:mx-auto" id="knowledge">
+  {{ admin_tabs("knowledge") }}
+  <div class="flex items-center justify-between gap-3">
+    <h1 class="text-[34px]/[40px] lg:text-[28px]/[34px] font-semibold tracking-tight">Knowledge</h1>
+    <button type="button" class="lg lg-tinted" data-knowledge-open{% if not sources %} hidden{% endif %}>{{ icon("upload", "size-4") }}Upload source</button>
+  </div>
+
+  {%- if alert %}
+  <div class="rounded-2xl bg-base-content/10 p-3 flex items-start gap-3" role="alert">
+    {{ icon("circle-alert", "size-5 shrink-0 text-error") }}
+    <p class="text-[14px] leading-5">
+      {%- if alert == "delete_failed" %}The file couldn't be removed. Nothing was deleted. Try again.
+      {%- elif alert == "delete_not_configured" %}File storage isn't set up, so the file can't be removed. Nothing was deleted.
+      {%- elif alert == "reingest_waiting" %}That source is already waiting to be ingested. Nothing changed.
+      {%- endif %}</p>
+  </div>
+  {%- endif %}
+
+  <div class="mat-content rounded-box p-6 flex flex-col items-center text-center gap-3" data-knowledge-empty{% if sources %} hidden{% endif %}>
+    {{ icon("book-open", "size-8 lbl-2") }}
+    <h2 class="text-[17px] font-semibold">No sources yet</h2>
+    <p class="text-[15px] lbl-2 max-w-[44ch]">Upload research, coaching books, talks or articles. Each one needs an evidence tier and a license note.</p>
+    <button type="button" class="lg lg-tinted" data-knowledge-open>{{ icon("upload", "size-4") }}Upload source</button>
+  </div>
+
+  <ul class="flex flex-col gap-3 lg:hidden" aria-label="Sources" data-knowledge-cards{% if not sources %} hidden{% endif %}>
+    {% for source in sources %}
+    {{ source_card(source) }}
+    {% endfor %}
+  </ul>
+
+  <div class="mat-content rounded-box overflow-hidden hidden lg:block" data-knowledge-table{% if not sources %} hidden{% endif %}>
+    <table class="table text-[15px]">
+      <thead class="text-[12px] lbl-2"><tr class="border-base-content/10"><th>Source</th><th>Status</th><th class="text-right">Chunks</th><th>Embedding model</th><th><span class="sr-only">Actions</span></th></tr></thead>
+      <tbody>
+        {% for source in sources %}
+        {{ source_row(source) }}
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% for source in sources %}
+  {{ delete_dialog(source) }}
+  {% endfor %}
+  {{ uploading_templates() }}
+
+  <div data-knowledge-sheet{% if not sheet.open %} hidden{% endif %}>
+    <div class="fixed inset-0 z-40 bg-base-300/60" data-knowledge-close></div>
+    <form
+      class="mat-content fixed z-50 p-0 flex flex-col inset-x-0 bottom-0 top-12 rounded-t-[28px] lg:inset-x-auto lg:bottom-auto lg:top-10 lg:left-[calc(50%-340px)] lg:w-[680px] lg:max-h-[calc(100dvh-5rem)] lg:rounded-box"
+      aria-label="Upload a source"
+      role="dialog"
+      aria-modal="true"
+      hx-post="/admin/knowledge/sources"
+      hx-encoding="multipart/form-data"
+      hx-target="#knowledge"
+      hx-swap="outerHTML"
+      data-knowledge-form
+      data-open="{{ 'true' if sheet.open else 'false' }}"
+      data-max-bytes="{{ max_upload_bytes }}"
+      novalidate
+    >
+      <div class="flex items-center justify-between gap-2 px-4 pt-3 pb-2">
+        <h2 class="text-[17px] font-semibold">Upload a source</h2>
+        <button type="button" class="lg lg-ghost lg-icon" aria-label="Close" data-knowledge-close>{{ icon("x", "size-5") }}</button>
+      </div>
+      <div class="flex-1 min-h-0 overflow-y-auto">
+        <div class="px-4 pb-3 flex flex-col gap-3">
+          {{ notice(sheet, max_upload_mb) }}
+          <div class="flex flex-col gap-1">
+            <label class="rounded-2xl border border-dashed min-h-20 px-4 py-3 flex items-center gap-3 cursor-pointer {{ 'border-error' if 'file' in sheet.problems else 'border-base-content/20' }}" data-file-label>
+              {{ icon("file-text", "size-5 shrink-0 lbl-2") }}
+              <span class="flex flex-col min-w-0">
+                <span class="text-[15px] font-medium truncate" data-file-name data-empty="Choose a file">{{ sheet.file_name or "Choose a file" }}</span>
+                {#- A browser never keeps a chosen file across a reply, so a reopened sheet asks for it again. #}
+                <span class="text-[13px] lbl-2" data-file-hint data-chosen="{size} · tap to change">
+                  {%- if sheet.file_name and sheet.file_size %}{{ file_size(sheet.file_size) }} · choose it again to upload
+                  {%- else %}{{ file_types_hint }} · up to {{ max_upload_mb }} MB{% endif -%}
+                </span>
+              </span>
+              <input type="file" name="file" class="sr-only" accept=".pdf,.epub,.md,.markdown,.txt,.vtt,.srt" data-file-input />
+            </label>
+            {{ file_errors(sheet, max_upload_mb) }}
+          </div>
+          <div class="grid gap-x-3 gap-y-1 grid-cols-1 lg:grid-cols-2">
+            <fieldset class="fieldset">
+              <legend class="fieldset-legend text-[13px]">Title</legend>
+              <input class="lg-field" name="title" value="{{ answers.title }}" {{ invalid(sheet, "title") }} data-required />
+              {{ field_error(sheet, "title", "Add a title.") }}
+            </fieldset>
+            <fieldset class="fieldset">
+              <legend class="fieldset-legend text-[13px]">Author</legend>
+              <input class="lg-field" name="author" value="{{ answers.author }}" />
+            </fieldset>
+            <fieldset class="fieldset">
+              <legend class="fieldset-legend text-[13px]">Source type</legend>
+              <select class="lg-field lg-select" name="source_type" {{ invalid(sheet, "source_type") }} data-required>
+                {% for value in source_types %}
+                <option value="{{ value }}"{% if answers.source_type == value %} selected{% endif %}>{{ type_labels[value] }}</option>
+                {% endfor %}
+              </select>
+              {{ field_error(sheet, "source_type", "Pick a source type.") }}
+            </fieldset>
+            <fieldset class="fieldset">
+              <legend class="fieldset-legend text-[13px]">Evidence tier</legend>
+              <select class="lg-field lg-select" name="evidence_tier" {{ invalid(sheet, "evidence_tier") }} data-required>
+                <option value=""{% if answers.evidence_tier not in evidence_tiers %} selected{% endif %}>Choose a tier</option>
+                {% for value in evidence_tiers %}
+                <option value="{{ value }}"{% if answers.evidence_tier == value %} selected{% endif %}>{{ tier_labels[value] }}</option>
+                {% endfor %}
+              </select>
+              {{ field_error(sheet, "evidence_tier", "Pick an evidence tier.") }}
+            </fieldset>
+            <fieldset class="fieldset">
+              <legend class="fieldset-legend text-[13px]">Language</legend>
+              <select class="lg-field lg-select" name="language" {{ invalid(sheet, "language") }} data-required>
+                {% for value in languages %}
+                <option value="{{ value }}"{% if answers.language == value %} selected{% endif %}>{{ language_labels[value] }}</option>
+                {% endfor %}
+              </select>
+              {{ field_error(sheet, "language", "Pick a language.") }}
+            </fieldset>
+            <fieldset class="fieldset">
+              <legend class="fieldset-legend text-[13px]">Topics</legend>
+              <input class="lg-field" name="topics" value="{{ answers.topics }}" />
+            </fieldset>
+            <fieldset class="fieldset">
+              <legend class="fieldset-legend text-[13px]">License note</legend>
+              <input class="lg-field" name="license_note" value="{{ answers.license_note }}" {{ invalid(sheet, "license_note") }} data-required />
+              {{ field_error(sheet, "license_note", "Add a license note.") }}
+            </fieldset>
+            <fieldset class="fieldset">
+              <legend class="fieldset-legend text-[13px]">Source URL · optional</legend>
+              <input class="lg-field" name="source_url" type="url" inputmode="url" value="{{ answers.source_url }}" placeholder="https://" {{ invalid(sheet, "source_url") }} />
+              {{ field_error(sheet, "source_url", "Use a full link that starts with http:// or https://.") }}
+            </fieldset>
+          </div>
+          <fieldset class="fieldset" data-required-group="sports">
+            <legend class="fieldset-legend text-[13px]">Sports</legend>
+            <div class="flex flex-wrap gap-x-6">
+              {% for sport in sports %}
+              <label class="flex items-center gap-3 min-h-11 text-[15px]"><input type="checkbox" class="checkbox checkbox-primary" name="sports" value="{{ sport.id }}"{% if sport.id in answers.sports %} checked{% endif %} />{{ sport_copy[sport.label_key].label }}</label>
+              {% endfor %}
+            </div>
+            {{ field_error(sheet, "sports", "Pick at least one sport.") }}
+          </fieldset>
+        </div>
+      </div>
+      <div class="px-4 pt-2 pb-[max(1rem,env(safe-area-inset-bottom))] border-t border-base-content/10"><button type="submit" class="lg lg-tinted w-full">Upload and ingest</button></div>
+    </form>
+  </div>
+</div>
