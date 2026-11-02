@@ -16,7 +16,11 @@ def _os_aliases(tree: ast.AST) -> set[str]:
     aliases: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
-            aliases.update(a.asname or a.name for a in node.names if a.name == "os")
+            for name in node.names:
+                if name.name == "os":
+                    aliases.add(name.asname or "os")
+                elif name.name.startswith("os.") and name.asname is None:
+                    aliases.add("os")  # `import os.path` binds `os`
     return aliases
 
 
@@ -114,6 +118,18 @@ def test_detects_an_aliased_os_import(tmp_path: Path) -> None:
     path = _write(tmp_path, 'import os as operating_system\nx = operating_system.getenv("X")\n')
 
     assert [p.split(" ")[0] for p in environment_read_problems(tmp_path, {})] == [f"{path}:2"]
+
+
+def test_detects_environ_after_import_os_path(tmp_path: Path) -> None:
+    path = _write(tmp_path, 'import os.path\nx = os.environ["X"]\n')
+
+    assert [p.split(" ")[0] for p in environment_read_problems(tmp_path, {})] == [f"{path}:2"]
+
+
+def test_ignores_an_alias_bound_to_a_submodule_of_os(tmp_path: Path) -> None:
+    _write(tmp_path, 'import os.path as p\nx = p.join("a", "b")\ny = p.getenv\n')
+
+    assert environment_read_problems(tmp_path, {}) == []
 
 
 def test_ignores_os_path_join(tmp_path: Path) -> None:
