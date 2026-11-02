@@ -1,6 +1,6 @@
 """The Jev router fast path (ADR-0020 use 1, ADR-0008 amendment, ticket #122): `router_fast`
-v1 asked of the bare message, one confident intent dispatched from its answer, and `None`, the
-LLM router's turn, for everything else."""
+asked of the bare message, one confident intent dispatched from its answer, and `None`, the LLM
+router's turn, for everything else."""
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -28,6 +28,7 @@ from ai_trainer.llm.router_fast import (
     plausible_sports,
     router_fast_set,
 )
+from ai_trainer.settings import Settings
 
 THRESHOLDS = RouterFastThresholds(multi_request=0.3, intent=0.8, sport=0.8, plausible_floor=0.25)
 ALL_SPORTS = ("climbing", "gym", "cycling")
@@ -474,3 +475,57 @@ def test_a_floor_of_zero_keeps_every_sport_of_the_athlete() -> None:
         "gym",
         "cycling",
     )
+
+
+# Two-exercise logs (#436): one session in one sport, so the LLM router has nothing to add.
+
+
+def _default_thresholds() -> RouterFastThresholds:
+    """The code's defaults, whatever the developer's `.env` holds."""
+
+    def default(name: str) -> float:
+        value = Settings.model_fields[f"router_fast_{name}"].default
+        assert isinstance(value, float)
+        return value
+
+    return RouterFastThresholds(
+        multi_request=default("multi_request_threshold"),
+        intent=default("intent_threshold"),
+        sport=default("sport_threshold"),
+        plausible_floor=default("plausible_sport_floor"),
+    )
+
+
+@pytest.mark.parametrize(
+    "sports", [("gym",), ("climbing", "gym", "cycling")], ids=["gym only", "several sports"]
+)
+def test_two_exercise_log_routes_fast_at_the_default_thresholds(sports: tuple[str, ...]) -> None:
+    """0.24 is the highest P(several) v2 gave a two-exercise log, English or Polish (#436)."""
+    output, _ = _answer(multi=0.24, sport="gym", sports=sports)
+    probabilities = {"intent": {"log_session": 1.0}, "sport": {"gym": 1.0}}
+
+    route = fast_route(
+        output, probabilities, athlete_sports=sports, thresholds=_default_thresholds()
+    )
+
+    assert route.intents == [Intent(kind="log_session", sport="gym")]
+
+
+def test_several_requests_stay_with_the_router_at_the_default_thresholds() -> None:
+    """0.43 is the lowest P(several) v2 gave a message that needs the router: a list across two
+    sports, and pain with a log, which must never be taken as the pain alone (#436)."""
+    output, _ = _answer(multi=0.43, sport="gym")
+    probabilities = {"intent": {"log_session": 1.0}, "sport": {"gym": 1.0}}
+
+    route = fast_route(
+        output, probabilities, athlete_sports=ALL_SPORTS, thresholds=_default_thresholds()
+    )
+
+    assert route.intents is None
+
+
+def test_the_app_asks_its_latest_version_and_v1_stays_registered_for_comparison() -> None:
+    versions = DecisionSetLoader().versions(ROUTER_FAST_ID)
+
+    assert ROUTER_FAST_VERSION == versions[-1] > 1
+    assert versions[0] == 1
