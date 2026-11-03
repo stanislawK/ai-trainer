@@ -83,7 +83,7 @@
               <span class="flex flex-col min-w-0">
                 <span class="text-[15px] font-medium truncate" data-file-name data-empty="Choose a file">{{ sheet.file_name or "Choose a file" }}</span>
                 {#- A browser never keeps a chosen file across a reply, so a reopened sheet asks for it again. #}
-                <span class="text-[13px] lbl-2" data-file-hint data-chosen="{size} · tap to change">
+                <span class="text-[13px] lbl-2" data-file-hint data-chosen="{size} · tap to change" data-empty="{{ file_types_hint }} · up to {{ max_upload_mb }} MB">
                   {%- if sheet.file_name and sheet.file_size %}{{ file_size(sheet.file_size) }} · choose it again to upload
                   {%- else %}{{ file_types_hint }} · up to {{ max_upload_mb }} MB{% endif -%}
                 </span>

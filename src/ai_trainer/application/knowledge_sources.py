@@ -5,6 +5,8 @@ source row second, so a row never names a missing object; when the row can't be 
 object is removed again.
 """
 
+import asyncio
+import contextlib
 from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Literal, Protocol
@@ -113,9 +115,10 @@ class KnowledgeSources:
         # One byte past the limit is enough to tell a file is too large.
         data = await file.read(self._max_upload_bytes + 1) if file is not None else b""
         file_name = file.filename if file is not None else None
-        file_type = check_file(file_name, data, max_bytes=self._max_upload_bytes)
+        # Up to KNOWLEDGE_MAX_UPLOAD_MB of decoding and hashing, kept off the event loop.
+        file_type, digest = await asyncio.to_thread(self._inspect, file_name, data)
         if isinstance(file_type, KnowledgeFileType):
-            existing = await self._sources.get_by_hash(content_hash(data))
+            existing = await self._sources.get_by_hash(digest)
             if existing is not None:
                 return AlreadyStored(source=existing)
         details = read_details(answers, known_sports=self._sports)
@@ -133,7 +136,7 @@ class KnowledgeSources:
         source = NewKnowledgeSource(
             **details.model_dump(),
             id=source_id,
-            content_hash=content_hash(data),
+            content_hash=digest,
             file_type=file_type,
             file_name=file_name,
             size_bytes=len(data),
@@ -142,6 +145,11 @@ class KnowledgeSources:
             uploaded_at=self._clock.now(),
         )
         return await self._store(self._storage, source, data)
+
+    def _inspect(
+        self, file_name: str | None, data: bytes
+    ) -> tuple[KnowledgeFileType | UploadProblem, str]:
+        return check_file(file_name, data, max_bytes=self._max_upload_bytes), content_hash(data)
 
     async def _store(
         self, storage: ObjectStoragePort, source: NewKnowledgeSource, data: bytes
@@ -158,12 +166,12 @@ class KnowledgeSources:
             return SourceStored(source=await self._sources.add(source))
         except DuplicateSourceError:
             # The same file was stored by another upload since the lookup above.
-            await storage.delete(source.storage_key)
+            await _discard(storage, source.storage_key)
             existing = await self._sources.get_by_hash(source.content_hash)
             assert existing is not None
             return AlreadyStored(source=existing)
         except BaseException:
-            await storage.delete(source.storage_key)
+            await _discard(storage, source.storage_key)
             raise
 
     async def delete(self, source_id: UUID) -> DeleteOutcome:
@@ -193,3 +201,10 @@ class KnowledgeSources:
         # Its status changed since the lookup.
         current = await self._sources.get(source_id)
         return SourceNotFound() if current is None else NotReingestable(source=current)
+
+
+async def _discard(storage: ObjectStoragePort, key: str) -> None:
+    """Removes an object no source names. If that fails too, the orphan is harmless, and the
+    outcome or error that led here is what the admin needs to see."""
+    with contextlib.suppress(ObjectStorageError):
+        await storage.delete(key)

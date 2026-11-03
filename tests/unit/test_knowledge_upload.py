@@ -221,6 +221,7 @@ def test_optional_fields_may_be_blank() -> None:
         ({"source_url": "ftp://example.org/x"}, UploadField.SOURCE_URL, UploadProblem.NOT_A_URL),
         ({"source_url": "https://"}, UploadField.SOURCE_URL, UploadProblem.NOT_A_URL),
         ({"source_url": "https://exa mple.org"}, UploadField.SOURCE_URL, UploadProblem.NOT_A_URL),
+        ({"source_url": "http://[abc/x"}, UploadField.SOURCE_URL, UploadProblem.NOT_A_URL),
     ],
     ids=[
         "no-tier",
@@ -236,6 +237,7 @@ def test_optional_fields_may_be_blank() -> None:
         "ftp-url",
         "url-without-host",
         "url-with-space",
+        "malformed-url",
     ],
 )
 def test_a_missing_or_unknown_answer_names_its_field(
@@ -349,6 +351,17 @@ async def test_an_upload_racing_another_of_the_same_file_removes_its_object() ->
     assert storage.objects == {}
 
 
+async def test_an_upload_racing_another_still_says_already_stored_when_cleanup_fails() -> None:
+    data = pdf_bytes("race-cleanup")
+    sources, storage = MemorySources(), MemoryStorage()
+    sources.racing = _stored(SourceStatus.UPLOADED, data)
+    storage.failing.add("delete")
+
+    outcome = await _service(sources, storage).upload(ADMIN, _answers(), File("race.pdf", data))
+
+    assert outcome == AlreadyStored(source=sources.racing)
+
+
 async def test_without_storage_an_upload_is_refused_as_not_configured() -> None:
     sources = MemorySources()
     outcome = await _service(sources, None).upload(ADMIN, _answers(), File("a.pdf", pdf_bytes("n")))
@@ -379,6 +392,19 @@ async def test_a_failed_insert_removes_the_object_it_put() -> None:
             ADMIN, _answers(), File("a.pdf", pdf_bytes("insert-fails"))
         )
     assert storage.objects == {}
+
+
+async def test_a_failed_insert_keeps_its_error_when_the_cleanup_fails_too() -> None:
+    class Broken(MemorySources):
+        async def add(self, source: object) -> KnowledgeSource:
+            raise RuntimeError("database down")
+
+    storage = MemoryStorage()
+    storage.failing.add("delete")
+    with pytest.raises(RuntimeError, match="database down"):
+        await _service(Broken(), storage).upload(
+            ADMIN, _answers(), File("a.pdf", pdf_bytes("insert-and-cleanup-fail"))
+        )
 
 
 async def test_delete_removes_the_object_and_then_the_source() -> None:

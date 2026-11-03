@@ -219,7 +219,10 @@ def _url(value: str) -> str | UploadProblem | None:
     value = value.strip()
     if not value:
         return None
-    parts = urlsplit(value)
+    try:
+        parts = urlsplit(value)
+    except ValueError:  # e.g. an unclosed IPv6 bracket
+        return UploadProblem.NOT_A_URL
     if (
         parts.scheme not in ("http", "https")
         or not parts.hostname

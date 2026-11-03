@@ -201,6 +201,10 @@
     if (file) {
       name.textContent = file.name;
       hint.textContent = hint.dataset.chosen.replace("{size}", size(file.size));
+    } else {
+      // The chooser was dismissed and the browser emptied the input.
+      name.textContent = name.dataset.empty;
+      hint.textContent = hint.dataset.empty;
     }
     clearErrors(form);
   });
@@ -270,8 +274,13 @@
   });
 
   // No reply at all (offline, a dropped connection): drop the row and show the answers again.
+  // Cancel's abort lands here too, and it has already dropped the row on purpose.
   document.addEventListener("htmx:error", function (event) {
     var form = event.target;
+    var error = event.detail && event.detail.error;
+    if (error && error.name === "AbortError") {
+      return;
+    }
     if (form instanceof HTMLFormElement && form.matches("[data-knowledge-form]")) {
       hideUploading(region());
       openSheet();
