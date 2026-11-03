@@ -44,6 +44,12 @@ def _format_date(value: datetime) -> str:
     return f"{value.day} {value.strftime('%b %Y')}"
 
 
+def _format_short_date(value: datetime) -> str:
+    """Renders `9 Nov`-style dates (the Admin Staging mock's tokens list, ticket #455); an admin
+    timestamp, so like `_format_date` it is not converted."""
+    return f"{value.day} {value.strftime('%b')}"
+
+
 def _format_day(value: date) -> str:
     """Renders `Tue 23 Sep`-style days, the draft card's date chip (the Chat mock, ticket #154).
     A calendar day in the athlete's own timezone already, so nothing is converted."""
@@ -58,6 +64,7 @@ def build_templates() -> Jinja2Templates:
     )
     env.globals["render_icon"] = render_icon
     env.filters["dateformat"] = _format_date
+    env.filters["shortdate"] = _format_short_date
     env.filters["dayformat"] = _format_day
     return Jinja2Templates(
         env=env, context_processors=[_csrf_context_processor, _nav_context_processor]

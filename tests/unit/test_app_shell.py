@@ -15,6 +15,7 @@ from ai_trainer.web.active_user_gate import ActiveUserGateMiddleware
 from ai_trainer.web.admin import build_admin_router
 from ai_trainer.web.auth import SESSION_COOKIE_NAME
 from ai_trainer.web.templating import build_templates
+from tests.admin_tokens_support import memory_admin_tokens
 from tests.chat_support import include_chat
 from tests.knowledge_support import knowledge_wiring
 
@@ -110,6 +111,7 @@ def _client(*, admin_emails: list[str]) -> TestClient:
             users=users,
             sessions=sessions,
             status_changer=FakeUserStatusChanger(),
+            tokens=memory_admin_tokens(),
             **knowledge_wiring(),
         )
     )

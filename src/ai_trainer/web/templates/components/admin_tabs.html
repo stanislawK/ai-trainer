@@ -1,8 +1,8 @@
-{#- Users | Knowledge under Admin (the Knowledge mock, #419): an `lgs` segmented control, since the
-    phone's dock has no room for another section. `current` is `users` or `knowledge`. -#}
+{#- Users | Knowledge | Tokens under Admin (the Knowledge mock, #419; Tokens from Admin Staging, #455): an `lgs` segmented control, since the
+    phone's dock has no room for another section. `current` is `users`, `knowledge` or `tokens`. -#}
 {% macro admin_tabs(current) -%}
 <div class="lgs relative inline-flex w-fit gap-0.5 rounded-full p-1" role="group" aria-label="Admin pages">
-  {% for id, label, href in (("users", "Users", "/admin"), ("knowledge", "Knowledge", "/admin/knowledge")) %}
+  {% for id, label, href in (("users", "Users", "/admin"), ("knowledge", "Knowledge", "/admin/knowledge"), ("tokens", "Tokens", "/admin/tokens")) %}
   {%- if id == current %}
   <a href="{{ href }}" class="relative lg lg-clear lg-seg-on" aria-current="page"><span class="absolute inset-x-0 -inset-y-0.5" aria-hidden="true"></span>{{ label }}</a>
   {%- else %}

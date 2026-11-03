@@ -29,6 +29,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from ai_trainer.adapters.activity_stores import ActivityStores
+from ai_trainer.adapters.admin_token_repository import SqlAlchemyAdminTokensRepository
 from ai_trainer.adapters.chat_repository import SqlAlchemyChatRepository
 from ai_trainer.adapters.clarification_repository import SqlAlchemyClarificationRepository
 from ai_trainer.adapters.clock import UtcClock
@@ -53,6 +54,7 @@ from ai_trainer.adapters.telemetry import ScrubbingSpanExporter
 from ai_trainer.adapters.training_session_repository import SqlAlchemyTrainingSessionRepository
 from ai_trainer.adapters.user_status_changer import SqlAlchemyUserStatusChanger
 from ai_trainer.adapters.users_repository import SqlAlchemyUsersRepository
+from ai_trainer.application.admin_tokens import AdminTokens
 from ai_trainer.application.background_reads import BackgroundReads
 from ai_trainer.application.budgeted_gateways import BudgetedDecisionGateway, BudgetedLlmGateway
 from ai_trainer.application.exercise_lookup import ExerciseFinder
@@ -394,6 +396,9 @@ def create_app(  # noqa: PLR0915 -- composition root: objects are built only her
             sessions=sessions,
             status_changer=status_changer,
             knowledge=build_knowledge_sources(settings, session_factory, clock, sport_registry),
+            tokens=AdminTokens(
+                tokens=SqlAlchemyAdminTokensRepository(session_factory), clock=clock
+            ),
             sports=sport_registry,
             max_upload_mb=settings.knowledge_max_upload_mb,
         )
