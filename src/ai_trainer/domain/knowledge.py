@@ -189,11 +189,6 @@ class NewKnowledgeSource(SourceDetails):
     doi: str | None = Field(default=None, pattern=r"^10\.[0-9.]+/.")
     pmid: str | None = Field(default=None, pattern=r"^[0-9]+$")
     isbn: str | None = None
-
-    @field_validator("doi", mode="before")
-    @classmethod
-    def _lowercase_doi(cls, value: object) -> object:
-        return value.strip().lower() if isinstance(value, str) else value
     content_hash: str
     # None for the catalogue's rows, which have no uploaded file (#427).
     file_type: KnowledgeFileType | None
@@ -205,6 +200,11 @@ class NewKnowledgeSource(SourceDetails):
     # calls (ADR-0018). None once that account is deleted.
     uploaded_by_user_id: UUID | None
     uploaded_at: datetime
+
+    @field_validator("doi", mode="before")
+    @classmethod
+    def _lowercase_doi(cls, value: object) -> object:
+        return value.strip().lower() if isinstance(value, str) else value
 
 
 class KnowledgeSource(NewKnowledgeSource):
