@@ -1,8 +1,9 @@
-"""Knowledge sources, the manifest of the knowledge base (ADR-0011, ADR-0033, PRD B7).
+"""Knowledge sources, the manifest of the knowledge base (ADR-0011, ADR-0033, ADR-0036, PRD B7).
 
 An admin uploads a file with its details; the file goes to the private `uploads` bucket and the
 source is stored as `uploaded` for the ingestion worker. A source is identified by the SHA-256
-of its bytes, so the same file uploaded twice is one source.
+of its bytes, so the same file uploaded twice is one source. A staged source waits as `proposed`
+until an admin approves it, and carries a structured licence (ADR-0036).
 """
 
 import hashlib
@@ -13,7 +14,7 @@ from pathlib import PurePosixPath
 from urllib.parse import urlsplit
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class SourceType(StrEnum):
@@ -41,6 +42,9 @@ class SourceLanguage(StrEnum):
 
 
 class SourceStatus(StrEnum):
+    # Staged by a token or an agent; the worker never reads it until an admin approves it.
+    PROPOSED = "proposed"
+    REJECTED = "rejected"
     UPLOADED = "uploaded"
     INGESTING = "ingesting"
     INGESTED = "ingested"
@@ -54,6 +58,30 @@ class KnowledgeFileType(StrEnum):
     TEXT = "text"
     VTT = "vtt"
     SRT = "srt"
+    # A PMC article's XML, fetched by its PMC ID, never uploaded (ADR-0036).
+    JATS = "jats"
+
+
+class LicenseId(StrEnum):
+    """ADR-0036's closed set. Every CC licence is admitted, the app being non-commercial; `other`
+    needs a note saying what permission the admin holds."""
+
+    CC0 = "cc0"
+    CC_BY = "cc-by"
+    CC_BY_SA = "cc-by-sa"
+    CC_BY_NC = "cc-by-nc"
+    CC_BY_NC_SA = "cc-by-nc-sa"
+    CC_BY_ND = "cc-by-nd"
+    CC_BY_NC_ND = "cc-by-nc-nd"
+    OTHER = "other"
+
+
+class LicenseSource(StrEnum):
+    """Where a source's licence was read."""
+
+    PMC = "pmc"
+    JATS = "jats"
+    ADMIN = "admin"
 
 
 # What the upload form offers, in the order it offers them.
@@ -86,6 +114,7 @@ CONTENT_TYPES: Mapping[KnowledgeFileType, str] = {
     KnowledgeFileType.TEXT: "text/plain; charset=utf-8",
     KnowledgeFileType.VTT: "text/vtt; charset=utf-8",
     KnowledgeFileType.SRT: "application/x-subrip",
+    KnowledgeFileType.JATS: "application/xml",
 }
 # EPUB OCF: the archive's first entry is `mimetype`, stored uncompressed with no extra field, so
 # its name and value sit at fixed offsets in the first local file header.
@@ -141,12 +170,25 @@ class SourceDetails(BaseModel):
     language: SourceLanguage
     sports: tuple[str, ...]
     topics: tuple[str, ...]
-    license_note: str
+    # Required for `other`, optional for a CC licence (ADR-0036); the form always asks for one.
+    license_note: str | None
     source_url: str | None
 
 
 class NewKnowledgeSource(SourceDetails):
     id: UUID
+    license_id: LicenseId
+    license_source: LicenseSource
+    license_url: str | None = None
+    # The source's copyright statement, verbatim.
+    copyright_statement: str | None = None
+    attribution: str | None = None
+    # The formats the table's CHECKs hold, refused here first (#453).
+    pmcid: str | None = Field(default=None, pattern=r"^PMC[0-9]+$")
+    # A bare DOI, lowercased: DOIs are case-insensitive, so any spelling is one source.
+    doi: str | None = Field(default=None, pattern=r"^10\.[0-9.]+/.")
+    pmid: str | None = Field(default=None, pattern=r"^[0-9]+$")
+    isbn: str | None = None
     content_hash: str
     # None for the catalogue's rows, which have no uploaded file (#427).
     file_type: KnowledgeFileType | None
@@ -158,6 +200,11 @@ class NewKnowledgeSource(SourceDetails):
     # calls (ADR-0018). None once that account is deleted.
     uploaded_by_user_id: UUID | None
     uploaded_at: datetime
+
+    @field_validator("doi", mode="before")
+    @classmethod
+    def _lowercase_doi(cls, value: object) -> object:
+        return value.strip().lower() if isinstance(value, str) else value
 
 
 class KnowledgeSource(NewKnowledgeSource):
@@ -189,6 +236,8 @@ def _content_matches(file_type: KnowledgeFileType, data: bytes) -> bool:
             return text is not None and text.startswith("WEBVTT")
         case KnowledgeFileType.MARKDOWN | KnowledgeFileType.TEXT | KnowledgeFileType.SRT:
             return _text(data) is not None
+        case KnowledgeFileType.JATS:  # pragma: no cover -- no extension maps to it (ADR-0036)
+            return False
 
 
 def check_file(

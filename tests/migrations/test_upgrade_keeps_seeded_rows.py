@@ -279,6 +279,37 @@ def test_a_seed_row_that_does_not_fit_names_its_table(
         run_upgrade_check(config, base=head, head="head")
 
 
+def test_a_branch_column_backfilled_to_another_value_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A column new on the branch must give the rows seeded before it their mapped value: #422's
+    # notes become `other` (#453). Here a scratch column's default disagrees with the map.
+    config, head = _config_with_scratch_revision(
+        tmp_path,
+        """\
+        op.add_column(
+            "goals", sa.Column("kind", sa.Text(), server_default="other", nullable=False)
+        )
+        """,
+    )
+    monkeypatch.setattr(upgrade_check, "BACKFILLED", {("goals", "kind"): "admin"})
+
+    problems = run_upgrade_check(config, base=head, head="head")
+
+    assert sum(problem.startswith("goals.kind: row") for problem in problems) == 2, problems
+    assert all("backfilled 'other', expected 'admin'" in p for p in problems), problems
+
+
+def test_a_backfill_entry_is_skipped_once_its_column_exists_at_the_base(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # After the branch merges, its column is no longer new, so a seed value may differ from it.
+    monkeypatch.setattr(upgrade_check, "BACKFILLED", {("goals", "text"): "never"})
+    config = _config()
+
+    assert run_upgrade_check(config, base=_head(config), head="head") == []
+
+
 def test_an_additive_revision_passes(tmp_path: Path) -> None:
     # Expand-only changes ship in one release (ADR-0024): a new nullable column loses nothing.
     config, head = _config_with_scratch_revision(

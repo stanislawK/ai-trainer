@@ -8,6 +8,7 @@ from typing import ClassVar
 from uuid import UUID, uuid4
 
 import pytest
+from pydantic import ValidationError
 
 from ai_trainer.application.knowledge_sources import (
     AlreadyStored,
@@ -24,6 +25,8 @@ from ai_trainer.domain.knowledge import (
     EvidenceTier,
     KnowledgeFileType,
     KnowledgeSource,
+    LicenseId,
+    LicenseSource,
     SourceLanguage,
     SourceStatus,
     SourceType,
@@ -97,6 +100,8 @@ def _stored(status: SourceStatus, data: bytes, error: str | None = None) -> Know
         topics=(),
         license_note="Owner's copy",
         source_url=None,
+        license_id=LicenseId.OTHER,
+        license_source=LicenseSource.ADMIN,
         content_hash=hashlib.sha256(data).hexdigest(),
         file_type=KnowledgeFileType.PDF,
         file_name="hangboard.pdf",
@@ -108,6 +113,39 @@ def _stored(status: SourceStatus, data: bytes, error: str | None = None) -> Know
         uploaded_at=NOW,
         ingested_at=NOW if status is SourceStatus.INGESTED else None,
     )
+
+
+# --- The identifiers (ADR-0036, #453) -------------------------------------------------------
+
+
+def _with(**fields: str) -> KnowledgeSource:
+    return KnowledgeSource.model_validate(
+        {**_stored(SourceStatus.UPLOADED, b"ids").model_dump(), **fields}
+    )
+
+
+def test_a_doi_is_stored_lowercased_so_any_spelling_is_one_source() -> None:
+    assert _with(doi=" 10.1136/BJSPORTS-2019-101234 ").doi == "10.1136/bjsports-2019-101234"
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("doi", "https://doi.org/10.1136/bjsports"),
+        ("doi", "bjsports-2019"),
+        ("pmcid", "13692514"),
+        ("pmcid", "pmc13692514"),
+        ("pmid", "PMID41234567"),
+    ],
+)
+def test_a_malformed_identifier_is_refused_before_the_table_sees_it(field: str, value: str) -> None:
+    with pytest.raises(ValidationError, match=field):
+        _with(**{field: value})
+
+
+def test_identifiers_are_optional() -> None:
+    source = _stored(SourceStatus.UPLOADED, b"none")
+    assert (source.pmcid, source.doi, source.pmid, source.isbn) == (None,) * 4
 
 
 # --- The file ------------------------------------------------------------------------------
@@ -279,6 +317,23 @@ async def test_an_upload_puts_the_file_then_stores_the_source_as_uploaded() -> N
     )
     assert (source.uploaded_by_user_id, source.uploaded_at) == (ADMIN, NOW)
     assert list(sources.rows) == [source.id]
+
+
+async def test_an_upload_records_its_note_as_an_other_license() -> None:
+    # Until the form asks for a licence, its free-text note is an admin's `other` (#453).
+    outcome = await _service(storage=MemoryStorage()).upload(
+        ADMIN, _answers(license_note="  Owner's copy, scanned "), File("a.pdf", pdf_bytes("lic"))
+    )
+
+    assert isinstance(outcome, SourceStored)
+    source = outcome.source
+    assert (source.license_id, source.license_source, source.license_note) == (
+        LicenseId.OTHER,
+        LicenseSource.ADMIN,
+        "Owner's copy, scanned",
+    )
+    assert (source.license_url, source.copyright_statement, source.attribution) == (None,) * 3
+    assert (source.pmcid, source.doi, source.pmid, source.isbn) == (None,) * 4
 
 
 async def test_a_refused_upload_stores_nothing_and_reports_file_and_field_problems() -> None:

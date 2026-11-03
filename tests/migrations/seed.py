@@ -12,7 +12,7 @@ without a `WHERE` changes at least one row (`test_every_seeded_column_differs_be
 """
 
 from collections.abc import Iterable, Mapping
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 from uuid import UUID
@@ -338,6 +338,29 @@ def _rows() -> dict[str, tuple[Row, ...]]:
                 "uploaded_by_user_id": user,
                 "uploaded_at": _at(n, 15),
                 "ingested_at": _at(n, 16) if a else None,
+                # ADR-0036's licence and identifiers (#453); on an older schema these are left
+                # to the revision's defaults, which `BACKFILLED` checks.
+                "license_id": "cc-by" if a else "other",
+                "license_source": "pmc" if a else "admin",
+                "license_url": "https://creativecommons.org/licenses/by/4.0/" if a else None,
+                "copyright_statement": "© 2025 The Authors" if a else None,
+                "attribution": "M. Kowalska, Deload timing. Source: NLM PMC" if a else None,
+                "pmcid": "PMC13692514" if a else None,
+                "doi": "10.1000/deload.2025" if a else None,
+                "pmid": "41234567" if a else None,
+                "isbn": None if a else "9788312345678",
+            }
+        )
+        rows.setdefault("admin_tokens", []).append(
+            {
+                "id": _id(user, 19),
+                "user_id": user,
+                "token_hash": ("c" if a else "d") * 64,
+                "display_prefix": "akt_3f9c" if a else "akt_  b71E",
+                "created_at": _at(n, 17),
+                "expires_at": _at(n, 17) + timedelta(days=20 + n),
+                "revoked_at": None if a else _at(n, 18),
+                "last_used_at": _at(n, 18) if a else None,
             }
         )
     return {table: tuple(table_rows) for table, table_rows in rows.items()}
