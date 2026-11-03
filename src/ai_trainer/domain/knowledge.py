@@ -7,14 +7,15 @@ until an admin approves it, and carries a structured licence (ADR-0036).
 """
 
 import hashlib
-from collections.abc import Collection, Mapping
+from collections.abc import Mapping
 from datetime import datetime
 from enum import StrEnum
 from pathlib import PurePosixPath
+from typing import Annotated, Self
 from urllib.parse import urlsplit
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, model_validator
 
 
 class SourceType(StrEnum):
@@ -42,6 +43,9 @@ class SourceLanguage(StrEnum):
 
 
 class SourceStatus(StrEnum):
+    # A form upload whose licence the `ingest` container reads from the file first; it then
+    # becomes `proposed` (the #454 amendment). The worker never ingests it.
+    DETECTING = "detecting"
     # Staged by a token or an agent; the worker never reads it until an admin approves it.
     PROPOSED = "proposed"
     REJECTED = "rejected"
@@ -82,6 +86,30 @@ class LicenseSource(StrEnum):
     PMC = "pmc"
     JATS = "jats"
     ADMIN = "admin"
+    # Detected in the file's front matter (the #454 amendment).
+    FILE = "file"
+
+
+class LicenceFlag(StrEnum):
+    """Licences flagged in the list until a lawyer has read their terms (ADR-0036)."""
+
+    SHARE_ALIKE = "sa"
+    NO_DERIVATIVES = "nd"
+
+
+_FLAGS: Mapping[LicenseId, LicenceFlag] = {
+    LicenseId.CC_BY_SA: LicenceFlag.SHARE_ALIKE,
+    LicenseId.CC_BY_NC_SA: LicenceFlag.SHARE_ALIKE,
+    LicenseId.CC_BY_ND: LicenceFlag.NO_DERIVATIVES,
+    LicenseId.CC_BY_NC_ND: LicenceFlag.NO_DERIVATIVES,
+}
+# Statuses that may wait without a licence: one is still being read from the file, or an admin
+# sets it before approving (the #454 amendment; the table's `licence_set` CHECK).
+UNLICENSED_STATUSES = frozenset({SourceStatus.DETECTING, SourceStatus.PROPOSED})
+
+
+def licence_flag(license_id: LicenseId | None) -> LicenceFlag | None:
+    return None if license_id is None else _FLAGS.get(license_id)
 
 
 # What the upload form offers, in the order it offers them.
@@ -121,17 +149,6 @@ CONTENT_TYPES: Mapping[KnowledgeFileType, str] = {
 _EPUB_MIMETYPE = b"PK\x03\x04", b"mimetype", b"application/epub+zip"
 
 
-class UploadField(StrEnum):
-    FILE = "file"
-    TITLE = "title"
-    SOURCE_TYPE = "source_type"
-    EVIDENCE_TIER = "evidence_tier"
-    LANGUAGE = "language"
-    LICENSE_NOTE = "license_note"
-    SOURCE_URL = "source_url"
-    SPORTS = "sports"
-
-
 class UploadProblem(StrEnum):
     MISSING = "missing"
     UNKNOWN = "unknown"
@@ -144,23 +161,21 @@ class DuplicateSourceError(Exception):
     """A source with the same content hash is already stored."""
 
 
-class UploadAnswers(BaseModel):
-    """The form's fields as typed, kept so a refused form shows them again."""
+def _lowercase(value: object) -> object:
+    return value.strip().lower() if isinstance(value, str) else value
 
-    model_config = ConfigDict(frozen=True)
 
-    title: str = ""
-    author: str = ""
-    source_type: str = ""
-    evidence_tier: str = ""
-    language: str = ""
-    topics: str = ""
-    license_note: str = ""
-    source_url: str = ""
-    sports: tuple[str, ...] = ()
+# The bibliographic identifiers in the formats the table's CHECKs hold, refused here first
+# (#453), and shared by the source template (#456).
+type PmcId = Annotated[str, Field(pattern=r"^PMC[0-9]+$")]
+# A bare DOI, lowercased: DOIs are case-insensitive, so any spelling is one source.
+type Doi = Annotated[str, BeforeValidator(_lowercase), Field(pattern=r"^10\.[0-9.]+/.")]
+type PubMedId = Annotated[str, Field(pattern=r"^[0-9]+$")]
 
 
 class SourceDetails(BaseModel):
+    """What every source records about the work itself, whichever way it came in."""
+
     model_config = ConfigDict(frozen=True)
 
     title: str
@@ -170,25 +185,29 @@ class SourceDetails(BaseModel):
     language: SourceLanguage
     sports: tuple[str, ...]
     topics: tuple[str, ...]
-    # Required for `other`, optional for a CC licence (ADR-0036); the form always asks for one.
+    # What permission the admin holds: required for `other`, and only there (ADR-0036).
     license_note: str | None
     source_url: str | None
+    pmcid: PmcId | None = None
+    doi: Doi | None = None
+    pmid: PubMedId | None = None
+    isbn: str | None = None
 
 
 class NewKnowledgeSource(SourceDetails):
     id: UUID
-    license_id: LicenseId
-    license_source: LicenseSource
+    # Both None while the licence is detected or awaits an admin (UNLICENSED_STATUSES).
+    license_id: LicenseId | None = None
+    license_source: LicenseSource | None = None
     license_url: str | None = None
     # The source's copyright statement, verbatim.
     copyright_statement: str | None = None
     attribution: str | None = None
-    # The formats the table's CHECKs hold, refused here first (#453).
-    pmcid: str | None = Field(default=None, pattern=r"^PMC[0-9]+$")
-    # A bare DOI, lowercased: DOIs are case-insensitive, so any spelling is one source.
-    doi: str | None = Field(default=None, pattern=r"^10\.[0-9.]+/.")
-    pmid: str | None = Field(default=None, pattern=r"^[0-9]+$")
-    isbn: str | None = None
+    # What detection found in the file's front matter: the matched line and where it was, or
+    # why no licence was set (the #454 amendment).
+    license_matched_line: str | None = None
+    license_locator: str | None = None
+    license_detection_reason: str | None = None
     content_hash: str
     # None for the catalogue's rows, which have no uploaded file (#427).
     file_type: KnowledgeFileType | None
@@ -201,15 +220,26 @@ class NewKnowledgeSource(SourceDetails):
     uploaded_by_user_id: UUID | None
     uploaded_at: datetime
 
-    @field_validator("doi", mode="before")
-    @classmethod
-    def _lowercase_doi(cls, value: object) -> object:
-        return value.strip().lower() if isinstance(value, str) else value
+    @model_validator(mode="after")
+    def _licensed_unless_waiting(self) -> Self:
+        # The table's `licence_pair`, `licence_set` and `other_license_note` CHECKs, refused
+        # here first.
+        if (self.license_id is None) != (self.license_source is None):
+            raise ValueError("a licence and its source are set together")
+        if self.license_id is None and self.status not in UNLICENSED_STATUSES:
+            raise ValueError(f"a {self.status} source needs a licence")
+        if self.license_id is LicenseId.OTHER and self.license_note is None:
+            raise ValueError("an `other` licence needs a note saying what permission is held")
+        return self
 
 
 class KnowledgeSource(NewKnowledgeSource):
     error: str | None = None
     ingested_at: datetime | None = None
+
+    @property
+    def licence_flag(self) -> LicenceFlag | None:
+        return licence_flag(self.license_id)
 
 
 def content_hash(data: bytes) -> str:
@@ -254,20 +284,8 @@ def check_file(
     return file_type
 
 
-def _choice[T: StrEnum](value: str, offered: Collection[T], kind: type[T]) -> T | UploadProblem:
-    if not value.strip():
-        return UploadProblem.MISSING
-    try:
-        choice = kind(value.strip())
-    except ValueError:
-        return UploadProblem.UNKNOWN
-    return choice if choice in offered else UploadProblem.UNKNOWN
-
-
-def _url(value: str) -> str | UploadProblem | None:
-    value = value.strip()
-    if not value:
-        return None
+def web_url(value: str) -> str | UploadProblem:
+    """An http(s) link with a host and no spaces, or why it isn't one."""
     try:
         parts = urlsplit(value)
     except ValueError:  # e.g. an unclosed IPv6 bracket
@@ -279,55 +297,3 @@ def _url(value: str) -> str | UploadProblem | None:
     ):
         return UploadProblem.NOT_A_URL
     return value
-
-
-def _sports(values: tuple[str, ...], known: Collection[str]) -> tuple[str, ...] | UploadProblem:
-    if not values:
-        return UploadProblem.MISSING
-    if any(value not in known for value in values):
-        return UploadProblem.UNKNOWN
-    return tuple(dict.fromkeys(values))
-
-
-def _topics(value: str) -> tuple[str, ...]:
-    return tuple(dict.fromkeys(t.strip().lower() for t in value.split(",") if t.strip()))
-
-
-def read_details(
-    answers: UploadAnswers, *, known_sports: Collection[str]
-) -> SourceDetails | dict[UploadField, UploadProblem]:
-    """Every problem at once, so the form marks each field in one round trip."""
-    source_type = _choice(answers.source_type, UPLOAD_SOURCE_TYPES, SourceType)
-    tier = _choice(answers.evidence_tier, UPLOAD_EVIDENCE_TIERS, EvidenceTier)
-    language = _choice(answers.language, tuple(SourceLanguage), SourceLanguage)
-    url = _url(answers.source_url)
-    sports = _sports(answers.sports, known_sports)
-    title, license_note = answers.title.strip(), answers.license_note.strip()
-    checked: dict[UploadField, object] = {
-        UploadField.TITLE: title or UploadProblem.MISSING,
-        UploadField.SOURCE_TYPE: source_type,
-        UploadField.EVIDENCE_TIER: tier,
-        UploadField.LANGUAGE: language,
-        UploadField.LICENSE_NOTE: license_note or UploadProblem.MISSING,
-        UploadField.SOURCE_URL: url,
-        UploadField.SPORTS: sports,
-    }
-    problems = {f: v for f, v in checked.items() if isinstance(v, UploadProblem)}
-    if problems:
-        return problems
-    assert not isinstance(source_type, UploadProblem)
-    assert not isinstance(tier, UploadProblem)
-    assert not isinstance(language, UploadProblem)
-    assert not isinstance(url, UploadProblem)
-    assert not isinstance(sports, UploadProblem)
-    return SourceDetails(
-        title=title,
-        author=answers.author.strip() or None,
-        source_type=source_type,
-        evidence_tier=tier,
-        language=language,
-        sports=sports,
-        topics=_topics(answers.topics),
-        license_note=license_note,
-        source_url=url,
-    )

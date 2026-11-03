@@ -124,6 +124,55 @@ async def test_a_source_round_trips_its_license_and_identifiers(
     assert await repo.get(new.id) == stored
 
 
+async def test_a_detecting_source_round_trips_with_no_licence(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    # A form upload left to licence detection (the #454 amendment, #456): NULLs, not defaults.
+    repo = SqlAlchemyKnowledgeSourcesRepository(db_session_factory)
+    admin = await _admin(db_session_factory, "knowledge-repo-detecting")
+    new = _source(
+        "detecting",
+        admin,
+        status=SourceStatus.DETECTING,
+        license_id=None,
+        license_source=None,
+        license_note=None,
+    )
+
+    stored = await repo.add(new)
+
+    assert (stored.status, stored.license_id, stored.license_source) == (
+        SourceStatus.DETECTING,
+        None,
+        None,
+    )
+    assert await repo.get(new.id) == stored
+
+
+async def test_a_detected_licence_round_trips_what_was_matched(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    repo = SqlAlchemyKnowledgeSourcesRepository(db_session_factory)
+    admin = await _admin(db_session_factory, "knowledge-repo-detected")
+    new = _source(
+        "detected",
+        admin,
+        status=SourceStatus.PROPOSED,
+        license_id=LicenseId.CC_BY_SA,
+        license_source=LicenseSource.FILE,
+        license_note=None,
+        attribution="K. Marsh, Hypertrophy handbook, ch. 2, CC BY-SA 4.0",
+        license_matched_line="Licensed under CC BY-SA 4.0.",
+        license_locator="page 2",
+        license_detection_reason=None,
+    )
+
+    stored = await repo.add(new)
+
+    assert stored.model_dump(exclude={"error", "ingested_at"}) == new.model_dump()
+    assert stored.licence_flag is not None
+
+
 async def test_a_second_source_with_the_same_hash_is_a_duplicate(
     db_session_factory: Callable[[], AsyncSession],
 ) -> None:

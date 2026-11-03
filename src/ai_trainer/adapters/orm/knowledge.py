@@ -34,7 +34,8 @@ class KnowledgeSourceOrm(Base):
         ),
         CheckConstraint("language IN ('en', 'pl')", name="knowledge_sources_language"),
         CheckConstraint(
-            "status IN ('proposed', 'rejected', 'uploaded', 'ingesting', 'ingested', 'failed')",
+            "status IN ('detecting', 'proposed', 'rejected', 'uploaded', 'ingesting', 'ingested', "
+            "'failed')",
             name="knowledge_sources_status",
         ),
         CheckConstraint(
@@ -50,7 +51,18 @@ class KnowledgeSourceOrm(Base):
             name="knowledge_sources_license_id",
         ),
         CheckConstraint(
-            "license_source IN ('pmc', 'jats', 'admin')", name="knowledge_sources_license_source"
+            "license_source IN ('pmc', 'jats', 'admin', 'file')",
+            name="knowledge_sources_license_source",
+        ),
+        # A source waits without a licence only while it is detected or proposed (the #454
+        # amendment of ADR-0036); otherwise both fields are set, and always together.
+        CheckConstraint(
+            "(license_id IS NULL) = (license_source IS NULL)",
+            name="knowledge_sources_licence_pair",
+        ),
+        CheckConstraint(
+            "status IN ('detecting', 'proposed') OR license_id IS NOT NULL",
+            name="knowledge_sources_licence_set",
         ),
         CheckConstraint(
             "license_id <> 'other' OR license_note IS NOT NULL",
@@ -77,12 +89,17 @@ class KnowledgeSourceOrm(Base):
         ARRAY(Text), nullable=False, server_default=text("'{}'::text[]")
     )
     license_note: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # ADR-0036's structured licence; #422's rows are `other`, set by an admin.
-    license_id: Mapped[str] = mapped_column(nullable=False, server_default="other")
-    license_source: Mapped[str] = mapped_column(nullable=False, server_default="admin")
+    # ADR-0036's structured licence; #422's rows are `other`, set by an admin. NULL while it
+    # is detected from the file or awaits an admin, written as an explicit NULL.
+    license_id: Mapped[str | None] = mapped_column(nullable=True, server_default="other")
+    license_source: Mapped[str | None] = mapped_column(nullable=True, server_default="admin")
     license_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     copyright_statement: Mapped[str | None] = mapped_column(Text, nullable=True)
     attribution: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # What detection found: the matched line, its page or locator, or why no licence was set.
+    license_matched_line: Mapped[str | None] = mapped_column(Text, nullable=True)
+    license_locator: Mapped[str | None] = mapped_column(Text, nullable=True)
+    license_detection_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Bibliographic identifiers, each unique when set.
     pmcid: Mapped[str | None] = mapped_column(Text, nullable=True, unique=True)
     doi: Mapped[str | None] = mapped_column(Text, nullable=True, unique=True)

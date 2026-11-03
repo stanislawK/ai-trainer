@@ -32,9 +32,10 @@ from ai_trainer.domain.knowledge import (
     UPLOAD_EVIDENCE_TIERS,
     UPLOAD_SOURCE_TYPES,
     KnowledgeSource,
+    LicenseId,
     SourceLanguage,
-    UploadAnswers,
 )
+from ai_trainer.domain.knowledge_form import DETECT_LICENCE, UploadAnswers
 from ai_trainer.domain.sports.registry import SportRegistry
 from ai_trainer.web.admin.access import forbidden, is_admin, is_htmx, not_found
 
@@ -46,9 +47,15 @@ _TEXT_FIELDS = (
     "evidence_tier",
     "language",
     "topics",
+    "license_id",
+    "license_url",
+    "copyright_statement",
+    "attribution",
     "license_note",
     "source_url",
 )
+# The licence select's options, in its order: Detect from the file first (the #454 amendment).
+_LICENCE_CHOICES = (DETECT_LICENCE, *(value.value for value in LicenseId))
 
 
 @dataclass(frozen=True)
@@ -111,6 +118,7 @@ class _KnowledgeRoutes:
             "source_types": UPLOAD_SOURCE_TYPES,
             "evidence_tiers": UPLOAD_EVIDENCE_TIERS,
             "languages": tuple(SourceLanguage),
+            "licence_choices": _LICENCE_CHOICES,
             "sports": self._sports.all(),
             "max_upload_mb": self._max_upload_mb,
             "max_upload_bytes": self._max_upload_mb * 1024 * 1024,

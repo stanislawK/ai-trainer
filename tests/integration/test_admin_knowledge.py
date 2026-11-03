@@ -181,30 +181,118 @@ async def test_an_admin_uploads_a_pdf_and_sees_it_listed_as_uploaded(
     )
 
 
-async def test_a_form_upload_is_stored_as_other_with_its_note(
-    db_session_factory: Callable[[], AsyncSession],
-) -> None:
-    # Until the form asks for a licence, its note is an admin's `other` (ADR-0036, #453).
-    page = await _page(db_session_factory, "knowledge-license")
-    data = pdf_bytes("license")
-
-    response = page.upload(data)
-
-    assert response.status_code == 200
-    async with db_session_factory() as session:
+async def _licence_row(factory: Callable[[], AsyncSession], data: bytes) -> tuple[object, ...]:
+    async with factory() as session:
         row = (
             await session.execute(
                 text(
-                    "SELECT status, license_id, license_source, license_note"
+                    "SELECT status, license_id, license_source, license_url,"
+                    " copyright_statement, attribution, license_note"
                     " FROM knowledge_sources WHERE content_hash = :hash"
                 ),
                 {"hash": content_hash(data)},
             )
         ).one()
-    assert tuple(row) == ("uploaded", "other", "admin", "CC BY 4.0")
+    return tuple(row)
+
+
+# --- #456 AC 1: a CC BY upload stores `license_id = cc-by` with its attribution --------------
+
+
+async def test_a_cc_by_upload_stores_its_licence_and_attribution(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    page = await _page(db_session_factory, "knowledge-456-ac1")
+    data = pdf_bytes("456-ac1")
+
+    # A note left in the hidden textarea is not part of a CC licence.
+    response = page.upload(data, license_note="leftover")
+
+    assert response.status_code == 200
+    assert await _licence_row(db_session_factory, data) == (
+        "uploaded",
+        "cc-by",
+        "admin",
+        "https://creativecommons.org/licenses/by/4.0/",
+        "© 2024 The Authors",
+        "M. Kowalska et al., Deload timing in resistance training, CC BY 4.0",
+        None,
+    )
     source = await _row_for(page, data)
     assert source is not None
-    assert (source.license_id, source.license_source) == (LicenseId.OTHER, LicenseSource.ADMIN)
+    assert (source.license_id, source.license_source) == (LicenseId.CC_BY, LicenseSource.ADMIN)
+    assert '<span class="text-[13px]">CC BY</span>' in _source_html(response.text, source.id)
+
+
+async def test_an_other_upload_stores_the_permission_held(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    page = await _page(db_session_factory, "knowledge-456-other")
+    data = pdf_bytes("456-other")
+
+    response = page.upload(
+        data, license_id="other", license_note="The author's written permission, 12 Oct 2026."
+    )
+
+    assert response.status_code == 200
+    row = await _licence_row(db_session_factory, data)
+    assert (row[1], row[6]) == ("other", "The author's written permission, 12 Oct 2026.")
+
+
+# --- The #454 amendment: Detect from the file is the default ---------------------------------
+
+
+async def test_a_detect_upload_is_stored_detecting_with_no_licence(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    page = await _page(db_session_factory, "knowledge-456-detect")
+    data = pdf_bytes("456-detect")
+
+    response = page.upload(data, license_id="detect", attribution="")
+
+    assert response.status_code == 200
+    assert await _licence_row(db_session_factory, data) == (
+        "detecting",
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
+    source = await _row_for(page, data)
+    assert source is not None
+    listed = _source_html(response.text, source.id)
+    assert 'data-status="detecting"' in listed
+    assert "Detecting" in listed
+    assert "loading-spinner" in listed
+    # Nothing to ingest or re-ingest until a licence is confirmed.
+    assert "/reingest" not in listed
+
+
+async def test_the_sheet_opens_on_detect_from_the_file(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    page = await _page(db_session_factory, "knowledge-456-default")
+
+    html = page.client.get("/admin/knowledge").text
+
+    select = re.search(r'<select[^>]*name="license_id".*?</select>', html, re.S)
+    assert select is not None
+    options = re.findall(r'<option value="([^"]*)"( selected)?', select.group(0))
+    assert options[0] == ("detect", " selected")
+    assert [value for value, _ in options] == [
+        "detect",
+        "cc0",
+        "cc-by",
+        "cc-by-sa",
+        "cc-by-nc",
+        "cc-by-nc-sa",
+        "cc-by-nd",
+        "cc-by-nc-nd",
+        "other",
+    ]
+    assert "Upload and detect licence" in html
 
 
 async def test_the_page_lists_the_upload_form_with_its_choices(
@@ -311,11 +399,12 @@ async def test_an_upload_without_a_csrf_token_is_refused(
     [
         ({"evidence_tier": ""}, "Pick an evidence tier."),
         ({"evidence_tier": "influencer"}, "Pick an evidence tier."),
-        ({"license_note": "   "}, "Add a license note."),
+        ({"attribution": "   "}, "Add an attribution."),
+        ({"license_url": "creativecommons.org"}, "Use a full link that starts with http://"),
     ],
-    ids=["no-tier", "unknown-tier", "blank-license"],
+    ids=["no-tier", "unknown-tier", "blank-attribution", "licence-url"],
 )
-async def test_an_upload_without_a_tier_or_license_note_is_refused_inline_and_stores_nothing(
+async def test_an_upload_without_a_tier_or_attribution_is_refused_inline_and_stores_nothing(
     db_session_factory: Callable[[], AsyncSession],
     overrides: dict[str, str],
     message: str,
@@ -425,7 +514,7 @@ async def test_re_uploading_a_failed_file_says_its_last_ingest_failed(
     assert await page.sources.get(before.id) == before
 
 
-@pytest.mark.parametrize("status", ["uploaded", "ingesting"])
+@pytest.mark.parametrize("status", ["uploaded", "ingesting", "detecting", "proposed"])
 async def test_re_uploading_a_file_still_waiting_names_its_status(
     db_session_factory: Callable[[], AsyncSession], status: str
 ) -> None:
@@ -559,3 +648,172 @@ async def test_a_failed_put_is_refused_inline_and_stores_nothing(
     assert response.status_code == 503
     assert "The file couldn't be stored." in response.text
     assert await _row_for(page, data) is None
+
+
+async def test_re_uploading_a_rejected_file_says_delete_it_to_upload_again(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    page = await _page(db_session_factory, "knowledge-456-rejected")
+    data, before = await _stored_with_status(
+        page, db_session_factory, "456-rejected", "rejected", None
+    )
+
+    response = page.upload(data)
+
+    assert response.status_code == 409
+    html = response.text
+    assert "This file was rejected as “Deload timing in resistance training”." in html
+    assert "Delete it from the list to upload it again." in html
+    assert await page.sources.get(before.id) == before
+
+
+# --- #456 AC 2: `other` without a note keeps the sheet open with the error -------------------
+
+
+async def test_other_without_a_note_reopens_the_sheet_with_its_error(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    page = await _page(db_session_factory, "knowledge-456-ac2")
+    data = pdf_bytes("456-ac2")
+
+    response = page.upload(data, license_id="other", license_note="  ", title="Kept title")
+
+    assert response.status_code == 422
+    html = response.text
+    assert 'data-open="true"' in html
+    assert re.search(r'<textarea[^>]*name="license_note"[^>]*aria-invalid="true"', html)
+    note_error = re.search(r'<p[^>]*data-error-for="license_note"[^>]*>([^<]*)</p>', html)
+    assert note_error is not None
+    assert "hidden" not in note_error.group(0)
+    assert note_error.group(1) == "Say what permission you hold. “Other” needs it."
+    # The sheet comes back as it was posted: Other picked, its fields shown, answers kept.
+    assert '<option value="other" selected' in html
+    assert 'value="Kept title"' in html
+    assert "Upload and ingest" in html
+    assert await _row_for(page, data) is None
+    assert page.storage.objects == {}
+
+
+async def test_a_reopened_sheet_shows_the_licence_the_server_checked(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    # The server strips the pick, so the sheet must too, or the marked field would be hidden.
+    page = await _page(db_session_factory, "knowledge-456-padded")
+    data = pdf_bytes("456-padded")
+
+    response = page.upload(data, license_id=" cc-by ", attribution="")
+
+    assert response.status_code == 422
+    html = response.text
+    assert '<option value="cc-by" selected' in html
+    assert re.search(
+        r'<fieldset class="fieldset" data-licence-field>\s*<legend[^>]*>Attribution', html
+    )
+    assert re.search(r'<input[^>]*name="attribution"[^>]*aria-invalid="true"', html)
+    assert "Upload and ingest" in html
+
+
+# --- #456 AC 3: the server, not only the browser, refuses an unknown licence -----------------
+
+
+@pytest.mark.parametrize("license_id", ["cc-by-4.0", "tdm", "implied-oa", ""])
+async def test_an_unknown_licence_is_refused_by_the_server(
+    db_session_factory: Callable[[], AsyncSession], license_id: str
+) -> None:
+    page = await _page(db_session_factory, f"knowledge-456-ac3-{license_id or 'blank'}")
+    data = pdf_bytes(f"456-ac3-{license_id}")
+
+    # Posted straight to the route, past every check the browser makes.
+    response = page.upload(data, license_id=license_id)
+
+    assert response.status_code == 422
+    assert re.search(r'<select[^>]*name="license_id"[^>]*aria-invalid="true"', response.text)
+    assert "Pick a licence." in response.text
+    assert await _row_for(page, data) is None
+    assert page.storage.objects == {}
+
+
+# --- #456 AC 4: a `cc-by-sa` or `cc-by-nd` source shows its flag in the list ----------------
+
+
+async def _seeded(page: Page, marker: str, license_id: str) -> UUID:
+    data = pdf_bytes(marker)
+    response = page.upload(data, license_id=license_id, title=f"Licensed {marker}")
+    assert response.status_code == 200, response.text
+    source = await _row_for(page, data)
+    assert source is not None
+    return source.id
+
+
+async def test_share_alike_and_no_derivatives_sources_show_their_flag(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    page = await _page(db_session_factory, "knowledge-456-ac4")
+    flagged = {
+        await _seeded(page, "456-sa", "cc-by-sa"): ("CC BY-SA", "SA · review", "Share-alike"),
+        await _seeded(page, "456-nd", "cc-by-nd"): ("CC BY-ND", "ND · review", "No deriv"),
+        await _seeded(page, "456-ncsa", "cc-by-nc-sa"): ("CC BY-NC-SA", "SA · review", "Sh"),
+        await _seeded(page, "456-ncnd", "cc-by-nc-nd"): ("CC BY-NC-ND", "ND · review", "No"),
+    }
+    plain = await _seeded(page, "456-by", "cc-by")
+
+    html = page.client.get("/admin/knowledge").text
+
+    for source_id, (label, flag, reason) in flagged.items():
+        listed = _source_html(html, source_id)
+        assert label in listed
+        # Once in the phone's card and once in the desktop row, each titled with its reason.
+        titles = re.findall(
+            r'<span class="badge badge-soft badge-warning[^"]*" title="([^"]+)">' + re.escape(flag),
+            listed,
+        )
+        assert len(titles) == 2, listed
+        assert all(t.startswith(reason) and "a lawyer has read its terms" in t for t in titles)
+    assert "badge-warning" not in _source_html(html, plain)
+
+
+# --- #456 AC 5: #422's sources still list and re-ingest -------------------------------------
+
+
+async def test_a_422_source_still_lists_and_re_ingests(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    page = await _page(db_session_factory, "knowledge-456-ac5")
+    source_id = uuid4()
+    # #422's insert named no licence column: #453's defaults made it `other`, set by an admin.
+    async with db_session_factory() as session:
+        await session.execute(
+            text(
+                "INSERT INTO knowledge_sources (id, title, source_type, evidence_tier, language,"
+                " sports, license_note, content_hash, file_type, file_name, size_bytes,"
+                " storage_key, status, error, uploaded_at)"
+                " VALUES (:id, 'Hangboard protocols', 'book', 'coaching_book', 'en',"
+                " ARRAY['climbing'], 'Owner''s copy', :hash, 'pdf', 'h.pdf', 10, :key,"
+                " 'failed', 'no_text', :at)"
+            ),
+            {
+                "id": source_id,
+                "hash": uuid4().hex * 2,
+                "key": f"sources/{source_id}",
+                "at": FROZEN_NOW,
+            },
+        )
+        await session.commit()
+
+    listed = _source_html(page.client.get("/admin/knowledge").text, source_id)
+    assert "Hangboard protocols" in listed
+    assert "Other, with permission" in listed
+    assert 'data-status="failed"' in listed
+
+    response = page.client.post(
+        f"/admin/knowledge/sources/{source_id}/reingest", headers=page.headers()
+    )
+
+    assert response.status_code == 200
+    after = await page.sources.get(source_id)
+    assert after is not None
+    assert (after.status, after.license_id, after.license_note) == (
+        SourceStatus.UPLOADED,
+        LicenseId.OTHER,
+        "Owner's copy",
+    )
