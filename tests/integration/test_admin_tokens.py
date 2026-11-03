@@ -151,12 +151,15 @@ async def test_the_stored_row_holds_the_hash_never_the_token(
 
 
 @pytest.mark.parametrize(
-    "days", ["31", "0", "abc", "", "30.5"], ids=["31", "0", "abc", "blank", "frac"]
+    "days",
+    ["31", "0", "abc", "", "30.5", "1" * 5000],
+    ids=["31", "0", "abc", "blank", "frac", "5000-digits"],
 )
 async def test_an_expiry_past_30_days_is_refused(
     db_session_factory: Callable[[], AsyncSession], days: str
 ) -> None:
-    page = await _page(db_session_factory, f"tokens-expiry-{days or 'blank'}")
+    # 5000 digits is past Python's int() conversion limit (4300), which must not become a 500.
+    page = await _page(db_session_factory, f"tokens-expiry-{uuid4().hex[:8]}")
 
     response = page.client.post("/admin/tokens", data={"days": days}, headers=page.headers())
 

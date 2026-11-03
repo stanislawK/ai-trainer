@@ -24,7 +24,9 @@ LIFETIME_DAYS = (30, 14, 7, 1)
 
 
 def _days(raw: object) -> int | None:
-    if not isinstance(raw, str) or not raw.isascii() or not raw.isdigit():
+    # At most two digits, since 30 is the cap: a longer string is refused before `int()`, which
+    # raises past 4300 digits.
+    if not isinstance(raw, str) or not raw.isascii() or not raw.isdigit() or len(raw) > 2:
         return None
     return int(raw)
 

@@ -31,9 +31,15 @@
     if (copy) {
       var value = copy.closest("dialog").querySelector("[data-token-value]");
       if (value && navigator.clipboard) {
-        navigator.clipboard.writeText(value.value).then(function () {
-          copied(copy);
-        });
+        navigator.clipboard.writeText(value.value).then(
+          function () {
+            copied(copy);
+          },
+          function () {
+            // The browser refused the clipboard: select the token so it can be copied by hand.
+            value.select();
+          }
+        );
       } else if (value) {
         value.select();
       }

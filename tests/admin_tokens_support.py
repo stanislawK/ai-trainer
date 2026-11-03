@@ -29,7 +29,11 @@ class MemoryAdminTokens:
         return self._token(token)
 
     async def list_for_user(self, user_id: UUID) -> Sequence[AdminToken]:
-        mine = [self._token(row) for row in self.rows.values() if row.user_id == user_id]
+        # Newest first, then by id, as the SQL adapter orders them.
+        mine = sorted(
+            (self._token(row) for row in self.rows.values() if row.user_id == user_id),
+            key=lambda token: token.id,
+        )
         return sorted(mine, key=lambda token: token.created_at, reverse=True)
 
     async def revoke(self, user_id: UUID, token_id: UUID, *, at: datetime) -> AdminToken | None:
