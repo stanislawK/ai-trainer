@@ -23,7 +23,7 @@ paths:
 - Every region filled asynchronously gets a skeleton of the same size and layout. The chat shows the thinking indicator from send until the first streamed token; it shows the server's SSE phase when there is one. The words it cycles through live in a template.
 - Stream with `fastapi.sse.EventSourceResponse`. Set `hx-config="sse.reconnect:false sse.pauseOnBackground:false"` on a stream that ends on its own, so neither its end nor a backgrounded tab reconnects it, and keep the element that owns `hx-sse:connect` in the DOM until the stream ends: swap its contents (`<template hx type="partial">`), never the element itself (ADR-0012).
 - User-facing strings live in templates, never in Python (G5).
-- Every non-GET request carries a CSRF token (ADR-0005).
+- Every non-GET request carries a CSRF token (ADR-0005), except the bearer-token routes under `/api/admin/knowledge/`, which no browser session reaches (ADR-0036).
 - AI-made changes render as confirm / edit / discard cards (F2); never save them automatically.
 - Ambiguity renders as the choice card, `templates/components/choice_card.html` (F9). It posts option IDs, never label text; an unknown ID is an error, not a guess (ADR-0015).
 - Route and recommendation cards always show their source and fetch date (F10, G10).

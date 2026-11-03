@@ -39,6 +39,6 @@ ADRs own the *how*: stack, architecture, testing and agent workflow. The current
 | 0033 | [Knowledge ingestion and admin upload](0033-knowledge-ingestion-and-admin-upload.md) | Accepted | 2026-10-30 |
 | 0034 | [Lean evaluation](0034-lean-evaluation.md) | Accepted | 2026-10-30 |
 | 0035 | [Parallel agent delivery](0035-parallel-agent-delivery.md) | Accepted | 2026-10-30 |
-| 0036 | [Knowledge ingestion at scale](0036-knowledge-ingestion-at-scale.md) | Proposed | 2026-11-03 |
+| 0036 | [Knowledge ingestion at scale](0036-knowledge-ingestion-at-scale.md) | Accepted | 2026-11-03 |
 
 How to add an ADR: [docs/templates/README.md](../templates/README.md).

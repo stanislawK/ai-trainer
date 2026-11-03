@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | Proposed |
+| Status | Accepted |
 | Date | 2026-11-03 |
 | Related | PRD-0011 (B7, B8, G1, G14), ADR-0005, ADR-0010, ADR-0011, ADR-0023, ADR-0029, ADR-0033 (amends its upload, licence, worker and "Agents don't upload" parts), [docs/research/knowledge-ingestion-at-scale.md](../research/knowledge-ingestion-at-scale.md) |
 
@@ -133,7 +133,7 @@ PMC sources carry "Source: NLM PMC" in their attribution.
   - `/research-knowledge`'s identifiers and covered list.
 
   #423 to #427 are re-read against this ADR (the #423 comment of 2026-11-03).
-- **`CLAUDE.md`, `.claude/rules/` and `.claude/skills/`** are patched when this is accepted, not while it is Proposed.
+- **`CLAUDE.md`, `.claude/rules/` and `.claude/skills/`** were patched at acceptance, 2026-11-03.
 - **PRD:** the next revision records that the app is non-commercial (owner, 2026-11-03), since NC sources rest on it. If that ever changes, NC sources are removed by one query on `license_id`.
 - ⚠ **A lawyer, before production ingests SA or ND sources at scale:**
   - whether a quoted chat answer is a quotation under Directive 2001/29/EC Art. 5(3)(d) and Polish art. 29;
