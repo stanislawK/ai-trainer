@@ -8,6 +8,7 @@ Cited findings that tickets and ADRs build on (ADR-0001, amended 2026-10-31). A 
 |---|---|---|
 | [mcp.md](mcp.md) | MCP tool design, server patterns, FastMCP and Pydantic AI versions | Building the MCP server or a tool (ADR-0010) |
 | [knowledge-base.md](knowledge-base.md) | Ingestion, parsers, chunking, citation locators, evidence handling | Knowledge storage or ingestion (ADR-0011, ADR-0033) |
+| [knowledge-ingestion-at-scale.md](knowledge-ingestion-at-scale.md) | Thousands of sources: bulk and bucket import, an admin token or MCP server for an agent pipeline, open-access supply (PMC, Europe PMC), licences, one document model and source template, enrichment, chunking by input type, ingestion load | Any ingestion, upload or chunking ticket after #422 (ADR-0033, #423–#427) |
 | [hybrid-search.md](hybrid-search.md) | Vector and full-text fusion, HNSW, English and Polish search, cheap retrieval checks | Search, or a better exercise shortlist (ADR-0031, ADR-0033) |
 | [exercise-media.md](exercise-media.md) | Where exercise pictures could come from: open sets and their licences, Gym visual, Claude-written SVGs, an image model; coverage of the first gym session; samples | Choosing or importing a media source for F24 (ADR-0031, M2m) |
 
