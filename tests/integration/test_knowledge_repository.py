@@ -15,6 +15,8 @@ from ai_trainer.domain.knowledge import (
     DuplicateSourceError,
     EvidenceTier,
     KnowledgeFileType,
+    LicenseId,
+    LicenseSource,
     NewKnowledgeSource,
     SourceLanguage,
     SourceStatus,
@@ -46,6 +48,8 @@ def _source(marker: str, uploader: User, **overrides: object) -> NewKnowledgeSou
         "sports": ("gym",),
         "topics": ("periodization",),
         "license_note": "Owner's copy",
+        "license_id": LicenseId.OTHER,
+        "license_source": LicenseSource.ADMIN,
         "source_url": None,
         "content_hash": content_hash(f"repo-{marker}-{source_id}".encode()),
         "file_type": KnowledgeFileType.EPUB,
@@ -88,6 +92,36 @@ async def test_add_stores_every_field_and_get_reads_it_back(
     assert await repo.get_by_hash(new.content_hash) == stored
     assert await repo.get(uuid4()) is None
     assert await repo.get_by_hash("0" * 64) is None
+
+
+async def test_a_source_round_trips_its_license_and_identifiers(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    # A staged PMC paper's fields (ADR-0036, #453); identifiers are unique, so fresh per run.
+    repo = SqlAlchemyKnowledgeSourcesRepository(db_session_factory)
+    admin = await _admin(db_session_factory, "knowledge-repo-license")
+    number = uuid4().int % 10**9
+    new = _source(
+        "license",
+        admin,
+        status=SourceStatus.PROPOSED,
+        file_type=KnowledgeFileType.JATS,
+        license_id=LicenseId.CC_BY_NC_ND,
+        license_source=LicenseSource.PMC,
+        license_note=None,
+        license_url="https://creativecommons.org/licenses/by-nc-nd/4.0/",
+        copyright_statement="© 2025 The Authors",
+        attribution="A. Zając, Deload timing. Source: NLM PMC",
+        pmcid=f"PMC{number}",
+        doi=f"10.1000/deload.{number}",
+        pmid=str(number),
+        isbn=f"978{number:010d}",
+    )
+
+    stored = await repo.add(new)
+
+    assert stored.model_dump(exclude={"error", "ingested_at"}) == new.model_dump()
+    assert await repo.get(new.id) == stored
 
 
 async def test_a_second_source_with_the_same_hash_is_a_duplicate(

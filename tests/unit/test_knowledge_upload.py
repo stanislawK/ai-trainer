@@ -24,6 +24,8 @@ from ai_trainer.domain.knowledge import (
     EvidenceTier,
     KnowledgeFileType,
     KnowledgeSource,
+    LicenseId,
+    LicenseSource,
     SourceLanguage,
     SourceStatus,
     SourceType,
@@ -97,6 +99,8 @@ def _stored(status: SourceStatus, data: bytes, error: str | None = None) -> Know
         topics=(),
         license_note="Owner's copy",
         source_url=None,
+        license_id=LicenseId.OTHER,
+        license_source=LicenseSource.ADMIN,
         content_hash=hashlib.sha256(data).hexdigest(),
         file_type=KnowledgeFileType.PDF,
         file_name="hangboard.pdf",
@@ -279,6 +283,23 @@ async def test_an_upload_puts_the_file_then_stores_the_source_as_uploaded() -> N
     )
     assert (source.uploaded_by_user_id, source.uploaded_at) == (ADMIN, NOW)
     assert list(sources.rows) == [source.id]
+
+
+async def test_an_upload_records_its_note_as_an_other_license() -> None:
+    # Until the form asks for a licence, its free-text note is an admin's `other` (#453).
+    outcome = await _service(storage=MemoryStorage()).upload(
+        ADMIN, _answers(license_note="  Owner's copy, scanned "), File("a.pdf", pdf_bytes("lic"))
+    )
+
+    assert isinstance(outcome, SourceStored)
+    source = outcome.source
+    assert (source.license_id, source.license_source, source.license_note) == (
+        LicenseId.OTHER,
+        LicenseSource.ADMIN,
+        "Owner's copy, scanned",
+    )
+    assert (source.license_url, source.copyright_statement, source.attribution) == (None,) * 3
+    assert (source.pmcid, source.doi, source.pmid, source.isbn) == (None,) * 4
 
 
 async def test_a_refused_upload_stores_nothing_and_reports_file_and_field_problems() -> None:

@@ -354,3 +354,44 @@ async def _gym_counts(factory: Callable[[], AsyncSession], user_id: UUID) -> lis
             or 0
             for table in _GYM_TABLES
         ]
+
+
+async def test_account_deletion_removes_the_admin_tokens(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    """A staging token goes with its admin's account (G7, ADR-0036); another admin's stays."""
+    users = SqlAlchemyUsersRepository(db_session_factory)
+    sessions = SqlAlchemySessionsRepository(db_session_factory)
+    leaving = await _create_active_user(users, sub="delete-me-token")
+    staying = await _create_active_user(users, sub="delete-me-token-other")
+    async with db_session_factory() as db:
+        for user in (leaving, staying):
+            await db.execute(
+                _INSERT_ADMIN_TOKEN,
+                {"id": uuid4(), "user_id": user.id, "hash": uuid4().hex * 2, "at": FROZEN_NOW},
+            )
+        await db.commit()
+    web_session_id = await _create_session(sessions, leaving)
+    client = _client(users=users, sessions=sessions)
+    client.cookies.set(SESSION_COOKIE_NAME, str(web_session_id))
+    token = _csrf_token(client)
+
+    response = client.post(
+        "/settings/delete-account", headers={CSRF_HEADER_NAME: token, "HX-Request": "true"}
+    )
+
+    assert response.status_code == 200
+    async with db_session_factory() as db:
+        counts = [
+            await db.scalar(
+                text("SELECT count(*) FROM admin_tokens WHERE user_id = :id"), {"id": user.id}
+            )
+            for user in (leaving, staying)
+        ]
+    assert counts == [0, 1]
+
+
+_INSERT_ADMIN_TOKEN = text(
+    "INSERT INTO admin_tokens (id, user_id, token_hash, display_prefix, created_at, expires_at)"
+    " VALUES (:id, :user_id, :hash, 'akt_', :at, :at + interval '30 days')"
+)

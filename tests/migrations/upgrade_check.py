@@ -44,6 +44,15 @@ THROWAWAY_DATABASE = f"{make_url(SHARED_DATABASE_URL).database}_upgrade_{os.getp
 # contract ticket in a comment. Nothing else is exempt.
 CONTRACT_EXEMPT_COLUMNS: frozenset[tuple[str, str]] = frozenset()
 
+# A column a branch adds to a seeded table, as (table, column), with the value every row seeded
+# before the upgrade must hold after it: the backfill or default the revision gives old rows.
+# An entry checks nothing once its column exists at `main`'s head, so it retires on its own.
+BACKFILLED: Mapping[tuple[str, str], object] = {
+    # #422's free-text notes become `other`, set by an admin (ADR-0036, #453).
+    ("knowledge_sources", "license_id"): "other",
+    ("knowledge_sources", "license_source"): "admin",
+}
+
 _VERSIONS = "migrations/versions"
 
 
@@ -112,6 +121,7 @@ def run_upgrade_check(config: Config, base: str, head: str) -> list[str]:
                 {table: before[table].key for table in base_tables},
             )
             problems = compare(before, after, CONTRACT_EXEMPT_COLUMNS)
+            problems += backfill_problems(before, after, BACKFILLED)
             seed(conn, head_tables - base_tables)
             conn.commit()
             problems += coverage_problems(conn, head_tables)
@@ -227,6 +237,26 @@ def compare(before: Snapshot, after: Snapshot, exempt: frozenset[tuple[str, str]
                 for column, value in row.items()
                 if column in now and (table, column) not in exempt and now[column] != value
             ]
+    return problems
+
+
+def backfill_problems(
+    before: Snapshot, after: Snapshot, backfilled: Mapping[tuple[str, str], object]
+) -> list[str]:
+    """Rows seeded before the upgrade whose new column doesn't hold its expected value."""
+    problems: list[str] = []
+    for (table, column), expected in backfilled.items():
+        old, new = before.get(table), after.get(table)
+        if old is None or new is None or column in old.columns or column not in new.columns:
+            continue
+        positions = [old.key.index(c) for c in new.key]
+        for key in old.rows:
+            now = new.rows.get(tuple(key[i] for i in positions))
+            if now is not None and now[column] != expected:
+                problems.append(
+                    f"{table}.{column}: row {_key(key)} backfilled {now[column]!r},"
+                    f" expected {expected!r}"
+                )
     return problems
 
 

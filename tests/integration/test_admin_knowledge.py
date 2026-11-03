@@ -19,7 +19,13 @@ from ai_trainer.adapters.sessions_repository import SqlAlchemySessionsRepository
 from ai_trainer.adapters.user_status_changer import SqlAlchemyUserStatusChanger
 from ai_trainer.adapters.users_repository import SqlAlchemyUsersRepository
 from ai_trainer.application.knowledge_sources import KnowledgeSources
-from ai_trainer.domain.knowledge import KnowledgeSource, SourceStatus, content_hash
+from ai_trainer.domain.knowledge import (
+    KnowledgeSource,
+    LicenseId,
+    LicenseSource,
+    SourceStatus,
+    content_hash,
+)
 from ai_trainer.domain.sessions import NewSession
 from ai_trainer.domain.sports.registry import default_sport_registry
 from ai_trainer.domain.users import NewUser, User, UserStatus
@@ -171,6 +177,32 @@ async def test_an_admin_uploads_a_pdf_and_sees_it_listed_as_uploaded(
     assert 'data-status="uploaded"' in _source_html(
         page.client.get("/admin/knowledge").text, source.id
     )
+
+
+async def test_a_form_upload_is_stored_as_other_with_its_note(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    # Until the form asks for a licence, its note is an admin's `other` (ADR-0036, #453).
+    page = await _page(db_session_factory, "knowledge-license")
+    data = pdf_bytes("license")
+
+    response = page.upload(data)
+
+    assert response.status_code == 200
+    async with db_session_factory() as session:
+        row = (
+            await session.execute(
+                text(
+                    "SELECT status, license_id, license_source, license_note"
+                    " FROM knowledge_sources WHERE content_hash = :hash"
+                ),
+                {"hash": content_hash(data)},
+            )
+        ).one()
+    assert tuple(row) == ("uploaded", "other", "admin", "CC BY 4.0")
+    source = await _row_for(page, data)
+    assert source is not None
+    assert (source.license_id, source.license_source) == (LicenseId.OTHER, LicenseSource.ADMIN)
 
 
 async def test_the_page_lists_the_upload_form_with_its_choices(

@@ -25,6 +25,7 @@ EXPECTED_TABLES = {
     "gym_sets",
     "athlete_bands",
     "knowledge_sources",
+    "admin_tokens",
 }
 
 

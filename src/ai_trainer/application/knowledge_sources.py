@@ -21,6 +21,8 @@ from ai_trainer.domain.knowledge import (
     DuplicateSourceError,
     KnowledgeFileType,
     KnowledgeSource,
+    LicenseId,
+    LicenseSource,
     NewKnowledgeSource,
     UploadAnswers,
     UploadField,
@@ -136,6 +138,9 @@ class KnowledgeSources:
         source = NewKnowledgeSource(
             **details.model_dump(),
             id=source_id,
+            # Until the form asks for a licence, its note is an admin's `other` (ADR-0036).
+            license_id=LicenseId.OTHER,
+            license_source=LicenseSource.ADMIN,
             content_hash=digest,
             file_type=file_type,
             file_name=file_name,
