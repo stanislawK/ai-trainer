@@ -21,16 +21,13 @@ from ai_trainer.domain.knowledge import (
     DuplicateSourceError,
     KnowledgeFileType,
     KnowledgeSource,
-    LicenseId,
-    LicenseSource,
     NewKnowledgeSource,
-    UploadAnswers,
-    UploadField,
+    SourceStatus,
     UploadProblem,
     check_file,
     content_hash,
-    read_details,
 )
+from ai_trainer.domain.knowledge_form import UploadAnswers, UploadField, read_details
 from ai_trainer.domain.object_storage import ObjectStorageError
 
 
@@ -135,12 +132,14 @@ class KnowledgeSources:
         if self._storage is None:
             return StorageUnavailable(reason="not_configured")
         source_id = uuid4()
+        # With no licence picked, the `ingest` container reads it from the file first, and
+        # nothing is ingested until an admin approves it (the #454 amendment).
+        licence = details.licence
         source = NewKnowledgeSource(
-            **details.model_dump(),
+            **details.details().model_dump(),
+            **({} if licence is None else licence.model_dump(exclude={"license_note"})),
             id=source_id,
-            # Until the form asks for a licence, its note is an admin's `other` (ADR-0036).
-            license_id=LicenseId.OTHER,
-            license_source=LicenseSource.ADMIN,
+            status=SourceStatus.DETECTING if licence is None else SourceStatus.UPLOADED,
             content_hash=digest,
             file_type=file_type,
             file_name=file_name,

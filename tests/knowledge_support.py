@@ -46,7 +46,10 @@ def answers(**overrides: str | list[str]) -> dict[str, str | list[str]]:
         "evidence_tier": "peer_reviewed",
         "language": "en",
         "topics": "Deload, recovery",
-        "license_note": "CC BY 4.0",
+        "license_id": "cc-by",
+        "license_url": "https://creativecommons.org/licenses/by/4.0/",
+        "copyright_statement": "© 2024 The Authors",
+        "attribution": "M. Kowalska et al., Deload timing in resistance training, CC BY 4.0",
         "source_url": "https://example.org/deload",
         "sports": ["gym"],
     }

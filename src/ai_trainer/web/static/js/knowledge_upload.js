@@ -106,11 +106,39 @@
     return true;
   }
 
-  // The browser's own checks; the server's are the ones that count.
+  // The licence select (#456): Detect from the file shows no licence fields; a licence shows
+  // its URL, copyright statement and attribution; Other also asks what permission is held.
+  // The hint, its warning tint for SA and ND, and the button's label follow the pick.
+  function showLicence(form) {
+    var select = form.querySelector("[data-licence-input]");
+    if (!select) {
+      return;
+    }
+    var option = select.options[select.selectedIndex];
+    var picked = select.value !== "detect";
+    form.querySelectorAll("[data-licence-field]").forEach(function (field) {
+      field.hidden = !picked;
+    });
+    form.querySelector("[data-licence-note]").hidden = select.value !== "other";
+    form.querySelector("[data-licence-select]").classList.toggle("lg:col-span-2", !picked);
+    var hint = form.querySelector("[data-licence-hint]");
+    var warn = option.dataset.warn === "true";
+    hint.textContent = option.dataset.hint;
+    hint.classList.toggle("text-warning", warn);
+    hint.classList.toggle("lbl-2", !warn);
+    var submit = form.querySelector("[data-licence-submit]");
+    submit.textContent = picked ? submit.dataset.ingest : submit.dataset.detect;
+  }
+
+  // The browser's own checks; the server's are the ones that count. A field the licence pick
+  // hides isn't asked for.
   function check(form) {
     clearErrors(form);
     var ok = checkFile(form);
     form.querySelectorAll("[data-required]").forEach(function (field) {
+      if (field.closest("[hidden]")) {
+        return;
+      }
       if (!field.value.trim()) {
         markField(form, field.name, field);
         ok = false;
@@ -190,7 +218,12 @@
   });
 
   document.addEventListener("change", function (event) {
-    var input = event.target;
+    var target = event.target;
+    if (target instanceof HTMLSelectElement && target.matches("[data-licence-input]")) {
+      showLicence(target.form);
+      return;
+    }
+    var input = target;
     if (!(input instanceof HTMLInputElement) || !input.matches("[data-file-input]")) {
       return;
     }

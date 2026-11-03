@@ -349,6 +349,10 @@ def _rows() -> dict[str, tuple[Row, ...]]:
                 "doi": "10.1000/deload.2025" if a else None,
                 "pmid": "41234567" if a else None,
                 "isbn": None if a else "9788312345678",
+                # What licence detection found (#456).
+                "license_matched_line": "Licensed under CC BY 4.0." if a else None,
+                "license_locator": "page 1" if a else None,
+                "license_detection_reason": None if a else "  No licence in the front matter ",
             }
         )
         rows.setdefault("admin_tokens", []).append(

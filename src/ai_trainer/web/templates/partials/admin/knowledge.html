@@ -1,12 +1,16 @@
 {% from "components/icon.html" import icon %}
 {% from "components/admin_tabs.html" import admin_tabs %}
 {% from "components/sport_copy.html" import sport_copy %}
-{% from "components/knowledge_sources.html" import tier_labels, type_labels, language_labels, file_types_hint, source_card, source_row, delete_dialog, file_size, uploading_templates, field_error, invalid, notice, file_errors with context %}
+{% from "components/knowledge_sources.html" import tier_labels, type_labels, language_labels, licence_copy, file_types_hint, source_card, source_row, delete_dialog, file_size, uploading_templates, field_error, invalid, notice, file_errors with context %}
 {#- The knowledge page's region (B7, ADR-0033, the Knowledge mock from #419). Every action renders
     it whole: the list, and the upload sheet open after a refusal or notice with the answers kept.
     `static/js/knowledge_upload.js` opens the sheet and the dialogs, runs the browser's own checks,
     and shows the Uploading row while the file is sent. -#}
 {% set answers = sheet.answers %}
+{#- The licence as posted, so a reopened sheet shows the fields that pick needs; an unknown one
+    falls back to Detect, whose fields are none. -#}
+{% set licence = answers.license_id if answers.license_id in licence_choices else "detect" %}
+{% set licence_picked = licence != "detect" %}
 <div class="flex flex-col gap-4 px-4 pt-14 lg:pt-2 lg:w-[960px] lg:mx-auto" id="knowledge">
   {{ admin_tabs("knowledge") }}
   <div class="flex items-center justify-between gap-3">
@@ -28,7 +32,7 @@
   <div class="mat-content rounded-box p-6 flex flex-col items-center text-center gap-3" data-knowledge-empty{% if sources %} hidden{% endif %}>
     {{ icon("book-open", "size-8 lbl-2") }}
     <h2 class="text-[17px] font-semibold">No sources yet</h2>
-    <p class="text-[15px] lbl-2 max-w-[44ch]">Upload research, coaching books, talks or articles. Each one needs an evidence tier and a license note.</p>
+    <p class="text-[15px] lbl-2 max-w-[44ch]">Upload research, coaching books, talks or articles. Each one needs an evidence tier and a licence, which can be read from the file.</p>
     <button type="button" class="lg lg-tinted" data-knowledge-open>{{ icon("upload", "size-4") }}Upload source</button>
   </div>
 
@@ -40,7 +44,7 @@
 
   <div class="mat-content rounded-box overflow-hidden hidden lg:block" data-knowledge-table{% if not sources %} hidden{% endif %}>
     <table class="table text-[15px]">
-      <thead class="text-[12px] lbl-2"><tr class="border-base-content/10"><th>Source</th><th>Status</th><th class="text-right">Chunks</th><th>Embedding model</th><th><span class="sr-only">Actions</span></th></tr></thead>
+      <thead class="text-[12px] lbl-2"><tr class="border-base-content/10"><th>Source</th><th>Licence</th><th>Status</th><th><span class="sr-only">Actions</span></th></tr></thead>
       <tbody>
         {% for source in sources %}
         {{ source_row(source) }}
@@ -135,14 +139,43 @@
               <input class="lg-field" name="topics" value="{{ answers.topics }}" />
             </fieldset>
             <fieldset class="fieldset">
-              <legend class="fieldset-legend text-[13px]">License note</legend>
-              <input class="lg-field" name="license_note" value="{{ answers.license_note }}" {{ invalid(sheet, "license_note") }} data-required />
-              {{ field_error(sheet, "license_note", "Add a license note.") }}
-            </fieldset>
-            <fieldset class="fieldset">
               <legend class="fieldset-legend text-[13px]">Source URL · optional</legend>
               <input class="lg-field" name="source_url" type="url" inputmode="url" value="{{ answers.source_url }}" placeholder="https://" {{ invalid(sheet, "source_url") }} />
               {{ field_error(sheet, "source_url", "Use a full link that starts with http:// or https://.") }}
+            </fieldset>
+          </div>
+          {#- The licence (ADR-0036, the #454 amendment): Detect from the file first. Picking one
+              shows its fields; Other also asks what permission the admin holds. -#}
+          <div class="grid gap-x-3 gap-y-1 grid-cols-1 lg:grid-cols-2" data-licence>
+            <fieldset class="fieldset{% if not licence_picked %} lg:col-span-2{% endif %}" data-licence-select>
+              <legend class="fieldset-legend text-[13px]">Licence</legend>
+              <select class="lg-field lg-select" name="license_id" aria-describedby="licence-hint" {{ invalid(sheet, "license_id") }} data-licence-input>
+                {% for value in licence_choices %}
+                <option value="{{ value }}"{% if value == licence %} selected{% endif %} data-hint="{{ licence_copy[value].hint }}" data-warn="{{ 'true' if licence_copy[value].warn else 'false' }}">{{ licence_copy[value].label }}</option>
+                {% endfor %}
+              </select>
+              <p id="licence-hint" class="label text-[13px] whitespace-normal leading-5 {{ 'text-warning' if licence_copy[licence].warn else 'lbl-2' }}" data-licence-hint>{{ licence_copy[licence].hint }}</p>
+              {{ field_error(sheet, "license_id", "Pick a licence.") }}
+            </fieldset>
+            <fieldset class="fieldset" data-licence-field{% if not licence_picked %} hidden{% endif %}>
+              <legend class="fieldset-legend text-[13px]">Licence URL · optional</legend>
+              <input class="lg-field" name="license_url" type="url" inputmode="url" value="{{ answers.license_url }}" placeholder="https://" {{ invalid(sheet, "license_url") }} />
+              {{ field_error(sheet, "license_url", "Use a full link that starts with http:// or https://.") }}
+            </fieldset>
+            <fieldset class="fieldset" data-licence-field{% if not licence_picked %} hidden{% endif %}>
+              <legend class="fieldset-legend text-[13px]">Copyright statement · optional</legend>
+              <input class="lg-field" name="copyright_statement" value="{{ answers.copyright_statement }}" placeholder="© 2024 The Authors" />
+            </fieldset>
+            <fieldset class="fieldset" data-licence-field{% if not licence_picked %} hidden{% endif %}>
+              <legend class="fieldset-legend text-[13px]">Attribution</legend>
+              <input class="lg-field" name="attribution" value="{{ answers.attribution }}" {{ invalid(sheet, "attribution") }} data-required />
+              <p class="label text-[13px] lbl-2 whitespace-normal">Shown with every answer that cites it.</p>
+              {{ field_error(sheet, "attribution", "Add an attribution.") }}
+            </fieldset>
+            <fieldset class="fieldset lg:col-span-2" data-licence-note{% if licence != "other" %} hidden{% endif %}>
+              <legend class="fieldset-legend text-[13px]">What permission do you hold?</legend>
+              <textarea class="lg-field min-h-20 py-2" name="license_note" placeholder="e.g. The author granted written permission on 12 Oct 2026 to use the book in this app." {{ invalid(sheet, "license_note") }} data-required>{{ answers.license_note }}</textarea>
+              {{ field_error(sheet, "license_note", "Say what permission you hold. “Other” needs it.") }}
             </fieldset>
           </div>
           <fieldset class="fieldset" data-required-group="sports">
@@ -156,7 +189,7 @@
           </fieldset>
         </div>
       </div>
-      <div class="px-4 pt-2 pb-[max(1rem,env(safe-area-inset-bottom))] border-t border-base-content/10"><button type="submit" class="lg lg-tinted w-full">Upload and ingest</button></div>
+      <div class="px-4 pt-2 pb-[max(1rem,env(safe-area-inset-bottom))] border-t border-base-content/10"><button type="submit" class="lg lg-tinted w-full" data-licence-submit data-detect="Upload and detect licence" data-ingest="Upload and ingest">{{ "Upload and ingest" if licence_picked else "Upload and detect licence" }}</button></div>
     </form>
   </div>
 </div>

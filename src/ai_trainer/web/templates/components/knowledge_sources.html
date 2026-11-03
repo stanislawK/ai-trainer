@@ -16,12 +16,38 @@
 } %}
 {% set language_labels = {"en": "English", "pl": "Polish"} %}
 {% set status_copy = {
+  "detecting": {"label": "Detecting", "badge": "badge badge-soft badge-primary", "busy": true},
+  "proposed": {"label": "Proposed", "badge": "badge badge-soft badge-info", "busy": false},
+  "rejected": {"label": "Rejected", "badge": "badge badge-outline", "busy": false},
   "uploaded": {"label": "Uploaded", "badge": "badge badge-soft", "busy": false},
   "ingesting": {"label": "Ingesting", "badge": "badge badge-soft badge-primary", "busy": true},
   "ingested": {"label": "Ingested", "badge": "badge badge-success", "busy": false},
   "failed": {"label": "Failed", "badge": "badge badge-error", "busy": false},
 } %}
 {% set file_types_hint = "PDF, EPUB, Markdown, text, .vtt or .srt" %}
+{#- The licence select (ADR-0036 and its #454 amendment, the Admin Staging mock): each option's
+    label, the hint under the select once it is picked, and whether that hint warns, as it does
+    for the SA and ND licences the list flags. The list shows the same label: no version is
+    recorded, so none is shown. -#}
+{% set licence_copy = {
+  "detect": {"label": "Detect from the file", "warn": false,
+    "hint": "Read from the file after upload, without a model. You confirm what's found before anything is ingested. Open-access papers usually print it on the first page."},
+  "cc0": {"label": "CC0", "warn": false, "hint": "No rights reserved: reuse freely. Credit is still shown with every answer."},
+  "cc-by": {"label": "CC BY", "warn": false, "hint": "Reuse with credit."},
+  "cc-by-sa": {"label": "CC BY-SA", "warn": true, "hint": "Reuse with credit; adaptations share alike. Flagged in the list until its terms are reviewed."},
+  "cc-by-nc": {"label": "CC BY-NC", "warn": false, "hint": "Reuse with credit, non-commercially. This app is non-commercial."},
+  "cc-by-nc-sa": {"label": "CC BY-NC-SA", "warn": true, "hint": "Reuse with credit, non-commercially; adaptations share alike. Flagged in the list until its terms are reviewed."},
+  "cc-by-nd": {"label": "CC BY-ND", "warn": true, "hint": "Reuse with credit, without adaptations. Flagged in the list until its terms are reviewed."},
+  "cc-by-nc-nd": {"label": "CC BY-NC-ND", "warn": true, "hint": "Reuse with credit, non-commercially, without adaptations. Flagged in the list until its terms are reviewed."},
+  "other": {"label": "Other, with permission", "warn": false, "hint": "Not a CC licence: say below what permission you hold."},
+} %}
+{#- Where a licence was read; an admin's own pick needs no note. -#}
+{% set licence_from = {"pmc": "from PMC", "jats": "from the article", "file": "detected in the file", "admin": ""} %}
+{#- The SA and ND flags, until a lawyer has read their terms (ADR-0036). -#}
+{% set flag_copy = {
+  "sa": {"label": "SA · review", "title": "Share-alike: flagged until a lawyer has read its terms (ADR-0036)"},
+  "nd": {"label": "ND · review", "title": "No derivatives: flagged until a lawyer has read its terms (ADR-0036)"},
+} %}
 
 {#- Bytes as the browser's script shows them: KB under a megabyte, else MB to one decimal. -#}
 {% macro file_size(size) -%}
@@ -58,10 +84,32 @@
 ><span class="absolute inset-x-0 -inset-y-1" aria-hidden="true"></span>{% if phone %}{{ icon("trash-2", "size-4") }}{% endif %}Delete</button>
 {%- endmacro %}
 
+{% macro licence_flag_badge(source) -%}
+{%- if source.licence_flag %}{% set flag = flag_copy[source.licence_flag] -%}
+<span class="badge badge-soft badge-warning badge-sm" title="{{ flag.title }}">{{ flag.label }}</span>
+{%- endif %}
+{%- endmacro %}
+
+{#- The licence and where it was read, with its SA or ND flag; nothing while it is detected. -#}
+{% macro licence_line(source) -%}
+{%- if source.license_id %}
+<span class="flex items-center gap-2 flex-wrap"><span class="text-[13px]">{{ licence_copy[source.license_id].label }}</span>
+  {%- if licence_from[source.license_source] %}<span class="text-[13px] lbl-2">{{ licence_from[source.license_source] }}</span>{% endif %}{{ licence_flag_badge(source) }}</span>
+{%- endif %}
+{%- endmacro %}
+
+{% macro licence_cell(source) -%}
+{%- if source.license_id %}
+<span class="flex flex-col gap-1"><span class="flex items-center gap-x-2 gap-y-1 flex-wrap max-w-[160px]"><span class="text-[14px] whitespace-nowrap">{{ licence_copy[source.license_id].label }}</span>{{ licence_flag_badge(source) }}</span>
+  {%- if licence_from[source.license_source] %}<span class="text-[12px] lbl-2 whitespace-nowrap">{{ licence_from[source.license_source] }}</span>{% endif %}</span>
+{%- else %}<span class="lbl-2">—</span>
+{%- endif %}
+{%- endmacro %}
+
 {% macro source_card(source) -%}
 <li class="mat-content rounded-box p-4 flex flex-col gap-2" data-source-id="{{ source.id }}" data-status="{{ source.status }}">
   <div class="flex items-start gap-3">
-    <span class="flex flex-col flex-1 min-w-0"><span class="text-[16px] font-medium break-words">{{ source.title }}</span><span class="text-[13px] lbl-2">{{ byline(source) }}</span></span>
+    <span class="flex flex-col gap-1 flex-1 min-w-0"><span class="text-[16px] font-medium break-words">{{ source.title }}</span><span class="text-[13px] lbl-2">{{ byline(source) }}</span>{{ licence_line(source) }}</span>
     {{ status_badge(source, "shrink-0") }}
   </div>
   {%- if source.status == "uploaded" %}
@@ -77,14 +125,15 @@
 </li>
 {%- endmacro %}
 
-{#- No chunks exist until ingestion (#423), so chunks and model read "—" until then. -#}
+{#- Source, Licence, Status and actions (the Admin Staging mock). Chunks and the embedding model
+    fold into the source cell's last line once ingestion records them (#423); until then there is
+    nothing to show. -#}
 {% macro source_row(source) -%}
-<tr class="border-base-content/10" data-source-id="{{ source.id }}" data-status="{{ source.status }}">
-  <td><span class="flex flex-col"><span class="font-medium">{{ source.title }}</span><span class="text-[13px] lbl-2">{{ byline(source) }}</span>
+<tr class="border-base-content/10 align-top" data-source-id="{{ source.id }}" data-status="{{ source.status }}">
+  <td><span class="flex flex-col gap-0.5"><span class="font-medium">{{ source.title }}</span><span class="text-[13px] lbl-2">{{ byline(source) }}</span>
     {%- if source.status == "failed" and source.error %}<span class="text-[13px] mt-1">{{ source.error }}</span>{% endif %}</span></td>
+  <td>{{ licence_cell(source) }}</td>
   <td>{{ status_badge(source, "whitespace-nowrap") }}</td>
-  <td class="text-right tabular-nums">—</td>
-  <td class="text-[13px] font-mono lbl-2 whitespace-nowrap">—</td>
   <td><div class="flex justify-end gap-2">
     {{ reingest_button(source, false) }}
     {{ delete_button(source, false) }}
@@ -131,9 +180,8 @@
 <template id="knowledge-uploading-row">
   <tr class="border-base-content/10" data-uploading>
     <td><span class="flex flex-col"><span class="font-medium" data-uploading-title></span><span class="text-[13px] lbl-2" data-uploading-byline></span><progress class="progress progress-primary w-full mt-2" aria-label="Upload progress"></progress></span></td>
+    <td><span class="lbl-2">—</span></td>
     <td><span class="badge badge-soft badge-primary whitespace-nowrap">Uploading</span></td>
-    <td class="text-right tabular-nums">—</td>
-    <td class="text-[13px] font-mono lbl-2 whitespace-nowrap">—</td>
     <td><div class="flex justify-end gap-2"><button type="button" class="lg lg-quiet lg-sm" data-knowledge-cancel><span class="absolute inset-x-0 -inset-y-1" aria-hidden="true"></span>Cancel</button></div></td>
   </tr>
 </template>
@@ -163,8 +211,10 @@ aria-invalid="{{ 'true' if name in sheet.problems else 'false' }}"
   ><span class="absolute inset-x-0 -inset-y-1" aria-hidden="true"></span>{{ icon("refresh-cw", "size-4") }}Re-ingest</button>
   {%- elif existing.status == "ingested" %}
   <div class="flex items-start gap-3">{{ icon("info", "size-5 shrink-0 text-info") }}<p class="text-[14px] leading-5">This file is already ingested as “{{ existing.title }}”. Nothing changed.</p></div>
+  {%- elif existing.status == "rejected" %}
+  <div class="flex items-start gap-3">{{ icon("info", "size-5 shrink-0 text-info") }}<p class="text-[14px] leading-5">This file was rejected as “{{ existing.title }}”. Delete it from the list to upload it again.</p></div>
   {%- else %}
-  <div class="flex items-start gap-3">{{ icon("info", "size-5 shrink-0 text-info") }}<p class="text-[14px] leading-5">This file is already here as “{{ existing.title }}”, still {{ existing.status }}. Nothing changed.</p></div>
+  <div class="flex items-start gap-3">{{ icon("info", "size-5 shrink-0 text-info") }}<p class="text-[14px] leading-5">This file is already here as “{{ existing.title }}”, still {{ status_copy[existing.status].label | lower }}. Nothing changed.</p></div>
   {%- endif %}
 </div>
 {%- elif sheet.notice == "storage_not_configured" %}

@@ -30,12 +30,10 @@ from ai_trainer.domain.knowledge import (
     SourceLanguage,
     SourceStatus,
     SourceType,
-    UploadAnswers,
-    UploadField,
     UploadProblem,
     check_file,
-    read_details,
 )
+from ai_trainer.domain.knowledge_form import UploadAnswers, UploadField, read_details
 from tests.knowledge_support import (
     MemorySources,
     MemoryStorage,
@@ -219,14 +217,38 @@ def test_no_file_or_an_empty_one_is_missing(name: str | None) -> None:
     assert check_file("empty.pdf", b"", max_bytes=MAX_BYTES) is UploadProblem.MISSING
 
 
+# --- The licence a stored source needs (ADR-0036, the #454 amendment) ----------------------
+
+
+@pytest.mark.parametrize("status", [SourceStatus.DETECTING, SourceStatus.PROPOSED])
+def test_a_source_waiting_for_its_licence_may_have_none(status: SourceStatus) -> None:
+    source = _with(status=status, license_id=None, license_source=None)  # type: ignore[arg-type]  # None is the point
+    assert source.license_id is None
+
+
+@pytest.mark.parametrize(
+    "status",
+    [SourceStatus.UPLOADED, SourceStatus.INGESTING, SourceStatus.INGESTED, SourceStatus.FAILED],
+)
+def test_a_source_past_approval_needs_a_licence(status: SourceStatus) -> None:
+    with pytest.raises(ValidationError, match="needs a licence"):
+        _with(status=status, license_id=None, license_source=None)  # type: ignore[arg-type]  # None is the point
+
+
+def test_a_licence_and_its_source_are_set_together() -> None:
+    with pytest.raises(ValidationError, match="set together"):
+        _with(status=SourceStatus.PROPOSED, license_source=None)  # type: ignore[arg-type]  # None is the point
+
+
 # --- The details ---------------------------------------------------------------------------
 
 
 def test_complete_answers_read_as_details_with_topics_tidied() -> None:
-    details = read_details(
+    template = read_details(
         _answers(topics=" Deload, recovery ,deload,, Sleep ", author="  "), known_sports=SPORTS
     )
-    assert not isinstance(details, dict)
+    assert not isinstance(template, dict)
+    details = template.details()
     assert details.title == "Deload timing in resistance training"
     assert details.author is None
     assert details.source_type is SourceType.RESEARCH_PAPER
@@ -238,8 +260,9 @@ def test_complete_answers_read_as_details_with_topics_tidied() -> None:
 
 
 def test_optional_fields_may_be_blank() -> None:
-    details = read_details(_answers(author="", topics="", source_url=""), known_sports=SPORTS)
-    assert not isinstance(details, dict)
+    template = read_details(_answers(author="", topics="", source_url=""), known_sports=SPORTS)
+    assert not isinstance(template, dict)
+    details = template.details()
     assert (details.author, details.topics, details.source_url) == (None, (), None)
 
 
@@ -249,7 +272,15 @@ def test_optional_fields_may_be_blank() -> None:
         ({"evidence_tier": ""}, UploadField.EVIDENCE_TIER, UploadProblem.MISSING),
         ({"evidence_tier": "influencer"}, UploadField.EVIDENCE_TIER, UploadProblem.UNKNOWN),
         ({"evidence_tier": "catalogue"}, UploadField.EVIDENCE_TIER, UploadProblem.UNKNOWN),
-        ({"license_note": "   "}, UploadField.LICENSE_NOTE, UploadProblem.MISSING),
+        (
+            {"license_id": "other", "license_note": "   "},
+            UploadField.LICENSE_NOTE,
+            UploadProblem.MISSING,
+        ),
+        ({"license_id": ""}, UploadField.LICENSE_ID, UploadProblem.MISSING),
+        ({"license_id": "cc-by-4.0"}, UploadField.LICENSE_ID, UploadProblem.UNKNOWN),
+        ({"attribution": " "}, UploadField.ATTRIBUTION, UploadProblem.MISSING),
+        ({"license_url": "cc.org/by"}, UploadField.LICENSE_URL, UploadProblem.NOT_A_URL),
         ({"title": ""}, UploadField.TITLE, UploadProblem.MISSING),
         ({"source_type": ""}, UploadField.SOURCE_TYPE, UploadProblem.MISSING),
         ({"source_type": "catalogue"}, UploadField.SOURCE_TYPE, UploadProblem.UNKNOWN),
@@ -265,7 +296,11 @@ def test_optional_fields_may_be_blank() -> None:
         "no-tier",
         "unknown-tier",
         "catalogue-tier",
-        "blank-license",
+        "other-without-note",
+        "no-licence",
+        "unknown-licence",
+        "blank-attribution",
+        "licence-url-not-a-link",
         "no-title",
         "no-type",
         "catalogue-type",
@@ -285,11 +320,32 @@ def test_a_missing_or_unknown_answer_names_its_field(
 
 
 def test_every_problem_is_reported_at_once() -> None:
-    problems = read_details(_answers(evidence_tier="", license_note=""), known_sports=SPORTS)
+    problems = read_details(
+        _answers(evidence_tier="", license_id="other", license_note=""), known_sports=SPORTS
+    )
     assert problems == {
         UploadField.EVIDENCE_TIER: UploadProblem.MISSING,
         UploadField.LICENSE_NOTE: UploadProblem.MISSING,
     }
+
+
+def test_detect_reads_no_licence_and_ignores_the_licence_fields() -> None:
+    template = read_details(
+        _answers(license_id="detect", attribution="", license_url="not a link"),
+        known_sports=SPORTS,
+    )
+    assert not isinstance(template, dict)
+    assert template.licence is None
+
+
+def test_a_picked_licence_is_the_admins() -> None:
+    template = read_details(_answers(), known_sports=SPORTS)
+    assert not isinstance(template, dict)
+    assert template.licence is not None
+    assert (template.licence.license_id, template.licence.license_source) == (
+        LicenseId.CC_BY,
+        LicenseSource.ADMIN,
+    )
 
 
 # --- The service ---------------------------------------------------------------------------
@@ -319,21 +375,50 @@ async def test_an_upload_puts_the_file_then_stores_the_source_as_uploaded() -> N
     assert list(sources.rows) == [source.id]
 
 
-async def test_an_upload_records_its_note_as_an_other_license() -> None:
-    # Until the form asks for a licence, its free-text note is an admin's `other` (#453).
+async def test_a_cc_by_upload_records_its_licence_and_attribution() -> None:
     outcome = await _service(storage=MemoryStorage()).upload(
-        ADMIN, _answers(license_note="  Owner's copy, scanned "), File("a.pdf", pdf_bytes("lic"))
+        ADMIN, _answers(license_note="stray"), File("a.pdf", pdf_bytes("lic"))
     )
 
     assert isinstance(outcome, SourceStored)
     source = outcome.source
+    assert source.status is SourceStatus.UPLOADED
     assert (source.license_id, source.license_source, source.license_note) == (
-        LicenseId.OTHER,
+        LicenseId.CC_BY,
         LicenseSource.ADMIN,
+        None,
+    )
+    assert (source.license_url, source.copyright_statement, source.attribution) == (
+        "https://creativecommons.org/licenses/by/4.0/",
+        "© 2024 The Authors",
+        "M. Kowalska et al., Deload timing in resistance training, CC BY 4.0",
+    )
+    assert (source.pmcid, source.doi, source.pmid, source.isbn) == (None,) * 4
+
+
+async def test_an_other_upload_records_the_permission_held() -> None:
+    outcome = await _service(storage=MemoryStorage()).upload(
+        ADMIN,
+        _answers(license_id="other", license_note="  Owner's copy, scanned "),
+        File("a.pdf", pdf_bytes("other")),
+    )
+
+    assert isinstance(outcome, SourceStored)
+    assert (outcome.source.license_id, outcome.source.license_note) == (
+        LicenseId.OTHER,
         "Owner's copy, scanned",
     )
-    assert (source.license_url, source.copyright_statement, source.attribution) == (None,) * 3
-    assert (source.pmcid, source.doi, source.pmid, source.isbn) == (None,) * 4
+
+
+async def test_a_detect_upload_waits_as_detecting_with_no_licence() -> None:
+    outcome = await _service(storage=MemoryStorage()).upload(
+        ADMIN, _answers(license_id="detect"), File("a.pdf", pdf_bytes("detect"))
+    )
+
+    assert isinstance(outcome, SourceStored)
+    source = outcome.source
+    assert source.status is SourceStatus.DETECTING
+    assert (source.license_id, source.license_source, source.attribution) == (None,) * 3
 
 
 async def test_a_refused_upload_stores_nothing_and_reports_file_and_field_problems() -> None:
