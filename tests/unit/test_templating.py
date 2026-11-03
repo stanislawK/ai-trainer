@@ -37,3 +37,13 @@ def test_dateformat_filter_renders_day_month_year() -> None:
     rendered = template.render(value=datetime(2025, 9, 2, tzinfo=UTC))
 
     assert rendered == "2 Sep 2025"
+
+
+def test_shortdate_filter_renders_day_and_month() -> None:
+    # The tokens list's dates (the Admin Staging mock, #455).
+    templates = build_templates()
+    template = templates.env.from_string("{{ value | shortdate }}")
+
+    rendered = template.render(value=datetime(2026, 11, 9, 10, 0, tzinfo=UTC))
+
+    assert rendered == "9 Nov"

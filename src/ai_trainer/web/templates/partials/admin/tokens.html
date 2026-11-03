@@ -1,0 +1,47 @@
+{% from "components/icon.html" import icon %}
+{% from "components/admin_tabs.html" import admin_tabs %}
+{% from "components/admin_tokens.html" import create_form, token_card, token_row, revoke_dialog, created_dialog, state_of with context %}
+{#- The tokens page's region (ADR-0036, #455; the Admin Staging mock, options 1B and 2B). Every
+    action renders it whole. After a create it carries the new token once, in `created_dialog`.
+    `static/js/admin_tokens.js` opens the dialogs and copies the token. -#}
+<div class="flex flex-col gap-4 px-4 pt-14 lg:pt-2 lg:w-[960px] lg:mx-auto" id="tokens">
+  {{ admin_tabs("tokens") }}
+  <h1 class="text-[34px]/[40px] lg:text-[28px]/[34px] font-semibold tracking-tight px-1">API tokens</h1>
+  <p class="text-[14px] lbl-2 px-1 -mt-2 max-w-[60ch]">For <span class="font-mono">/stage-knowledge</span>. A token can stage and list sources, nothing else, and lasts at most {{ max_days }} days.</p>
+
+  {%- if tokens %}
+  {{ create_form(lifetime_days, lifetime_refused) }}
+
+  <ul class="flex flex-col gap-3 lg:hidden" aria-label="Tokens">
+    {% for token in tokens %}
+    {{ token_card(token) }}
+    {% endfor %}
+  </ul>
+
+  <div class="mat-content rounded-box overflow-hidden hidden lg:block">
+    <table class="table text-[15px]">
+      <thead class="text-[12px] lbl-2"><tr class="border-base-content/10"><th>Token</th><th>Status</th><th>Created</th><th>Expires</th><th>Last used</th><th><span class="sr-only">Actions</span></th></tr></thead>
+      <tbody>
+        {% for token in tokens %}
+        {{ token_row(token) }}
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% for token in tokens if state_of(token) == "active" %}
+  {{ revoke_dialog(token) }}
+  {% endfor %}
+  {%- else %}
+  <div class="mat-content rounded-box p-6 flex flex-col items-center text-center gap-3" data-tokens-empty>
+    {{ icon("key-round", "size-8 lbl-2") }}
+    <h2 class="text-[17px] font-semibold">No tokens yet</h2>
+    <p class="text-[15px] lbl-2 max-w-[44ch]">Create one to let <span class="font-mono">/stage-knowledge</span> propose sources from your machine. Nothing it stages is ingested until you approve it.</p>
+    {{ create_form(lifetime_days, lifetime_refused, "flex flex-wrap justify-center items-center gap-2") }}
+  </div>
+  {%- endif %}
+
+  {%- if created %}
+  {{ created_dialog(created) }}
+  {%- endif %}
+</div>
