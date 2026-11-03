@@ -9,7 +9,8 @@
 {% set answers = sheet.answers %}
 {#- The licence as posted, so a reopened sheet shows the fields that pick needs; an unknown one
     falls back to Detect, whose fields are none. -#}
-{% set licence = answers.license_id if answers.license_id in licence_choices else "detect" %}
+{% set licence = answers.license_id | trim %}
+{% set licence = licence if licence in licence_choices else "detect" %}
 {% set licence_picked = licence != "detect" %}
 <div class="flex flex-col gap-4 px-4 pt-14 lg:pt-2 lg:w-[960px] lg:mx-auto" id="knowledge">
   {{ admin_tabs("knowledge") }}

@@ -182,12 +182,22 @@ def test_a_malformed_item_names_its_field(
     assert _errors(**overrides) == [(loc, kind)]
 
 
-def test_without_the_registrys_sports_no_sport_is_known() -> None:
-    with pytest.raises(ValidationError) as caught:
-        SourceTemplate.model_validate(_item())
-    assert [(tuple(e["loc"]), e["type"]) for e in caught.value.errors()] == [
-        (("sports",), "unknown")
-    ]
+@pytest.mark.parametrize("context", [None, {}], ids=["no-context", "no-sports"])
+def test_validating_without_the_registrys_sports_is_a_bug_not_a_refusal(
+    context: dict[str, object] | None,
+) -> None:
+    with pytest.raises(RuntimeError, match="context="):
+        SourceTemplate.model_validate(_item(), context=context)
+
+
+def test_its_details_carry_the_identifiers() -> None:
+    details = _template(ISBN="9788312345678").details()
+    assert (details.pmcid, details.doi, details.pmid, details.isbn) == (
+        "PMC5463214",
+        "10.1080/02640414.2016.1210197",
+        "27433992",
+        "9788312345678",
+    )
 
 
 @pytest.mark.parametrize(

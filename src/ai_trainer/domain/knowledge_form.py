@@ -43,7 +43,9 @@ class UploadAnswers(BaseModel):
     evidence_tier: str = ""
     language: str = ""
     topics: str = ""
-    license_id: str = DETECT_LICENCE
+    # No default pick: a post without the field (a sheet loaded before the select existed) is
+    # refused, never read as Detect. The fresh sheet still opens on Detect.
+    license_id: str = ""
     license_url: str = ""
     copyright_statement: str = ""
     attribution: str = ""
@@ -122,8 +124,7 @@ def read_details(
     except ValidationError as error:
         problems: dict[UploadField, UploadProblem] = {}
         for detail in error.errors():
-            field = _FIELDS.get(tuple(detail["loc"]))
-            # The form posts nothing else, so any other location is a bug, not an answer.
-            assert field is not None, detail["loc"]
+            # The form posts nothing else, so any other location is a bug: a KeyError, loudly.
+            field = _FIELDS[tuple(detail["loc"])]
             problems.setdefault(field, _PROBLEMS.get(detail["type"], UploadProblem.UNKNOWN))
         return problems

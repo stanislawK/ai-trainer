@@ -11,11 +11,11 @@ from collections.abc import Mapping
 from datetime import datetime
 from enum import StrEnum
 from pathlib import PurePosixPath
-from typing import Self
+from typing import Annotated, Self
 from urllib.parse import urlsplit
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, model_validator
 
 
 class SourceType(StrEnum):
@@ -161,7 +161,21 @@ class DuplicateSourceError(Exception):
     """A source with the same content hash is already stored."""
 
 
+def _lowercase(value: object) -> object:
+    return value.strip().lower() if isinstance(value, str) else value
+
+
+# The bibliographic identifiers in the formats the table's CHECKs hold, refused here first
+# (#453), and shared by the source template (#456).
+type PmcId = Annotated[str, Field(pattern=r"^PMC[0-9]+$")]
+# A bare DOI, lowercased: DOIs are case-insensitive, so any spelling is one source.
+type Doi = Annotated[str, BeforeValidator(_lowercase), Field(pattern=r"^10\.[0-9.]+/.")]
+type PubMedId = Annotated[str, Field(pattern=r"^[0-9]+$")]
+
+
 class SourceDetails(BaseModel):
+    """What every source records about the work itself, whichever way it came in."""
+
     model_config = ConfigDict(frozen=True)
 
     title: str
@@ -174,6 +188,10 @@ class SourceDetails(BaseModel):
     # What permission the admin holds: required for `other`, and only there (ADR-0036).
     license_note: str | None
     source_url: str | None
+    pmcid: PmcId | None = None
+    doi: Doi | None = None
+    pmid: PubMedId | None = None
+    isbn: str | None = None
 
 
 class NewKnowledgeSource(SourceDetails):
@@ -190,12 +208,6 @@ class NewKnowledgeSource(SourceDetails):
     license_matched_line: str | None = None
     license_locator: str | None = None
     license_detection_reason: str | None = None
-    # The formats the table's CHECKs hold, refused here first (#453).
-    pmcid: str | None = Field(default=None, pattern=r"^PMC[0-9]+$")
-    # A bare DOI, lowercased: DOIs are case-insensitive, so any spelling is one source.
-    doi: str | None = Field(default=None, pattern=r"^10\.[0-9.]+/.")
-    pmid: str | None = Field(default=None, pattern=r"^[0-9]+$")
-    isbn: str | None = None
     content_hash: str
     # None for the catalogue's rows, which have no uploaded file (#427).
     file_type: KnowledgeFileType | None
@@ -208,18 +220,16 @@ class NewKnowledgeSource(SourceDetails):
     uploaded_by_user_id: UUID | None
     uploaded_at: datetime
 
-    @field_validator("doi", mode="before")
-    @classmethod
-    def _lowercase_doi(cls, value: object) -> object:
-        return value.strip().lower() if isinstance(value, str) else value
-
     @model_validator(mode="after")
     def _licensed_unless_waiting(self) -> Self:
-        # The table's `licence_pair` and `licence_set` CHECKs, refused here first.
+        # The table's `licence_pair`, `licence_set` and `other_license_note` CHECKs, refused
+        # here first.
         if (self.license_id is None) != (self.license_source is None):
             raise ValueError("a licence and its source are set together")
         if self.license_id is None and self.status not in UNLICENSED_STATUSES:
             raise ValueError(f"a {self.status} source needs a licence")
+        if self.license_id is LicenseId.OTHER and self.license_note is None:
+            raise ValueError("an `other` licence needs a note saying what permission is held")
         return self
 
 

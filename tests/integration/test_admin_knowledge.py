@@ -692,6 +692,25 @@ async def test_other_without_a_note_reopens_the_sheet_with_its_error(
     assert page.storage.objects == {}
 
 
+async def test_a_reopened_sheet_shows_the_licence_the_server_checked(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    # The server strips the pick, so the sheet must too, or the marked field would be hidden.
+    page = await _page(db_session_factory, "knowledge-456-padded")
+    data = pdf_bytes("456-padded")
+
+    response = page.upload(data, license_id=" cc-by ", attribution="")
+
+    assert response.status_code == 422
+    html = response.text
+    assert '<option value="cc-by" selected' in html
+    assert re.search(
+        r'<fieldset class="fieldset" data-licence-field>\s*<legend[^>]*>Attribution', html
+    )
+    assert re.search(r'<input[^>]*name="attribution"[^>]*aria-invalid="true"', html)
+    assert "Upload and ingest" in html
+
+
 # --- #456 AC 3: the server, not only the browser, refuses an unknown licence -----------------
 
 

@@ -240,6 +240,11 @@ def test_a_licence_and_its_source_are_set_together() -> None:
         _with(status=SourceStatus.PROPOSED, license_source=None)  # type: ignore[arg-type]  # None is the point
 
 
+def test_a_stored_other_licence_needs_its_note() -> None:
+    with pytest.raises(ValidationError, match="needs a note"):
+        _with(license_note=None)  # type: ignore[arg-type]  # None is the point
+
+
 # --- The details ---------------------------------------------------------------------------
 
 
@@ -326,6 +331,14 @@ def test_every_problem_is_reported_at_once() -> None:
     assert problems == {
         UploadField.EVIDENCE_TIER: UploadProblem.MISSING,
         UploadField.LICENSE_NOTE: UploadProblem.MISSING,
+    }
+
+
+def test_answers_without_a_licence_field_are_refused_not_read_as_detect() -> None:
+    # A sheet loaded before the select existed posts no `license_id` at all.
+    fields = _answers().model_dump(exclude={"license_id"})
+    assert read_details(UploadAnswers(**fields), known_sports=SPORTS) == {
+        UploadField.LICENSE_ID: UploadProblem.MISSING
     }
 
 

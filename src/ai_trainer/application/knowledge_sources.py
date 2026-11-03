@@ -137,7 +137,11 @@ class KnowledgeSources:
         licence = details.licence
         source = NewKnowledgeSource(
             **details.details().model_dump(),
-            **({} if licence is None else licence.model_dump(exclude={"license_note"})),
+            license_id=None if licence is None else licence.license_id,
+            license_source=None if licence is None else licence.license_source,
+            license_url=None if licence is None else licence.license_url,
+            copyright_statement=None if licence is None else licence.copyright_statement,
+            attribution=None if licence is None else licence.attribution,
             id=source_id,
             status=SourceStatus.DETECTING if licence is None else SourceStatus.UPLOADED,
             content_hash=digest,

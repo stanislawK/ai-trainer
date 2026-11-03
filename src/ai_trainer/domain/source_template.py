@@ -27,9 +27,12 @@ from pydantic_core import PydanticCustomError
 from ai_trainer.domain.knowledge import (
     UPLOAD_EVIDENCE_TIERS,
     UPLOAD_SOURCE_TYPES,
+    Doi,
     EvidenceTier,
     LicenseId,
     LicenseSource,
+    PmcId,
+    PubMedId,
     SourceDetails,
     SourceLanguage,
     SourceType,
@@ -138,9 +141,9 @@ class SourceTemplate(BaseModel):
     title: _Text
     author: tuple[CslName, ...] = ()
     issued: CslDate | None = None
-    doi: str | None = Field(default=None, alias="DOI", pattern=r"^10\.[0-9.]+/.")
-    pmid: str | None = Field(default=None, alias="PMID", pattern=r"^[0-9]+$")
-    pmcid: str | None = Field(default=None, alias="PMCID", pattern=r"^PMC[0-9]+$")
+    doi: Doi | None = Field(default=None, alias="DOI")
+    pmid: PubMedId | None = Field(default=None, alias="PMID")
+    pmcid: PmcId | None = Field(default=None, alias="PMCID")
     isbn: str | None = Field(default=None, alias="ISBN")
     abstract: str | None = None
     keyword: str | None = None
@@ -161,12 +164,6 @@ class SourceTemplate(BaseModel):
     @classmethod
     def _blank_is_none(cls, value: object) -> object:
         return _optional_text(value)
-
-    @field_validator("doi", mode="before")
-    @classmethod
-    def _lowercase_doi(cls, value: object) -> object:
-        # DOIs are case-insensitive, so any spelling is one source.
-        return value.lower() if isinstance(value, str) else value
 
     @field_validator("url")
     @classmethod
@@ -191,8 +188,10 @@ class SourceTemplate(BaseModel):
     @field_validator("sports")
     @classmethod
     def _known_sports(cls, value: tuple[str, ...], info: ValidationInfo) -> tuple[str, ...]:
-        context = info.context if isinstance(info.context, dict) else {}
-        known: Collection[str] = context.get("sports", ())
+        # A caller that forgot the registry's sports is a bug, not a refused source.
+        if not isinstance(info.context, dict) or "sports" not in info.context:
+            raise RuntimeError("validate a SourceTemplate with context={'sports': …}")
+        known: Collection[str] = info.context["sports"]
         if any(sport not in known for sport in value):
             raise _refuse(UploadProblem.UNKNOWN, "Name only the app's sports.")
         return tuple(dict.fromkeys(value))
@@ -215,4 +214,8 @@ class SourceTemplate(BaseModel):
             topics=self.topics,
             license_note=None if self.licence is None else self.licence.license_note,
             source_url=self.url,
+            pmcid=self.pmcid,
+            doi=self.doi,
+            pmid=self.pmid,
+            isbn=self.isbn,
         )
