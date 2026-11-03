@@ -243,6 +243,79 @@
         "summary": "Reingest"
       }
     },
+    "/admin/tokens": {
+      "get": {
+        "operationId": "page_admin_tokens_get",
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Page"
+      },
+      "post": {
+        "operationId": "create_admin_tokens_post",
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Create"
+      }
+    },
+    "/admin/tokens/{token_id}/revoke": {
+      "post": {
+        "operationId": "revoke_admin_tokens__token_id__revoke_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "token_id",
+            "required": true,
+            "schema": {
+              "title": "Token Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Revoke"
+      }
+    },
     "/admin/users/{user_id}/status": {
       "post": {
         "operationId": "admin_update_user_status_admin_users__user_id__status_post",

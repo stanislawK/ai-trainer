@@ -1,0 +1,118 @@
+{% from "components/icon.html" import icon %}
+{#- The pieces of the tokens page and their copy (ADR-0036, #455; the Admin Staging mock from
+    #454, options 1B and 2B). A token is listed by its display prefix only; its full value is in
+    `created_dialog` once, in the response that created it. -#}
+
+{% macro state_of(token) -%}{{ token.state_at(now).value }}{%- endmacro %}
+
+{% macro state_badge(token, extra="") -%}
+{%- set state = state_of(token) -%}
+{%- if state == "active" -%}<span class="badge badge-success {{ extra }}">Active</span>
+{%- elif state == "revoked" -%}<span class="badge badge-soft badge-error {{ extra }}">Revoked</span>
+{%- else -%}<span class="badge badge-outline {{ extra }}">Expired</span>
+{%- endif -%}
+{%- endmacro %}
+
+{% macro prefix(token) -%}{{ token.display_prefix }}…{%- endmacro %}
+
+{% macro last_used(token) -%}{% if token.last_used_at %}{{ token.last_used_at | shortdate }}{% else %}never{% endif %}{%- endmacro %}
+
+{#- Expires, or Revoked with its date (the design README's "Admin: tokens" row). -#}
+{% macro ends(token) -%}
+{%- if token.revoked_at %}Revoked {{ token.revoked_at | shortdate }}{% else %}{{ token.expires_at | shortdate }}{% endif -%}
+{%- endmacro %}
+
+{% macro card_line(token) -%}
+{%- set state = state_of(token) -%}
+Created {{ token.created_at | shortdate }} ·
+{%- if state == "revoked" %} Revoked {{ token.revoked_at | shortdate }}
+{%- elif state == "expired" %} Expired {{ token.expires_at | shortdate }}
+{%- else %} Expires {{ token.expires_at | shortdate }}{% endif %} · last used {{ last_used(token) }}
+{%- endmacro %}
+
+{#- The expiry select and Create token. The server takes 1 to 30 days and refuses anything else,
+    whatever the select offered. -#}
+{% macro create_form(lifetime_days, lifetime_refused, wrap="flex items-center gap-2") -%}
+<form class="flex flex-col gap-1" hx-post="/admin/tokens" hx-target="#tokens" hx-swap="outerHTML">
+  <div class="{{ wrap }}">
+    <select name="days" class="lg-field lg-select w-auto" aria-label="Expires in"{% if lifetime_refused %} aria-invalid="true" aria-describedby="token-lifetime-error"{% endif %}>
+      {%- for days in lifetime_days %}
+      <option value="{{ days }}">Expires in {{ days }} {{ "day" if days == 1 else "days" }}</option>
+      {%- endfor %}
+    </select>
+    <button type="submit" class="lg lg-tinted">{{ icon("key-round", "size-4") }}Create token</button>
+  </div>
+  {%- if lifetime_refused %}
+  <p id="token-lifetime-error" class="text-[13px] text-error px-1" role="alert" data-token-error>A token lasts 1 to {{ max_days }} days. Pick one of the expiries offered.</p>
+  {%- endif %}
+</form>
+{%- endmacro %}
+
+{% macro revoke_button(token, phone) -%}
+{%- if state_of(token) == "active" -%}
+<button type="button" class="lg lg-quiet lg-sm relative{% if phone %} self-start{% endif %}" data-token-revoke="token-revoke-{{ token.id }}"><span class="absolute inset-x-0 -inset-y-1" aria-hidden="true"></span>{% if phone %}{{ icon("ban", "size-4") }}{% endif %}Revoke</button>
+{%- endif -%}
+{%- endmacro %}
+
+{% macro token_card(token) -%}
+{%- set dim = "" if state_of(token) == "active" else " lbl-2" -%}
+<li class="mat-content rounded-box p-4 flex flex-col gap-2" data-token-id="{{ token.id }}">
+  <div class="flex items-center gap-3"><span class="font-mono text-[15px] flex-1{{ dim }}">{{ prefix(token) }}</span>{{ state_badge(token) }}</div>
+  <span class="text-[13px] lbl-2">{{ card_line(token) }}</span>
+  {{ revoke_button(token, true) }}
+</li>
+{%- endmacro %}
+
+{% macro token_row(token) -%}
+{%- set dim = "" if state_of(token) == "active" else "lbl-2" -%}
+<tr class="border-base-content/10" data-token-id="{{ token.id }}">
+  <td class="font-mono {{ dim }}">{{ prefix(token) }}</td>
+  <td>{{ state_badge(token, "whitespace-nowrap") }}</td>
+  <td class="{{ dim }}">{{ token.created_at | shortdate }}</td>
+  <td class="{{ dim }}">{{ ends(token) }}</td>
+  <td class="{{ dim }}">{{ last_used(token) }}</td>
+  <td><div class="flex justify-end">{{ revoke_button(token, false) }}</div></td>
+</tr>
+{%- endmacro %}
+
+{#- Asks before a revoke, which can't be undone. -#}
+{% macro revoke_dialog(token) -%}
+<dialog id="token-revoke-{{ token.id }}" class="modal bg-base-300/60" aria-label="Revoke {{ prefix(token) }}?">
+  <div class="modal-box lgs lgs-thick relative w-[92%] max-w-[480px] p-5 flex flex-col gap-3">
+    <h3 class="text-[17px] font-semibold">Revoke {{ prefix(token) }}?</h3>
+    <p class="text-[14px]">Anything using this token stops working at once. Sources it already staged stay as they are. This can't be undone.</p>
+    <div class="flex justify-end gap-2">
+      <form method="dialog"><button class="lg lg-ghost relative"><span class="absolute inset-x-0 -inset-y-0.5" aria-hidden="true"></span>Cancel</button></form>
+      <button
+        type="button"
+        class="lg lg-danger relative"
+        hx-post="/admin/tokens/{{ token.id }}/revoke"
+        hx-target="#tokens"
+        hx-swap="outerHTML"
+      ><span class="absolute inset-x-0 -inset-y-0.5" aria-hidden="true"></span>Revoke token</button>
+    </div>
+  </div>
+  <form method="dialog" class="modal-backdrop"><button>close</button></form>
+</dialog>
+{%- endmacro %}
+
+{#- The new token, shown once (option 2B). `static/js/admin_tokens.js` opens it, copies the value,
+    and removes the dialog with its value when it closes. -#}
+{% macro created_dialog(created) -%}
+<dialog id="token-created" class="modal bg-base-300/60" aria-label="Copy your new token" data-token-created>
+  <div class="modal-box lgs lgs-thick relative w-[92%] max-w-[480px] p-5 flex flex-col gap-3">
+    <h3 class="text-[17px] font-semibold">Copy your new token</h3>
+    <p class="text-[14px]">This is the only time it's shown. After you close this, the list shows only its prefix, {{ created.token.display_prefix }}. Put it in the environment that runs /stage-knowledge.</p>
+    <div class="flex items-center gap-2">
+      <input class="lg-field font-mono text-[13px] flex-1 min-w-0" value="{{ created.secret }}" readonly aria-label="New token" autocomplete="off" spellcheck="false" data-token-value />
+      <button type="button" class="lg lg-clear shrink-0" data-token-copy>
+        <span class="contents" data-token-copy-idle>{{ icon("copy", "size-4") }}Copy</span>
+        <span class="contents" data-token-copy-done hidden>{{ icon("check", "size-4") }}Copied</span>
+      </button>
+    </div>
+    <div class="flex justify-end gap-2">
+      <form method="dialog"><button class="lg lg-tinted relative"><span class="absolute inset-x-0 -inset-y-0.5" aria-hidden="true"></span>Done</button></form>
+    </div>
+  </div>
+</dialog>
+{%- endmacro %}
