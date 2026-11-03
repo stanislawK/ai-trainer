@@ -129,10 +129,10 @@ What the trusted sources didn't settle. None is decided here.
 - **Extraction quality of PDF parsers:** no trusted source compares pypdf, pdfminer.six and pdfplumber on reading order, columns or ligatures. Settle by a trial on real coaching-book PDFs at the ingestion ticket.
 - **SubRip edge cases:** whether `webvtt-py` alone handles decimal commas and overlapping cues is unchecked.
 - **Decompression and expansion limits:** no source read on safe limits for zip or PDF expansion; recommendation 12 is reasoning.
-- **Source-type tier list:** ADR-0011 has three tiers and ADR-0033 ranks four kinds (it separates expert talks and podcasts from articles), and neither names a tier for `catalogue`.
+- **Source-type tier list:** ADR-0011 has three tiers and ADR-0033 ranks four kinds (it separates expert talks and podcasts from articles), and neither names a tier for `catalogue`. *Settled by the owner at #422's plan gate (2026-11-02): ADR-0011's three tiers, recorded in ADR-0033.*
 - **NIST AI 600-1 and AI 100-2 E2025:** their PDFs could not be extracted, so what they say on indirect injection is unverified.
 - **Evidence hierarchy for exercise science:** the Oxford CEBM levels page returned 403, and no primary source on a sports-science hierarchy was found. Whether the three tiers need a finer split (systematic review vs single trial) is open.
-- **Tier for `catalogue` sources:** ADR-0033 ingests exercise texts as `source_type = catalogue` but ADR-0011's tiers don't cover them.
+- **Tier for `catalogue` sources:** ADR-0033 ingests exercise texts as `source_type = catalogue` but ADR-0011's tiers don't cover them. *Settled at #422's plan gate (2026-11-02): a reserved `catalogue` tier the upload form never offers (ADR-0033).*
 - **Chunk size and overlap:** no peer-reviewed study with a verified venue was found, and LangChain's and LlamaIndex's defaults were not confirmed on the pages read. Settle on retrieval checks over the first sources (ADR-0033).
 - **Near-duplicate detection:** the evidence is for large training corpora. Whether a curated library of tens to hundreds of sources needs it is open; Broder 1997 (MinHash) could not be retrieved.
 - **ISO 32000 page labels:** the spec was not read; pypdf's `page_labels` is the only source for them.

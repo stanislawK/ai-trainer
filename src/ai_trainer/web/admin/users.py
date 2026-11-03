@@ -10,24 +10,14 @@ from ai_trainer.application.ports.sessions import SessionsRepositoryPort
 from ai_trainer.application.ports.user_status_changer import UserStatusChangerPort
 from ai_trainer.application.ports.users import UsersRepositoryPort
 from ai_trainer.domain.users import CannotChangeOwnStatusError, User, UserNotFoundError, UserStatus
-
-
-def _is_htmx(request: Request) -> bool:
-    return request.headers.get("HX-Request") == "true"
-
-
-def _forbidden(request: Request, templates: Jinja2Templates) -> HTMLResponse:
-    template_name = (
-        "partials/admin/forbidden.html" if _is_htmx(request) else "pages/admin/forbidden.html"
-    )
-    return templates.TemplateResponse(request, template_name, status_code=403)
+from ai_trainer.web.admin.access import forbidden, is_admin, is_htmx, not_found
 
 
 def _pending_count_of(all_users: Sequence[User]) -> int:
     return sum(1 for user in all_users if user.status is UserStatus.PENDING)
 
 
-def build_admin_router(
+def build_users_router(
     *,
     templates: Jinja2Templates,
     users: UsersRepositoryPort,
@@ -48,8 +38,8 @@ def build_admin_router(
 
     @router.get("/admin", response_class=HTMLResponse)
     async def admin_users(request: Request) -> HTMLResponse:
-        if not getattr(request.state, "is_admin", False):
-            return _forbidden(request, templates)
+        if not is_admin(request):
+            return forbidden(request, templates)
 
         all_users = await users.list_all()
         context = {
@@ -58,7 +48,7 @@ def build_admin_router(
             "total_count": len(all_users),
         }
         template_name = (
-            "partials/admin/users.html" if _is_htmx(request) else "pages/admin/users.html"
+            "partials/admin/users.html" if is_htmx(request) else "pages/admin/users.html"
         )
         return templates.TemplateResponse(request, template_name, context)
 
@@ -66,8 +56,8 @@ def build_admin_router(
     async def admin_update_user_status(
         request: Request, user_id: str, status: str = Form()
     ) -> Response:
-        if not getattr(request.state, "is_admin", False):
-            return _forbidden(request, templates)
+        if not is_admin(request):
+            return forbidden(request, templates)
 
         try:
             target_user_id = UUID(user_id)
@@ -89,12 +79,9 @@ def build_admin_router(
                 request, "partials/admin/status_change_error.html", status_code=400
             )
         except UserNotFoundError:
-            template_name = (
-                "partials/errors/404.html" if _is_htmx(request) else "pages/errors/404.html"
-            )
-            return templates.TemplateResponse(request, template_name, status_code=404)
+            return not_found(request, templates)
 
-        if _is_htmx(request):
+        if is_htmx(request):
             context = {
                 "user": updated,
                 "previous_status": previous_status,

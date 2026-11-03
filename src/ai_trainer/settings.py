@@ -255,6 +255,9 @@ class Settings(BaseSettings):
     object_storage_secret_access_key: SecretStr | None = None
     object_storage_uploads_bucket: str | None = None
     object_storage_timeout_seconds: float = Field(default=60.0, gt=0)
+    # The largest knowledge file an admin may upload, in MiB (ADR-0033). At most 90, so the form
+    # fits Caddy's and Cloudflare's 100 MB on that route (ADR-0029).
+    knowledge_max_upload_mb: int = Field(default=50, ge=1, le=90)
 
     # Google sign-in (ADR-0005). No Google access or refresh token is ever stored.
     # Required and non-blank: a blank value otherwise fails only on Google's own page.

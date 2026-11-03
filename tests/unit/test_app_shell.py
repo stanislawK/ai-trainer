@@ -16,6 +16,7 @@ from ai_trainer.web.admin import build_admin_router
 from ai_trainer.web.auth import SESSION_COOKIE_NAME
 from ai_trainer.web.templating import build_templates
 from tests.chat_support import include_chat
+from tests.knowledge_support import knowledge_wiring
 
 WEB = Path(__file__).parents[2] / "src" / "ai_trainer" / "web"
 TEMPLATES = WEB / "templates"
@@ -109,6 +110,7 @@ def _client(*, admin_emails: list[str]) -> TestClient:
             users=users,
             sessions=sessions,
             status_changer=FakeUserStatusChanger(),
+            **knowledge_wiring(),
         )
     )
     client = TestClient(app)
@@ -163,8 +165,10 @@ def test_current_page_carries_aria_current() -> None:
     response = _client(admin_emails=[USER_EMAIL]).get("/admin")
 
     # The sidebar and the dock each render one nav_link per section; the Admin link (current)
-    # gets `aria-current="page"` in both, the Chat link gets it in neither.
-    assert response.text.count('aria-current="page"') == 2
+    # gets `aria-current="page"` in both, the Chat link gets it in neither. The third is the
+    # admin page's own Users tab (#422).
+    assert response.text.count('aria-current="page"') == 3
+    assert 'class="relative lg lg-clear lg-seg-on" aria-current="page"' in response.text
 
 
 def test_non_admin_never_sees_the_admin_link_anywhere_on_the_page() -> None:

@@ -659,6 +659,8 @@ OBJECT_STORAGE_TIMEOUT_SECONDS=60
 /opt/ai-trainer/compose.sh up -d --no-deps app
 ```
 
+`KNOWLEDGE_MAX_UPLOAD_MB` is optional: the largest file `/admin/knowledge` takes, 50 by default and at most 90, since Caddy and Cloudflare pass no larger body than 100 MB on that route (ADR-0029).
+
 Set the endpoint, both keys and the bucket together. With only some of them, the app refuses to start and names the missing ones. If that happens during a recreate, `/opt/ai-trainer/compose.sh logs app` shows the message; fix `.env` and run the command again.
 
 ### 14.3 Checks (ticket #420 acceptance)

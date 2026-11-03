@@ -13,6 +13,7 @@ from ai_trainer.web.active_user_gate import ActiveUserGateMiddleware
 from ai_trainer.web.admin import build_admin_router
 from ai_trainer.web.auth import SESSION_COOKIE_NAME
 from ai_trainer.web.templating import build_templates
+from tests.knowledge_support import knowledge_wiring
 
 FROZEN_NOW = datetime(2026, 9, 24, 12, 0, tzinfo=UTC)
 
@@ -130,7 +131,11 @@ def _client(*, admin_emails: list[str], extra_users: tuple[User, ...] = ()) -> _
     )
     app.include_router(
         build_admin_router(
-            templates=templates, users=users, sessions=sessions, status_changer=status_changer
+            templates=templates,
+            users=users,
+            sessions=sessions,
+            status_changer=status_changer,
+            **knowledge_wiring(),
         )
     )
     client = TestClient(app)
@@ -355,7 +360,11 @@ def test_removing_admin_email_demotes_on_the_next_request() -> None:
         )
         app.include_router(
             build_admin_router(
-                templates=templates, users=users, sessions=sessions, status_changer=status_changer
+                templates=templates,
+                users=users,
+                sessions=sessions,
+                status_changer=status_changer,
+                **knowledge_wiring(),
             )
         )
         return app

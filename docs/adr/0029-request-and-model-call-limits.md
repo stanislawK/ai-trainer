@@ -26,7 +26,7 @@ ADR-0018 left Redis for the external-lookup budget (B22). Those lookups are not 
 
 A refused model call is not sent and writes no `llm_calls` row. A call that starts still counts for the hour if the caller cancels it; only the in-flight slot is released. The chat reply uses the existing error row, with its own sentence.
 
-**Request body.** Caddy's `request_body` `max_size` is **256KiB** ([Caddy `request_body`](https://caddyserver.com/docs/caddyfile/directives/request_body), in the stock `caddy:2.11.7` image that production runs; `caddy adapt` reads it as `max_size: 262144`). A larger body is refused with 413 before it reaches the app. There is no upload.
+**Request body.** Caddy's `request_body` `max_size` is **256KiB** ([Caddy `request_body`](https://caddyserver.com/docs/caddyfile/directives/request_body), in the stock `caddy:2.11.7` image that production runs; `caddy adapt` reads it as `max_size: 262144`). A larger body is refused with 413 before it reaches the app. The one exception is the admin's knowledge upload, `POST /admin/knowledge/sources` (ADR-0033): it gets **100MB**, which `caddy adapt` reads as `max_size: 100000000`, Cloudflare's own body cap on the Free and Pro plans ([Cloudflare limits](https://developers.cloudflare.com/workers/platform/limits/), "request body size limits depend on the domain's Cloudflare plan", read 2026-11-02). The app enforces `knowledge_max_upload_mb` below that. Two named matchers, the upload and `not` the upload, exclude each other, because two `request_body` handlers that both match a request both apply and the smaller wins.
 
 The numbers are `Settings` fields: `auth_requests_per_minute`, `session_requests_per_minute`, `llm_calls_per_user_per_hour`, `llm_calls_in_flight_per_user`. The window reads the `Clock` port (ADR-0014).
 
@@ -51,3 +51,4 @@ The owner also sets a credit limit on the production OpenRouter key. The app can
 - `CLAUDE.md`, `.claude/rules/python.md` and `.claude/rules/llm.md` name the cap.
 - `deploy/RUNBOOK.md` tells the owner to set the OpenRouter key's credit limit, and to run `install.sh` before a release that needs the new Caddyfile.
 - B22 stays unimplemented until external lookups exist. It does not reuse this window.
+- Owner-directed amendment, 2026-11-02 (#422's plan gate): the knowledge upload route gets its own 100MB body cap (*Request body* above). `knowledge_max_upload_mb` is at most 90 (MiB), so the file and the form's other fields fit under Caddy's 100,000,000 bytes. The release that ships it needs the new Caddyfile, so the owner runs `install.sh` before it, as for any Caddyfile change.

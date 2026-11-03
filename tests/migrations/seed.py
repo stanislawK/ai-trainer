@@ -315,6 +315,31 @@ def _rows() -> dict[str, tuple[Row, ...]]:
                 "band_label": "red" if a else None,
             }
         )
+        # Shared reference data, but its uploader column reaches `users` (#422).
+        rows.setdefault("knowledge_sources", []).append(
+            {
+                "id": _id(user, 18),
+                "title": "Deload timing" if a else "  Periodyzacja  Treningu ",
+                "author": "M. Kowalska" if a else None,
+                "source_type": "research_paper" if a else "book",
+                "evidence_tier": "peer_reviewed" if a else "coaching_book",
+                "language": "en" if a else "pl",
+                "sports": ["gym"] if a else ["climbing", "gym"],
+                "topics": ["deload"] if a else [],
+                "license_note": "CC BY 4.0" if a else "  Owner's copy ",
+                "source_url": "https://example.org/deload" if a else None,
+                "content_hash": ("a" if a else "b") * 64,
+                "file_type": "pdf" if a else "epub",
+                "file_name": "deload.pdf" if a else "  Periodyzacja.EPUB ",
+                "size_bytes": 2048 if a else None,
+                "storage_key": f"sources/{_id(user, 18)}" if a else None,
+                "status": "ingested" if a else "failed",
+                "error": None if a else "no_text",
+                "uploaded_by_user_id": user,
+                "uploaded_at": _at(n, 15),
+                "ingested_at": _at(n, 16) if a else None,
+            }
+        )
     return {table: tuple(table_rows) for table, table_rows in rows.items()}
 
 

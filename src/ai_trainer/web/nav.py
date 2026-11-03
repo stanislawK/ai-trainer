@@ -23,7 +23,14 @@ class NavSection:
 NAV_SECTIONS: tuple[NavSection, ...] = (
     NavSection(id="chat", label="Chat", href="/", icon="message-circle", prefixes=("/c/",)),
     NavSection(id="settings", label="Settings", href="/settings", icon="settings"),
-    NavSection(id="admin", label="Admin", href="/admin", icon="shield-check", admin_only=True),
+    NavSection(
+        id="admin",
+        label="Admin",
+        href="/admin",
+        icon="shield-check",
+        admin_only=True,
+        prefixes=("/admin/",),
+    ),
 )
 
 

@@ -41,9 +41,11 @@ from ai_trainer.adapters.google_oauth import AuthlibGoogleOAuthClient
 from ai_trainer.adapters.gym_activity_store import GymActivityStore
 from ai_trainer.adapters.gym_band_order import SqlAlchemyBandOrder
 from ai_trainer.adapters.health import PsycopgDatabaseHealth
+from ai_trainer.adapters.knowledge_repository import SqlAlchemyKnowledgeSourcesRepository
 from ai_trainer.adapters.llm_calls_repository import SqlAlchemyLlmCallsRepository
 from ai_trainer.adapters.log_records import configure_logging
 from ai_trainer.adapters.metrics import OtelMetrics
+from ai_trainer.adapters.object_storage import ObstoreObjectStorage
 from ai_trainer.adapters.onboarding_repository import SqlAlchemyOnboardingRepository
 from ai_trainer.adapters.session_draft_repository import SqlAlchemySessionDraftRepository
 from ai_trainer.adapters.sessions_repository import SqlAlchemySessionsRepository
@@ -56,6 +58,7 @@ from ai_trainer.application.budgeted_gateways import BudgetedDecisionGateway, Bu
 from ai_trainer.application.exercise_lookup import ExerciseFinder
 from ai_trainer.application.exercise_resolution import ResolutionLimits, ResolveExercises
 from ai_trainer.application.feedback import FeedbackRecorder
+from ai_trainer.application.knowledge_sources import KnowledgeSources
 from ai_trainer.application.metered_calls import MeteredLlmCallsRepository
 from ai_trainer.application.model_budget import ModelCallBudget
 from ai_trainer.application.ports.clock import ClockPort
@@ -183,6 +186,39 @@ def build_onboarding_reader(
         provider=settings.onboarding_provider_preferences,
         reasoning_effort=settings.onboarding_reasoning_effort,
         timeout_seconds=settings.onboarding_call_timeout_seconds,
+    )
+
+
+def build_knowledge_sources(
+    settings: Settings,
+    session_factory: Callable[[], AsyncSession],
+    clock: ClockPort,
+    sports: SportRegistry,
+) -> KnowledgeSources:
+    """The admin's knowledge uploads (ADR-0033). Without the `OBJECT_STORAGE_*` settings the
+    page still lists sources and refuses an upload, so a release never waits on the keys."""
+    endpoint = settings.object_storage_endpoint
+    access_key_id = settings.object_storage_access_key_id
+    secret_access_key = settings.object_storage_secret_access_key
+    bucket = settings.object_storage_uploads_bucket
+    storage = (
+        ObstoreObjectStorage(
+            endpoint=endpoint,
+            region=settings.object_storage_region,
+            access_key_id=access_key_id.get_secret_value(),
+            secret_access_key=secret_access_key.get_secret_value(),
+            bucket=bucket,
+            timeout_seconds=settings.object_storage_timeout_seconds,
+        )
+        if endpoint and access_key_id and secret_access_key and bucket
+        else None
+    )
+    return KnowledgeSources(
+        sources=SqlAlchemyKnowledgeSourcesRepository(session_factory),
+        storage=storage,
+        clock=clock,
+        max_upload_bytes=settings.knowledge_max_upload_mb * 1024 * 1024,
+        sports=[sport.id for sport in sports.all()],
     )
 
 
@@ -353,7 +389,13 @@ def create_app(  # noqa: PLR0915 -- composition root: objects are built only her
     )
     app.include_router(
         build_admin_router(
-            templates=templates, users=users, sessions=sessions, status_changer=status_changer
+            templates=templates,
+            users=users,
+            sessions=sessions,
+            status_changer=status_changer,
+            knowledge=build_knowledge_sources(settings, session_factory, clock, sport_registry),
+            sports=sport_registry,
+            max_upload_mb=settings.knowledge_max_upload_mb,
         )
     )
     app.include_router(build_settings_router(templates, users=users))
