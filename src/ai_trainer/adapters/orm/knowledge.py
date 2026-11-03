@@ -58,8 +58,10 @@ class KnowledgeSourceOrm(Base):
         ),
         CheckConstraint("pmcid ~ '^PMC[0-9]+$'", name="knowledge_sources_pmcid_format"),
         CheckConstraint("pmid ~ '^[0-9]+$'", name="knowledge_sources_pmid_format"),
-        # DOIs are case-insensitive: stored lowercased, so the unique key catches any case.
-        CheckConstraint("doi = lower(doi)", name="knowledge_sources_doi_format"),
+        # A bare DOI, lowercased: DOIs are case-insensitive, so the unique key catches any case.
+        CheckConstraint(
+            "doi ~ '^10\\.[0-9.]+/.' AND doi = lower(doi)", name="knowledge_sources_doi_format"
+        ),
         Index("ix_knowledge_sources_uploaded_by_user_id", "uploaded_by_user_id"),
         Index("ix_knowledge_sources_status", "status"),
     )

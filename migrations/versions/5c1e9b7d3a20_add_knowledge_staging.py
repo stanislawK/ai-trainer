@@ -17,7 +17,9 @@ first (squawk reads a transaction followed by an autocommit block as no transact
 Existing rows read `license_id = 'other'` and `license_source = 'admin'` from constant column
 defaults: no table rewrite and no UPDATE. Their notes are untouched, and the CHECK that `other`
 has a note holds for them, since #422 required one. Release N's code inserts without the new
-columns and still passes every CHECK, so an app rollback stays safe (invariant 4).
+columns and still passes every CHECK, so an app rollback stays safe (invariant 4) while every
+row is still one it can read. A later ticket's first `proposed` source or note-less CC source
+is not: #422's code can't read it, so that ticket's release, or this one, is the rollback floor.
 """
 
 from collections.abc import Sequence
@@ -60,8 +62,9 @@ _CHECKS = {
     "knowledge_sources_other_license_note": "license_id <> 'other' OR license_note IS NOT NULL",
     "knowledge_sources_pmcid_format": "pmcid ~ '^PMC[0-9]+$'",
     "knowledge_sources_pmid_format": "pmid ~ '^[0-9]+$'",
-    # DOIs are case-insensitive: stored lowercased, so the unique key catches any case.
-    "knowledge_sources_doi_format": "doi = lower(doi)",
+    # A bare DOI, never its URL, and lowercased: DOIs are case-insensitive, so the unique key
+    # then catches the same DOI in any spelling.
+    "knowledge_sources_doi_format": "doi ~ '^10\\.[0-9.]+/.' AND doi = lower(doi)",
 }
 
 

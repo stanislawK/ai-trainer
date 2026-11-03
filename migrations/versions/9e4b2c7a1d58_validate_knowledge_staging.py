@@ -36,9 +36,18 @@ _CHECKS = (
 def upgrade() -> None:
     # Unique when set (NULLs never collide): built concurrently, then attached, so the existing
     # table is never locked for the build. The block also commits the NOT VALID CHECKs, so the
-    # VALIDATE scans run in a later transaction than the lock ADD CONSTRAINT took.
+    # VALIDATE scans run in a later transaction than the lock ADD CONSTRAINT took. An interrupted
+    # concurrent build leaves an INVALID index of that name, which IF NOT EXISTS would keep and
+    # USING INDEX refuse; dropping it first lets a retry rebuild it. Until this revision commits,
+    # no constraint uses the index, so the drop never hits one that holds data.
     with op.get_context().autocommit_block():
         for column in _IDENTIFIERS:
+            op.drop_index(
+                f"{_TABLE}_{column}_key",
+                table_name=_TABLE,
+                postgresql_concurrently=True,
+                if_exists=True,
+            )
             op.create_index(
                 f"{_TABLE}_{column}_key",
                 _TABLE,

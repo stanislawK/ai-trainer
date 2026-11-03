@@ -14,7 +14,7 @@ from pathlib import PurePosixPath
 from urllib.parse import urlsplit
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class SourceType(StrEnum):
@@ -114,6 +114,7 @@ CONTENT_TYPES: Mapping[KnowledgeFileType, str] = {
     KnowledgeFileType.TEXT: "text/plain; charset=utf-8",
     KnowledgeFileType.VTT: "text/vtt; charset=utf-8",
     KnowledgeFileType.SRT: "application/x-subrip",
+    KnowledgeFileType.JATS: "application/xml",
 }
 # EPUB OCF: the archive's first entry is `mimetype`, stored uncompressed with no extra field, so
 # its name and value sit at fixed offsets in the first local file header.
@@ -182,11 +183,17 @@ class NewKnowledgeSource(SourceDetails):
     # The source's copyright statement, verbatim.
     copyright_statement: str | None = None
     attribution: str | None = None
-    pmcid: str | None = None
-    # Lowercased: DOIs are case-insensitive, and the table refuses any other case.
-    doi: str | None = None
-    pmid: str | None = None
+    # The formats the table's CHECKs hold, refused here first (#453).
+    pmcid: str | None = Field(default=None, pattern=r"^PMC[0-9]+$")
+    # A bare DOI, lowercased: DOIs are case-insensitive, so any spelling is one source.
+    doi: str | None = Field(default=None, pattern=r"^10\.[0-9.]+/.")
+    pmid: str | None = Field(default=None, pattern=r"^[0-9]+$")
     isbn: str | None = None
+
+    @field_validator("doi", mode="before")
+    @classmethod
+    def _lowercase_doi(cls, value: object) -> object:
+        return value.strip().lower() if isinstance(value, str) else value
     content_hash: str
     # None for the catalogue's rows, which have no uploaded file (#427).
     file_type: KnowledgeFileType | None

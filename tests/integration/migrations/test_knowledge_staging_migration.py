@@ -163,7 +163,13 @@ def test_sources_without_identifiers_never_collide(conn: psycopg.Connection[Any]
 
 @pytest.mark.parametrize(
     ("column", "value"),
-    [("pmcid", "13692514"), ("pmcid", "pmc13692514"), ("pmid", "PMID41"), ("doi", "10.1/ABC")],
+    [
+        ("pmcid", "13692514"),
+        ("pmcid", "pmc13692514"),
+        ("pmid", "PMID41"),
+        ("doi", "10.1/ABC"),
+        ("doi", "https://doi.org/10.1/abc"),
+    ],
 )
 def test_a_malformed_identifier_is_refused(
     conn: psycopg.Connection[Any], column: str, value: str

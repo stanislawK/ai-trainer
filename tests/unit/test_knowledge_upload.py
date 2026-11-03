@@ -8,6 +8,7 @@ from typing import ClassVar
 from uuid import UUID, uuid4
 
 import pytest
+from pydantic import ValidationError
 
 from ai_trainer.application.knowledge_sources import (
     AlreadyStored,
@@ -112,6 +113,39 @@ def _stored(status: SourceStatus, data: bytes, error: str | None = None) -> Know
         uploaded_at=NOW,
         ingested_at=NOW if status is SourceStatus.INGESTED else None,
     )
+
+
+# --- The identifiers (ADR-0036, #453) -------------------------------------------------------
+
+
+def _with(**fields: str) -> KnowledgeSource:
+    return KnowledgeSource.model_validate(
+        {**_stored(SourceStatus.UPLOADED, b"ids").model_dump(), **fields}
+    )
+
+
+def test_a_doi_is_stored_lowercased_so_any_spelling_is_one_source() -> None:
+    assert _with(doi=" 10.1136/BJSPORTS-2019-101234 ").doi == "10.1136/bjsports-2019-101234"
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("doi", "https://doi.org/10.1136/bjsports"),
+        ("doi", "bjsports-2019"),
+        ("pmcid", "13692514"),
+        ("pmcid", "pmc13692514"),
+        ("pmid", "PMID41234567"),
+    ],
+)
+def test_a_malformed_identifier_is_refused_before_the_table_sees_it(field: str, value: str) -> None:
+    with pytest.raises(ValidationError, match=field):
+        _with(**{field: value})
+
+
+def test_identifiers_are_optional() -> None:
+    source = _stored(SourceStatus.UPLOADED, b"none")
+    assert (source.pmcid, source.doi, source.pmid, source.isbn) == (None,) * 4
 
 
 # --- The file ------------------------------------------------------------------------------
