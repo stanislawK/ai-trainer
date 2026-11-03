@@ -102,23 +102,21 @@
 {%- if source.license_id %}
 <span class="flex flex-col gap-1"><span class="flex items-center gap-x-2 gap-y-1 flex-wrap max-w-[160px]"><span class="text-[14px] whitespace-nowrap">{{ licence_copy[source.license_id].label }}</span>{{ licence_flag_badge(source) }}</span>
   {%- if licence_from[source.license_source] %}<span class="text-[12px] lbl-2 whitespace-nowrap">{{ licence_from[source.license_source] }}</span>{% endif %}</span>
-{%- else %}<span class="lbl-2">—</span>
 {%- endif %}
 {%- endmacro %}
 
 {% macro source_card(source) -%}
-<li class="mat-content rounded-box p-4 flex flex-col gap-2" data-source-id="{{ source.id }}" data-status="{{ source.status }}">
-  <div class="flex items-start gap-3">
-    <span class="flex flex-col gap-1 flex-1 min-w-0"><span class="text-[16px] font-medium break-words">{{ source.title }}</span><span class="text-[13px] lbl-2">{{ byline(source) }}</span>{{ licence_line(source) }}</span>
-    {{ status_badge(source, "shrink-0") }}
-  </div>
+<li class="mat-content rounded-box p-4 flex flex-col gap-1" data-source-id="{{ source.id }}" data-status="{{ source.status }}">
+  <span class="flex items-start gap-3"><span class="text-[16px] font-medium break-words flex-1 min-w-0">{{ source.title }}</span>{{ status_badge(source, "shrink-0") }}</span>
+  <span class="text-[13px] lbl-2">{{ byline(source) }}</span>
+  {{ licence_line(source) }}
   {%- if source.status == "uploaded" %}
   <span class="text-[13px] lbl-2">Waiting to be ingested</span>
   {%- endif %}
   {%- if source.status == "failed" and source.error %}
   <p class="text-[13px]">{{ source.error }}</p>
   {%- endif %}
-  <div class="flex gap-2">
+  <div class="flex gap-2 mt-1">
     {{ reingest_button(source, true) }}
     {{ delete_button(source, true) }}
   </div>
@@ -180,7 +178,7 @@
 <template id="knowledge-uploading-row">
   <tr class="border-base-content/10" data-uploading>
     <td><span class="flex flex-col"><span class="font-medium" data-uploading-title></span><span class="text-[13px] lbl-2" data-uploading-byline></span><progress class="progress progress-primary w-full mt-2" aria-label="Upload progress"></progress></span></td>
-    <td><span class="lbl-2">—</span></td>
+    <td></td>
     <td><span class="badge badge-soft badge-primary whitespace-nowrap">Uploading</span></td>
     <td><div class="flex justify-end gap-2"><button type="button" class="lg lg-quiet lg-sm" data-knowledge-cancel><span class="absolute inset-x-0 -inset-y-1" aria-hidden="true"></span>Cancel</button></div></td>
   </tr>
