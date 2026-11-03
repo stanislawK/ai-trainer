@@ -144,3 +144,35 @@ PMC sources carry "Source: NLM PMC" in their attribution.
   - how much memory the database needs per 100,000 chunks.
 
   Both are settled at the `ingest` ticket.
+- **Amended at #454 (licence detection on form uploads, and the tokens page),** owner-directed 2026-11-03 at that ticket's plan gate and design gates, on the [Admin Staging mock](https://claude.ai/design/p/d1ddc556-11d3-4434-8e02-9fee28f2efbb?file=Admin+Staging.dc.html). It is proposed for the owner's review with #454's PR and holds once that PR is merged. It refines Invariant 1 (below); the rest of the Decision and the other invariants stand.
+  - **Why.** A file uploaded by hand carries no machine-readable licence, and the admin shouldn't have to know one. Papers staged by PMC ID already take theirs from PMC.
+  - **The tokens page.** Tokens are created and revoked at `/admin/tokens`, a third Admin page beside Users and Knowledge (the "on `/admin`" above means under Admin).
+  - **The sheet:**
+    - the Licence select's first option, and its default, is **Detect from the file**;
+    - picking a licence keeps the upload `uploaded` at once, as above;
+    - with Detect, the upload is stored as `detecting`, with no licence.
+  - **Detection:**
+    - the `ingest` container picks `detecting` sources and runs only the file's reader and a deterministic match: no chunking, no embedding, no model;
+    - the match reads only the front matter, where a source states its own licence: the first 3 pages of a PDF, the EPUB spine items before the first chapter, the JATS `<permissions>` block, or the first 2,000 words of a text or transcript file. A CC notice further in, such as one on an embedded figure, is ignored;
+    - it looks for CC licence URLs (`creativecommons.org/licenses/<code>/<version>`, `creativecommons.org/publicdomain/zero`) and CC licence names ("CC BY-NC-SA 4.0", "Creative Commons Attribution-NonCommercial …");
+    - one licence found: it sets `license_id` with `license_source = file`, keeps the matched line and its page or locator, and pre-fills the attribution from title, author and licence;
+    - none found, or several different ones: no licence is set, and the reason is kept;
+    - a reader that fails (encrypted, corrupt or scanned file): no licence is set, and the reason says the file couldn't be read;
+    - in every case the source then becomes `proposed`. A source deleted while `detecting` is skipped, as at ingest.
+  - **Approval:**
+    - the proposal shows "detected in the file" with the licence and the matched line quoted, for the admin to check before approving;
+    - without a licence, it shows the reason and **Set licence**. It can't be selected for approval until a licence is set, and the server refuses to approve it.
+  - **Invariant 1, refined:** the worker never ingests a `proposed` or `detecting` source. It reads a `detecting` upload only to find its licence, and writes nothing but the licence fields, the matched line, the reason and the status. A source is still ingested only after an admin acts in the app.
+  - **Invariant 4 holds:** a source with no licence can't leave `proposed`.
+  - **Migration, expand only (ADR-0024):**
+    - the status set gains `detecting`, and `license_source` gains `file`;
+    - `license_id` and `license_source` become nullable, with a CHECK that both are set unless the status is `detecting` or `proposed`;
+    - the source gains the matched line, its locator and the detection reason;
+    - existing rows keep their values.
+  - **Tickets:**
+    - #455 builds the tokens page at `/admin/tokens`;
+    - #456 takes the sheet option and the migration;
+    - the `ingest` service ticket runs the detection;
+    - #461 shows the detected licence and Set licence.
+
+    Each is re-read against this amendment.
