@@ -335,8 +335,8 @@ Proposals for the owner. Nothing here edits an ADR; each change goes through `/u
 
 ## Open questions
 
-- **Europe PMC's terms and rate limits.** Its developer and copyright pages answered 403 to the fetcher. Read them in a browser before building against its API.
-- **Bot Fight Mode on a residential connection.** Does it challenge the owner's own connection for a scripted client (curl, Python) on the app's domain? Only a datacenter address has been seen challenged. Settle it with one request before choosing a token path.
+- **Europe PMC's terms and rate limits.** Its developer and copyright pages answered 403 to the fetcher. Read them in a browser before building against its API. *Partly settled 2026-11-03: the owner read the limit in a browser, "10 zapytań na sekundę z jednego adresu IP" (10 requests per second per IP address). The rest of its terms are still unread.*
+- **Bot Fight Mode on a residential connection.** Does it challenge the owner's own connection for a scripted client (curl, Python) on the app's domain? Only a datacenter address has been seen challenged. Settle it with one request before choosing a token path. *Settled 2026-11-03: `curl` from the owner's laptop got 200 from `/health`.*
 - **R2 tokens.** Does "Object Read & Write" include delete? Does CopyObject work across buckets? Settle both with a test token, which the owner creates, since agents never touch Cloudflare.
 - **Cloudflare's write timeout.** Does the 30-second limit apply per write or to the whole upload? That decides whether a 90 MB upload survives on a slow link.
 - **The `TDM` licence.** Does PMC's `TDM` licence code (author manuscripts) allow showing a quote? Its wording covers mining only.

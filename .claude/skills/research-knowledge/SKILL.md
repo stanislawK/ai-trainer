@@ -4,9 +4,9 @@ description: Find well-sourced candidate documents for the knowledge base on a t
 argument-hint: "<topic> [covered: <sources the owner already uploaded>]"
 ---
 
-# Research knowledge: $ARGUMENTS (ADR-0033, PRD 0010 B7)
+# Research knowledge: $ARGUMENTS (ADR-0033, ADR-0036, PRD 0011 B7)
 
-Finds sources worth the owner's upload to `/admin/knowledge`. The owner obtains the files and uploads the ones worth keeping. Agents don't upload (ADR-0033).
+Finds sources worth adding to `/admin/knowledge`. Agents never upload directly: once `/stage-knowledge` exists, the shortlist the owner approves is staged as `proposed` sources that an admin approves in bulk; until then the owner uploads (ADR-0036). This skill itself stages nothing.
 
 ## Inputs
 
@@ -40,7 +40,7 @@ Start with the covered-list notice when it applies, then:
 - **Link**
 - **Source type**: peer-reviewed paper, book, talk, podcast or article
 - **Proposed tier**: 1 to 4 from the ranking above
-- **License note**: what you can say about reuse (open access with its license, a book bought and uploaded for private use, a transcript for a talk). When unclear, write "unknown: owner to check". ADR-0033 invariant 5 needs the owner to settle it before ingestion.
+- **License note**: what you can say about reuse (open access with its license, a book bought and uploaded for private use, a transcript for a talk). When unclear, write "unknown: owner to check". ADR-0033 invariant 5 needs the owner to settle it before ingestion. Name the licence by ADR-0036's closed set where you can (`cc0`, `cc-by`, `cc-by-sa`, `cc-by-nc`, `cc-by-nc-sa`, `cc-by-nd`, `cc-by-nc-nd`, `other`), and give the PMC ID and DOI when the source has them, since papers are staged by PMC ID.
 - **Why credible**: one line on the author's credentials or the evidence.
 
 **Rejected**: a table of title or link, and the reason.
