@@ -205,6 +205,57 @@
     clearErrors(form);
   });
 
+  // The dashed file box is a drop target too. While the sheet is open, a file dropped anywhere
+  // else is ignored rather than opened by the browser, which would lose the form.
+  function sheetOpen() {
+    var root = region();
+    var sheet = root && sheetOf(root);
+    return Boolean(sheet && !sheet.hidden);
+  }
+
+  function dropLabel(event) {
+    return event.target instanceof Element ? event.target.closest("[data-file-label]") : null;
+  }
+
+  ["dragenter", "dragover"].forEach(function (type) {
+    document.addEventListener(type, function (event) {
+      if (!sheetOpen()) {
+        return;
+      }
+      event.preventDefault();
+      var label = dropLabel(event);
+      event.dataTransfer.dropEffect = label ? "copy" : "none";
+      if (label) {
+        label.classList.add("border-primary");
+      }
+    });
+  });
+
+  document.addEventListener("dragleave", function (event) {
+    var label = dropLabel(event);
+    if (label && !label.contains(event.relatedTarget)) {
+      label.classList.remove("border-primary");
+    }
+  });
+
+  document.addEventListener("drop", function (event) {
+    if (!sheetOpen()) {
+      return;
+    }
+    event.preventDefault();
+    var label = dropLabel(event);
+    var files = event.dataTransfer && event.dataTransfer.files;
+    if (!label || !files || files.length === 0) {
+      return;
+    }
+    label.classList.remove("border-primary");
+    var input = label.querySelector("[data-file-input]");
+    var one = new DataTransfer();
+    one.items.add(files[0]);
+    input.files = one.files;
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+
   document.addEventListener("htmx:before:request", function (event) {
     var form = event.target;
     if (!(form instanceof HTMLFormElement) || !form.matches("[data-knowledge-form]")) {
