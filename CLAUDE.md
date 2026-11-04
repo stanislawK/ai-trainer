@@ -102,6 +102,7 @@ uv run ai-trainer feedback-report [--since <ISO time>]   # counts of the content
 KNOWLEDGE_API_URL=<base> KNOWLEDGE_API_TOKEN=<token> uv run python scripts/knowledge_client.py list   # production's covered knowledge sources through the admin-token route, as JSON; exit 3 with no token set; used by /research-knowledge (ADR-0036, #459)
 uv run ai-trainer storage-check   # put, read back and delete a probe object in the configured uploads bucket, and try a short presigned link; `make storage-check` runs it on `make start` with no R2 account (ADR-0033)
 uv run ai-trainer ingest-worker [--once]   # ingest `uploaded` knowledge sources outside the web process: read, chunk, embed (real OpenRouter calls), store; `make ingest-once` runs it once on `make start` (ADR-0036)
+make search-knowledge q="<question>" [sport=gym]   # call search_knowledge as the seeded dev user, print its ToolResult; one real embedding call (ADR-0036, #424)
 make latency-scenario [sport=gym]   # replay the latency scenario on `make start`, p50/p95 per log turn (ADR-0026; costs money); sport=gym exercises gym naming (ADR-0031)
 uv run playwright install chromium   # one-time browser download for e2e
 uv run pytest tests/e2e -n 0     # e2e specs, serial (needs `docker compose up`; excluded from `uv run pytest`)

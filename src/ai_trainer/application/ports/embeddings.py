@@ -12,3 +12,11 @@ class EmbeddingGatewayPort(Protocol):
     async def embed_documents(
         self, texts: Sequence[str], *, acting_user_id: UUID
     ) -> EmbeddingOutcome: ...
+
+
+class QueryEmbeddingPort(Protocol):
+    """Embeds one search query with the model's query instruction (ADR-0033, #424). The call
+    writes one `llm_calls` row for `acting_user_id`, the athlete who searched; only the query
+    text is sent."""
+
+    async def embed_query(self, text: str, *, acting_user_id: UUID) -> EmbeddingOutcome: ...

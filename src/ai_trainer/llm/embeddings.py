@@ -12,6 +12,8 @@ length is checked, since `dimensions` isn't relied on to be honoured (ADR-0033).
 from collections.abc import Sequence
 from dataclasses import dataclass
 from decimal import Decimal
+from functools import cache
+from pathlib import Path
 from uuid import UUID
 
 import httpx2
@@ -27,12 +29,25 @@ from ai_trainer.domain.embeddings import (
 )
 from ai_trainer.domain.llm_calls import LlmCallOutcome, ProviderPreferences
 from ai_trainer.llm.call_accounting import CallAccountant, CallKey, CallUsage
+from ai_trainer.llm.prompts.registry import PromptRegistry
 
 EMBEDDINGS_URL = "https://openrouter.ai/api/v1/embeddings"
 # The `llm_calls` key of a document embedding. It has no prompt template: a document is
 # embedded with no instruction (ADR-0033).
 EMBEDDING_TEMPLATE_ID = "knowledge_embedding"
 EMBEDDING_TEMPLATE_VERSION = 1
+# A search query's instruction line, a prompt file (ADR-0033 *Query instruction*, ADR-0008):
+# `Instruct: <task>\nQuery:` in the model card's form, the question appended as written (#424).
+QUERY_TEMPLATE_ID = "knowledge.query"
+QUERY_TEMPLATE_VERSION = 1
+_PROMPTS_ROOT = Path(__file__).resolve().parent / "prompts"
+
+
+@cache
+def query_instruction() -> str:
+    return PromptRegistry(root=_PROMPTS_ROOT).load_fixed_reply(
+        QUERY_TEMPLATE_ID, QUERY_TEMPLATE_VERSION
+    )
 
 
 class _Item(BaseModel):
@@ -88,15 +103,32 @@ class OpenRouterEmbeddingGateway:
     async def embed_documents(
         self, texts: Sequence[str], *, acting_user_id: UUID
     ) -> EmbeddingOutcome:
-        key = CallKey(
-            user_id=acting_user_id,
-            template_id=EMBEDDING_TEMPLATE_ID,
-            template_version=EMBEDDING_TEMPLATE_VERSION,
-            model=self._model,
+        return await self._embed(
+            list(texts),
+            CallKey(
+                user_id=acting_user_id,
+                template_id=EMBEDDING_TEMPLATE_ID,
+                template_version=EMBEDDING_TEMPLATE_VERSION,
+                model=self._model,
+            ),
         )
+
+    async def embed_query(self, text: str, *, acting_user_id: UUID) -> EmbeddingOutcome:
+        """Implements `QueryEmbeddingPort`: the question behind the `knowledge.query` line."""
+        return await self._embed(
+            [f"{query_instruction()}{text}"],
+            CallKey(
+                user_id=acting_user_id,
+                template_id=QUERY_TEMPLATE_ID,
+                template_version=QUERY_TEMPLATE_VERSION,
+                model=self._model,
+            ),
+        )
+
+    async def _embed(self, texts: list[str], key: CallKey) -> EmbeddingOutcome:
         attempt = await self._accountant.attempt(
             key,
-            self._post(list(texts)),
+            self._post(texts),
             usage=lambda reply: reply.usage,
             outcome_of=lambda reply: (
                 LlmCallOutcome.SUCCESS
@@ -141,4 +173,6 @@ class OpenRouterEmbeddingGateway:
         ):
             return _Reply(EmbeddingFailed(reason=EmbeddingFailure.WRONG_SHAPE), billed)
         vectors = tuple(tuple(item.embedding) for item in items)
-        return _Reply(Embedded(vectors=vectors, model=body.model), billed)
+        # Tagged with the configured model, which every search filters on (ADR-0011 invariant
+        # 4), not the response's spelling of it; `llm_calls` keeps the billed name (#424).
+        return _Reply(Embedded(vectors=vectors, model=self._model), billed)

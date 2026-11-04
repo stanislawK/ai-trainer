@@ -1,5 +1,6 @@
 from typing import Any
 
+import httpx2
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -20,9 +21,11 @@ from pydantic import PostgresDsn, SecretStr
 from pydantic_ai import Agent, InstrumentationSettings
 from pydantic_ai.mcp import MCPToolset
 from pydantic_ai.models.test import TestModel
+from pydantic_ai.toolsets import FilteredToolset
 from sqlalchemy.ext.asyncio import AsyncEngine
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from ai_trainer import main as main_module
 from ai_trainer.llm.gateway import OpenRouterGateway
 from ai_trainer.main import _build_tracer_provider, _traces_endpoint, app_factory, create_app
 from ai_trainer.settings import Settings
@@ -148,7 +151,9 @@ def test_create_app_builds_the_mcp_toolset_and_mounts_no_mcp_route() -> None:
     (ADR-0010 defers HTTP, ticket #378)."""
     app = create_app(_settings())
 
-    assert isinstance(app.state.mcp_toolset, MCPToolset)
+    # Filtered, so `search_knowledge` stays off the specialists until #428 (#424).
+    assert isinstance(app.state.mcp_toolset, FilteredToolset)
+    assert isinstance(app.state.mcp_toolset.wrapped, MCPToolset)
     assert not [
         path for route in app.routes if "mcp" in (path := getattr(route, "path", "")).lower()
     ]
@@ -248,6 +253,24 @@ async def test_create_app_disposes_its_engine_on_shutdown(
         assert disposed == []
 
     assert len(disposed) == 1
+
+
+def test_shutdown_closes_the_search_http_client(monkeypatch: pytest.MonkeyPatch) -> None:
+    """#424 review: `search_knowledge`'s embedding client is closed with the app, as the
+    engine is, so a reload worker doesn't leak its pool."""
+    made: list[httpx2.AsyncClient] = []
+    original = main_module.query_http_client
+
+    def spy(settings: Settings) -> httpx2.AsyncClient:
+        made.append(original(settings))
+        return made[-1]
+
+    monkeypatch.setattr(main_module, "query_http_client", spy)
+
+    with TestClient(create_app(_settings())):
+        assert [client.is_closed for client in made] == [False]
+
+    assert [client.is_closed for client in made] == [True]
 
 
 def test_app_factory_wires_settings_from_the_environment(

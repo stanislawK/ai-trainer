@@ -211,9 +211,14 @@ class Settings(BaseSettings):
     knowledge_embedding_batch_size: int = Field(default=32, ge=1, le=256)
     knowledge_embedding_max_attempts: int = Field(default=5, ge=1)
     # The chunk budget in words, and the size under which a section merges with a sibling;
-    # provisional until `search_knowledge`'s retrieval checks settle them (#424).
+    # provisional until the retrieval checks settle them (ADR-0036, #424 amendment).
     knowledge_chunk_max_words: int = Field(default=300, ge=20)
     knowledge_chunk_min_words: int = Field(default=80, ge=0)
+    # `search_knowledge` (ADR-0036, #424 amendment): how long a query's embedding call may take
+    # before the search fails with a recovery hint, and how deep each leg reads before fusion
+    # (pgvector's `rrf.py` reads 20). Both provisional until the retrieval checks.
+    knowledge_query_timeout_seconds: float = Field(default=10.0, gt=0)
+    knowledge_search_depth: int = Field(default=20, ge=1, le=100)
     # The worker's lease on a source, renewed by a heartbeat every third of it; a lapsed lease
     # lets the next worker take the source over. The poll interval is how long an idle worker
     # waits before looking again.

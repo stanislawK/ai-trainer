@@ -11,6 +11,7 @@ from ai_trainer.domain.knowledge_document import (
     Unreadable,
 )
 from ai_trainer.domain.knowledge_ingestion import EmbeddedChunk, IngestFailure
+from ai_trainer.domain.knowledge_search import KnowledgeCandidates, KnowledgeFilters
 
 
 class KnowledgeSourcesRepositoryPort(Protocol):
@@ -104,3 +105,20 @@ class DocumentReadersPort(Protocol):
 
 class ChunkerPort(Protocol):
     def chunk(self, document: KnowledgeDocument) -> Sequence[NewKnowledgeChunk]: ...
+
+
+class KnowledgeSearchPort(Protocol):
+    """The two legs of `search_knowledge` (ADR-0033, #424). Chunks are shared reference data,
+    so nothing here is scoped by user."""
+
+    async def candidates(
+        self,
+        *,
+        vector: Sequence[float],
+        query: str,
+        filters: KnowledgeFilters,
+        depth: int,
+    ) -> KnowledgeCandidates:
+        """Up to `depth` chunks nearest `vector` by cosine distance, and up to `depth` chunks
+        matching `query`'s words, each best first, both under `filters`."""
+        ...

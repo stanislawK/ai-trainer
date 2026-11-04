@@ -19,7 +19,13 @@ from ai_trainer.domain.embeddings import (
     RateLimited,
 )
 from ai_trainer.domain.llm_calls import LlmCall, LlmCallOutcome, NewLlmCall, ProviderPreferences
-from ai_trainer.llm.embeddings import EMBEDDING_TEMPLATE_ID, OpenRouterEmbeddingGateway
+from ai_trainer.llm.embeddings import (
+    EMBEDDING_TEMPLATE_ID,
+    QUERY_TEMPLATE_ID,
+    QUERY_TEMPLATE_VERSION,
+    OpenRouterEmbeddingGateway,
+    query_instruction,
+)
 
 _ADMIN = UUID("00000000-0000-4000-8000-00000000a423")
 _AT = datetime(2026, 11, 4, tzinfo=UTC)
@@ -212,4 +218,72 @@ async def test_a_response_of_the_wrong_shape_fails_the_batch(response: httpx2.Re
     )
 
     assert outcome == EmbeddingFailed(reason=EmbeddingFailure.WRONG_SHAPE)
+    assert [row.outcome for row in calls.recorded] == [LlmCallOutcome.ERROR]
+
+
+_ATHLETE = UUID("00000000-0000-4000-8000-000000000424")
+
+
+async def test_vectors_carry_the_configured_model_and_the_row_the_billed_one() -> None:
+    """#424 review: chunks record the model a search filters on, `EMBEDDING_MODEL`, even when
+    the response names it differently; `llm_calls` keeps what the response billed."""
+    calls = _Calls()
+
+    def handler(_request: httpx2.Request) -> httpx2.Response:
+        body = _ok(1).json()
+        body["model"] = "Qwen/Qwen3-Embedding-8B"
+        return httpx2.Response(200, json=body)
+
+    outcome = await _gateway(handler, calls).embed_documents(["a"], acting_user_id=_ADMIN)
+
+    assert isinstance(outcome, Embedded)
+    assert outcome.model == "qwen/qwen3-embedding-8b"
+    assert calls.recorded[0].model == "Qwen/Qwen3-Embedding-8B"
+
+
+async def test_a_query_embedding_writes_one_llm_calls_row_for_the_athlete() -> None:
+    """#424: the query carries the instruction from `knowledge.query` v1, a document none
+    (ADR-0033); its row is keyed to that template and to the athlete who searched."""
+    sent: list[httpx2.Request] = []
+    calls = _Calls()
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        sent.append(request)
+        return _ok(1)
+
+    outcome = await _gateway(handler, calls).embed_query(
+        "how often should I deload?", acting_user_id=_ATHLETE
+    )
+
+    assert outcome == Embedded(vectors=((0.0,) * 4,), model="qwen/qwen3-embedding-8b")
+    (request,) = sent
+    body = json.loads(request.content)
+    assert body["input"] == [f"{query_instruction()}how often should I deload?"]
+    assert body["input"][0].startswith("Instruct: ")
+    assert "\nQuery:" in body["input"][0]
+    assert {key: body[key] for key in ("model", "dimensions", "provider")} == {
+        "model": "qwen/qwen3-embedding-8b",
+        "dimensions": 4,
+        "provider": {"only": ["deepinfra"]},
+    }
+    assert "user" not in body
+    assert str(_ATHLETE) not in request.content.decode()
+    (row,) = calls.recorded
+    assert (row.user_id, row.template_id, row.template_version, row.outcome) == (
+        _ATHLETE,
+        QUERY_TEMPLATE_ID,
+        QUERY_TEMPLATE_VERSION,
+        LlmCallOutcome.SUCCESS,
+    )
+    assert (QUERY_TEMPLATE_ID, QUERY_TEMPLATE_VERSION) == ("knowledge.query", 1)
+
+
+async def test_a_failed_query_embedding_is_a_value_with_an_error_row() -> None:
+    calls = _Calls()
+
+    outcome = await _gateway(lambda _r: httpx2.Response(502), calls).embed_query(
+        "deload", acting_user_id=_ATHLETE
+    )
+
+    assert outcome == EmbeddingFailed(reason=EmbeddingFailure.ERROR)
     assert [row.outcome for row in calls.recorded] == [LlmCallOutcome.ERROR]
