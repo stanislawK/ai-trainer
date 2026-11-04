@@ -16,6 +16,7 @@ from pydantic import (
 )
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
+from ai_trainer.domain.knowledge_document import EMBEDDING_DIMENSIONS
 from ai_trainer.domain.llm_calls import ProviderPreferences, ReasoningEffort
 
 
@@ -56,6 +57,10 @@ DEFAULT_ONBOARDING_REASONING_EFFORT: ReasoningEffort = "low"
 DEFAULT_ANSWER_MODEL = "z-ai/glm-5.3-flash"
 DEFAULT_ANSWER_PROVIDER = ProviderPreferences(sort="latency", quantizations=["fp8", "nvfp4"])
 DEFAULT_ANSWER_REASONING_EFFORT: ReasoningEffort = "low"
+
+# Chosen by the owner at #417 (ADR-0033): one space for English and Polish, on DeepInfra only.
+DEFAULT_EMBEDDING_MODEL = "qwen/qwen3-embedding-8b"
+DEFAULT_EMBEDDING_PROVIDER = ProviderPreferences(only=["deepinfra"])
 
 # A Jev ID carries a version number; aliases such as `~typesafe/jev-latest` move under a
 # calibrated threshold, so they are refused (ADR-0020).
@@ -258,6 +263,28 @@ class Settings(BaseSettings):
     # The largest knowledge file an admin may upload, in MiB (ADR-0033). At most 90, so the form
     # fits Caddy's and Cloudflare's 100 MB on that route (ADR-0029).
     knowledge_max_upload_mb: int = Field(default=50, ge=1, le=90)
+    # Embeddings (ADR-0033): the model and dimension every chunk records, pinned to one upstream
+    # with a one-name `only`, since a chunk doesn't record its upstream. The dimension is the
+    # `vector(1024)` column's; another one needs a migration and a re-embed job (ADR-0011).
+    embedding_model: str = DEFAULT_EMBEDDING_MODEL
+    embedding_dim: int = Field(
+        default=EMBEDDING_DIMENSIONS, ge=EMBEDDING_DIMENSIONS, le=EMBEDDING_DIMENSIONS
+    )
+    embedding_provider_preferences: ProviderPreferencesSetting = DEFAULT_EMBEDDING_PROVIDER
+    embedding_call_timeout_seconds: float = Field(default=60.0, gt=0)
+    # Ingestion (ADR-0036, #423). Inputs per embedding call, provisional until #462 reads the
+    # upstream's limits; a 429 is retried with backoff up to this many attempts in all.
+    knowledge_embedding_batch_size: int = Field(default=32, ge=1, le=256)
+    knowledge_embedding_max_attempts: int = Field(default=5, ge=1)
+    # The chunk budget in words, and the size under which a section merges with a sibling;
+    # provisional until `search_knowledge`'s retrieval checks settle them (#424).
+    knowledge_chunk_max_words: int = Field(default=300, ge=20)
+    knowledge_chunk_min_words: int = Field(default=80, ge=0)
+    # The worker's lease on a source, renewed by a heartbeat every third of it; a lapsed lease
+    # lets the next worker take the source over. The poll interval is how long an idle worker
+    # waits before looking again.
+    knowledge_ingest_lease_seconds: float = Field(default=300.0, ge=30)
+    knowledge_ingest_poll_seconds: float = Field(default=5.0, gt=0)
 
     # Google sign-in (ADR-0005). No Google access or refresh token is ever stored.
     # Required and non-blank: a blank value otherwise fails only on Google's own page.
@@ -341,6 +368,15 @@ class Settings(BaseSettings):
         return self
 
     @model_validator(mode="after")
+    def _merge_floor_below_the_budget(self) -> Self:
+        if self.knowledge_chunk_min_words >= self.knowledge_chunk_max_words:
+            raise ValueError(
+                "KNOWLEDGE_CHUNK_MIN_WORDS must be below KNOWLEDGE_CHUNK_MAX_WORDS, or every "
+                "section would merge"
+            )
+        return self
+
+    @model_validator(mode="after")
     def _llm_debug_log_only_on_localhost(self) -> Self:
         # The debug log holds athletes' words (ADR-0018), so it is refused wherever the app is
         # served beyond this machine, and logs may leave the host (ADR-0030, #278).
@@ -378,6 +414,7 @@ class Settings(BaseSettings):
         "answer_reasoning_effort",
         "object_storage_region",
         "object_storage_timeout_seconds",
+        "embedding_provider_preferences",
         mode="before",
     )
     @classmethod
