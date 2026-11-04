@@ -2,10 +2,10 @@
 upload, refusals, re-upload, delete and re-ingest, admin only and CSRF-checked."""
 
 import re
-from html import unescape
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from html import unescape
 from uuid import UUID, uuid4
 
 import httpx2

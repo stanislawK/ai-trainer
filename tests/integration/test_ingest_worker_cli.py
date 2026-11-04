@@ -1,6 +1,7 @@
 """`ai-trainer ingest-worker --once` wired end to end (ADR-0036, #423): real PostgreSQL, an S3
 server on 127.0.0.1 and OpenRouter faked at the HTTP transport. The command opens its own engine
-and commits, so the source is a real row, dated 2001 so it is claimed first, and removed after."""
+and commits, so the source is a real row, dated 2002 so it is claimed before any dev data but after
+`test_knowledge_ingestion`'s 2001 sources, and removed after."""
 
 import io
 import json
@@ -55,7 +56,7 @@ async def source_id(server: S3State) -> AsyncIterator[UUID]:
         )
     )
     new = uploaded_source(
-        admin_id=admin.id, marker="zz-cli", uploaded_at=datetime(2001, 1, 1, tzinfo=UTC)
+        admin_id=admin.id, marker="zz-cli", uploaded_at=datetime(2002, 1, 1, tzinfo=UTC)
     )
     assert new.storage_key is not None
     server.objects[new.storage_key] = guide_markdown("zz-cli")

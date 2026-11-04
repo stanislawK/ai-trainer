@@ -2,7 +2,8 @@
 criterion, with the object storage and the embedding gateway faked at their ports.
 
 Sources here are dated 2001, so a claim, which takes the oldest waiting source, takes this test's
-source before anything the worktree's dev database holds.
+source before anything committed: the worktree's dev data, or `test_ingest_worker_cli`'s 2002
+source. Each test claims once (`ingest_once`), never until the queue is empty.
 """
 
 import asyncio
@@ -104,6 +105,12 @@ class _World:
             lease=_LEASE,
         )
 
+    async def ingest_once(self, embeddings: ScriptedEmbeddings | None = None) -> list[IngestReport]:
+        """One claim, as a list of zero or one report. Not `drain()`: that would go on to any
+        committed source the database holds, a concurrent test's or the dev data's."""
+        report = await self.worker(embeddings).ingest_next()
+        return [] if report is None else [report]
+
     async def chunks(self, source_id: UUID) -> list[KnowledgeChunkOrm]:
         async with self.factory() as session:
             rows = await session.scalars(
@@ -135,7 +142,7 @@ async def world(db_session_factory: Factory) -> _World:
 async def test_uploaded_markdown_reaches_ingested_with_its_chunk_count(world: _World) -> None:
     source = await world.add("ac1")
 
-    reports = await world.worker().drain()
+    reports = await world.ingest_once()
 
     assert reports == [IngestReport(source_id=source.id, result="ingested", chunks=3)]
     listed = next(s for s in await world.sources.list_all() if s.id == source.id)
@@ -163,7 +170,7 @@ async def test_a_worker_killed_mid_ingest_finishes_on_restart_without_duplicates
     assert await world.status(source.id) == (SourceStatus.INGESTING, None)
 
     world.clock.advance(_LEASE + timedelta(seconds=1))
-    reports = await world.worker().drain()
+    reports = await world.ingest_once()
 
     assert reports == [IngestReport(source_id=source.id, result="ingested", chunks=3)]
     ordinals = [chunk.ordinal for chunk in await world.chunks(source.id)]
@@ -179,7 +186,7 @@ async def test_a_live_lease_is_not_claimed_twice(world: _World) -> None:
     assert claimed.id == source.id
 
     world.clock.advance(_LEASE - timedelta(seconds=1))
-    reports = await world.worker().drain()
+    reports = await world.ingest_once()
 
     assert source.id not in [report.source_id for report in reports]
     assert await world.status(source.id) == (SourceStatus.INGESTING, None)
@@ -187,11 +194,11 @@ async def test_a_live_lease_is_not_claimed_twice(world: _World) -> None:
 
 async def test_a_reingest_replaces_the_chunks_in_one_go(world: _World) -> None:
     source = await world.add("reingest-replace")
-    await world.worker().drain()
+    await world.ingest_once()
     first = {chunk.id for chunk in await world.chunks(source.id)}
 
     assert isinstance(await world.service.reingest(world.admin.id, source.id), ReingestQueued)
-    await world.worker().drain()
+    await world.ingest_once()
 
     second = await world.chunks(source.id)
     assert [chunk.ordinal for chunk in second] == [0, 1, 2]
@@ -204,13 +211,13 @@ async def test_an_embedding_failure_fails_the_source_and_reingest_recovers_it(
     source = await world.add("ac3")
     failing = ScriptedEmbeddings(EmbeddingFailed(reason=EmbeddingFailure.ERROR))
 
-    await world.worker(failing).drain()
+    await world.ingest_once(failing)
 
     assert await world.status(source.id) == (SourceStatus.FAILED, "embedding_failed")
     assert await world.chunks(source.id) == []
 
     assert isinstance(await world.service.reingest(world.admin.id, source.id), ReingestQueued)
-    reports = await world.worker().drain()
+    reports = await world.ingest_once()
 
     assert reports == [IngestReport(source_id=source.id, result="ingested", chunks=3)]
     assert await world.status(source.id) == (SourceStatus.INGESTED, None)
@@ -219,7 +226,7 @@ async def test_an_embedding_failure_fails_the_source_and_reingest_recovers_it(
 async def test_a_type_with_no_reader_fails_with_a_reason(world: _World) -> None:
     source = await world.add("ac4-pdf", data=b"%PDF-1.7\n", file_type=KnowledgeFileType.PDF)
 
-    reports = await world.worker().drain()
+    reports = await world.ingest_once()
 
     assert [(r.result, r.reason) for r in reports if r.source_id == source.id] == [
         ("failed", "no_reader")
@@ -238,7 +245,7 @@ async def test_proposed_detecting_and_rejected_sources_are_never_read(
     waiting = await world.add(f"ac4-{status}", status=status)
     embeddings = ScriptedEmbeddings()
 
-    reports = await world.worker(embeddings).drain()
+    reports = await world.ingest_once(embeddings)
 
     assert waiting.id not in [report.source_id for report in reports]
     assert waiting.storage_key not in world.storage.reads
@@ -252,7 +259,7 @@ async def test_a_source_deleted_mid_ingest_leaves_no_chunks(world: _World) -> No
     async def _delete() -> None:
         await world.service.delete(source.id)
 
-    reports = await world.worker(ScriptedEmbeddings(during=_delete)).drain()
+    reports = await world.ingest_once(ScriptedEmbeddings(during=_delete))
 
     assert reports == [IngestReport(source_id=source.id, result="gone")]
     assert await world.sources.get(source.id) is None
@@ -261,7 +268,7 @@ async def test_a_source_deleted_mid_ingest_leaves_no_chunks(world: _World) -> No
 
 async def test_deleting_an_ingested_source_removes_its_chunks(world: _World) -> None:
     source = await world.add("ac5-after")
-    await world.worker().drain()
+    await world.ingest_once()
 
     await world.service.delete(source.id)
 
@@ -271,7 +278,7 @@ async def test_deleting_an_ingested_source_removes_its_chunks(world: _World) -> 
 async def test_each_chunk_records_its_model_heading_path_and_locator(world: _World) -> None:
     source = await world.add("ac6")
 
-    await world.worker().drain()
+    await world.ingest_once()
 
     chunks = await world.chunks(source.id)
     assert [(c.heading_path, c.locator) for c in chunks] == [
@@ -303,7 +310,7 @@ async def test_the_tsvector_weights_title_a_headings_b_and_text_d(
 ) -> None:
     config, terms = query.split(":", 1)
     source = await world.add(f"fts-{language}-{matches}", language=language)
-    await world.worker().drain()
+    await world.ingest_once()
 
     async with world.factory() as session:
         found = await session.scalar(
