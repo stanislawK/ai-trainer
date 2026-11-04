@@ -89,6 +89,12 @@ class KnowledgeDocument(_Frozen):
 class UnreadableReason(StrEnum):
     NOT_UTF8 = "not_utf8"
     NO_TEXT = "no_text"
+    # A PDF whose pages hold no text, as a scan does; OCR is out of scope (ADR-0036).
+    NO_TEXT_LAYER = "no_text_layer"
+    # The file won't open: damaged, truncated or not what its extension says.
+    CORRUPT = "corrupt"
+    # A password is needed to open it.
+    ENCRYPTED = "encrypted"
 
 
 class Unreadable(_Frozen):
@@ -98,7 +104,7 @@ class Unreadable(_Frozen):
 
 
 class NoReader(_Frozen):
-    """A file type no reader handles yet (PDF #425, EPUB/VTT/SRT #426, JATS #463)."""
+    """A file type no reader handles yet (EPUB/VTT/SRT #426, JATS #463)."""
 
     file_type: KnowledgeFileType
 

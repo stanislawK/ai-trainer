@@ -55,6 +55,9 @@
 {% set ingest_errors = {
   "not_utf8": "The file isn't UTF-8 text, so it couldn't be read.",
   "no_text": "The file has no text to ingest.",
+  "no_text_layer": "The PDF has no text layer. It looks like a scan, and reading scans (OCR) isn't supported.",
+  "encrypted_file": "The PDF is password-protected, so it couldn't be read. Remove the password and upload it again.",
+  "corrupt_file": "The file is damaged or isn't what its extension says, so it couldn't be read.",
   "file_missing": "The file is missing from storage. Delete this source and upload it again.",
   "storage_failed": "File storage didn't answer. Try Re-ingest.",
   "embedding_failed": "The embedding call failed. Try Re-ingest.",

@@ -28,6 +28,7 @@ from tests.ingestion_support import (
     uploaded_source,
 )
 from tests.knowledge_support import MemoryStorage
+from tests.pdf_support import blank_pdf, encrypted_pdf, text_pdf
 
 _ADMIN = uuid4()
 
@@ -192,12 +193,27 @@ async def test_a_vector_of_the_wrong_length_fails_the_source() -> None:
 @pytest.mark.parametrize(
     ("data", "file_type", "reason"),
     [
-        (b"%PDF-1.7", KnowledgeFileType.PDF, IngestFailure.NO_READER),
+        (b"PK\x03\x04", KnowledgeFileType.EPUB, IngestFailure.NO_READER),
+        (blank_pdf(), KnowledgeFileType.PDF, IngestFailure.NO_TEXT_LAYER),
+        (b"%PDF-1.7 broken", KnowledgeFileType.PDF, IngestFailure.CORRUPT_FILE),
+        (
+            encrypted_pdf(text_pdf([["Secret words."]]), user_password="pw"),
+            KnowledgeFileType.PDF,
+            IngestFailure.ENCRYPTED_FILE,
+        ),
         (b"\xff\xfe", KnowledgeFileType.MARKDOWN, IngestFailure.NOT_UTF8),
         (b"# Only a title\n", KnowledgeFileType.MARKDOWN, IngestFailure.NO_TEXT),
         (b"## References\n\nSmith 2020.\n", KnowledgeFileType.MARKDOWN, IngestFailure.NO_TEXT),
     ],
-    ids=["no_reader", "not_utf8", "only_headings", "only_references"],
+    ids=[
+        "no_reader",
+        "scanned_pdf",
+        "corrupt_pdf",
+        "encrypted_pdf",
+        "not_utf8",
+        "only_headings",
+        "only_references",
+    ],
 )
 async def test_a_file_that_gives_no_chunks_fails_with_its_reason_and_no_call(
     data: bytes, file_type: KnowledgeFileType, reason: IngestFailure
