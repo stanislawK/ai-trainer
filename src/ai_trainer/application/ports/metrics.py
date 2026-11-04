@@ -2,10 +2,16 @@ from typing import Literal, Protocol
 
 from ai_trainer.domain.llm_calls import NewLlmCall
 
-# Which ADR-0029 cap refused: the sign-in routes' per-address cap, the per-session cap, or the
-# per-user model-call budget's hourly or in-flight limit.
+# Which ADR-0029 cap refused: the sign-in routes' per-address cap, the per-session cap, the
+# token routes' per-token cap or per-address cap on failed tokens, or the per-user model-call
+# budget's hourly or in-flight limit.
 type LimitKind = Literal[
-    "sign_in", "session", "token", "model_calls_per_hour", "model_calls_in_flight"
+    "sign_in",
+    "session",
+    "token",
+    "token_failures",
+    "model_calls_per_hour",
+    "model_calls_in_flight",
 ]
 
 

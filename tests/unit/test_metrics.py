@@ -327,6 +327,7 @@ def _limited_app(metrics: RecordingMetrics) -> FastAPI:
         auth_per_minute=1,
         session_per_minute=1,
         token_per_minute=1,
+        token_failures_per_address_per_minute=10,
         metrics=metrics,
     )
     return app

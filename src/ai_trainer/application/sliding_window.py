@@ -31,17 +31,35 @@ class SlidingWindow:
         The wait is rounded up and at least one second, so a `Retry-After` of zero is never
         sent and a client that waits it out is not refused again.
         """
+        retry = self.wait_if_full(key, limit=limit)
+        if retry is None:
+            self.record(key)
+        return retry
+
+    def wait_if_full(self, key: str, *, limit: int) -> int | None:
+        """The seconds to wait when the key already holds `limit` events, else `None`.
+
+        Records nothing, for a caller that counts only some outcomes (failed sign-ins).
+        """
         now = self._clock.now()
+        stamps = self._live(key, now)
+        if len(stamps) < limit:
+            return None
+        retry = math.ceil((stamps[0] + self._window - now).total_seconds())
+        return max(retry, 1)
+
+    def record(self, key: str) -> None:
+        """Counts one event for the key, whether or not it is full."""
+        now = self._clock.now()
+        self._live(key, now).append(now)
+
+    def _live(self, key: str, now: datetime) -> deque[datetime]:
         cutoff = now - self._window
         self._sweep(now, cutoff)
         stamps = self._stamps.setdefault(key, deque())
         while stamps and stamps[0] <= cutoff:
             stamps.popleft()
-        if len(stamps) >= limit:
-            retry = math.ceil((stamps[0] + self._window - now).total_seconds())
-            return max(retry, 1)
-        stamps.append(now)
-        return None
+        return stamps
 
     def __len__(self) -> int:
         return len(self._stamps)
