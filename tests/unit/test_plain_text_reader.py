@@ -54,13 +54,12 @@ def test_the_registry_reads_markdown_and_text(
 @pytest.mark.parametrize(
     "file_type",
     [
-        KnowledgeFileType.PDF,
         KnowledgeFileType.EPUB,
         KnowledgeFileType.VTT,
         KnowledgeFileType.SRT,
         KnowledgeFileType.JATS,
     ],
-    ids=["pdf", "epub", "vtt", "srt", "jats"],
+    ids=["epub", "vtt", "srt", "jats"],
 )
 def test_a_type_with_no_reader_yet_says_so(file_type: KnowledgeFileType) -> None:
     assert DocumentReaders().parse(file_type, b"anything") == NoReader(file_type=file_type)

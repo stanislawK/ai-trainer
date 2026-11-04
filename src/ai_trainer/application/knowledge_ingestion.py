@@ -61,6 +61,9 @@ _EMBEDDING_FAILURES = {
 _UNREADABLE = {
     UnreadableReason.NOT_UTF8: IngestFailure.NOT_UTF8,
     UnreadableReason.NO_TEXT: IngestFailure.NO_TEXT,
+    UnreadableReason.NO_TEXT_LAYER: IngestFailure.NO_TEXT_LAYER,
+    UnreadableReason.CORRUPT: IngestFailure.CORRUPT_FILE,
+    UnreadableReason.ENCRYPTED: IngestFailure.ENCRYPTED_FILE,
 }
 
 

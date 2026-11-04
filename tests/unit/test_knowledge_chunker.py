@@ -165,11 +165,29 @@ def test_a_section_at_or_over_the_minimum_is_not_merged() -> None:
     assert [c.heading_path for c in chunks] == [("Deload", "Timing"), ("Deload", "Volume")]
 
 
-def test_a_chunk_keeps_its_first_block_locator() -> None:
-    first = Block(kind=BlockKind.PARAGRAPH, text=_words(12), locator=PageLocator(page=3))
-    second = Block(kind=BlockKind.PARAGRAPH, text=_words(12), locator=PageLocator(page=4))
+def _on_page(page: int, label: str | None = None) -> Block:
+    return Block(
+        kind=BlockKind.PARAGRAPH,
+        text=_words(12),
+        locator=PageLocator(page=page, page_label=label),
+    )
 
-    assert _chunk(first, second)[0].locator == PageLocator(page=3)
+
+def test_a_chunk_keeps_its_first_block_locator() -> None:
+    chunks = _chunk(_on_page(3, "iii"), _on_page(3, "iii"))
+
+    assert [c.locator for c in chunks] == [PageLocator(page=3, page_label="iii")]
+    assert word_count(chunks[0].text) == 24
+
+
+def test_a_chunk_never_spans_two_pages() -> None:
+    chunks = _chunk(_on_page(3), _on_page(4))
+
+    assert [(c.text, c.locator) for c in chunks] == [
+        (_words(12), PageLocator(page=3)),
+        (_words(12), PageLocator(page=4)),
+    ]
+    assert [c.ordinal for c in chunks] == [0, 1]
 
 
 def test_a_document_of_only_references_gives_no_chunks() -> None:

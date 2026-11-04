@@ -1,7 +1,7 @@
 """The one chunker every reader's document goes through (ADR-0036, research
 knowledge-ingestion-at-scale.md recs 9-10, knowledge-base.md rec 5).
 
-- Blocks are grouped into sections by heading path.
+- Blocks are grouped into sections by heading path, and a PDF's also by page.
 - One word budget: a section's blocks are packed up to it, and only a block over it is split, on
   sentence ends and then on words.
 - Small sibling sections merge under their common parent, each keeping its heading as a line.
@@ -25,6 +25,7 @@ from ai_trainer.domain.knowledge_document import (
     KnowledgeDocument,
     Locator,
     NewKnowledgeChunk,
+    PageLocator,
     SectionKind,
     word_count,
 )
@@ -51,6 +52,13 @@ class _Unit:
     # What joins it to the previous unit of the same block: a line end between a list's items,
     # a space inside a split line. None starts a new block, after a blank line.
     joiner: str | None
+
+
+def _section_key(block: Block) -> tuple[tuple[str, ...], int | None]:
+    """A section is a run of blocks under one heading path, and a PDF's also on one page, so a
+    chunk never spans two pages and its locator is its page."""
+    page = block.locator.page if isinstance(block.locator, PageLocator) else None
+    return block.heading_path, page
 
 
 def _names(path: Sequence[str]) -> set[str]:
@@ -80,7 +88,7 @@ class Chunker:
     def _drafts(self, document: KnowledgeDocument) -> Iterator[tuple[_Draft, bool]]:
         """Each section's drafts, with whether it may merge with a small sibling."""
         body = (block for block in document.blocks if block.kind is not BlockKind.HEADING)
-        for path, section in groupby(body, key=lambda block: block.heading_path):
+        for (path, _), section in groupby(body, key=_section_key):
             names = _names(path)
             if names & _REFERENCES:
                 continue

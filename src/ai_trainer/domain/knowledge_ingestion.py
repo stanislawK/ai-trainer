@@ -10,11 +10,14 @@ from ai_trainer.domain.knowledge_document import NewKnowledgeChunk
 
 
 class IngestFailure(StrEnum):
-    # The file's type has no reader yet (PDF #425, EPUB/VTT/SRT #426, JATS #463).
+    # The file's type has no reader yet (EPUB/VTT/SRT #426, JATS #463).
     NO_READER = "no_reader"
     NOT_UTF8 = "not_utf8"
     # Nothing to embed: an empty file, or only headings or references.
     NO_TEXT = "no_text"
+    NO_TEXT_LAYER = "no_text_layer"
+    ENCRYPTED_FILE = "encrypted_file"
+    CORRUPT_FILE = "corrupt_file"
     FILE_MISSING = "file_missing"
     STORAGE_FAILED = "storage_failed"
     EMBEDDING_FAILED = "embedding_failed"

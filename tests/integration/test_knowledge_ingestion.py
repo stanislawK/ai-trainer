@@ -41,6 +41,7 @@ from tests.ingestion_support import (
     uploaded_source,
 )
 from tests.knowledge_support import MemoryStorage
+from tests.pdf_support import blank_pdf, encrypted_pdf, text_pdf
 
 _LONG_AGO = datetime(2001, 1, 1, tzinfo=UTC)
 _LEASE = timedelta(minutes=5)
@@ -265,7 +266,7 @@ async def test_an_embedding_failure_fails_the_source_and_reingest_recovers_it(
 
 
 async def test_a_type_with_no_reader_fails_with_a_reason(world: _World) -> None:
-    source = await world.add("ac4-pdf", data=b"%PDF-1.7\n", file_type=KnowledgeFileType.PDF)
+    source = await world.add("ac4-epub", data=b"PK\x03\x04", file_type=KnowledgeFileType.EPUB)
 
     reports = await world.ingest_once()
 
@@ -273,6 +274,86 @@ async def test_a_type_with_no_reader_fails_with_a_reason(world: _World) -> None:
         ("failed", "no_reader")
     ]
     assert await world.status(source.id) == (SourceStatus.FAILED, "no_reader")
+
+
+_PDF_PAGES = [
+    ["Deload weeks restore strength after a hard block of training."],
+    ["Sleep and food matter more than any single session of the week."],
+]
+
+
+async def test_an_uploaded_pdf_reaches_ingested_and_its_text_is_searchable(
+    world: _World,
+) -> None:
+    source = await world.add(
+        "pdf-found", data=text_pdf(_PDF_PAGES), file_type=KnowledgeFileType.PDF
+    )
+    source_id = source.id
+
+    reports = await world.ingest_once()
+
+    assert [(r.source_id, r.result, r.chunks) for r in reports] == [(source_id, "ingested", 2)]
+    assert await world.status(source_id) == (SourceStatus.INGESTED, None)
+    async with world.factory() as session:
+        hit = await session.scalar(
+            text(
+                "SELECT count(*) FROM knowledge_chunks WHERE source_id = :id "
+                "AND search_vector @@ to_tsquery('english', 'deload & strength')"
+            ),
+            {"id": source_id},
+        )
+    assert hit == 1
+
+
+async def test_each_pdf_chunk_records_the_page_it_came_from(world: _World) -> None:
+    source = await world.add(
+        "pdf-pages",
+        data=text_pdf(
+            [*_PDF_PAGES, ["Printed numbering restarts here."]],
+            labels="0 << /S /r >> 2 << /S /D >>",
+        ),
+        file_type=KnowledgeFileType.PDF,
+    )
+
+    await world.ingest_once()
+
+    assert [c.locator for c in await world.chunks(source.id)] == [
+        {"kind": "page", "page": 1, "page_label": "i"},
+        {"kind": "page", "page": 2, "page_label": "ii"},
+        {"kind": "page", "page": 3, "page_label": "1"},
+    ]
+
+
+async def test_a_scanned_pdf_fails_with_a_reason_that_names_the_problem(world: _World) -> None:
+    source = await world.add("pdf-scan", data=blank_pdf(), file_type=KnowledgeFileType.PDF)
+
+    await world.ingest_once()
+
+    assert await world.status(source.id) == (SourceStatus.FAILED, "no_text_layer")
+    assert await world.chunks(source.id) == []
+
+
+@pytest.mark.parametrize(
+    ("data", "reason"),
+    [
+        (b"%PDF-1.7 broken", "corrupt_file"),
+        (encrypted_pdf(text_pdf(_PDF_PAGES), user_password="pw"), "encrypted_file"),
+    ],
+    ids=["corrupt", "encrypted"],
+)
+async def test_a_bad_pdf_fails_and_the_worker_ingests_the_next_source(
+    world: _World, data: bytes, reason: str
+) -> None:
+    bad = await world.add(f"pdf-bad-{reason}", data=data, file_type=KnowledgeFileType.PDF)
+    good = await world.add(f"pdf-next-{reason}", minutes=1)
+
+    first = await world.ingest_once()
+    second = await world.ingest_once()
+
+    assert [(r.source_id, r.result, r.reason) for r in first + second] == [
+        (bad.id, "failed", reason),
+        (good.id, "ingested", None),
+    ]
 
 
 @pytest.mark.parametrize(
