@@ -284,3 +284,25 @@ async def test_the_table_refuses_values_outside_its_sets(
                 text(f"UPDATE knowledge_sources SET {column} = '{value}' WHERE id = :id"),
                 {"id": source.id},
             )
+
+
+async def test_list_page_orders_by_id_after_the_cursor(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    """The knowledge API's keyset (#457). Other tests' rows may share the table, so only the
+    order of this test's own rows is asserted."""
+    repository = SqlAlchemyKnowledgeSourcesRepository(db_session_factory)
+    admin = await _admin(db_session_factory, "knowledge-page")
+    added = sorted(
+        [(await repository.add(_source(f"page-{n}", admin))).id for n in range(3)], key=str
+    )
+
+    first = await repository.list_page(after=None, limit=500)
+    after_first = await repository.list_page(after=added[0], limit=500)
+    one = await repository.list_page(after=added[0], limit=1)
+
+    assert [s.id for s in first if s.id in added] == added
+    assert [s.id for s in after_first if s.id in added] == added[1:]
+    assert all(str(s.id) > str(added[0]) for s in after_first)
+    assert len(one) == 1
+    assert [str(s.id) for s in first] == sorted(str(s.id) for s in first)

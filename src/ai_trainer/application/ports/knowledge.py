@@ -13,6 +13,13 @@ class KnowledgeSourcesRepositoryPort(Protocol):
         """Newest upload first."""
         ...
 
+    async def list_page(self, *, after: UUID | None, limit: int) -> Sequence[KnowledgeSource]:
+        """Up to `limit` sources ordered by `id`, those after `after` when it is set (#457). A
+        source present for the whole walk is listed once; one added during it may sort before
+        the cursor and be missed, which staging tolerates: its identifiers and hash are unique,
+        so a duplicate it stages again is refused."""
+        ...
+
     async def get(self, source_id: UUID) -> KnowledgeSource | None: ...
 
     async def get_by_hash(self, content_hash: str) -> KnowledgeSource | None: ...

@@ -35,6 +35,10 @@ _NOW = datetime(2026, 10, 25, 12, 0, tzinfo=UTC)
 _HOUR = Settings.model_fields["llm_calls_per_user_per_hour"].default
 _AUTH = Settings.model_fields["auth_requests_per_minute"].default
 _SESSION = Settings.model_fields["session_requests_per_minute"].default
+_TOKEN = Settings.model_fields["token_requests_per_minute"].default
+_TOKEN_A = "atk_" + "A" * 43
+_TOKEN_B = "atk_" + "B" * 43
+_API = "/api/admin/knowledge/sources"
 _WAIT = "You've sent a lot in the last hour."
 
 
@@ -383,7 +387,9 @@ def test_a_kept_key_drops_its_old_events_and_the_wait_is_rounded_up() -> None:
     assert window.allow("auth:a", limit=2) == 40
 
 
-def _http_app(clock: FakeClock, *, auth: int = _AUTH, session: int = _SESSION) -> FastAPI:
+def _http_app(
+    clock: FakeClock, *, auth: int = _AUTH, session: int = _SESSION, token: int = _TOKEN
+) -> FastAPI:
     app = FastAPI()
 
     @app.api_route("/{full_path:path}", methods=["GET", "POST"])
@@ -396,6 +402,7 @@ def _http_app(clock: FakeClock, *, auth: int = _AUTH, session: int = _SESSION) -
         templates=build_templates(),
         auth_per_minute=auth,
         session_per_minute=session,
+        token_per_minute=token,
     )
     return app
 
@@ -518,7 +525,78 @@ async def test_a_non_http_connection_is_not_limited() -> None:
         templates=build_templates(),
         auth_per_minute=1,
         session_per_minute=1,
+        token_per_minute=1,
     )
     await middleware({"type": "lifespan"}, receive, send)
 
     assert called == ["lifespan"]
+
+
+def _bearer(token: str) -> dict[str, str]:
+    return {"Authorization": f"Bearer {token}"}
+
+
+def test_the_121st_token_request_in_a_minute_answers_429() -> None:
+    """ADR-0036 and the ADR-0029 amendment: 120 per token per rolling minute, as JSON."""
+    assert _TOKEN == 120
+    clock = FakeClock()
+    client = TestClient(_http_app(clock))
+
+    statuses = [_hit(client, _API, headers=_bearer(_TOKEN_A)) for _ in range(_TOKEN)]
+    limited = client.get(_API, headers=_bearer(_TOKEN_A))
+
+    assert statuses == [200] * _TOKEN
+    assert limited.status_code == 429
+    assert limited.json() == {"detail": "Too many requests."}
+    assert int(limited.headers["Retry-After"]) >= 1
+    assert _TOKEN_A not in limited.text
+    assert _hit(client, _API, headers=_bearer(_TOKEN_B)) == 200
+    clock.advance(timedelta(seconds=61))
+    assert _hit(client, _API, headers=_bearer(_TOKEN_A)) == 200
+
+
+def test_a_token_is_counted_whatever_the_scheme_spelling_and_route_under_the_prefix() -> None:
+    client = TestClient(_http_app(FakeClock(), token=2))
+
+    assert _hit(client, _API, headers={"Authorization": f"bearer {_TOKEN_A}"}) == 200
+    assert _hit(client, "/api/admin/knowledge/other", headers=_bearer(_TOKEN_A)) == 200
+    assert _hit(client, "/api/admin/knowledge", headers=_bearer(_TOKEN_A)) == 429
+
+
+def test_the_token_routes_are_never_counted_by_the_session_cookie() -> None:
+    """A cookie doesn't key the prefix; a request with no bearer is refused by the route."""
+    client = TestClient(_http_app(FakeClock(), session=1, token=1))
+    client.cookies.set(SESSION_COOKIE_NAME, "session-a")
+
+    assert [_hit(client, _API) for _ in range(3)] == [200] * 3
+    assert [_hit(client, _API, headers={"Authorization": "Basic eA=="}) for _ in range(2)] == [
+        200,
+        200,
+    ]
+    assert _hit(client, _API, headers=_bearer(_TOKEN_A)) == 200
+    assert _hit(client, "/messages") == 200
+    assert _hit(client, "/messages") == 429
+
+
+def test_a_look_alike_path_is_counted_by_the_session_as_before() -> None:
+    client = TestClient(_http_app(FakeClock(), session=1, token=5))
+    client.cookies.set(SESSION_COOKIE_NAME, "session-a")
+
+    assert _hit(client, "/api/admin/knowledgex", headers=_bearer(_TOKEN_A)) == 200
+    assert _hit(client, "/api/admin/knowledgex", headers=_bearer(_TOKEN_A)) == 429
+
+
+def test_the_window_reads_the_bearer_as_the_route_does() -> None:
+    """Extra spaces after the scheme are the same credential to `HTTPBearer`, so to the window."""
+    client = TestClient(_http_app(FakeClock(), token=1))
+
+    assert _hit(client, _API, headers=_bearer(_TOKEN_A)) == 200
+    assert _hit(client, _API, headers={"Authorization": f"Bearer   {_TOKEN_A}"}) == 429
+
+
+def test_an_oversized_bearer_is_keyed_by_its_first_200_characters() -> None:
+    client = TestClient(_http_app(FakeClock(), token=1))
+    head = "x" * 200
+
+    assert _hit(client, _API, headers=_bearer(head + "a" * 8000)) == 200
+    assert _hit(client, _API, headers=_bearer(head + "b")) == 429

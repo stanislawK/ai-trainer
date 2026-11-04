@@ -13,6 +13,9 @@ class MemoryAdminTokens:
     def __init__(self) -> None:
         self.rows: dict[UUID, NewAdminToken] = {}
         self.revoked: dict[UUID, datetime] = {}
+        self.used: dict[UUID, datetime] = {}
+        # The hashes `get_by_hash` was asked for, in order.
+        self.lookups: list[str] = []
 
     def _token(self, row: NewAdminToken) -> AdminToken:
         return AdminToken(
@@ -22,6 +25,7 @@ class MemoryAdminTokens:
             created_at=row.created_at,
             expires_at=row.expires_at,
             revoked_at=self.revoked.get(row.id),
+            last_used_at=self.used.get(row.id),
         )
 
     async def add(self, token: NewAdminToken) -> AdminToken:
@@ -43,6 +47,16 @@ class MemoryAdminTokens:
         if self._token(row).state_at(at) is TokenState.ACTIVE:
             self.revoked[token_id] = at
         return self._token(row)
+
+    async def get_by_hash(self, token_hash: str) -> AdminToken | None:
+        self.lookups.append(token_hash)
+        row = next((r for r in self.rows.values() if r.token_hash == token_hash), None)
+        return None if row is None else self._token(row)
+
+    async def touch(self, user_id: UUID, token_id: UUID, *, at: datetime) -> None:
+        row = self.rows.get(token_id)
+        if row is not None and row.user_id == user_id:
+            self.used[token_id] = at
 
 
 class _FixedClock:

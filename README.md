@@ -50,6 +50,23 @@ Every sign-in re-checks `ADMIN_EMAILS` (ADR-0005): a listed, verified email alwa
 
 If sign-in bounces back to the sign-in page with an error, `make logs` shows why (`google sign-in failed: …`); the log never contains tokens or claims. Safari and the `Secure` session cookie: see ADR-0005's Consequences.
 
+### Knowledge API (admin tokens)
+
+The staging routes under `/api/admin/knowledge/` take an admin token and no session or CSRF token (ADR-0036).
+- **Create one** under Admin → Tokens (`/admin/tokens`) while signed in with an email in `ADMIN_EMAILS`. The token is shown once.
+- **Send it** only as a header. A token anywhere in the query string is refused with 400:
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" "http://localhost:8000/api/admin/knowledge/sources?limit=200"
+```
+
+**What comes back:** sources by `id` with their status, identifiers, licence and content hash. Pass the response's `next` back as `after=` for the following page; `limit` runs from 1 to 500.
+
+**Errors:**
+- **401:** the token is unknown, expired or revoked.
+- **403:** the token's user is no longer `active` or no longer in `ADMIN_EMAILS`.
+- **429:** more than `TOKEN_REQUESTS_PER_MINUTE` (default 120) requests from one token in a rolling minute.
+
 ```bash
 make start                # builds, migrates the schema to head, and starts app + postgres (foreground)
 ```

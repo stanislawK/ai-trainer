@@ -83,6 +83,13 @@ class NotReingestable:
     source: KnowledgeSource
 
 
+@dataclass(frozen=True)
+class SourcesPage:
+    sources: Sequence[KnowledgeSource]
+    # The cursor for the page after this one; None on the last page.
+    next: UUID | None
+
+
 type UploadOutcome = SourceStored | UploadRefused | AlreadyStored | StorageUnavailable
 type DeleteOutcome = SourceDeleted | SourceNotFound | StorageUnavailable
 type ReingestOutcome = ReingestQueued | NotReingestable | SourceNotFound
@@ -107,6 +114,13 @@ class KnowledgeSources:
 
     async def list(self) -> Sequence[KnowledgeSource]:
         return await self._sources.list_all()
+
+    async def list_page(self, *, after: UUID | None, limit: int) -> SourcesPage:
+        """One page of the manifest by `id` (#457). One row past `limit` tells whether another
+        page follows, so the last page never names a cursor that leads to nothing."""
+        rows = await self._sources.list_page(after=after, limit=limit + 1)
+        page = rows[:limit]
+        return SourcesPage(sources=page, next=page[-1].id if len(rows) > limit else None)
 
     async def upload(
         self, admin_id: UUID, answers: UploadAnswers, file: IncomingFile | None

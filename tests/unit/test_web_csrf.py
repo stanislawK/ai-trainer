@@ -24,6 +24,14 @@ def _client() -> TestClient:
     async def action() -> PlainTextResponse:
         return PlainTextResponse("done")
 
+    @app.post("/api/admin/knowledge/sources")
+    async def api_action() -> PlainTextResponse:
+        return PlainTextResponse("api done")
+
+    @app.post("/api/admin/knowledgex")
+    async def look_alike() -> PlainTextResponse:
+        return PlainTextResponse("look-alike")
+
     app.add_middleware(CsrfMiddleware, secret_key=SECRET, templates=build_templates())
     return TestClient(app)
 
@@ -130,3 +138,13 @@ def test_post_with_a_malformed_session_cookie_is_rejected() -> None:
     response = client.post("/action", headers={CSRF_HEADER_NAME: "anything"})
 
     assert response.status_code == 403
+
+
+def test_the_token_routes_are_not_csrf_checked_and_a_look_alike_is() -> None:
+    """ADR-0005 invariant 3 as amended by ADR-0036: a bearer header is never sent by a browser
+    on its own, so the token routes take no CSRF token; they take no cookie either."""
+    client = _client()
+    client.cookies.set(SESSION_COOKIE_NAME, str(uuid4()))
+
+    assert client.post("/api/admin/knowledge/sources").text == "api done"
+    assert client.post("/api/admin/knowledgex").status_code == 403

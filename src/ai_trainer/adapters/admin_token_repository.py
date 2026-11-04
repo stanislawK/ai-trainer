@@ -46,6 +46,28 @@ class SqlAlchemyAdminTokensRepository:
             )
             return [_to_domain(row) for row in rows]
 
+    async def get_by_hash(self, token_hash: str) -> AdminToken | None:
+        async with self._session_factory() as session:
+            row = await session.scalar(
+                select(AdminTokenOrm).where(AdminTokenOrm.token_hash == token_hash)
+            )
+            return None if row is None else _to_domain(row)
+
+    async def touch(self, user_id: UUID, token_id: UUID, *, at: datetime) -> None:
+        async with self._session_factory() as session:
+            await session.execute(
+                update(AdminTokenOrm)
+                .where(
+                    AdminTokenOrm.user_id == user_id,
+                    AdminTokenOrm.id == token_id,
+                    # A revoke that lands mid-request isn't followed by a later use.
+                    AdminTokenOrm.revoked_at.is_(None),
+                    AdminTokenOrm.expires_at > at,
+                )
+                .values(last_used_at=at)
+            )
+            await session.commit()
+
     async def revoke(self, user_id: UUID, token_id: UUID, *, at: datetime) -> AdminToken | None:
         mine = (AdminTokenOrm.user_id == user_id, AdminTokenOrm.id == token_id)
         async with self._session_factory() as session:

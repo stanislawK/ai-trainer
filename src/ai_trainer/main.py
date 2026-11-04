@@ -54,7 +54,7 @@ from ai_trainer.adapters.telemetry import ScrubbingSpanExporter
 from ai_trainer.adapters.training_session_repository import SqlAlchemyTrainingSessionRepository
 from ai_trainer.adapters.user_status_changer import SqlAlchemyUserStatusChanger
 from ai_trainer.adapters.users_repository import SqlAlchemyUsersRepository
-from ai_trainer.application.admin_tokens import AdminTokens
+from ai_trainer.application.admin_tokens import AdminTokens, TokenAuthenticator
 from ai_trainer.application.background_reads import BackgroundReads
 from ai_trainer.application.budgeted_gateways import BudgetedDecisionGateway, BudgetedLlmGateway
 from ai_trainer.application.exercise_lookup import ExerciseFinder
@@ -87,6 +87,7 @@ from ai_trainer.settings import Settings
 from ai_trainer.web.active_user_gate import ActiveUserGateMiddleware
 from ai_trainer.web.admin import build_admin_router
 from ai_trainer.web.ai_onboarding import build_ai_onboarding_router
+from ai_trainer.web.api import build_api_router
 from ai_trainer.web.auth import build_auth_router
 from ai_trainer.web.chat import build_chat_router
 from ai_trainer.web.csrf import CsrfMiddleware
@@ -389,18 +390,30 @@ def create_app(  # noqa: PLR0915 -- composition root: objects are built only her
             retention_days=settings.conversation_retention_days,
         )
     )
+    knowledge = build_knowledge_sources(settings, session_factory, clock, sport_registry)
+    admin_tokens = SqlAlchemyAdminTokensRepository(session_factory)
     app.include_router(
         build_admin_router(
             templates=templates,
             users=users,
             sessions=sessions,
             status_changer=status_changer,
-            knowledge=build_knowledge_sources(settings, session_factory, clock, sport_registry),
-            tokens=AdminTokens(
-                tokens=SqlAlchemyAdminTokensRepository(session_factory), clock=clock
-            ),
+            knowledge=knowledge,
+            tokens=AdminTokens(tokens=admin_tokens, clock=clock),
             sports=sport_registry,
             max_upload_mb=settings.knowledge_max_upload_mb,
+        )
+    )
+    # The token routes (ADR-0036): bearer only, outside the session gate and CSRF.
+    app.include_router(
+        build_api_router(
+            authenticator=TokenAuthenticator(
+                tokens=admin_tokens,
+                users=users,
+                clock=clock,
+                admin_emails=settings.admin_emails,
+            ),
+            knowledge=knowledge,
         )
     )
     app.include_router(build_settings_router(templates, users=users))
@@ -449,6 +462,7 @@ def create_app(  # noqa: PLR0915 -- composition root: objects are built only her
         templates=templates,
         auth_per_minute=settings.auth_requests_per_minute,
         session_per_minute=settings.session_requests_per_minute,
+        token_per_minute=settings.token_requests_per_minute,
         metrics=metrics,
     )
     # A request whose Host is not the public origin's is refused with 400 before the session,

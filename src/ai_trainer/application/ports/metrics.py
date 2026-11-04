@@ -4,7 +4,9 @@ from ai_trainer.domain.llm_calls import NewLlmCall
 
 # Which ADR-0029 cap refused: the sign-in routes' per-address cap, the per-session cap, or the
 # per-user model-call budget's hourly or in-flight limit.
-type LimitKind = Literal["sign_in", "session", "model_calls_per_hour", "model_calls_in_flight"]
+type LimitKind = Literal[
+    "sign_in", "session", "token", "model_calls_per_hour", "model_calls_in_flight"
+]
 
 
 class MetricsPort(Protocol):

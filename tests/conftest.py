@@ -90,6 +90,7 @@ _XDIST_GROUPS = {
         "tests/integration/test_session_draft_repository.py",
         "tests/integration/test_request_tracing.py",
         "tests/integration/test_request_logs.py",
+        "tests/integration/test_knowledge_api_wiring.py",
         "tests/integration/test_metrics_wiring.py",
         "tests/integration/test_auth_route.py",
         "tests/integration/test_google_sign_in.py",
