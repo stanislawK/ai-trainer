@@ -13,9 +13,9 @@ Finds sources worth adding to `/admin/knowledge`. Agents never upload directly: 
 - **Topic**: the part of `$ARGUMENTS` before the literal marker `covered:` (for example `hypertrophy volume`), or all of it when there is no marker. If it is empty, ask for one and stop.
 - **Covered list**: what production already holds, from two places that are merged. Agents can't reach production's `knowledge_sources` (ADR-0023), so never look for it in a database.
   - **Production's list**: run `uv run python scripts/knowledge_client.py list`. It reads `KNOWLEDGE_API_URL` and `KNOWLEDGE_API_TOKEN` from the environment, calls the token route, and prints a JSON array with each source's title, status, PMC ID, DOI, PMID, ISBN and URL.
-    - Exit 0: use the array.
+    - Exit 0: use the array. Every status counts as covered, including `proposed`, `rejected` and `failed`, because the owner already knows that source; the status goes in the "already covered" table so the owner can re-add a failed one by choice.
     - It exits 3 (no token set): write "No token set: skipping the production covered list." in the report, and carry on. This is not a failure.
-    - It exits 1: report its one-line message as the reason the check was skipped, and carry on. Never print the environment or retry with other credentials.
+    - It exits 1, or any other code: report its one-line message (or the code) as the reason the check was skipped, and carry on. A 429 means try again later; a 401 or 403 means the token is refused or expired. Never print the environment or retry with other credentials.
   - **Pasted or filed**: what the owner pasted in the arguments, or a file whose path the owner names. Use it as is, beside the production list.
   - **Neither given**: start the report with "No covered list given: treating coverage as empty." and carry on.
 
@@ -25,7 +25,7 @@ Finds sources worth adding to `/admin/knowledge`. Agents never upload directly: 
    - **Peer-reviewed papers: Europe PMC.** Query `https://www.ebi.ac.uk/europepmc/webservices/rest/search` with `resultType=core`, `format=json` and `OPEN_ACCESS:y` in `query`, using only the topic words. Take `pmcid`, `doi`, `pmid`, `license` and `isOpenAccess` from each result; write `none found` for a field it lacks. Send at most 10 requests per second (ADR-0036): one at a time, a few per topic.
    - **Licence**: Europe PMC's `license` is lower case text such as `cc by`. Map it to the closed set (`cc by` to `cc-by`, `cc by-nc` to `cc-by-nc`, `cc0` to `cc0`, and so on); text that fits none is `other` followed by the raw text. No `license` means "unknown: owner to check", never a guess.
 2. **Screen.** Reject a candidate with no credentials or no evidence, and record the reason. Examples: an influencer video with no named qualification; a claim with no cited study or data; an unnamed author; a product page; a source whose author's credentials you couldn't confirm. Popularity is never a credential.
-3. **Drop the covered.** Match each candidate against the covered list by PMC ID, else DOI (compare lower case, without a `https://doi.org/` prefix), else URL, else by normalised title (lower case, punctuation and spacing removed) and author. A match is left out of the candidates and named under "Left out: already covered" with the identifier it matched on.
+3. **Drop the covered.** Match each candidate against the covered list by PMC ID (compare as `PMC` plus digits, so `pmc123` and a bare `123` both match `PMC123`), else DOI (compare lower case, without a `https://doi.org/` prefix), else URL, else by normalised title (lower case, punctuation and spacing removed) and author. A match is left out of the candidates and named under "Left out: already covered" with the identifier it matched on.
 4. **Rank by evidence tier**, highest first:
    1. peer-reviewed (systematic reviews and meta-analyses before single trials);
    2. coaching books;
@@ -52,7 +52,7 @@ Start with the covered-list notice when it applies, then:
 
 **Rejected**: a table of title or link, and the reason.
 
-**Left out: already covered**: a table of title, the identifier matched (PMC ID, DOI, URL or title) and which list it came from (production or pasted). **Cut for length**: a count, when it applies.
+**Left out: already covered**: a table of title, the identifier matched (PMC ID, DOI, URL or title), its status when production's list gave one, and which list it came from (production or pasted). **Cut for length**: a count, when it applies.
 
 ## Boundaries
 

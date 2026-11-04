@@ -236,6 +236,103 @@ def test_running_the_file_exits_with_the_no_token_code(monkeypatch: pytest.Monke
     assert excinfo.value.code == 3
 
 
+@pytest.mark.parametrize(
+    "url", ["http://trainer.example", "ftp://trainer.example", "trainer.example"]
+)
+def test_a_clear_text_or_odd_base_url_is_refused_before_any_request(
+    url: str,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setenv("KNOWLEDGE_API_URL", url)
+    monkeypatch.setenv("KNOWLEDGE_API_TOKEN", TOKEN)
+    calls: list[Request] = []
+    monkeypatch.setattr(knowledge_client, "urlopen", lambda request, timeout: calls.append(request))
+
+    assert knowledge_client.main(["list"]) == 1
+
+    captured = capsys.readouterr()
+    assert "must be an https URL" in captured.err
+    assert TOKEN not in captured.out + captured.err
+    assert calls == []
+
+
+def test_http_is_allowed_for_localhost(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("KNOWLEDGE_API_URL", "http://localhost:8000")
+    monkeypatch.setenv("KNOWLEDGE_API_TOKEN", TOKEN)
+    monkeypatch.setattr(knowledge_client, "urlopen", lambda request, timeout: _page([]))
+
+    assert knowledge_client.main(["list"]) == 0
+
+
+def test_a_redirect_is_not_followed_so_the_token_stays_with_its_host() -> None:
+    handler = knowledge_client._NoRedirect()
+    request = Request(f"{BASE_URL}/x", headers={"Authorization": f"Bearer {TOKEN}"})
+
+    assert (
+        handler.redirect_request(request, None, 301, "Moved", {}, "https://elsewhere.example/")
+        is None
+    )
+
+
+def test_urlopen_goes_through_the_opener_that_follows_no_redirect(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Opener:
+        def open(self, request: Request, timeout: float) -> str:
+            return f"opened {timeout}"
+
+    monkeypatch.setattr(knowledge_client, "_OPENER", Opener())
+
+    assert knowledge_client.urlopen(Request(BASE_URL), timeout=3) == "opened 3"
+
+
+def test_a_repeated_cursor_stops_the_listing(
+    configured: None, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(
+        knowledge_client,
+        "urlopen",
+        lambda request, timeout: _page([_source("Again")], next_id="same"),
+    )
+
+    assert knowledge_client.main(["list"]) == 1
+    assert "repeated a page cursor" in capsys.readouterr().err
+
+
+def test_an_entry_that_is_not_an_object_exits_1(
+    configured: None, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(
+        knowledge_client, "urlopen", lambda request, timeout: _Response(b'{"sources": ["x"]}')
+    )
+
+    assert knowledge_client.main(["list"]) == 1
+    assert "unexpected shape" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    ("status", "hint"),
+    [(401, "refused or expired"), (403, "refused or expired"), (429, "rate limited")],
+)
+def test_the_status_message_tells_a_refused_token_from_a_rate_limit(
+    status: int,
+    hint: str,
+    configured: None,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    def fake(request: Request, timeout: float) -> _Response:
+        raise HTTPError(request.full_url, status, "x", Message(), BytesIO())
+
+    monkeypatch.setattr(knowledge_client, "urlopen", fake)
+
+    assert knowledge_client.main(["list"]) == 1
+    assert hint in capsys.readouterr().err
+
+
 def test_an_unknown_command_exits_2(configured: None) -> None:
     with pytest.raises(SystemExit) as excinfo:
         knowledge_client.main(["delete"])
@@ -248,8 +345,9 @@ def test_skill_report_format_carries_pmcid_doi_and_licence() -> None:
 
     assert "europepmc" in text.lower()
     assert "resultType=core" in text
+    candidates = text.split("**Candidates**", 1)[1].split("**Rejected**", 1)[0]
     for field in ("PMC ID", "DOI", "licence"):
-        assert field in text.split("## Report format", 1)[1]
+        assert field in candidates
     assert "10 requests per second" in text
     assert "cc by" in text
     assert "cc-by" in text

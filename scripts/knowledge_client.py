@@ -18,8 +18,8 @@ from collections.abc import Sequence
 from http.client import HTTPException
 from typing import Any
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlencode
-from urllib.request import Request, urlopen
+from urllib.parse import urlencode, urlsplit
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 SOURCES_PATH = "/api/admin/knowledge/sources"
 PAGE_SIZE = 500
@@ -27,10 +27,41 @@ TIMEOUT_SECONDS = 10
 EXIT_FAILED = 1
 EXIT_NO_TOKEN = 3
 KEPT_FIELDS = ("title", "status", "pmcid", "doi", "pmid", "isbn", "source_url")
+LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+HTTP_HINTS = {
+    401: " (the token is refused or expired)",
+    403: " (the token is refused or expired)",
+    429: " (rate limited: try again later)",
+}
 
 
 class ClientError(Exception):
     """A failure whose message is safe to print."""
+
+
+class _NoRedirect(HTTPRedirectHandler):
+    """A redirect would carry the `Authorization` header to wherever it points, so none is
+    followed: the 3xx surfaces as an `HTTPError`."""
+
+    def redirect_request(self, *args: Any, **kwargs: Any) -> Request | None:  # noqa: ANN401 -- the stdlib handler's own signature
+        return None
+
+
+_OPENER = build_opener(_NoRedirect)
+
+
+def urlopen(request: Request, timeout: float) -> Any:  # noqa: ANN401 -- the stdlib response object
+    return _OPENER.open(request, timeout=timeout)
+
+
+def check_base_url(base_url: str) -> None:
+    """The token travels in clear text over `http`, so only a local server may use it."""
+    parts = urlsplit(base_url)
+    if parts.scheme == "https" and parts.hostname:
+        return
+    if parts.scheme == "http" and parts.hostname in LOCAL_HOSTS:
+        return
+    raise ClientError("KNOWLEDGE_API_URL must be an https URL (http only for localhost)")
 
 
 def sources_request(base_url: str, token: str, after: str | None) -> Request:
@@ -45,7 +76,8 @@ def fetch_page(request: Request) -> dict[str, Any]:
             body = response.read()
     except HTTPError as error:
         error.close()
-        raise ClientError(f"the knowledge API answered HTTP {error.code}") from None
+        hint = HTTP_HINTS.get(error.code, "")
+        raise ClientError(f"the knowledge API answered HTTP {error.code}{hint}") from None
     except (URLError, OSError, ValueError, HTTPException) as error:
         raise ClientError(f"the knowledge API was unreachable ({type(error).__name__})") from None
     try:
@@ -60,14 +92,20 @@ def fetch_page(request: Request) -> dict[str, Any]:
 def list_covered(base_url: str, token: str) -> list[dict[str, Any]]:
     covered: list[dict[str, Any]] = []
     after: str | None = None
+    cursors: set[str] = set()
     while True:
         page = fetch_page(sources_request(base_url, token, after))
+        if not all(isinstance(source, dict) for source in page["sources"]):
+            raise ClientError("the knowledge API answered with an unexpected shape")
         covered.extend(
             {field: source.get(field) for field in KEPT_FIELDS} for source in page["sources"]
         )
         after = page.get("next")
         if not after:
             return covered
+        if after in cursors:
+            raise ClientError("the knowledge API repeated a page cursor")
+        cursors.add(after)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -84,6 +122,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         print("KNOWLEDGE_API_URL is not set", file=sys.stderr)
         return EXIT_FAILED
     try:
+        check_base_url(base_url)
         covered = list_covered(base_url, token)
     except ClientError as error:
         print(f"knowledge_client: {error}", file=sys.stderr)
