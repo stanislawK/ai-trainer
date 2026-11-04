@@ -219,6 +219,10 @@ class Settings(BaseSettings):
     # waits before looking again.
     knowledge_ingest_lease_seconds: float = Field(default=300.0, ge=30)
     knowledge_ingest_poll_seconds: float = Field(default=5.0, gt=0)
+    # PMC's Cloud Service bucket, public and anonymous, read by PMC ID when an admin token stages
+    # papers (ADR-0036, #458). The timeout bounds each of the two GETs per article.
+    pmc_bucket_url: str = "https://pmc-oa-opendata.s3.amazonaws.com"
+    pmc_timeout_seconds: float = Field(default=8.0, gt=0, le=30)
 
     # Google sign-in (ADR-0005). No Google access or refresh token is ever stored.
     # Required and non-blank: a blank value otherwise fails only on Google's own page.
@@ -275,6 +279,17 @@ class Settings(BaseSettings):
             raise ValueError(
                 "PUBLIC_BASE_URL must be an http(s) origin without a path, such as "
                 f"http://localhost:8000, not {value!r}"
+            )
+        return origin
+
+    @field_validator("pmc_bucket_url")
+    @classmethod
+    def _pmc_bucket_url_is_an_origin(cls, value: str) -> str:
+        origin = http_origin(value)
+        if origin is None:
+            raise ValueError(
+                "PMC_BUCKET_URL must be an http(s) origin without a path, such as "
+                "https://pmc-oa-opendata.s3.amazonaws.com"
             )
         return origin
 

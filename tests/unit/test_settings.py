@@ -221,6 +221,41 @@ def test_object_storage_endpoint_must_be_an_origin_and_is_never_echoed(
     assert "secret-in-url" not in str(excinfo.value)
 
 
+def test_the_pmc_bucket_defaults_to_pmcs_cloud_service(monkeypatch: pytest.MonkeyPatch) -> None:
+    _set_required_keys(monkeypatch)
+    monkeypatch.setenv("PMC_BUCKET_URL", "HTTPS://Bucket.Example/")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.pmc_bucket_url == "https://bucket.example"
+    assert Settings.model_fields["pmc_bucket_url"].default == (
+        "https://pmc-oa-opendata.s3.amazonaws.com"
+    )
+    assert settings.pmc_timeout_seconds == 8.0
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("PMC_BUCKET_URL", "https://pmc-oa-opendata.s3.amazonaws.com/metadata"),
+        ("PMC_BUCKET_URL", "pmc-oa-opendata.s3.amazonaws.com"),
+        ("PMC_TIMEOUT_SECONDS", "0"),
+        ("PMC_TIMEOUT_SECONDS", "31"),
+    ],
+    ids=["path", "no-scheme", "zero-timeout", "long-timeout"],
+)
+def test_the_pmc_settings_are_checked(
+    monkeypatch: pytest.MonkeyPatch, key: str, value: str
+) -> None:
+    _set_required_keys(monkeypatch)
+    monkeypatch.setenv(key, value)
+
+    with pytest.raises(ValidationError) as excinfo:
+        Settings(_env_file=None)
+
+    assert [error["loc"] for error in excinfo.value.errors()] == [(key.lower(),)]
+
+
 def test_object_storage_timeout_must_be_positive(monkeypatch: pytest.MonkeyPatch) -> None:
     _set_required_keys(monkeypatch)
     monkeypatch.setenv("OBJECT_STORAGE_TIMEOUT_SECONDS", "0")

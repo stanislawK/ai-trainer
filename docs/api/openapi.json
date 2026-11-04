@@ -1,6 +1,108 @@
 {
   "components": {
     "schemas": {
+      "ApiPmcArticle": {
+        "additionalProperties": false,
+        "properties": {
+          "evidence_tier": {
+            "$ref": "#/components/schemas/EvidenceTier"
+          },
+          "language": {
+            "$ref": "#/components/schemas/SourceLanguage",
+            "default": "en"
+          },
+          "pmcid": {
+            "$ref": "#/components/schemas/PmcId"
+          },
+          "sports": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Sports",
+            "type": "array"
+          },
+          "topics": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Topics",
+            "type": "array"
+          }
+        },
+        "required": [
+          "pmcid",
+          "evidence_tier",
+          "sports"
+        ],
+        "title": "ApiPmcArticle",
+        "type": "object"
+      },
+      "ApiPmcResult": {
+        "properties": {
+          "license_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "License Code"
+          },
+          "outcome": {
+            "$ref": "#/components/schemas/PmcResult"
+          },
+          "pmcid": {
+            "title": "Pmcid",
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PmcRefusal"
+              },
+              {
+                "$ref": "#/components/schemas/PmcFetchProblem"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "source_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Id"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SourceStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "pmcid",
+          "outcome"
+        ],
+        "title": "ApiPmcResult",
+        "type": "object"
+      },
       "ApiSource": {
         "properties": {
           "content_hash": {
@@ -174,6 +276,41 @@
         "title": "ApiSourcesPage",
         "type": "object"
       },
+      "ApiStagePmc": {
+        "additionalProperties": false,
+        "properties": {
+          "articles": {
+            "items": {
+              "$ref": "#/components/schemas/ApiPmcArticle"
+            },
+            "maxItems": 20,
+            "minItems": 1,
+            "title": "Articles",
+            "type": "array"
+          }
+        },
+        "required": [
+          "articles"
+        ],
+        "title": "ApiStagePmc",
+        "type": "object"
+      },
+      "ApiStagedPmc": {
+        "properties": {
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/ApiPmcResult"
+            },
+            "title": "Results",
+            "type": "array"
+          }
+        },
+        "required": [
+          "results"
+        ],
+        "title": "ApiStagedPmc",
+        "type": "object"
+      },
       "Body_admin_update_user_status_admin_users__user_id__status_post": {
         "properties": {
           "status": {
@@ -186,6 +323,17 @@
         ],
         "title": "Body_admin_update_user_status_admin_users__user_id__status_post",
         "type": "object"
+      },
+      "EvidenceTier": {
+        "description": "The kind of source, ranked, not the certainty of any claim in it (ADR-0033).",
+        "enum": [
+          "peer_reviewed",
+          "coaching_book",
+          "article_or_transcript",
+          "catalogue"
+        ],
+        "title": "EvidenceTier",
+        "type": "string"
       },
       "HTTPValidationError": {
         "properties": {
@@ -263,6 +411,46 @@
           "file"
         ],
         "title": "LicenseSource",
+        "type": "string"
+      },
+      "PmcFetchProblem": {
+        "enum": [
+          "timeout",
+          "failed",
+          "malformed"
+        ],
+        "title": "PmcFetchProblem",
+        "type": "string"
+      },
+      "PmcId": {
+        "pattern": "^PMC[0-9]+$",
+        "type": "string"
+      },
+      "PmcRefusal": {
+        "enum": [
+          "retracted",
+          "licence_not_admitted"
+        ],
+        "title": "PmcRefusal",
+        "type": "string"
+      },
+      "PmcResult": {
+        "enum": [
+          "staged",
+          "covered",
+          "refused",
+          "not_found",
+          "unavailable"
+        ],
+        "title": "PmcResult",
+        "type": "string"
+      },
+      "SourceLanguage": {
+        "enum": [
+          "en",
+          "pl"
+        ],
+        "title": "SourceLanguage",
         "type": "string"
       },
       "SourceStatus": {
@@ -671,6 +859,53 @@
           }
         ],
         "summary": "List Sources",
+        "tags": [
+          "knowledge-api"
+        ]
+      }
+    },
+    "/api/admin/knowledge/stage/pmc": {
+      "post": {
+        "description": "Stage papers by PMC ID as `proposed` sources for an admin to approve. Each ID's\nmetadata is read from PMC's Cloud Service; a retracted article or a licence off the\nadmit list is refused, and every ID gets its own result.",
+        "operationId": "stage_pmc_api_admin_knowledge_stage_pmc_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApiStagePmc"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiStagedPmc"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "AdminToken": []
+          }
+        ],
+        "summary": "Stage Pmc",
         "tags": [
           "knowledge-api"
         ]

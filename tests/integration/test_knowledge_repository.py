@@ -315,3 +315,46 @@ async def test_list_page_orders_by_id_after_the_cursor(
     assert all(str(s.id) > str(added[0]) for s in after_first)
     assert len(one) == 1
     assert [str(s.id) for s in first] == sorted(str(s.id) for s in first)
+
+
+def _unique_pmcid() -> str:
+    # Unique per run: a second insert of an identifier another test's open transaction holds
+    # would wait for it (knowledge_support.py).
+    return f"PMC{uuid4().int % 10**12}"
+
+
+async def test_find_by_identifiers_matches_any_one_of_pmcid_doi_and_pmid(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    repo = SqlAlchemyKnowledgeSourcesRepository(db_session_factory)
+    admin = await _admin(db_session_factory, "knowledge-repo-identifiers")
+    pmcid, number = _unique_pmcid(), str(uuid4().int % 10**9)
+    doi = f"10.9999/repo.{number}"
+    stored = await repo.add(_source("ids", admin, pmcid=pmcid, doi=doi, pmid=number))
+    await repo.add(_source("other", admin))
+
+    assert (await repo.find_by_identifiers(pmcid=pmcid)) == stored
+    assert (await repo.find_by_identifiers(pmcid=_unique_pmcid(), doi=doi)) == stored
+    assert (await repo.find_by_identifiers(pmid=number)) == stored
+    assert await repo.find_by_identifiers(pmcid=_unique_pmcid(), doi="10.9999/none") is None
+    assert await repo.find_by_identifiers() is None
+
+
+async def test_add_if_new_stores_a_source_and_skips_any_unique_conflict(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    repo = SqlAlchemyKnowledgeSourcesRepository(db_session_factory)
+    admin = await _admin(db_session_factory, "knowledge-repo-add-if-new")
+    pmcid = _unique_pmcid()
+    first = _source("first", admin, pmcid=pmcid, status=SourceStatus.PROPOSED)
+
+    stored = await repo.add_if_new(first)
+
+    assert stored is not None
+    assert stored.id == first.id
+    assert stored.status is SourceStatus.PROPOSED
+    # Another hash, the same PMC ID: skipped, not an error that aborts the transaction.
+    assert await repo.add_if_new(_source("second", admin, pmcid=pmcid)) is None
+    # The same hash: skipped too.
+    assert await repo.add_if_new(first.model_copy(update={"id": uuid4(), "pmcid": None})) is None
+    assert await repo.get(first.id) == stored

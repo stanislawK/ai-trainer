@@ -50,6 +50,7 @@ from ai_trainer.adapters.log_records import configure_logging
 from ai_trainer.adapters.metrics import OtelMetrics
 from ai_trainer.adapters.object_storage import ObstoreObjectStorage
 from ai_trainer.adapters.onboarding_repository import SqlAlchemyOnboardingRepository
+from ai_trainer.adapters.pmc import PmcCloudMetadata
 from ai_trainer.adapters.session_draft_repository import SqlAlchemySessionDraftRepository
 from ai_trainer.adapters.sessions_repository import SqlAlchemySessionsRepository
 from ai_trainer.adapters.telemetry import ScrubbingSpanExporter
@@ -64,6 +65,7 @@ from ai_trainer.application.exercise_resolution import ResolutionLimits, Resolve
 from ai_trainer.application.feedback import FeedbackRecorder
 from ai_trainer.application.knowledge_ingestion import KnowledgeIngestion
 from ai_trainer.application.knowledge_sources import KnowledgeSources
+from ai_trainer.application.knowledge_staging import KnowledgeStaging
 from ai_trainer.application.metered_calls import MeteredLlmCallsRepository
 from ai_trainer.application.model_budget import ModelCallBudget
 from ai_trainer.application.ports.clock import ClockPort
@@ -463,6 +465,15 @@ def create_app(  # noqa: PLR0915 -- composition root: objects are built only her
                 admin_emails=settings.admin_emails,
             ),
             knowledge=knowledge,
+            staging=KnowledgeStaging(
+                sources=SqlAlchemyKnowledgeSourcesRepository(session_factory),
+                pmc=PmcCloudMetadata(
+                    bucket_url=settings.pmc_bucket_url,
+                    timeout_seconds=settings.pmc_timeout_seconds,
+                ),
+                clock=clock,
+                sports=[sport.id for sport in sport_registry.all()],
+            ),
         )
     )
     app.include_router(build_settings_router(templates, users=users))
