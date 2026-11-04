@@ -67,6 +67,35 @@ curl -H "Authorization: Bearer $TOKEN" "http://localhost:8000/api/admin/knowledg
 - **403:** the token's user is no longer `active` or no longer in `ADMIN_EMAILS`.
 - **429:** more than `TOKEN_REQUESTS_PER_MINUTE` (default 120) requests from one token in a rolling minute, or an address that has had `TOKEN_FAILURES_PER_ADDRESS_PER_MINUTE` (default 10) requests answered 401 in the last minute. While an address is full, every request it sends to these routes gets 429 with `Retry-After`, even with a valid token, until the window frees.
 
+**Staging a file (#460).** A book, PDF or transcript goes straight to the `uploads` bucket by presigned PUT, never through the app. It takes three steps:
+1. **Stage:** send the file name and its source template (CSL-JSON keys plus tier, type, sports, topics and licence).
+2. **PUT:** upload the bytes to the returned link within the hour.
+3. **Register:** the source becomes `proposed`, and `/admin/knowledge` lists it for an admin to approve.
+
+Staging again issues a new link.
+
+```bash
+STAGED=$(curl -s -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  http://localhost:8000/api/admin/knowledge/stage/file -d '{"file_name": "book.pdf", "source": {
+    "type": "book", "title": "Science and Practice of Strength Training", "language": "en",
+    "evidence_tier": "coaching_book", "source_type": "book", "sports": ["gym"], "licence": null}}')
+PUT_URL=$(jq -r .put_url <<<"$STAGED")
+# Under `make start` the link names `storage:7070`, the storage container's name, which this
+# machine reaches on 127.0.0.1:7070. In production the link names R2 and needs no --connect-to.
+curl --connect-to storage:7070:127.0.0.1:7070 -T book.pdf "$PUT_URL"
+curl -s -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  http://localhost:8000/api/admin/knowledge/register -d "{\"upload_id\": \"$(jq -r .upload_id <<<"$STAGED")\"}"
+```
+
+- **Stage answers:** `ready` with the link, or `covered` when a source has the same PMC ID, DOI, PMID or ISBN, with no link.
+- **Register answers:** each of these is a 200.
+  - `registered`;
+  - `covered`, the same file or identifiers already stored: the new object is deleted;
+  - `refused`, an empty, oversized (`KNOWLEDGE_MAX_UPLOAD_MB`) or wrong-type file: the object is deleted;
+  - `missing`, nothing was PUT yet: PUT, then register again.
+- **Errors:** 422 for an invalid template, 404 for an upload no stage issued, 503 when storage isn't set up or fails.
+- **The link is a secret:** it carries the key ID and a signature, so don't paste it anywhere.
+
 ```bash
 make start                # builds, migrates the schema to head, and starts app + postgres (foreground)
 ```

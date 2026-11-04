@@ -223,3 +223,23 @@ PMC sources carry "Source: NLM PMC" in their attribution.
     - The vector leg orders by distance alone. A tie-breaker in SQL put an incremental sort over the HNSW scan (`EXPLAIN`, PostgreSQL 18, 2026-11-04), so ties are broken in code.
     - **No relevance floor yet.** The vector leg returns up to `depth` chunks whenever any pass the filters, so `no_match` fires only on an empty or filtered-out corpus, and a question the corpus doesn't cover still gets its nearest passages. A distance floor is for the retrieval checks to set, since no figure exists to set it from.
     - A source whose re-ingest failed keeps its last chunks searchable, as the #423 amendment keeps them (knowledge-base.md rec 9).
+- **Amended at #460 (staging a file by presigned PUT), owner-approved at its plan gate, 2026-11-04.** The Decision and invariants stand.
+  - **Nothing in the database before register.** `POST /api/admin/knowledge/stage/file` takes the file name and #456's template, validates both, and writes the validated metadata to `uploads` as `staging/<id>.json`. Only an upload a stage issued can register, and no migration is needed. An abandoned stage leaves objects no source names, as ADR-0033 accepts for orphans.
+  - **One id.** The link is a presigned PUT to `sources/<id>`, live for 1 hour (inside R2's 1 second to 7 days). The registered source takes that id, and the key becomes its `storage_key`. Staging again issues a new id and link.
+  - **Covered at the stage.** A source with the template's PMC ID, DOI, PMID or ISBN is reported `covered`, and no link is issued. `find_by_identifiers` gains `isbn`, which is unique like the others.
+  - **Register** (`POST …/register`, `{upload_id}`) runs ADR-0033's checks on the stored object:
+    - it reads the object's size with a HEAD first, so an oversized one is refused unread;
+    - then type by content and extension, and the content hash;
+    - the size limit is the form's `KNOWLEDGE_MAX_UPLOAD_MB` (owner, at the plan gate). Larger books would need their own setting and ticket, since register reads the file into the web process.
+  - **Its outcomes:**
+    - `registered`: the source is `proposed`, with the registering admin as `uploaded_by_user_id`. A template without a licence is allowed, since `proposed` may wait for one (#461).
+    - `covered`: the same hash or identifiers are stored already.
+    - `refused`: the file is empty, too large or of the wrong type.
+    - `missing`: nothing was PUT yet, and the stage stands.
+
+    `covered` and `refused` delete the new object and its stage.
+  - **Only an object no source names is deleted.** A register whose upload is already a source answers `registered` with it, so a retry after a lost answer is safe. When the insert clashes because another register of the same upload won, the winner's row names the object, and nothing is deleted.
+  - **Gotchas:**
+    - The link can't pin Content-Type or length (`obstore`'s `sign_async` takes no headers, research finding 1), so register checks both on the stored bytes.
+    - Under `make start` the link names `storage:7070`. versitygw's port is published on the host's loopback, so the host reaches it with `curl --connect-to storage:7070:127.0.0.1:7070 -T <file> "$PUT_URL"`. That keeps the Host header the link was signed for, so there is no dev-only signing endpoint. In production the link names R2's S3 endpoint.
+    - The test S3 server in `tests/object_storage_support.py` checks a PUT link's expiry as it does a GET link's, and answers HEAD.

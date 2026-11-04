@@ -14,6 +14,7 @@ from tests.object_storage_support import (
     BUCKET,
     SECRET_ACCESS_KEY,
     S3State,
+    put_via_link,
     s3_server,
     unused_endpoint,
 )
@@ -246,3 +247,79 @@ def _assert_no_key(error: ObjectStorageError, logs: str) -> None:
         assert KEY not in text
     assert error.__cause__ is None
     assert error.__suppress_context__
+
+
+async def test_a_presigned_put_stores_the_bytes_sent_to_it(server: S3State) -> None:
+    storage = _storage(server.endpoint)
+
+    link = await storage.presigned_put(KEY, expires_in=LINK_TIME)
+
+    assert parse_qs(urlsplit(link).query)["X-Amz-Expires"] == ["60"]
+    assert put_via_link(link, b"%PDF-1.7 staged") == 200
+    assert await storage.get(KEY) == b"%PDF-1.7 staged"
+
+
+async def test_an_expired_presigned_put_is_refused_by_storage(server: S3State) -> None:
+    storage = _storage(server.endpoint)
+    link = await storage.presigned_put(KEY, expires_in=LINK_TIME)
+
+    server.seconds_after_signing = 61
+
+    assert put_via_link(link, b"late") == 403
+    assert KEY not in server.objects
+
+
+@pytest.mark.parametrize(
+    "expires_in",
+    [timedelta(0), timedelta(days=7, seconds=1)],
+    ids=["zero", "past-seven-days"],
+)
+async def test_a_presigned_put_refuses_a_time_r2_would_refuse(
+    server: S3State, expires_in: timedelta
+) -> None:
+    with pytest.raises(ValueError, match="between"):
+        await _storage(server.endpoint).presigned_put(KEY, expires_in=expires_in)
+
+
+async def test_a_put_link_for_an_invalid_key_raises_a_domain_error(server: S3State) -> None:
+    with pytest.raises(ObjectStorageError) as excinfo:
+        await _storage(server.endpoint).presigned_put("../outside", expires_in=LINK_TIME)
+
+    assert excinfo.value.operation == "presign"
+    assert excinfo.value.reason == "invalid_key"
+
+
+async def test_signing_a_put_link_logs_nothing_of_it(
+    server: S3State, caplog: pytest.LogCaptureFixture
+) -> None:
+    with caplog.at_level(logging.DEBUG):
+        link = await _storage(server.endpoint).presigned_put(KEY, expires_in=LINK_TIME)
+        put_via_link(link, b"content")
+
+    assert "X-Amz-Signature" not in caplog.text
+    assert ACCESS_KEY_ID not in caplog.text
+
+
+async def test_size_reads_an_objects_length_without_its_bytes(server: S3State) -> None:
+    storage = _storage(server.endpoint)
+    await storage.put(KEY, b"12345", content_type="text/plain")
+    server.gets = 0
+
+    assert await storage.size(KEY) == 5
+    assert server.gets == 0
+
+
+async def test_size_of_a_missing_object_raises_not_found(server: S3State) -> None:
+    with pytest.raises(ObjectNotFoundError) as excinfo:
+        await _storage(server.endpoint).size("sources/absent")
+
+    assert excinfo.value.operation == "head"
+
+
+async def test_a_refused_head_raises_a_domain_error(server: S3State) -> None:
+    server.refuse_with = 403
+
+    with pytest.raises(ObjectStorageError) as excinfo:
+        await _storage(server.endpoint).size(KEY)
+
+    assert excinfo.value.reason == "denied"

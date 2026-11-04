@@ -4,7 +4,7 @@ import asyncio
 import logging
 from datetime import timedelta
 from http.client import HTTPException
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 from urllib.error import HTTPError
 from urllib.request import urlopen
 
@@ -113,6 +113,13 @@ class ObstoreObjectStorage:
         except Exception as exc:
             raise _domain_error("get", exc) from None
 
+    async def size(self, key: str) -> int:
+        try:
+            meta = await obstore.head_async(self._store, key)
+        except Exception as exc:
+            raise _domain_error("head", exc) from None
+        return meta["size"]
+
     async def delete(self, key: str) -> None:
         try:
             await self._store.delete_async(key)
@@ -120,10 +127,16 @@ class ObstoreObjectStorage:
             raise _domain_error("delete", exc) from None
 
     async def presigned_get(self, key: str, *, expires_in: timedelta) -> str:
+        return await self._sign("GET", key, expires_in)
+
+    async def presigned_put(self, key: str, *, expires_in: timedelta) -> str:
+        return await self._sign("PUT", key, expires_in)
+
+    async def _sign(self, method: Literal["GET", "PUT"], key: str, expires_in: timedelta) -> str:
         if not _SHORTEST_LINK <= expires_in <= _LONGEST_LINK:
             raise ValueError("a presigned link's time must be between 1 second and 7 days")
         try:
-            return await obstore.sign_async(self._store, "GET", key, expires_in)
+            return await obstore.sign_async(self._store, method, key, expires_in)
         except Exception as exc:
             raise _domain_error("presign", exc) from None
 

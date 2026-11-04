@@ -11,6 +11,11 @@ class ObjectStoragePort(Protocol):
         """The object's bytes. Raises `ObjectNotFoundError` when it isn't there."""
         ...
 
+    async def size(self, key: str) -> int:
+        """The object's length in bytes, without reading them. Raises `ObjectNotFoundError` when
+        it isn't there."""
+        ...
+
     async def delete(self, key: str) -> None:
         """Removes the object. An object that isn't there is not a failure."""
         ...
@@ -18,6 +23,11 @@ class ObjectStoragePort(Protocol):
     async def presigned_get(self, key: str, *, expires_in: timedelta) -> str:
         """A link that reads the object until `expires_in` has passed. It carries the key ID and
         a signature, so it is never logged."""
+        ...
+
+    async def presigned_put(self, key: str, *, expires_in: timedelta) -> str:
+        """A link that writes the object until `expires_in` has passed (#460). It can't pin the
+        content type or length, so whoever reads the object checks both. Never logged."""
         ...
 
 

@@ -65,6 +65,7 @@ from ai_trainer.application.budgeted_gateways import BudgetedDecisionGateway, Bu
 from ai_trainer.application.exercise_lookup import ExerciseFinder
 from ai_trainer.application.exercise_resolution import ResolutionLimits, ResolveExercises
 from ai_trainer.application.feedback import FeedbackRecorder
+from ai_trainer.application.knowledge_file_staging import FileStaging
 from ai_trainer.application.knowledge_ingestion import KnowledgeIngestion
 from ai_trainer.application.knowledge_search import KnowledgeSearch
 from ai_trainer.application.knowledge_sources import KnowledgeSources
@@ -541,6 +542,13 @@ def create_app(  # noqa: PLR0915 -- composition root: objects are built only her
                     timeout_seconds=settings.pmc_timeout_seconds,
                 ),
                 clock=clock,
+                sports=[sport.id for sport in sport_registry.all()],
+            ),
+            files=FileStaging(
+                sources=SqlAlchemyKnowledgeSourcesRepository(session_factory),
+                storage=build_uploads_storage(settings),
+                clock=clock,
+                max_upload_bytes=settings.knowledge_max_upload_mb * 1024 * 1024,
                 sports=[sport.id for sport in sport_registry.all()],
             ),
         )

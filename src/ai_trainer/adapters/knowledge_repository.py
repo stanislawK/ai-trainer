@@ -114,7 +114,12 @@ class SqlAlchemyKnowledgeSourcesRepository:
             return stored
 
     async def find_by_identifiers(
-        self, *, pmcid: str | None = None, doi: str | None = None, pmid: str | None = None
+        self,
+        *,
+        pmcid: str | None = None,
+        doi: str | None = None,
+        pmid: str | None = None,
+        isbn: str | None = None,
     ) -> KnowledgeSource | None:
         matches = [
             column == value
@@ -122,6 +127,7 @@ class SqlAlchemyKnowledgeSourcesRepository:
                 (KnowledgeSourceOrm.pmcid, pmcid),
                 (KnowledgeSourceOrm.doi, doi),
                 (KnowledgeSourceOrm.pmid, pmid),
+                (KnowledgeSourceOrm.isbn, isbn),
             )
             if value is not None
         ]

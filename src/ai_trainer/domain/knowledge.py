@@ -274,6 +274,11 @@ def _content_matches(file_type: KnowledgeFileType, data: bytes) -> bool:
             return False
 
 
+def file_type_for(file_name: str) -> KnowledgeFileType | None:
+    """The type a file's extension names, before its bytes are seen; None for an unlisted one."""
+    return _EXTENSIONS.get(PurePosixPath(file_name).suffix.lower())
+
+
 def check_file(
     file_name: str | None, data: bytes, *, max_bytes: int
 ) -> KnowledgeFileType | UploadProblem:
@@ -282,7 +287,7 @@ def check_file(
         return UploadProblem.MISSING
     if len(data) > max_bytes:
         return UploadProblem.TOO_LARGE
-    file_type = _EXTENSIONS.get(PurePosixPath(file_name).suffix.lower())
+    file_type = file_type_for(file_name)
     if file_type is None or not _content_matches(file_type, data):
         return UploadProblem.UNLISTED_TYPE
     return file_type

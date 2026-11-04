@@ -1,6 +1,6 @@
 from typing import Literal
 
-ObjectStorageOperation = Literal["put", "get", "delete", "presign", "link"]
+ObjectStorageOperation = Literal["put", "get", "head", "delete", "presign", "link"]
 ObjectStorageFailureReason = Literal[
     "not_found", "denied", "unavailable", "invalid_key", "invalid_content_type"
 ]

@@ -38,7 +38,12 @@ class KnowledgeSourcesRepositoryPort(Protocol):
         ...
 
     async def find_by_identifiers(
-        self, *, pmcid: str | None = None, doi: str | None = None, pmid: str | None = None
+        self,
+        *,
+        pmcid: str | None = None,
+        doi: str | None = None,
+        pmid: str | None = None,
+        isbn: str | None = None,
     ) -> KnowledgeSource | None:
         """The oldest source with any of the given identifiers; None when none is given."""
         ...
