@@ -358,6 +358,24 @@ async def test_a_lost_claim_stops_before_the_next_batch() -> None:
     assert queue.chunks == {}
 
 
+async def test_a_claim_lost_during_the_last_batch_writes_nothing() -> None:
+    source, storage = _stored("stolen-last")
+    queue = MemoryQueue(source)
+    queue.steal_on_heartbeat = True
+
+    report = await ingestion(
+        repository=queue,
+        storage=storage,
+        embeddings=ScriptedEmbeddings(during=lambda: asyncio.sleep(0.05)),
+        clock=FrozenClock(),
+        batch_size=8,
+        lease=timedelta(milliseconds=30),
+    ).ingest_next()
+
+    assert report == IngestReport(source_id=source.id, result="gone")
+    assert queue.chunks == {}
+
+
 async def test_run_polls_until_cancelled() -> None:
     source, storage = _stored("run")
     queue = MemoryQueue(source)

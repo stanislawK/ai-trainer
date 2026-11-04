@@ -192,6 +192,23 @@ async def test_a_live_lease_is_not_claimed_twice(world: _World) -> None:
     assert await world.status(source.id) == (SourceStatus.INGESTING, None)
 
 
+async def test_a_heartbeat_extends_only_its_own_live_claim(world: _World) -> None:
+    source = await world.add("heartbeat")
+    now = world.clock.now()
+    mine, theirs = UUID(int=7), UUID(int=8)
+    await world.queue.claim_next(claim_id=mine, now=now, lease_until=now + _LEASE)
+    later = now + 2 * _LEASE
+
+    assert await world.queue.heartbeat(source.id, claim_id=theirs, lease_until=later) is False
+    assert await world.queue.heartbeat(source.id, claim_id=mine, lease_until=later) is True
+
+    world.clock.advance(_LEASE + timedelta(seconds=1))
+    # The renewed lease still holds past the first one's end, so nothing is claimed.
+    assert source.id not in [r.source_id for r in await world.ingest_once()]
+    await world.service.delete(source.id)
+    assert await world.queue.heartbeat(source.id, claim_id=mine, lease_until=later) is False
+
+
 async def test_a_reingest_replaces_the_chunks_in_one_go(world: _World) -> None:
     source = await world.add("reingest-replace")
     await world.ingest_once()
