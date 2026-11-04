@@ -65,9 +65,15 @@ def _bare_doi(value: object) -> object:
     return doi if _DOI.match(doi) else None
 
 
-def _as_text(value: object) -> object:
-    # PMC writes the PMID as a number.
-    return str(value) if isinstance(value, int) and not isinstance(value, bool) else value
+def _bare_pmid(value: object) -> str | None:
+    """PMC writes the PMID as a number. Anything that isn't digits is dropped, as a bad DOI is."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        value = str(value)
+    if isinstance(value, str) and value.strip().isdecimal() and value.strip().isascii():
+        return value.strip()
+    return None
 
 
 class PmcArticle(BaseModel):
@@ -77,7 +83,7 @@ class PmcArticle(BaseModel):
 
     pmcid: PmcId
     version: int
-    pmid: Annotated[str | None, BeforeValidator(_as_text)] = None
+    pmid: Annotated[str | None, BeforeValidator(_bare_pmid)] = None
     doi: Annotated[str | None, BeforeValidator(_bare_doi)] = None
     title: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
     citation: str | None = None

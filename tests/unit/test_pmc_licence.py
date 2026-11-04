@@ -62,6 +62,19 @@ def test_a_doi_is_kept_only_when_it_is_one(doi: str | None, expected: str | None
     assert article.doi == expected
 
 
+@pytest.mark.parametrize(
+    ("pmid", "expected"),
+    [(42924713, "42924713"), ("42924713", "42924713"), ("PMID 1", None), ("", None),
+     (True, None), (None, None)],
+)  # fmt: skip
+def test_a_pmid_is_kept_only_when_it_is_one(pmid: object, expected: str | None) -> None:
+    # A bad PMID costs the source its PMID, never the source (the template would refuse it).
+    article = PmcArticle.model_validate(
+        {"pmcid": "PMC1", "version": 1, "title": "T", "is_retracted": False, "pmid": pmid}
+    )
+    assert article.pmid == expected
+
+
 def test_metadata_without_a_title_is_malformed() -> None:
     with pytest.raises(ValidationError):
         PmcArticle.model_validate({"pmcid": "PMC1", "version": 1, "title": " ",
