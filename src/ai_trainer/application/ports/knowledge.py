@@ -36,6 +36,17 @@ class KnowledgeSourcesRepositoryPort(Protocol):
         """Raises `DuplicateSourceError` when a source with its content hash is stored."""
         ...
 
+    async def find_by_identifiers(
+        self, *, pmcid: str | None = None, doi: str | None = None, pmid: str | None = None
+    ) -> KnowledgeSource | None:
+        """The oldest source with any of the given identifiers; None when none is given."""
+        ...
+
+    async def add_if_new(self, source: NewKnowledgeSource) -> KnowledgeSource | None:
+        """Stores a staged source (#458). None, changing nothing, when its hash or one of its
+        identifiers is a stored source's already."""
+        ...
+
     async def delete(self, source_id: UUID) -> bool:
         """False when there was no such source."""
         ...

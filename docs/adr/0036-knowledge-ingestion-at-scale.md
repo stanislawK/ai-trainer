@@ -185,3 +185,18 @@ PMC sources carry "Source: NLM PMC" in their attribution.
     - Postgres's `setweight` takes a `"char"`, which a bound string isn't, so the weights A, B and D are written into the SQL as constants.
     - A failed source's `error` holds a closed reason (`IngestFailure`); the admin page words it, and a free-text reason from #422's rows still shows as stored.
   - **Not here:** licence detection for `detecting` sources is still unassigned. #462's body doesn't list it, though the #454 amendment above gives it to "the `ingest` service ticket".
+- **Amended at #458 (staging by PMC ID), owner-approved at its plan gate, 2026-11-04.** The Decision and invariants stand.
+  - **A staged article's content hash.** A source staged by PMC ID has no bytes until #463 fetches its JATS, but `content_hash` is NOT NULL and unique (ADR-0011).
+    - Until then it holds the SHA-256 of `pmc:<PMCID>`. That is unique per article and can't match a file's hash in practice.
+    - #463 replaces it with the JATS file's hash when it stores the file. If that hash already belongs to another source, the article is a duplicate of that source and fails with a reason. It is never silently merged.
+    - Rejected: an expand migration making `content_hash` nullable for these sources. It would add a migration and a CHECK just to say "not fetched yet", and the form's `ON CONFLICT (content_hash)` dedupe would have to work around a nullable unique key.
+  - **Which version.** PMC keys metadata by article version, as `metadata/<PMCID>.<n>.json`.
+    - Staging lists the PMC ID's versions with ListObjectsV2 on the prefix `metadata/<PMCID>.` and reads the highest one.
+    - That is two anonymous GETs per ID, both naming only the PMC ID (invariant 7). The JSON's `xml_url` and `pdf_url` are not followed until #463.
+    - Source: the [bucket README](https://pmc-oa-opendata.s3.amazonaws.com/README.txt), read 2026-11-04.
+  - **The licence code.** The JSON writes CC codes with a space (`CC BY`, `CC BY-NC-ND`, `CC0`), as read for PMC13692514 and a sample of ten articles on 2026-11-04. They map to `license_id` with `license_source = pmc`. `TDM`, a missing code or any other value is refused.
+  - **Covered.** An ID is reported covered, without a fetch, when a source has that PMC ID, whatever its status. After the fetch it is also covered when a source has the article's DOI or PMID, such as the same paper uploaded as a PDF.
+  - **A request's bound.** A request takes 1 to 20 articles, each PMC ID once, and stages five at a time. `PMC_TIMEOUT_SECONDS` (default 8, at most 10) is one deadline for an article's two GETs together, so a request answers within about 40 seconds, inside Cloudflare's 100.
+  - **Gotchas:**
+    - An httpx timeout bounds each phase (connect, read, write, pool) separately, so it alone can't bound a request. The adapter wraps both GETs in one `asyncio.timeout`.
+    - The integration tests' session factory joins every session to one connection, so they run the per-ID stages one at a time. The app runs five at a time, each on its own pooled connection.

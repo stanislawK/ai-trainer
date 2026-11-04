@@ -109,7 +109,8 @@ class KnowledgeSourceOrm(Base):
     pmid: Mapped[str | None] = mapped_column(Text, nullable=True, unique=True)
     isbn: Mapped[str | None] = mapped_column(Text, nullable=True, unique=True)
     source_url: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # SHA-256 of the file's bytes, hex: the same file is one source (ADR-0011).
+    # SHA-256 of the file's bytes, hex: the same file is one source (ADR-0011). A paper staged by
+    # PMC ID holds the hash of `pmc:<PMCID>` until its JATS is fetched (ADR-0036, #458).
     content_hash: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
     # NULL for the catalogue's rows, which have no uploaded file (#427).
     file_type: Mapped[str | None] = mapped_column(nullable=True)

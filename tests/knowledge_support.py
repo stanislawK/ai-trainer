@@ -119,6 +119,32 @@ class MemorySources:
         self.rows[stored.id] = stored
         return stored
 
+    async def find_by_identifiers(
+        self, *, pmcid: str | None = None, doi: str | None = None, pmid: str | None = None
+    ) -> KnowledgeSource | None:
+        wanted = {("pmcid", pmcid), ("doi", doi), ("pmid", pmid)}
+        return next(
+            (
+                s
+                for s in sorted(self.rows.values(), key=lambda s: s.uploaded_at)
+                if any(value is not None and getattr(s, name) == value for name, value in wanted)
+            ),
+            None,
+        )
+
+    async def add_if_new(self, source: NewKnowledgeSource) -> KnowledgeSource | None:
+        if self.racing is not None:
+            # Another stage of the same article committed between the lookup and this insert.
+            self.rows[self.racing.id] = self.racing
+            self.racing = None
+            return None
+        taken = await self.find_by_identifiers(pmcid=source.pmcid, doi=source.doi, pmid=source.pmid)
+        if taken is not None or await self.get_by_hash(source.content_hash) is not None:
+            return None
+        stored = KnowledgeSource(**source.model_dump())
+        self.rows[stored.id] = stored
+        return stored
+
     async def delete(self, source_id: UUID) -> bool:
         return self.rows.pop(source_id, None) is not None
 

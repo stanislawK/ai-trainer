@@ -1,7 +1,7 @@
 from collections.abc import Callable, Sequence
 from uuid import UUID
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -110,6 +110,45 @@ class SqlAlchemyKnowledgeSourcesRepository:
             if row is None:
                 raise DuplicateSourceError
             stored = to_domain(row)
+            await session.commit()
+            return stored
+
+    async def find_by_identifiers(
+        self, *, pmcid: str | None = None, doi: str | None = None, pmid: str | None = None
+    ) -> KnowledgeSource | None:
+        matches = [
+            column == value
+            for column, value in (
+                (KnowledgeSourceOrm.pmcid, pmcid),
+                (KnowledgeSourceOrm.doi, doi),
+                (KnowledgeSourceOrm.pmid, pmid),
+            )
+            if value is not None
+        ]
+        if not matches:
+            return None
+        async with self._session_factory() as session:
+            row = await session.scalar(
+                select(KnowledgeSourceOrm)
+                .where(or_(*matches))
+                .order_by(KnowledgeSourceOrm.uploaded_at, KnowledgeSourceOrm.id)
+                .limit(1)
+            )
+            return None if row is None else to_domain(row)
+
+    async def add_if_new(self, source: NewKnowledgeSource) -> KnowledgeSource | None:
+        values = source.model_dump(mode="python")
+        values["sports"], values["topics"] = list(source.sports), list(source.topics)
+        # ON CONFLICT DO NOTHING on any unique key: hash or an identifier.
+        statement = (
+            insert(KnowledgeSourceOrm)
+            .values(values)
+            .on_conflict_do_nothing()
+            .returning(KnowledgeSourceOrm)
+        )
+        async with self._session_factory() as session:
+            row = await session.scalar(statement)
+            stored = None if row is None else to_domain(row)
             await session.commit()
             return stored
 

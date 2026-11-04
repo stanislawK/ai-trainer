@@ -15,10 +15,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai_trainer.adapters.admin_token_repository import SqlAlchemyAdminTokensRepository
 from ai_trainer.adapters.knowledge_repository import SqlAlchemyKnowledgeSourcesRepository
+from ai_trainer.adapters.pmc import PmcCloudMetadata
 from ai_trainer.adapters.sessions_repository import SqlAlchemySessionsRepository
 from ai_trainer.adapters.users_repository import SqlAlchemyUsersRepository
 from ai_trainer.application.admin_tokens import AdminTokens, TokenAuthenticator
 from ai_trainer.application.knowledge_sources import KnowledgeSources
+from ai_trainer.application.knowledge_staging import KnowledgeStaging
 from ai_trainer.domain.knowledge import (
     EvidenceTier,
     KnowledgeFileType,
@@ -38,6 +40,7 @@ from ai_trainer.web.auth import SESSION_COOKIE_NAME
 from ai_trainer.web.csrf import CsrfMiddleware
 from ai_trainer.web.rate_limit import RateLimitMiddleware
 from ai_trainer.web.templating import build_templates
+from tests.pmc_support import BUCKET, FakeBucket
 
 SECRET = b"integration-test-secret"
 SOURCES = "/api/admin/knowledge/sources"
@@ -84,11 +87,17 @@ async def _user(factory: Callable[[], AsyncSession], **overrides: object) -> Use
 
 
 async def _api(
-    factory: Callable[[], AsyncSession], *, per_minute: int = 120, failures: int = 10
+    factory: Callable[[], AsyncSession],
+    *,
+    per_minute: int = 120,
+    failures: int = 10,
+    bucket: FakeBucket | None = None,
 ) -> Api:
+    """The API with real Postgres; PMC's bucket is `bucket`'s mock transport, never the network."""
     users = SqlAlchemyUsersRepository(factory)
     sessions = SqlAlchemySessionsRepository(factory)
     tokens = SqlAlchemyAdminTokensRepository(factory)
+    sources = SqlAlchemyKnowledgeSourcesRepository(factory)
     clock = Clock()
     admin = await _user(factory)
     admin_emails = [admin.email]
@@ -100,11 +109,24 @@ async def _api(
                 tokens=tokens, users=users, clock=clock, admin_emails=admin_emails
             ),
             knowledge=KnowledgeSources(
-                sources=SqlAlchemyKnowledgeSourcesRepository(factory),
+                sources=sources,
                 storage=None,
                 clock=clock,
                 max_upload_bytes=1024,
                 sports=["gym"],
+            ),
+            staging=KnowledgeStaging(
+                sources=sources,
+                pmc=PmcCloudMetadata(
+                    bucket_url=BUCKET,
+                    timeout_seconds=1.0,
+                    transport=(bucket or FakeBucket()).transport(),
+                ),
+                clock=clock,
+                sports=["gym"],
+                # The test factory joins every session to one connection, whose savepoints
+                # can't interleave; in the app each session has its own pooled connection.
+                concurrency=1,
             ),
         )
     )

@@ -103,6 +103,25 @@ async def test_the_app_serves_the_list_to_a_token_and_never_records_it(
     assert '"route": "/api/admin/knowledge/sources"' in log_lines.getvalue()
 
 
+async def test_the_app_routes_pmc_staging_past_csrf_with_the_registrys_sports(
+    admin_token: tuple[User, str],
+) -> None:
+    """A POST with a bearer token and no CSRF token reaches the route (#458), whose sports are the
+    registry's. An unknown sport is refused before PMC is asked, so no request leaves the test."""
+    user, token = admin_token
+    client = _client(InMemorySpanExporter(), user)
+    article = {"pmcid": "PMC1", "evidence_tier": "peer_reviewed", "sports": ["chess"]}
+
+    response = client.post(
+        "/api/admin/knowledge/stage/pmc",
+        json={"articles": [article]},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 422
+    assert response.json() == {"detail": "Name only the app's sports: chess."}
+
+
 async def test_the_app_answers_403_once_the_user_leaves_admin_emails(
     admin_token: tuple[User, str],
 ) -> None:
