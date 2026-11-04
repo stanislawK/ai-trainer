@@ -118,8 +118,23 @@ def test_the_registry_reads_pdf() -> None:
     assert isinstance(document, KnowledgeDocument)
 
 
-def test_a_blank_line_ends_a_paragraph() -> None:
-    assert _paragraphs(["First part", "goes on.", "", "Second part.", ""]) == [
-        "First part goes on.",
-        "Second part.",
-    ]
+def test_a_word_hyphenated_at_a_line_end_is_made_whole() -> None:
+    assert _paragraphs(
+        ["Rest and exer-", "cise matter, as do well-", "Known habits and 5-", "10 sets."]
+    ) == ["Rest and exercise matter, as do well- Known habits and 5- 10 sets."]
+
+
+def test_a_bare_year_at_a_page_edge_is_kept_but_a_page_number_is_not() -> None:
+    pages = [[_LONG, "2024"], [_LONG, "12"], [_LONG, "Page 3 of 40"]]
+
+    assert [b.text for b in _document(text_pdf(pages)).blocks] == [f"{_LONG} 2024", _LONG, _LONG]
+
+
+def test_a_memory_failure_is_not_blamed_on_the_file(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fail(_: object) -> None:
+        raise MemoryError
+
+    monkeypatch.setattr("ai_trainer.knowledge.pdf.PdfReader", fail)
+
+    with pytest.raises(MemoryError):
+        read_pdf(b"%PDF-1.4")

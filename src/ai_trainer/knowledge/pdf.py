@@ -29,12 +29,12 @@ _HEADER_SHARE = 0.5
 _EDGE_LINES = 2
 _HEADER_MAX_WORDS = 8
 # A line that ends a sentence and fills under this share of the page's longest line ends a
-# paragraph (pypdf doesn't mark blank lines).
+# paragraph (pypdf doesn't mark paragraph breaks).
 _SHORT_LINE_SHARE = 0.6
 _SENTENCE_END = (".", "!", "?", "…")
-# A page number as a line of its own: `12`, `Page 12`, `12 / 40`, `- 12 -`, after digits are
-# replaced by `#`.
-_PAGE_NUMBER = re.compile(r"^\W*(page\s+)?#(\s*(of|/)\s*#)?\W*$")
+# A page number as a line of its own: `12`, `Page 12`, `12 / 40`, `- 12 -`. Up to three digits,
+# so a year or a count at a page's edge is kept.
+_PAGE_NUMBER = re.compile(r"^\W*(page\s+)?\d{1,3}(\s*(of|/)\s*\d{1,3})?\W*$")
 
 
 def _shape(line: str) -> str:
@@ -43,7 +43,12 @@ def _shape(line: str) -> str:
 
 def _edge_shapes(lines: Sequence[str]) -> set[str]:
     edges = [*lines[:_EDGE_LINES], *lines[-_EDGE_LINES:]]
-    return {_shape(line) for line in edges if len(line.split()) <= _HEADER_MAX_WORDS}
+    # A line with no letters is a number or a rule, which `_PAGE_NUMBER` handles on its own.
+    return {
+        _shape(line)
+        for line in edges
+        if len(line.split()) <= _HEADER_MAX_WORDS and any(char.isalpha() for char in line)
+    }
 
 
 def _running_shapes(pages: Sequence[Sequence[str]]) -> set[str]:
@@ -62,10 +67,21 @@ def _body_lines(lines: Sequence[str], running: set[str]) -> list[str]:
     kept: list[str] = []
     for at, line in enumerate(lines):
         shape = _shape(line)
-        if at in edge and (shape in running or _PAGE_NUMBER.match(shape)):
+        if at in edge and (shape in running or _PAGE_NUMBER.match(line.casefold())):
             continue
         kept.append(line)
     return kept
+
+
+def _join(lines: Sequence[str]) -> str:
+    """Wrapped lines as one paragraph; a word hyphenated at a line end is made whole again."""
+    text = lines[0]
+    for line in lines[1:]:
+        if text[-2:-1].isalpha() and text.endswith("-") and line[:1].islower():
+            text = text[:-1] + line
+        else:
+            text = f"{text} {line}"
+    return text
 
 
 def _paragraphs(lines: Sequence[str]) -> list[str]:
@@ -73,23 +89,18 @@ def _paragraphs(lines: Sequence[str]) -> list[str]:
     paragraphs: list[str] = []
     current: list[str] = []
     for line in lines:
-        if not line:
-            if current:
-                paragraphs.append(" ".join(current))
-                current = []
-            continue
         current.append(line)
         if line.endswith(_SENTENCE_END) and len(line) < longest * _SHORT_LINE_SHARE:
-            paragraphs.append(" ".join(current))
+            paragraphs.append(_join(current))
             current = []
     if current:
-        paragraphs.append(" ".join(current))
+        paragraphs.append(_join(current))
     return paragraphs
 
 
 def _page_lines(text: str) -> list[str]:
-    """A page's text as lines with their whitespace squashed; a blank line stays as ''."""
-    return [" ".join(line.split()) for line in text.splitlines()]
+    """A page's non-blank lines with their whitespace squashed."""
+    return [squashed for line in text.splitlines() if (squashed := " ".join(line.split()))]
 
 
 def _locator(page: int, labels: Sequence[str]) -> PageLocator:
@@ -108,6 +119,9 @@ def _extract(data: bytes) -> tuple[list[str], list[str]] | Unreadable:
         if not reader.pages:
             return Unreadable(reason=UnreadableReason.CORRUPT)
         return [page.extract_text() for page in reader.pages], list(reader.page_labels)
+    except MemoryError:
+        # Not the file's fault: the source fails as an unexpected error and Re-ingest may work.
+        raise
     except Exception:
         return Unreadable(reason=UnreadableReason.CORRUPT)
 
@@ -117,8 +131,8 @@ def read_pdf(data: bytes) -> KnowledgeDocument | Unreadable:
     if isinstance(extracted, Unreadable):
         return extracted
     texts, labels = extracted
-    pages = [[line for line in _page_lines(text) if line or text.strip()] for text in texts]
-    running = _running_shapes([[line for line in lines if line] for lines in pages])
+    pages = [_page_lines(text) for text in texts]
+    running = _running_shapes(pages)
     blocks: list[Block] = []
     for number, lines in enumerate(pages, start=1):
         body = _body_lines(lines, running)
