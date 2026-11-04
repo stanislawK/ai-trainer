@@ -6,6 +6,7 @@
     uv run ai-trainer backfill-gym-sessions
     uv run ai-trainer feedback-report [--since <ISO time>]
     uv run ai-trainer storage-check
+    uv run ai-trainer ingest-worker [--once]
 
 `purge-conversations` hard-deletes every conversation last active more than
 `CONVERSATION_RETENTION_DAYS` ago, across users, with its messages by cascade. It prints the
@@ -43,6 +44,14 @@ deletes the object, in about five seconds. It never opens the database. It print
 `storage-check: result=failed step=<step> reason=<reason> probe_left=<true|false>`, the second with
 exit code 1, or `storage-check: result=failed reason=not_configured`. It never prints a link or a
 service's own message, which can carry a key.
+
+`ingest-worker` ingests uploaded knowledge sources outside the web process (ADR-0036, #423): it
+claims each `uploaded` source, reads, chunks and embeds it, and stores its chunks. It prints one
+line per source, `ingest-worker: source=<id> result=ingested chunks=<n>`,
+`result=failed reason=<reason>` or `result=gone` (deleted while it was read), never its content.
+With `--once` it ingests what is waiting, prints `ingest-worker: result=ok sources=<n>` and exits
+0; without, it polls every `KNOWLEDGE_INGEST_POLL_SECONDS` until stopped. With no storage
+settings it prints `ingest-worker: result=failed reason=not_configured` and exits 1.
 """
 
 import argparse
@@ -62,10 +71,11 @@ from ai_trainer.adapters.exercise_repository import SqlAlchemyExerciseRepository
 from ai_trainer.adapters.exercises_dataset import PinnedDatasetCatalogueSource
 from ai_trainer.adapters.feedback_repository import SqlAlchemyFeedbackEventsRepository
 from ai_trainer.adapters.gym_backfill import SqlAlchemyGymBackfillStore
-from ai_trainer.adapters.object_storage import ObstoreObjectStorage, UrllibPresignedLinks
+from ai_trainer.adapters.object_storage import UrllibPresignedLinks, uploads_storage
 from ai_trainer.application.exercise_catalogue import import_catalogue
 from ai_trainer.application.feedback import count_signals
 from ai_trainer.application.gym_backfill import backfill_gym_sessions as run_gym_backfill
+from ai_trainer.application.knowledge_ingestion import KnowledgeIngestion
 from ai_trainer.application.ports.chat import ConversationRepositoryPort
 from ai_trainer.application.ports.clock import ClockPort
 from ai_trainer.application.ports.exercises import (
@@ -77,7 +87,9 @@ from ai_trainer.application.ports.gym_backfill import GymBackfillPort
 from ai_trainer.application.retention import purge_expired_conversations
 from ai_trainer.application.storage_check import STEPS, check_storage
 from ai_trainer.domain.exercises import ExerciseCatalogueError, ExerciseDatasetError
+from ai_trainer.domain.knowledge_ingestion import IngestReport
 from ai_trainer.llm.debug_report import report
+from ai_trainer.main import build_knowledge_ingestion
 from ai_trainer.settings import Settings
 
 PURGE_CONVERSATIONS = "purge-conversations"
@@ -86,6 +98,7 @@ IMPORT_EXERCISES = "import-exercises"
 BACKFILL_GYM_SESSIONS = "backfill-gym-sessions"
 FEEDBACK_REPORT = "feedback-report"
 STORAGE_CHECK = "storage-check"
+INGEST_WORKER = "ingest-worker"
 
 
 def _aware_time(value: str) -> datetime:
@@ -132,6 +145,12 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     commands.add_parser(
         STORAGE_CHECK,
         help="Put, read back and delete a probe object in the uploads bucket; try a short link.",
+    )
+    worker = commands.add_parser(
+        INGEST_WORKER, help="Ingest uploaded knowledge sources, outside the web process."
+    )
+    worker.add_argument(
+        "--once", action="store_true", help="Ingest what is waiting now, then exit."
     )
     return parser.parse_args(argv)
 
@@ -198,22 +217,12 @@ async def feedback_report(
 async def storage_check(
     settings: Settings, *, sleep: Callable[[float], Awaitable[None]], output: TextIO
 ) -> int:
-    endpoint = settings.object_storage_endpoint
-    access_key_id = settings.object_storage_access_key_id
-    secret_access_key = settings.object_storage_secret_access_key
-    bucket = settings.object_storage_uploads_bucket
-    if endpoint is None or access_key_id is None or secret_access_key is None or bucket is None:
+    storage = uploads_storage(settings)
+    if storage is None:
         output.write(f"{STORAGE_CHECK}: result=failed reason=not_configured\n")
         return 1
     failure = await check_storage(
-        storage=ObstoreObjectStorage(
-            endpoint=endpoint,
-            region=settings.object_storage_region,
-            access_key_id=access_key_id.get_secret_value(),
-            secret_access_key=secret_access_key.get_secret_value(),
-            bucket=bucket,
-            timeout_seconds=settings.object_storage_timeout_seconds,
-        ),
+        storage=storage,
         links=UrllibPresignedLinks(timeout_seconds=settings.object_storage_timeout_seconds),
         sleep=sleep,
         probe_key=f"storage-check/{uuid4()}",
@@ -225,8 +234,36 @@ async def storage_check(
             f"probe_left={probe_left}\n"
         )
         return 1
+    bucket = settings.object_storage_uploads_bucket
     output.write(f"{STORAGE_CHECK}: result=ok bucket={bucket} steps={','.join(STEPS)}\n")
     return 0
+
+
+def _print_report(report: IngestReport, output: TextIO) -> None:
+    line = f"{INGEST_WORKER}: source={report.source_id} result={report.result}"
+    if report.result == "ingested":
+        line += f" chunks={report.chunks}"
+    elif report.reason is not None:
+        line += f" reason={report.reason.value}"
+    output.write(line + "\n")
+    output.flush()
+
+
+async def ingest_worker(
+    service: KnowledgeIngestion, *, once: bool, poll_seconds: float, output: TextIO
+) -> int:
+    if once:
+        reports = await service.drain()
+        for report in reports:
+            _print_report(report, output)
+        output.write(f"{INGEST_WORKER}: result=ok sources={len(reports)}\n")
+        return 0
+
+    async def _report(report: IngestReport) -> None:
+        _print_report(report, output)
+
+    await service.run(poll_seconds=poll_seconds, on_report=_report)
+    return 0  # pragma: no cover -- `run` returns only by cancellation
 
 
 def _import_failed(reason: str, error: Exception, output: TextIO) -> int:
@@ -241,8 +278,10 @@ async def run(
     output: TextIO = sys.stdout,
     dataset_transport: httpx2.AsyncBaseTransport | None = None,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+    embedding_transport: httpx2.AsyncBaseTransport | None = None,
 ) -> int:
-    """Runs one command and returns its exit code. `dataset_transport` and `sleep` are for tests."""
+    """Runs one command and returns its exit code. `dataset_transport`, `sleep` and
+    `embedding_transport` are for tests."""
     args = parse_args(argv)
     settings = Settings()
     if args.command == LLM_DEBUG_REPORT:
@@ -265,6 +304,24 @@ async def run(
         if args.command == BACKFILL_GYM_SESSIONS:
             return await backfill_gym_sessions(
                 store=SqlAlchemyGymBackfillStore(build_session_factory(engine)), output=output
+            )
+        if args.command == INGEST_WORKER:
+            storage = uploads_storage(settings)
+            if storage is None:
+                output.write(f"{INGEST_WORKER}: result=failed reason=not_configured\n")
+                return 1
+            service = build_knowledge_ingestion(
+                settings,
+                storage,
+                build_session_factory(engine),
+                sleep=sleep,
+                embedding_transport=embedding_transport,
+            )
+            return await ingest_worker(
+                service,
+                once=args.once,
+                poll_seconds=settings.knowledge_ingest_poll_seconds,
+                output=output,
             )
         if args.command == FEEDBACK_REPORT:
             return await feedback_report(

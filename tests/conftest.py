@@ -102,6 +102,8 @@ _XDIST_GROUPS = {
         "tests/integration/test_exercise_resolution.py",
         "tests/integration/test_mcp_exercise.py",
         "tests/integration/test_import_exercises_cli.py",
+        # Commits a source and its admin, and the worker claims the oldest waiting source.
+        "tests/integration/test_ingest_worker_cli.py",
     ),
     "src_tree": ("tests/unit/test_import_boundaries.py", "tests/unit/test_clock_usage.py"),
 }

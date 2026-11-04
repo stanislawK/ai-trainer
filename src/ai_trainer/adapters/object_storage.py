@@ -17,6 +17,7 @@ from ai_trainer.domain.object_storage import (
     ObjectStorageError,
     ObjectStorageOperation,
 )
+from ai_trainer.settings import Settings
 
 if TYPE_CHECKING:
     # Only in obstore's stubs: not importable at runtime, and no framework reads this annotation.
@@ -149,3 +150,22 @@ class UrllibPresignedLinks:
             return await asyncio.to_thread(_open, link, self._timeout_seconds)
         except OSError, HTTPException:
             raise ObjectStorageError("link", "unavailable") from None
+
+
+def uploads_storage(settings: Settings) -> ObstoreObjectStorage | None:
+    """The `uploads` bucket from `OBJECT_STORAGE_*`, or None while they are unset (ADR-0033):
+    the app then lists sources and refuses uploads, and the worker refuses to start."""
+    endpoint = settings.object_storage_endpoint
+    access_key_id = settings.object_storage_access_key_id
+    secret_access_key = settings.object_storage_secret_access_key
+    bucket = settings.object_storage_uploads_bucket
+    if endpoint is None or access_key_id is None or secret_access_key is None or bucket is None:
+        return None
+    return ObstoreObjectStorage(
+        endpoint=endpoint,
+        region=settings.object_storage_region,
+        access_key_id=access_key_id.get_secret_value(),
+        secret_access_key=secret_access_key.get_secret_value(),
+        bucket=bucket,
+        timeout_seconds=settings.object_storage_timeout_seconds,
+    )

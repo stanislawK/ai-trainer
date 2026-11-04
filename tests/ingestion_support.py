@@ -14,6 +14,7 @@ from ai_trainer.domain.embeddings import Embedded, EmbeddingOutcome
 from ai_trainer.domain.knowledge import (
     EvidenceTier,
     KnowledgeFileType,
+    KnowledgeSource,
     LicenseId,
     LicenseSource,
     NewKnowledgeSource,
@@ -21,6 +22,7 @@ from ai_trainer.domain.knowledge import (
     SourceStatus,
     SourceType,
 )
+from ai_trainer.domain.knowledge_ingestion import EmbeddedChunk, IngestFailure
 from ai_trainer.knowledge.chunker import Chunker
 from ai_trainer.knowledge.readers import DocumentReaders
 
@@ -166,3 +168,67 @@ def ingestion(
         max_attempts=max_attempts,
         lease=lease,
     )
+
+
+class MemoryQueue:
+    """Implements `KnowledgeIngestionRepositoryPort` in memory, one claim at a time."""
+
+    def __init__(self, *sources: KnowledgeSource) -> None:
+        self.sources = {source.id: source for source in sources}
+        self.claims: dict[UUID, UUID] = {}
+        self.leases: dict[UUID, datetime] = {}
+        self.chunks: dict[UUID, list[EmbeddedChunk]] = {}
+        self.models: dict[UUID, str] = {}
+        self.heartbeats = 0
+        self.steal_on_heartbeat = False
+
+    async def claim_next(
+        self, *, claim_id: UUID, now: datetime, lease_until: datetime
+    ) -> KnowledgeSource | None:
+        for source in self.sources.values():
+            if source.status is SourceStatus.UPLOADED:
+                self.sources[source.id] = source.model_copy(
+                    update={"status": SourceStatus.INGESTING}
+                )
+                self.claims[source.id] = claim_id
+                self.leases[source.id] = lease_until
+                return self.sources[source.id]
+        return None
+
+    def _holds(self, source_id: UUID, claim_id: UUID) -> bool:
+        return source_id in self.sources and self.claims.get(source_id) == claim_id
+
+    async def heartbeat(self, source_id: UUID, *, claim_id: UUID, lease_until: datetime) -> bool:
+        self.heartbeats += 1
+        if self.steal_on_heartbeat:
+            self.claims[source_id] = uuid4()
+        if not self._holds(source_id, claim_id):
+            return False
+        self.leases[source_id] = lease_until
+        return True
+
+    async def finish(
+        self,
+        source_id: UUID,
+        *,
+        claim_id: UUID,
+        chunks: Sequence[EmbeddedChunk],
+        model: str,
+        ingested_at: datetime,
+    ) -> bool:
+        if not self._holds(source_id, claim_id):
+            return False
+        self.chunks[source_id] = list(chunks)
+        self.models[source_id] = model
+        self.sources[source_id] = self.sources[source_id].model_copy(
+            update={"status": SourceStatus.INGESTED, "ingested_at": ingested_at}
+        )
+        return True
+
+    async def fail(self, source_id: UUID, *, claim_id: UUID, reason: IngestFailure) -> bool:
+        if not self._holds(source_id, claim_id):
+            return False
+        self.sources[source_id] = self.sources[source_id].model_copy(
+            update={"status": SourceStatus.FAILED, "error": reason.value}
+        )
+        return True

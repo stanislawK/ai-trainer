@@ -3,8 +3,7 @@ a closed reason, a lost claim or a deleted source writing nothing, the heartbeat
 lease. The ACs on the real database are in `tests/integration/test_knowledge_ingestion.py`."""
 
 import asyncio
-from collections.abc import Sequence
-from datetime import datetime, timedelta
+from datetime import timedelta
 from uuid import UUID, uuid4
 
 import pytest
@@ -15,12 +14,13 @@ from ai_trainer.domain.embeddings import (
     EmbeddingFailure,
     RateLimited,
 )
-from ai_trainer.domain.knowledge import KnowledgeFileType, KnowledgeSource, SourceStatus
-from ai_trainer.domain.knowledge_ingestion import EmbeddedChunk, IngestFailure, IngestReport
+from ai_trainer.domain.knowledge import KnowledgeFileType, KnowledgeSource
+from ai_trainer.domain.knowledge_ingestion import IngestFailure, IngestReport
 from tests.ingestion_support import (
     DIMENSIONS,
     MODEL,
     FrozenClock,
+    MemoryQueue,
     RecordedSleep,
     ScriptedEmbeddings,
     guide_markdown,
@@ -30,70 +30,6 @@ from tests.ingestion_support import (
 from tests.knowledge_support import MemoryStorage
 
 _ADMIN = uuid4()
-
-
-class MemoryQueue:
-    """Implements `KnowledgeIngestionRepositoryPort` in memory, one claim at a time."""
-
-    def __init__(self, *sources: KnowledgeSource) -> None:
-        self.sources = {source.id: source for source in sources}
-        self.claims: dict[UUID, UUID] = {}
-        self.leases: dict[UUID, datetime] = {}
-        self.chunks: dict[UUID, list[EmbeddedChunk]] = {}
-        self.models: dict[UUID, str] = {}
-        self.heartbeats = 0
-        self.steal_on_heartbeat = False
-
-    async def claim_next(
-        self, *, claim_id: UUID, now: datetime, lease_until: datetime
-    ) -> KnowledgeSource | None:
-        for source in self.sources.values():
-            if source.status is SourceStatus.UPLOADED:
-                self.sources[source.id] = source.model_copy(
-                    update={"status": SourceStatus.INGESTING}
-                )
-                self.claims[source.id] = claim_id
-                self.leases[source.id] = lease_until
-                return self.sources[source.id]
-        return None
-
-    def _holds(self, source_id: UUID, claim_id: UUID) -> bool:
-        return source_id in self.sources and self.claims.get(source_id) == claim_id
-
-    async def heartbeat(self, source_id: UUID, *, claim_id: UUID, lease_until: datetime) -> bool:
-        self.heartbeats += 1
-        if self.steal_on_heartbeat:
-            self.claims[source_id] = uuid4()
-        if not self._holds(source_id, claim_id):
-            return False
-        self.leases[source_id] = lease_until
-        return True
-
-    async def finish(
-        self,
-        source_id: UUID,
-        *,
-        claim_id: UUID,
-        chunks: Sequence[EmbeddedChunk],
-        model: str,
-        ingested_at: datetime,
-    ) -> bool:
-        if not self._holds(source_id, claim_id):
-            return False
-        self.chunks[source_id] = list(chunks)
-        self.models[source_id] = model
-        self.sources[source_id] = self.sources[source_id].model_copy(
-            update={"status": SourceStatus.INGESTED, "ingested_at": ingested_at}
-        )
-        return True
-
-    async def fail(self, source_id: UUID, *, claim_id: UUID, reason: IngestFailure) -> bool:
-        if not self._holds(source_id, claim_id):
-            return False
-        self.sources[source_id] = self.sources[source_id].model_copy(
-            update={"status": SourceStatus.FAILED, "error": reason.value}
-        )
-        return True
 
 
 def _stored(
