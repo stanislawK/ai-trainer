@@ -110,11 +110,12 @@ class Settings(BaseSettings):
     database_url: PostgresDsn
     openrouter_api_key: SecretStr
     llm_call_timeout_seconds: float = 30.0
-    # How often one address may hit the sign-in routes, one admin token the knowledge API, and
-    # one session the rest (ADR-0029, ADR-0036). Model calls share one budget across gateways.
+    # How often one address may hit the sign-in routes or fail a token on the knowledge API, one
+    # admin token that API, and one session the rest (ADR-0029). Model calls share one budget.
     auth_requests_per_minute: int = Field(default=10, ge=1)
     session_requests_per_minute: int = Field(default=120, ge=1)
     token_requests_per_minute: int = Field(default=120, ge=1)
+    token_failures_per_address_per_minute: int = Field(default=10, ge=1)
     llm_calls_per_user_per_hour: int = Field(default=300, ge=1)
     llm_calls_in_flight_per_user: int = Field(default=8, ge=1)
     # Local debugging only (ADR-0018, owner's direction 2026-10-14): when on, every model
@@ -144,9 +145,8 @@ class Settings(BaseSettings):
     # At most this many candidates on the exercise card (PRD-0010 B37).
     exercise_shortlist_size: int = Field(default=4, ge=1)
     # Jev's pick from the shortlist fills the draft's exercise with no card only at or above this
-    # probability (ADR-0031, #399). A miss costs the athlete a wrong name they must notice and
-    # fix; an abstain costs one tap on the card, so it starts high. It moves on
-    # `decision_overridden` counts (ADR-0034).
+    # probability (ADR-0031, #399). A miss costs a wrong name the athlete must notice and fix; an
+    # abstain costs one tap, so it starts high. It moves on `decision_overridden` (ADR-0034).
     exercise_pick_threshold: float = Field(default=0.9, ge=0, le=1)
     # A log sent within this many minutes of the latest log of the athlete's last session in
     # the same sport is offered as an addition to it (PRD-0004 B16, ADR-0014).

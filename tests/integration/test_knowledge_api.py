@@ -83,7 +83,9 @@ async def _user(factory: Callable[[], AsyncSession], **overrides: object) -> Use
     return await SqlAlchemyUsersRepository(factory).create(NewUser.model_validate(fields))
 
 
-async def _api(factory: Callable[[], AsyncSession], *, per_minute: int = 120) -> Api:
+async def _api(
+    factory: Callable[[], AsyncSession], *, per_minute: int = 120, failures: int = 10
+) -> Api:
     users = SqlAlchemyUsersRepository(factory)
     sessions = SqlAlchemySessionsRepository(factory)
     tokens = SqlAlchemyAdminTokensRepository(factory)
@@ -122,6 +124,7 @@ async def _api(factory: Callable[[], AsyncSession], *, per_minute: int = 120) ->
         auth_per_minute=10,
         session_per_minute=120,
         token_per_minute=per_minute,
+        token_failures_per_address_per_minute=failures,
     )
     return Api(
         client=TestClient(app),
@@ -336,6 +339,26 @@ async def test_the_121st_request_in_a_minute_answers_429(
     statuses = [api.client.get(SOURCES, headers=headers).status_code for _ in range(121)]
 
     assert statuses == [200] * 120 + [429]
+
+
+async def test_a_full_address_gets_429_with_a_valid_token_and_last_used_is_unchanged(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    """The failure limit answers before the token is read, so the database is not touched."""
+    api = await _api(db_session_factory, failures=2)
+    token = await api.token()
+    before = await _last_used(api)
+
+    bad = [
+        api.client.get(SOURCES, headers={"Authorization": "Bearer atk_" + "z" * 43}).status_code
+        for _ in range(2)
+    ]
+    refused = api.client.get(SOURCES, headers={"Authorization": f"Bearer {token}"})
+
+    assert bad == [401, 401]
+    assert refused.status_code == 429
+    assert "Retry-After" in refused.headers
+    assert await _last_used(api) == before
 
 
 @pytest.mark.parametrize(

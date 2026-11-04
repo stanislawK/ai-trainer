@@ -65,7 +65,7 @@ curl -H "Authorization: Bearer $TOKEN" "http://localhost:8000/api/admin/knowledg
 **Errors:**
 - **401:** the token is unknown, expired or revoked.
 - **403:** the token's user is no longer `active` or no longer in `ADMIN_EMAILS`.
-- **429:** more than `TOKEN_REQUESTS_PER_MINUTE` (default 120) requests from one token in a rolling minute.
+- **429:** more than `TOKEN_REQUESTS_PER_MINUTE` (default 120) requests from one token in a rolling minute, or an address that has had `TOKEN_FAILURES_PER_ADDRESS_PER_MINUTE` (default 10) requests answered 401 in the last minute. While an address is full, every request it sends to these routes gets 429 with `Retry-After`, even with a valid token, until the window frees.
 
 ```bash
 make start                # builds, migrates the schema to head, and starts app + postgres (foreground)

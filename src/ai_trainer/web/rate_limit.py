@@ -1,11 +1,12 @@
-"""Per-address cap on the sign-in routes, a per-token cap on the knowledge API, and a
-per-session cap on everything else (ADR-0029, ADR-0036).
+"""Per-address cap on the sign-in routes, a per-token cap and a per-address cap on failed
+tokens on the knowledge API, and a per-session cap on everything else (ADR-0029, ADR-0036).
 
 Pure ASGI, not `BaseHTTPMiddleware`, so a reply stream is not buffered. The sign-in routes
 are keyed by Cloudflare's `CF-Connecting-IP` (the origin only accepts Cloudflare), and by
 the TCP peer when that header is absent. The token routes are keyed by the SHA-256 of the
-bearer token, so the window never holds a token, and never by a cookie. A session cookie keys
-the rest. `/health` and `/static` are not counted.
+bearer token, so the window never holds a token, and never by a cookie. They also count each
+401 against the caller's address; a full address is refused before its token is read. A
+session cookie keys the rest. `/health` and `/static` are not counted.
 """
 
 from datetime import timedelta
@@ -15,7 +16,7 @@ from fastapi.security.utils import get_authorization_scheme_param
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.templating import Jinja2Templates
-from starlette.types import ASGIApp, Receive, Scope, Send
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from ai_trainer.application.ports.clock import ClockPort
 from ai_trainer.application.ports.metrics import NO_METRICS, LimitKind, MetricsPort
@@ -37,6 +38,7 @@ _MAX_BEARER_LENGTH = 200
 _MAX_ADDRESS_LENGTH = 64
 _MAX_COOKIE_LENGTH = 200
 _TOO_MANY = 429
+_UNAUTHORIZED = 401
 
 
 class RateLimitMiddleware:
@@ -49,6 +51,7 @@ class RateLimitMiddleware:
         auth_per_minute: int,
         session_per_minute: int,
         token_per_minute: int,
+        token_failures_per_address_per_minute: int,
         metrics: MetricsPort = NO_METRICS,
     ) -> None:
         self._app = app
@@ -57,6 +60,7 @@ class RateLimitMiddleware:
         self._auth_per_minute = auth_per_minute
         self._session_per_minute = session_per_minute
         self._token_per_minute = token_per_minute
+        self._token_failures_per_minute = token_failures_per_address_per_minute
         self._window = SlidingWindow(clock, window=_MINUTE)
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
@@ -65,7 +69,7 @@ class RateLimitMiddleware:
             return
         refused = self._refused(scope)
         if refused is None:
-            await self._app(scope, receive, send)
+            await self._app(scope, receive, self._counting_failures(scope, send))
             return
         kind, retry_after = refused
         self._metrics.refusal(kind)
@@ -74,12 +78,24 @@ class RateLimitMiddleware:
         await response(scope, receive, send)
 
     def _too_many(self, request: Request, kind: LimitKind) -> Response:
-        if kind == "token":
+        if kind in ("token", "token_failures"):
             # A token client reads JSON, as every other answer on its routes.
             return JSONResponse({"detail": "Too many requests."}, status_code=_TOO_MANY)
         is_htmx = request.headers.get("HX-Request") == "true"
         template = "partials/errors/429.html" if is_htmx else "pages/errors/429.html"
         return self._templates.TemplateResponse(request, template, status_code=_TOO_MANY)
+
+    def _counting_failures(self, scope: Scope, send: Send) -> Send:
+        """`send`, counting a 401 from the knowledge API against the caller's address."""
+        if not is_knowledge_api(scope["path"].rstrip("/") or "/"):
+            return send
+
+        async def counting(message: Message) -> None:
+            if message["type"] == "http.response.start" and message["status"] == _UNAUTHORIZED:
+                self._window.record(_failure_key(scope))
+            await send(message)
+
+        return counting
 
     def _refused(self, scope: Scope) -> tuple[LimitKind, int] | None:
         """The cap that refused the request and the seconds to wait, or `None`."""
@@ -94,6 +110,13 @@ class RateLimitMiddleware:
             )
             return None if retry_after is None else ("sign_in", retry_after)
         if is_knowledge_api(canonical):
+            # An address that has used up its failed tokens is refused before the bearer is
+            # read, so the database is not touched (ADR-0029 amendment, 2026-11-04).
+            blocked = self._window.wait_if_full(
+                _failure_key(scope), limit=self._token_failures_per_minute
+            )
+            if blocked is not None:
+                return "token_failures", blocked
             # Without a bearer the route refuses it with 401, as the gate refuses a request
             # with no cookie (ADR-0029).
             bearer = _bearer_token(scope)
@@ -108,6 +131,10 @@ class RateLimitMiddleware:
             return None
         retry_after = self._window.allow(f"session:{session}", limit=self._session_per_minute)
         return None if retry_after is None else ("session", retry_after)
+
+
+def _failure_key(scope: Scope) -> str:
+    return f"fail:{_client_address(scope)}"
 
 
 def _client_address(scope: Scope) -> str:

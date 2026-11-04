@@ -463,6 +463,7 @@ def create_app(  # noqa: PLR0915 -- composition root: objects are built only her
         auth_per_minute=settings.auth_requests_per_minute,
         session_per_minute=settings.session_requests_per_minute,
         token_per_minute=settings.token_requests_per_minute,
+        token_failures_per_address_per_minute=settings.token_failures_per_address_per_minute,
         metrics=metrics,
     )
     # A request whose Host is not the public origin's is refused with 400 before the session,

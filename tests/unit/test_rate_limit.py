@@ -1,6 +1,7 @@
 """In-process request and model-call limits (ADR-0029)."""
 
 import asyncio
+import logging
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
@@ -387,6 +388,159 @@ def test_a_kept_key_drops_its_old_events_and_the_wait_is_rounded_up() -> None:
     assert window.allow("auth:a", limit=2) == 40
 
 
+def test_wait_if_full_does_not_record_and_record_fills_the_window() -> None:
+    clock = FakeClock()
+    window = SlidingWindow(clock, window=timedelta(minutes=1))
+
+    assert [window.wait_if_full("fail:a", limit=2) for _ in range(5)] == [None] * 5
+    window.record("fail:a")
+    assert window.wait_if_full("fail:a", limit=2) is None
+    window.record("fail:a")
+    assert window.wait_if_full("fail:a", limit=2) == 60
+    clock.advance(timedelta(seconds=61))
+    assert window.wait_if_full("fail:a", limit=2) is None
+
+
+def test_token_failures_setting_defaults_to_10_and_must_be_at_least_1() -> None:
+    field = Settings.model_fields["token_failures_per_address_per_minute"]
+    assert field.default == 10
+    with pytest.raises(ValueError, match="token_failures_per_address_per_minute"):
+        Settings(
+            _env_file=None,
+            database_url=PostgresDsn("postgresql+psycopg://u:p@localhost:5432/d"),
+            openrouter_api_key=SecretStr("sk-or-v1-test"),
+            eval_judge_model="test/judge-model",
+            token_failures_per_address_per_minute=0,
+        )
+
+
+class StatusApp:
+    """Answers the knowledge API with the status the test names and counts what reached it."""
+
+    def __init__(self) -> None:
+        self.reached = 0
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        self.reached += 1
+        status = int(scope["query_string"].decode() or "200")
+        await send({"type": "http.response.start", "status": status, "headers": []})
+        await send({"type": "http.response.body", "body": b"{}"})
+
+
+def _failures_app(
+    clock: FakeClock, inner: StatusApp, *, failures: int = 10, metrics: object | None = None
+) -> TestClient:
+    kwargs = {} if metrics is None else {"metrics": metrics}
+    return TestClient(
+        RateLimitMiddleware(
+            inner,
+            clock=clock,
+            templates=build_templates(),
+            auth_per_minute=_AUTH,
+            session_per_minute=_SESSION,
+            token_per_minute=_TOKEN,
+            token_failures_per_address_per_minute=failures,
+            **kwargs,  # type: ignore[arg-type]  # a recording metrics fake or none
+        )
+    )
+
+
+def _fail(client: TestClient, *, address: str = "203.0.113.5", token: str = _TOKEN_A) -> int:
+    headers = {**_bearer(token), "CF-Connecting-IP": address}
+    return client.get(f"{_API}?401", headers=headers).status_code
+
+
+def test_the_11th_failed_token_request_from_one_address_answers_429_and_frees_after_a_minute() -> (
+    None
+):
+    clock = FakeClock()
+    inner = StatusApp()
+    client = _failures_app(clock, inner)
+
+    statuses = [_fail(client, token=f"atk_bad{n}") for n in range(10)]
+
+    assert statuses == [401] * 10
+    assert _fail(client, token="atk_bad11") == 429
+    refused = client.get(_API, headers={**_bearer("atk_x"), "CF-Connecting-IP": "203.0.113.5"})
+    assert refused.status_code == 429
+    assert refused.json() == {"detail": "Too many requests."}
+    assert int(refused.headers["Retry-After"]) >= 1
+    clock.advance(timedelta(seconds=61))
+    assert _fail(client) == 401
+
+
+def test_another_address_is_not_slowed_by_the_first_ones_failures() -> None:
+    client = _failures_app(FakeClock(), StatusApp())
+
+    assert [_fail(client) for _ in range(11)] == [401] * 10 + [429]
+    assert _fail(client, address="203.0.113.6") == 401
+
+
+def test_a_full_address_is_refused_before_the_token_is_read() -> None:
+    inner = StatusApp()
+    client = _failures_app(FakeClock(), inner, failures=2)
+    headers = {"CF-Connecting-IP": "203.0.113.5"}
+
+    assert [_fail(client) for _ in range(2)] == [401, 401]
+    reached = inner.reached
+    valid = client.get(_API, headers={**_bearer(_TOKEN_B), **headers})
+    no_bearer = client.get(_API, headers=headers)
+
+    assert valid.status_code == 429
+    assert no_bearer.status_code == 429
+    assert inner.reached == reached
+
+
+@pytest.mark.parametrize("status", [200, 400, 403, 429], ids=["200", "400", "403", "429"])
+def test_successes_400_403_and_429_never_fill_the_failure_window(status: int) -> None:
+    client = _failures_app(FakeClock(), StatusApp(), failures=2)
+    headers = {**_bearer(_TOKEN_A), "CF-Connecting-IP": "203.0.113.5"}
+
+    assert [client.get(f"{_API}?{status}", headers=headers).status_code for _ in range(5)] == [
+        status
+    ] * 5
+
+
+def test_the_per_token_limit_still_holds_beside_the_failure_limit() -> None:
+    client = _failures_app(FakeClock(), StatusApp())
+    headers = _bearer(_TOKEN_A)
+
+    assert [client.get(_API, headers=headers).status_code for _ in range(_TOKEN)] == [200] * _TOKEN
+    assert client.get(_API, headers=headers).status_code == 429
+
+
+def test_a_failure_refusal_logs_nothing_and_labels_only_the_kind(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    metrics = RecordingRefusals()
+    client = _failures_app(FakeClock(), StatusApp(), failures=1, metrics=metrics)
+
+    with caplog.at_level(logging.DEBUG):
+        assert _fail(client, address="203.0.113.77", token="atk_secretguess") == 401
+        assert _fail(client, address="203.0.113.77", token="atk_secretguess") == 429
+
+    assert metrics.refusals == ["token_failures"]
+    assert "203.0.113.77" not in caplog.text
+    assert "atk_secretguess" not in caplog.text
+
+
+class RecordingRefusals:
+    def __init__(self) -> None:
+        self.refusals: list[str] = []
+
+    def request(self, *, method: str, route: str, status: int, seconds: float) -> None:
+        pass
+
+    def model_call(self, call: object) -> None:
+        pass
+
+    def refusal(self, kind: str) -> None:
+        self.refusals.append(kind)
+
+    def log_turn(self, seconds: float) -> None:
+        pass
+
+
 def _http_app(
     clock: FakeClock, *, auth: int = _AUTH, session: int = _SESSION, token: int = _TOKEN
 ) -> FastAPI:
@@ -403,6 +557,7 @@ def _http_app(
         auth_per_minute=auth,
         session_per_minute=session,
         token_per_minute=token,
+        token_failures_per_address_per_minute=10,
     )
     return app
 
@@ -526,6 +681,7 @@ async def test_a_non_http_connection_is_not_limited() -> None:
         auth_per_minute=1,
         session_per_minute=1,
         token_per_minute=1,
+        token_failures_per_address_per_minute=1,
     )
     await middleware({"type": "lifespan"}, receive, send)
 
