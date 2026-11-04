@@ -1,6 +1,6 @@
 .PHONY: install css test test-fast test-ops test-unit test-integration coverage lint format format-check \
 	typecheck import-lint squawk uv-pins-check suppressions-check openapi openapi-check check up up-build start stop down logs ps \
-	health smoke-setup smoke-up smoke-down alloy-check cloud-init-check backup-check migrate purge-conversations import-exercises backfill-gym-sessions storage-check llm-report latency-scenario evals e2e-install e2e worktree worktree-rm worktree-prune stack-owner
+	health smoke-setup smoke-up smoke-down alloy-check cloud-init-check backup-check migrate purge-conversations import-exercises backfill-gym-sessions storage-check ingest-once llm-report latency-scenario evals e2e-install e2e worktree worktree-rm worktree-prune stack-owner
 
 # The checkout's own database (ADR-0035): the last path segment of DATABASE_URL in its .env,
 # read by compose.yaml, so `make start` in a ticket's worktree serves `ai_trainer_wt<n>`.
@@ -177,6 +177,9 @@ backfill-gym-sessions: ## Write gym sessions logged before the typed tables into
 
 storage-check: ## Put, read back and delete a probe object in the local uploads bucket and try a short presigned link (ADR-0033); runs in the app container, needs `make start` and no R2 account
 	docker compose -f compose.yaml -f compose.dev.yaml exec -T app ai-trainer storage-check
+
+ingest-once: ## Ingest the knowledge sources waiting as `uploaded`, then exit (ADR-0036, #423); runs in the app container against the local bucket, needs `make start`; each embedding batch is a real OpenRouter call (costs fractions of a cent)
+	docker compose -f compose.yaml -f compose.dev.yaml exec -T app ai-trainer ingest-worker --once
 
 llm-report: ## Summarize the LLM debug log per template and model (#179); fails when there is no log. Usage: make llm-report [since=2026-10-18T20:00Z]
 	uv run ai-trainer llm-debug-report $(if $(since),--since $(since))

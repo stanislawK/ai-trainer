@@ -176,3 +176,11 @@ PMC sources carry "Source: NLM PMC" in their attribution.
     - #461 shows the detected licence and Set licence.
 
     Each is re-read against this amendment.
+- **Amended at #423 (the first ingestion), owner-approved at its plan gate, 2026-11-04.**
+  - **A provisional chunk budget.** ADR-0033 left the chunk size to the ingestion ticket's retrieval checks, which need `search_knowledge` (#424), itself blocked by #423. The budget is therefore `KNOWLEDGE_CHUNK_MAX_WORDS = 300` with `KNOWLEDGE_CHUNK_MIN_WORDS = 80` as the size under which a section merges with a sibling. It is counted in words, about 400 tokens, since the app has no tokenizer for the embedding model. Both are settings, and #424's retrieval checks settle them; a paid run there needs the owner's yes.
+  - **The worker's queue.** `knowledge_sources` gains `claim_id` and `lease_expires_at` (expand only, ADR-0024). A claim takes an `uploaded` source, or an `ingesting` one whose lease lapsed, with `FOR UPDATE SKIP LOCKED`; every later write names the claim, so a worker that lost it, or whose source was deleted, writes nothing.
+  - **Gotchas:**
+    - Pydantic AI's `Embedder` drops OpenRouter's `usage.cost` and estimates cost from genai-prices instead, which ADR-0018 invariant 6 forbids. ADR-0007's single embeddings adapter calls `POST /api/v1/embeddings` directly through `httpx2`.
+    - Postgres's `setweight` takes a `"char"`, which a bound string isn't, so the weights A, B and D are written into the SQL as constants.
+    - A failed source's `error` holds a closed reason (`IngestFailure`); the admin page words it, and a free-text reason from #422's rows still shows as stored.
+  - **Not here:** licence detection for `detecting` sources is still unassigned. #462's body doesn't list it, though the #454 amendment above gives it to "the `ingest` service ticket".
