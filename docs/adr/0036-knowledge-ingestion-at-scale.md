@@ -218,3 +218,8 @@ PMC sources carry "Source: NLM PMC" in their attribution.
     - The checks' paid runs need the owner's yes.
   - **Not on `gym.answer` yet.** The app's toolset offers every server tool to the specialist, so `build_toolset` filters `search_knowledge` out (`HELD_BACK_TOOLS`). #428 lifts the filter when it wires cited answers through `/tune-prompt`. The tool is on the server, so `Client(server)` and the demo reach it.
   - **Demo.** The server has no stdio or HTTP entry, and the MCP Inspector sends no user in the request meta. So the demo is `scripts/search_knowledge.py "<question>" [--sport gym]`, which calls the tool as the seeded dev user with one real embedding call.
+  - **Gotchas (#424 review):**
+    - A chunk records the configured `EMBEDDING_MODEL`, not the response body's `model`, which a search couldn't be sure to match. The `llm_calls` row keeps the billed name.
+    - The vector leg orders by distance alone. A tie-breaker in SQL put an incremental sort over the HNSW scan (`EXPLAIN`, PostgreSQL 18, 2026-11-04), so ties are broken in code.
+    - **No relevance floor yet.** The vector leg returns up to `depth` chunks whenever any pass the filters, so `no_match` fires only on an empty or filtered-out corpus, and a question the corpus doesn't cover still gets its nearest passages. A distance floor is for the retrieval checks to set, since no figure exists to set it from.
+    - A source whose re-ingest failed keeps its last chunks searchable, as the #423 amendment keeps them (knowledge-base.md rec 9).

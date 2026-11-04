@@ -173,4 +173,6 @@ class OpenRouterEmbeddingGateway:
         ):
             return _Reply(EmbeddingFailed(reason=EmbeddingFailure.WRONG_SHAPE), billed)
         vectors = tuple(tuple(item.embedding) for item in items)
-        return _Reply(Embedded(vectors=vectors, model=body.model), billed)
+        # Tagged with the configured model, which every search filters on (ADR-0011 invariant
+        # 4), not the response's spelling of it; `llm_calls` keeps the billed name (#424).
+        return _Reply(Embedded(vectors=vectors, model=self._model), billed)

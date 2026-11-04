@@ -224,6 +224,23 @@ async def test_a_response_of_the_wrong_shape_fails_the_batch(response: httpx2.Re
 _ATHLETE = UUID("00000000-0000-4000-8000-000000000424")
 
 
+async def test_vectors_carry_the_configured_model_and_the_row_the_billed_one() -> None:
+    """#424 review: chunks record the model a search filters on, `EMBEDDING_MODEL`, even when
+    the response names it differently; `llm_calls` keeps what the response billed."""
+    calls = _Calls()
+
+    def handler(_request: httpx2.Request) -> httpx2.Response:
+        body = _ok(1).json()
+        body["model"] = "Qwen/Qwen3-Embedding-8B"
+        return httpx2.Response(200, json=body)
+
+    outcome = await _gateway(handler, calls).embed_documents(["a"], acting_user_id=_ADMIN)
+
+    assert isinstance(outcome, Embedded)
+    assert outcome.model == "qwen/qwen3-embedding-8b"
+    assert calls.recorded[0].model == "Qwen/Qwen3-Embedding-8B"
+
+
 async def test_a_query_embedding_writes_one_llm_calls_row_for_the_athlete() -> None:
     """#424: the query carries the instruction from `knowledge.query` v1, a document none
     (ADR-0033); its row is keyed to that template and to the athlete who searched."""

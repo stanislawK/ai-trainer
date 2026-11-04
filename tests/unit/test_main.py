@@ -1,5 +1,6 @@
 from typing import Any
 
+import httpx2
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -24,6 +25,7 @@ from pydantic_ai.toolsets import FilteredToolset
 from sqlalchemy.ext.asyncio import AsyncEngine
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from ai_trainer import main as main_module
 from ai_trainer.llm.gateway import OpenRouterGateway
 from ai_trainer.main import _build_tracer_provider, _traces_endpoint, app_factory, create_app
 from ai_trainer.settings import Settings
@@ -251,6 +253,24 @@ async def test_create_app_disposes_its_engine_on_shutdown(
         assert disposed == []
 
     assert len(disposed) == 1
+
+
+def test_shutdown_closes_the_search_http_client(monkeypatch: pytest.MonkeyPatch) -> None:
+    """#424 review: `search_knowledge`'s embedding client is closed with the app, as the
+    engine is, so a reload worker doesn't leak its pool."""
+    made: list[httpx2.AsyncClient] = []
+    original = main_module.query_http_client
+
+    def spy(settings: Settings) -> httpx2.AsyncClient:
+        made.append(original(settings))
+        return made[-1]
+
+    monkeypatch.setattr(main_module, "query_http_client", spy)
+
+    with TestClient(create_app(_settings())):
+        assert [client.is_closed for client in made] == [False]
+
+    assert [client.is_closed for client in made] == [True]
 
 
 def test_app_factory_wires_settings_from_the_environment(

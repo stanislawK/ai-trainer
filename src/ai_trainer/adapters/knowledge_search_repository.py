@@ -112,7 +112,9 @@ class SqlAlchemyKnowledgeSearch:
     ) -> KnowledgeCandidates:
         conditions = _filters(filters)
         distance = _C.embedding.cosine_distance(list(vector)).label("distance")
-        by_meaning = _hits(distance).where(*conditions).order_by(distance, _C.id).limit(depth)
+        # The distance alone, so the plan is the HNSW index scan with no sort on top; ties are
+        # broken by ID in the re-sort below.
+        by_meaning = _hits(distance).where(*conditions).order_by(distance).limit(depth)
         english, simple = _tsquery("english", query), _tsquery("simple", query)
         is_english = _C.language == SourceLanguage.EN.value
         rank = case(

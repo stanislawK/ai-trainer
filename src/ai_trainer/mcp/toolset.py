@@ -12,6 +12,7 @@ from pydantic_ai.mcp import ToolResult as McpCallResult
 from pydantic_ai.toolsets import AbstractToolset
 
 from ai_trainer.mcp.identity import USER_ID_META_KEY, MissingUserError
+from ai_trainer.mcp.server import SEARCH_KNOWLEDGE_TOOL
 
 
 class UserDeps(Protocol):
@@ -39,7 +40,7 @@ async def inject_user(
 
 # Tools on the server that no specialist sees yet. `search_knowledge` waits for #428, which
 # wires it into `gym.answer` through `/tune-prompt` (ADR-0036, #424 amendment).
-HELD_BACK_TOOLS = frozenset({"search_knowledge"})
+HELD_BACK_TOOLS = frozenset({SEARCH_KNOWLEDGE_TOOL})
 
 
 def _offered(_ctx: RunContext[UserDeps], tool: ToolDefinition) -> bool:

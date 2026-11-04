@@ -49,6 +49,20 @@ async def test_the_tool_is_called_with_the_user_in_meta() -> None:
     assert seen == [(_USER, {"query": "deload", "limit": 5, "sport": "gym"})]
 
 
+async def test_a_failing_tool_is_printed_as_a_failure_not_raised() -> None:
+    server = FastMCP("broken", mask_error_details=True)
+
+    @server.tool(name=SEARCH_KNOWLEDGE_TOOL)
+    async def search_knowledge(query: str, limit: int) -> dict[str, Any]:
+        raise RuntimeError("database gone")
+
+    result = await call_search(server, _USER, _args(["deload"]))
+
+    assert result is not None
+    assert result["success"] is False
+    assert "database gone" not in str(result)
+
+
 async def test_no_sport_sends_no_sport_argument() -> None:
     seen: list[tuple[UUID, dict[str, Any]]] = []
 

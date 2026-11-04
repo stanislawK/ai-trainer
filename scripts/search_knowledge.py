@@ -24,7 +24,7 @@ from ai_trainer.adapters.llm_calls_repository import SqlAlchemyLlmCallsRepositor
 from ai_trainer.adapters.training_session_repository import SqlAlchemyTrainingSessionRepository
 from ai_trainer.adapters.users_repository import SqlAlchemyUsersRepository
 from ai_trainer.domain.sports.registry import default_sport_registry
-from ai_trainer.main import build_activity_stores, build_app_mcp_server
+from ai_trainer.main import build_activity_stores, build_app_mcp_server, query_http_client
 from ai_trainer.mcp.identity import USER_ID_META_KEY
 from ai_trainer.mcp.server import SEARCH_KNOWLEDGE_TOOL
 from ai_trainer.settings import Settings
@@ -46,9 +46,15 @@ async def call_search(
     if args.sport is not None:
         arguments["sport"] = args.sport
     async with Client(server) as client:
+        # A masked server error comes back as a result to print, not a traceback.
         result = await client.call_tool(
-            SEARCH_KNOWLEDGE_TOOL, arguments, meta={USER_ID_META_KEY: str(user_id)}
+            SEARCH_KNOWLEDGE_TOOL,
+            arguments,
+            meta={USER_ID_META_KEY: str(user_id)},
+            raise_on_error=False,
         )
+    if result.is_error:
+        return {"success": False, "error": "the tool failed; see the app's log"}
     content: dict[str, Any] | None = result.structured_content
     return content
 
@@ -58,6 +64,7 @@ async def run(  # pragma: no cover -- real database and OpenRouter; the PR's Acc
 ) -> int:
     settings = Settings()
     engine = build_engine(str(settings.database_url))
+    http_client = query_http_client(settings)
     try:
         factory = build_session_factory(engine)
         sports = default_sport_registry()
@@ -72,9 +79,11 @@ async def run(  # pragma: no cover -- real database and OpenRouter; the PR's Acc
                 factory, stores=build_activity_stores(sports, settings.max_clarification_options)
             ),
             calls_repository=SqlAlchemyLlmCallsRepository(factory),
+            http_client=http_client,
         )
         result = await call_search(server, user.id, args)
     finally:
+        await http_client.aclose()
         await engine.dispose()
     json.dump(result, out, indent=2, ensure_ascii=False)
     out.write("\n")

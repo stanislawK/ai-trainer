@@ -230,21 +230,21 @@ def build_knowledge_search(
     sports: SportRegistry,
     *,
     calls_repository: LlmCallsRepositoryPort,
-    embedding_transport: httpx2.AsyncBaseTransport | None = None,
+    http_client: httpx2.AsyncClient,
 ) -> KnowledgeSearch:
     """`search_knowledge`'s use case (ADR-0036, #424 amendment). Its query embedding has its
     own, shorter timeout than ingestion's, and isn't charged to ADR-0029's budget separately: it
-    runs inside a specialist's tool loop, which already holds one slot."""
-    timeout = settings.knowledge_query_timeout_seconds
+    runs inside a specialist's tool loop, which already holds one slot. The caller owns
+    `http_client` and closes it (`query_http_client`)."""
     return KnowledgeSearch(
         embeddings=OpenRouterEmbeddingGateway(
             api_key=settings.openrouter_api_key.get_secret_value(),
             model=settings.embedding_model,
             dimensions=settings.embedding_dim,
             provider=settings.embedding_provider_preferences,
-            timeout_seconds=timeout,
+            timeout_seconds=settings.knowledge_query_timeout_seconds,
             calls_repository=calls_repository,
-            http_client=httpx2.AsyncClient(transport=embedding_transport, timeout=timeout),
+            http_client=http_client,
         ),
         repository=SqlAlchemyKnowledgeSearch(session_factory),
         sports=sports,
@@ -260,9 +260,11 @@ def build_app_mcp_server(
     *,
     training_sessions: SqlAlchemyTrainingSessionRepository,
     calls_repository: LlmCallsRepositoryPort,
+    http_client: httpx2.AsyncClient,
 ) -> FastMCP:
     """The app's MCP server with every tool (ADR-0010), for the specialists' toolset and for
-    `scripts/search_knowledge.py`."""
+    `scripts/search_knowledge.py`. `http_client` carries the search's embedding calls, from
+    `query_http_client`; the caller closes it."""
     exercise_repository = SqlAlchemyExerciseRepository(session_factory)
     exercise_history = SqlAlchemyExerciseHistory(session_factory)
     return build_mcp_server(
@@ -278,9 +280,18 @@ def build_app_mcp_server(
         ),
         ExerciseTrainingHistory(exercise_repository, exercise_history),
         knowledge=build_knowledge_search(
-            settings, session_factory, sports, calls_repository=calls_repository
+            settings,
+            session_factory,
+            sports,
+            calls_repository=calls_repository,
+            http_client=http_client,
         ),
     )
+
+
+def query_http_client(settings: Settings) -> httpx2.AsyncClient:
+    """The client for `search_knowledge`'s embedding calls, at `KNOWLEDGE_QUERY_TIMEOUT_SECONDS`."""
+    return httpx2.AsyncClient(timeout=settings.knowledge_query_timeout_seconds)
 
 
 def build_knowledge_ingestion(
@@ -360,12 +371,14 @@ def create_app(  # noqa: PLR0915 -- composition root: objects are built only her
 
     # The onboarding's background reads, held so none is collected mid-read (ADR-0028).
     reads = BackgroundReads()
+    search_http = query_http_client(settings)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         yield
         # A read cut off here stays `pending`; the summary reads it again (ADR-0028).
         await reads.close()
+        await search_http.aclose()
         # Closes the SQLAlchemy pool's connections on shutdown; a fresh engine is otherwise
         # opened by every `create_app` call, so a repeatedly-constructed app (a reload worker,
         # or a test that never uses the app as a context manager) would leak idle connections.
@@ -435,6 +448,7 @@ def create_app(  # noqa: PLR0915 -- composition root: objects are built only her
             sport_registry,
             training_sessions=training_sessions,
             calls_repository=llm_calls,
+            http_client=search_http,
         )
     )
     gateway = BudgetedLlmGateway(
