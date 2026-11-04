@@ -99,6 +99,7 @@ uv run ai-trainer llm-debug-report [--since <ISO time>]   # summarize LLM_DEBUG_
 uv run ai-trainer import-exercises   # upsert the exercise catalogue from the dataset commit pinned in Settings; a second run changes nothing (ADR-0031)
 uv run ai-trainer backfill-gym-sessions   # write gym sessions logged before the typed tables into them, payloads untouched; a second run writes nothing (ADR-0032)
 uv run ai-trainer feedback-report [--since <ISO time>]   # counts of the content-free feedback events per kind, template and field; "no feedback events" when empty (ADR-0034)
+KNOWLEDGE_API_URL=<base> KNOWLEDGE_API_TOKEN=<token> uv run python scripts/knowledge_client.py list   # production's covered knowledge sources through the admin-token route, as JSON; exit 3 with no token set; used by /research-knowledge (ADR-0036, #459)
 uv run ai-trainer storage-check   # put, read back and delete a probe object in the configured uploads bucket, and try a short presigned link; `make storage-check` runs it on `make start` with no R2 account (ADR-0033)
 uv run ai-trainer ingest-worker [--once]   # ingest `uploaded` knowledge sources outside the web process: read, chunk, embed (real OpenRouter calls), store; `make ingest-once` runs it once on `make start` (ADR-0036)
 make latency-scenario [sport=gym]   # replay the latency scenario on `make start`, p50/p95 per log turn (ADR-0026; costs money); sport=gym exercises gym naming (ADR-0031)
