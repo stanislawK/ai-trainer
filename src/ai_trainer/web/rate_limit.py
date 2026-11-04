@@ -1,21 +1,26 @@
-"""Per-address cap on the sign-in routes, and a per-session cap on everything else (ADR-0029).
+"""Per-address cap on the sign-in routes, a per-token cap on the knowledge API, and a
+per-session cap on everything else (ADR-0029, ADR-0036).
 
 Pure ASGI, not `BaseHTTPMiddleware`, so a reply stream is not buffered. The sign-in routes
 are keyed by Cloudflare's `CF-Connecting-IP` (the origin only accepts Cloudflare), and by
-the TCP peer when that header is absent. A session cookie keys the rest. `/health` and
-`/static` are not counted.
+the TCP peer when that header is absent. The token routes are keyed by the SHA-256 of the
+bearer token, so the window never holds a token, and never by a cookie. A session cookie keys
+the rest. `/health` and `/static` are not counted.
 """
 
 from datetime import timedelta
 from typing import cast
 
 from starlette.requests import Request
+from starlette.responses import JSONResponse, Response
 from starlette.templating import Jinja2Templates
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from ai_trainer.application.ports.clock import ClockPort
 from ai_trainer.application.ports.metrics import NO_METRICS, LimitKind, MetricsPort
 from ai_trainer.application.sliding_window import SlidingWindow
+from ai_trainer.domain.admin_tokens import token_hash
+from ai_trainer.web.api.paths import is_knowledge_api
 from ai_trainer.web.auth import SESSION_COOKIE_NAME
 
 _MINUTE = timedelta(minutes=1)
@@ -24,6 +29,8 @@ _EXEMPT_PATHS = frozenset({"/health"})
 _STATIC_PREFIX = "/static/"
 _CF_CONNECTING_IP = b"cf-connecting-ip"
 _COOKIE = b"cookie"
+_AUTHORIZATION = b"authorization"
+_BEARER = "bearer"
 _MAX_ADDRESS_LENGTH = 64
 _MAX_COOKIE_LENGTH = 200
 _TOO_MANY = 429
@@ -38,6 +45,7 @@ class RateLimitMiddleware:
         templates: Jinja2Templates,
         auth_per_minute: int,
         session_per_minute: int,
+        token_per_minute: int,
         metrics: MetricsPort = NO_METRICS,
     ) -> None:
         self._app = app
@@ -45,6 +53,7 @@ class RateLimitMiddleware:
         self._templates = templates
         self._auth_per_minute = auth_per_minute
         self._session_per_minute = session_per_minute
+        self._token_per_minute = token_per_minute
         self._window = SlidingWindow(clock, window=_MINUTE)
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
@@ -57,12 +66,17 @@ class RateLimitMiddleware:
             return
         kind, retry_after = refused
         self._metrics.refusal(kind)
-        request = Request(scope, receive)
-        is_htmx = request.headers.get("HX-Request") == "true"
-        template = "partials/errors/429.html" if is_htmx else "pages/errors/429.html"
-        response = self._templates.TemplateResponse(request, template, status_code=_TOO_MANY)
+        response = self._too_many(Request(scope, receive), kind)
         response.headers["Retry-After"] = str(retry_after)
         await response(scope, receive, send)
+
+    def _too_many(self, request: Request, kind: LimitKind) -> Response:
+        if kind == "token":
+            # A token client reads JSON, as every other answer on its routes.
+            return JSONResponse({"detail": "Too many requests."}, status_code=_TOO_MANY)
+        is_htmx = request.headers.get("HX-Request") == "true"
+        template = "partials/errors/429.html" if is_htmx else "pages/errors/429.html"
+        return self._templates.TemplateResponse(request, template, status_code=_TOO_MANY)
 
     def _refused(self, scope: Scope) -> tuple[LimitKind, int] | None:
         """The cap that refused the request and the seconds to wait, or `None`."""
@@ -76,6 +90,16 @@ class RateLimitMiddleware:
                 limit=self._auth_per_minute,
             )
             return None if retry_after is None else ("sign_in", retry_after)
+        if is_knowledge_api(canonical):
+            # Without a bearer the route refuses it with 401, as the gate refuses a request
+            # with no cookie (ADR-0029).
+            bearer = _bearer_token(scope)
+            if bearer is None:
+                return None
+            retry_after = self._window.allow(
+                f"token:{token_hash(bearer)}", limit=self._token_per_minute
+            )
+            return None if retry_after is None else ("token", retry_after)
         session = _session_cookie(scope)
         if session is None:
             return None
@@ -105,4 +129,15 @@ def _session_cookie(scope: Scope) -> str | None:
             key, separator, raw = part.strip().partition("=")
             if separator and key == SESSION_COOKIE_NAME and raw:
                 return raw[:_MAX_COOKIE_LENGTH]
+    return None
+
+
+def _bearer_token(scope: Scope) -> str | None:
+    for name, value in scope.get("headers", []):
+        if name.lower() != _AUTHORIZATION:
+            continue
+        scheme, _, credentials = cast(str, value.decode("latin-1")).partition(" ")
+        if scheme.lower() == _BEARER and credentials:
+            return credentials
+        return None
     return None

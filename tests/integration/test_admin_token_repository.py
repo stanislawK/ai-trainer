@@ -121,3 +121,39 @@ async def test_one_admin_cannot_revoke_anothers_token(
     assert await repository.list_for_user(intruder.id) == []
     [still_active] = await repository.list_for_user(owner.id)
     assert still_active.revoked_at is None
+
+
+async def test_get_by_hash_finds_the_token_and_nothing_for_another_hash(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    """The authentication lookup (#457): by hash alone, since the token is the identity."""
+    repository = SqlAlchemyAdminTokensRepository(db_session_factory)
+    admin = await _admin(db_session_factory, "tokens-by-hash")
+    new = _new(admin)
+    await repository.add(new)
+
+    found = await repository.get_by_hash(new.token_hash)
+    missing = await repository.get_by_hash(hashlib.sha256(b"never issued").hexdigest())
+
+    assert found is not None
+    assert (found.id, found.user_id) == (new.id, admin.id)
+    assert missing is None
+
+
+async def test_touch_sets_last_used_at_only_on_the_users_own_token(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    repository = SqlAlchemyAdminTokensRepository(db_session_factory)
+    admin = await _admin(db_session_factory, "tokens-touch")
+    other = await _admin(db_session_factory, "tokens-touch-other")
+    mine = await repository.add(_new(admin))
+    theirs = await repository.add(_new(other))
+    used = NOW + timedelta(hours=2)
+
+    await repository.touch(admin.id, mine.id, at=used)
+    await repository.touch(admin.id, theirs.id, at=used)
+
+    [listed] = await repository.list_for_user(admin.id)
+    [untouched] = await repository.list_for_user(other.id)
+    assert listed.last_used_at == used
+    assert untouched.last_used_at is None

@@ -326,6 +326,7 @@ def _limited_app(metrics: RecordingMetrics) -> FastAPI:
         templates=build_templates(),
         auth_per_minute=1,
         session_per_minute=1,
+        token_per_minute=1,
         metrics=metrics,
     )
     return app
@@ -340,8 +341,11 @@ def test_a_refused_request_records_its_limit_kind() -> None:
     client.cookies.set(SESSION_COOKIE_NAME, "session-a")
     assert client.get("/messages").status_code == 200
     assert client.get("/messages").status_code == 429
+    bearer = {"Authorization": "Bearer atk_" + "A" * 43}
+    assert client.get("/api/admin/knowledge/sources", headers=bearer).status_code == 200
+    assert client.get("/api/admin/knowledge/sources", headers=bearer).status_code == 429
 
-    assert metrics.refusals == ["sign_in", "session"]
+    assert metrics.refusals == ["sign_in", "session", "token"]
 
 
 def _logged_app(metrics: RecordingMetrics) -> FastAPI:

@@ -7,6 +7,7 @@ from starlette.templating import Jinja2Templates
 from starlette.types import ASGIApp
 
 from ai_trainer.application.csrf import generate_csrf_token
+from ai_trainer.web.api.paths import is_knowledge_api
 from ai_trainer.web.auth import SESSION_COOKIE_NAME, parse_session_id
 
 CSRF_HEADER_NAME = "X-CSRF-Token"
@@ -35,7 +36,9 @@ class CsrfMiddleware(BaseHTTPMiddleware):
         )
         request.state.csrf_token = csrf_token
 
-        if request.method not in _SAFE_METHODS:
+        # The token routes take a bearer header, which a browser never sends on its own, and no
+        # cookie (ADR-0005 invariant 3 as amended by ADR-0036).
+        if request.method not in _SAFE_METHODS and not is_knowledge_api(request.url.path):
             submitted = request.headers.get(CSRF_HEADER_NAME)
             valid = (
                 csrf_token is not None

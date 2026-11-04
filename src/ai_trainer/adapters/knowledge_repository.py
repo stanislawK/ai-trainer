@@ -73,6 +73,13 @@ class SqlAlchemyKnowledgeSourcesRepository:
             )
             return [_to_domain(row) for row in rows]
 
+    async def list_page(self, *, after: UUID | None, limit: int) -> Sequence[KnowledgeSource]:
+        query = select(KnowledgeSourceOrm).order_by(KnowledgeSourceOrm.id).limit(limit)
+        if after is not None:
+            query = query.where(KnowledgeSourceOrm.id > after)
+        async with self._session_factory() as session:
+            return [_to_domain(row) for row in await session.scalars(query)]
+
     async def get(self, source_id: UUID) -> KnowledgeSource | None:
         async with self._session_factory() as session:
             row = await session.get(KnowledgeSourceOrm, source_id)

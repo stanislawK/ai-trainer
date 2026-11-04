@@ -172,6 +172,7 @@ forbidden_modules = ["ai_trainer.adapters"]
 # context variables - a stateless logging helper, not a port-worthy adapter.
 ignore_imports = [
     "ai_trainer.web.active_user_gate -> ai_trainer.adapters.log_records",
+    "ai_trainer.web.api.auth -> ai_trainer.adapters.log_records",
     "ai_trainer.web.request_log -> ai_trainer.adapters.log_records",
 ]
 

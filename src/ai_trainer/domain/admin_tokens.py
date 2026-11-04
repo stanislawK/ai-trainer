@@ -6,6 +6,7 @@ once; only its SHA-256 and a display prefix are stored, and it expires within 30
 """
 
 import hashlib
+import re
 from datetime import datetime
 from enum import StrEnum
 from uuid import UUID
@@ -18,6 +19,8 @@ TOKEN_BYTES = 32
 # the rest.
 DISPLAY_PREFIX_LENGTH = 12
 MAX_TOKEN_DAYS = 30
+# 32 bytes in unpadded base64url are 43 characters.
+_TOKEN_FORMAT = re.compile(rf"{TOKEN_PREFIX}[A-Za-z0-9_-]{{43}}")
 
 
 class TokenState(StrEnum):
@@ -63,3 +66,8 @@ class NewAdminToken(BaseModel):
 def token_hash(token: str) -> str:
     """The lowercase hex SHA-256 of the token's UTF-8 text, the only form it is stored in."""
     return hashlib.sha256(token.encode()).hexdigest()
+
+
+def is_token_shaped(text: str) -> bool:
+    """Whether `text` could be a token at all; anything else is refused without a lookup."""
+    return _TOKEN_FORMAT.fullmatch(text) is not None

@@ -1,6 +1,179 @@
 {
   "components": {
     "schemas": {
+      "ApiSource": {
+        "properties": {
+          "content_hash": {
+            "title": "Content Hash",
+            "type": "string"
+          },
+          "doi": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Doi"
+          },
+          "file_type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/KnowledgeFileType"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "isbn": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Isbn"
+          },
+          "licence_flag": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LicenceFlag"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "license_id": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LicenseId"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "license_source": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LicenseSource"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "license_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "License Url"
+          },
+          "pmcid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pmcid"
+          },
+          "pmid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pmid"
+          },
+          "source_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Url"
+          },
+          "status": {
+            "$ref": "#/components/schemas/SourceStatus"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "status",
+          "file_type",
+          "source_url",
+          "pmcid",
+          "doi",
+          "pmid",
+          "isbn",
+          "license_id",
+          "license_source",
+          "license_url",
+          "licence_flag",
+          "content_hash"
+        ],
+        "title": "ApiSource",
+        "type": "object"
+      },
+      "ApiSourcesPage": {
+        "properties": {
+          "next": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/ApiSource"
+            },
+            "title": "Sources",
+            "type": "array"
+          }
+        },
+        "required": [
+          "sources",
+          "next"
+        ],
+        "title": "ApiSourcesPage",
+        "type": "object"
+      },
       "Body_admin_update_user_status_admin_users__user_id__status_post": {
         "properties": {
           "status": {
@@ -44,6 +217,67 @@
         "title": "HealthResponse",
         "type": "object"
       },
+      "KnowledgeFileType": {
+        "enum": [
+          "pdf",
+          "epub",
+          "markdown",
+          "text",
+          "vtt",
+          "srt",
+          "jats"
+        ],
+        "title": "KnowledgeFileType",
+        "type": "string"
+      },
+      "LicenceFlag": {
+        "description": "Licences flagged in the list until a lawyer has read their terms (ADR-0036).",
+        "enum": [
+          "sa",
+          "nd"
+        ],
+        "title": "LicenceFlag",
+        "type": "string"
+      },
+      "LicenseId": {
+        "description": "ADR-0036's closed set. Every CC licence is admitted, the app being non-commercial; `other`\nneeds a note saying what permission the admin holds.",
+        "enum": [
+          "cc0",
+          "cc-by",
+          "cc-by-sa",
+          "cc-by-nc",
+          "cc-by-nc-sa",
+          "cc-by-nd",
+          "cc-by-nc-nd",
+          "other"
+        ],
+        "title": "LicenseId",
+        "type": "string"
+      },
+      "LicenseSource": {
+        "description": "Where a source's licence was read.",
+        "enum": [
+          "pmc",
+          "jats",
+          "admin",
+          "file"
+        ],
+        "title": "LicenseSource",
+        "type": "string"
+      },
+      "SourceStatus": {
+        "enum": [
+          "detecting",
+          "proposed",
+          "rejected",
+          "uploaded",
+          "ingesting",
+          "ingested",
+          "failed"
+        ],
+        "title": "SourceStatus",
+        "type": "string"
+      },
       "ValidationError": {
         "properties": {
           "ctx": {
@@ -83,6 +317,13 @@
         ],
         "title": "ValidationError",
         "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "AdminToken": {
+        "description": "An admin token from /admin/tokens, as `Authorization: Bearer atk_\u2026`.",
+        "scheme": "bearer",
+        "type": "http"
       }
     }
   },
@@ -363,6 +604,76 @@
           }
         },
         "summary": "Admin Update User Status"
+      }
+    },
+    "/api/admin/knowledge/sources": {
+      "get": {
+        "description": "Every knowledge source, by `id`, a page at a time.",
+        "operationId": "list_sources_api_admin_knowledge_sources_get",
+        "parameters": [
+          {
+            "description": "The `next` of the page before.",
+            "in": "query",
+            "name": "after",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The `next` of the page before.",
+              "title": "After"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 200,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiSourcesPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "AdminToken": []
+          }
+        ],
+        "summary": "List Sources",
+        "tags": [
+          "knowledge-api"
+        ]
       }
     },
     "/auth/callback": {

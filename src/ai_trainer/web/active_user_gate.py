@@ -12,6 +12,7 @@ from ai_trainer.application.ports.clock import ClockPort
 from ai_trainer.application.ports.sessions import SessionsRepositoryPort
 from ai_trainer.application.ports.users import UsersRepositoryPort
 from ai_trainer.domain.users import UserStatus, is_admin_email
+from ai_trainer.web.api.paths import is_knowledge_api
 from ai_trainer.web.auth import SESSION_COOKIE_NAME, parse_session_id
 
 # Every route except sign-in, the callback, sign-out, health and static assets requires an
@@ -29,7 +30,13 @@ def _is_exempt(path: str) -> bool:
     # trailing slash on an otherwise-exempt route from being refused before it ever gets
     # that chance.
     canonical = path.rstrip("/") or "/"
-    return canonical in _EXEMPT_PATHS or path.startswith(_EXEMPT_PREFIXES)
+    # The token routes authenticate by bearer token alone, so a session cookie never does
+    # (ADR-0036, ADR-0005 as amended).
+    return (
+        canonical in _EXEMPT_PATHS
+        or path.startswith(_EXEMPT_PREFIXES)
+        or is_knowledge_api(canonical)
+    )
 
 
 _SIGN_IN_PATH = "/sign-in"

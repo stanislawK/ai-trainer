@@ -97,6 +97,11 @@ class MemorySources:
     async def list_all(self) -> Sequence[KnowledgeSource]:
         return sorted(self.rows.values(), key=lambda s: s.uploaded_at, reverse=True)
 
+    async def list_page(self, *, after: UUID | None, limit: int) -> Sequence[KnowledgeSource]:
+        # By id, as PostgreSQL orders `uuid`: byte order, the same as the text form's.
+        ordered = sorted(self.rows.values(), key=lambda s: str(s.id))
+        return [s for s in ordered if after is None or str(s.id) > str(after)][:limit]
+
     async def get(self, source_id: UUID) -> KnowledgeSource | None:
         return self.rows.get(source_id)
 

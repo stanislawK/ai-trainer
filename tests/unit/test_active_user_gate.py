@@ -123,6 +123,14 @@ def _client(
     async def onboarding_probe() -> PlainTextResponse:
         return PlainTextResponse("onboarding")
 
+    @app.get("/api/admin/knowledge/sources")
+    async def api_probe() -> PlainTextResponse:
+        return PlainTextResponse("api")
+
+    @app.get("/api/admin/knowledgex")
+    async def look_alike_probe() -> PlainTextResponse:
+        return PlainTextResponse("look-alike")
+
     @app.get("/is-admin")
     async def is_admin_probe(request: Request) -> PlainTextResponse:
         return PlainTextResponse(str(request.state.is_admin))
@@ -439,3 +447,12 @@ def test_pending_user_still_sees_the_status_screen_not_the_onboarding_redirect()
 
     assert response.status_code == 200
     assert "on the list" in response.text.lower()
+
+
+def test_the_token_routes_are_left_to_their_own_authentication() -> None:
+    """ADR-0036: the knowledge API authenticates by token, so the session gate stands aside;
+    a look-alike path is still gated."""
+    client = _client(users=FakeUsersRepository(), sessions=FakeSessionsRepository())
+
+    assert client.get("/api/admin/knowledge/sources").text == "api"
+    assert client.get("/api/admin/knowledgex").status_code == 401
