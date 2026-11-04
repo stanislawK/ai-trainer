@@ -21,7 +21,7 @@ from ai_trainer.domain.knowledge import (
 )
 
 
-def _to_domain(row: KnowledgeSourceOrm) -> KnowledgeSource:
+def to_domain(row: KnowledgeSourceOrm) -> KnowledgeSource:
     return KnowledgeSource(
         id=row.id,
         title=row.title,
@@ -55,6 +55,8 @@ def _to_domain(row: KnowledgeSourceOrm) -> KnowledgeSource:
         uploaded_by_user_id=row.uploaded_by_user_id,
         uploaded_at=row.uploaded_at,
         ingested_at=row.ingested_at,
+        chunk_count=row.chunk_count or 0,
+        embedding_model=row.embedding_model,
     )
 
 
@@ -71,26 +73,26 @@ class SqlAlchemyKnowledgeSourcesRepository:
                     KnowledgeSourceOrm.uploaded_at.desc(), KnowledgeSourceOrm.id
                 )
             )
-            return [_to_domain(row) for row in rows]
+            return [to_domain(row) for row in rows]
 
     async def list_page(self, *, after: UUID | None, limit: int) -> Sequence[KnowledgeSource]:
         query = select(KnowledgeSourceOrm).order_by(KnowledgeSourceOrm.id).limit(limit)
         if after is not None:
             query = query.where(KnowledgeSourceOrm.id > after)
         async with self._session_factory() as session:
-            return [_to_domain(row) for row in await session.scalars(query)]
+            return [to_domain(row) for row in await session.scalars(query)]
 
     async def get(self, source_id: UUID) -> KnowledgeSource | None:
         async with self._session_factory() as session:
             row = await session.get(KnowledgeSourceOrm, source_id)
-            return None if row is None else _to_domain(row)
+            return None if row is None else to_domain(row)
 
     async def get_by_hash(self, content_hash: str) -> KnowledgeSource | None:
         async with self._session_factory() as session:
             row = await session.scalar(
                 select(KnowledgeSourceOrm).where(KnowledgeSourceOrm.content_hash == content_hash)
             )
-            return None if row is None else _to_domain(row)
+            return None if row is None else to_domain(row)
 
     async def add(self, source: NewKnowledgeSource) -> KnowledgeSource:
         values = source.model_dump(mode="python")
@@ -107,7 +109,7 @@ class SqlAlchemyKnowledgeSourcesRepository:
             row = await session.scalar(statement)
             if row is None:
                 raise DuplicateSourceError
-            stored = _to_domain(row)
+            stored = to_domain(row)
             await session.commit()
             return stored
 
@@ -139,6 +141,6 @@ class SqlAlchemyKnowledgeSourcesRepository:
                 )
                 .returning(KnowledgeSourceOrm)
             )
-            queued = None if row is None else _to_domain(row)
+            queued = None if row is None else to_domain(row)
             await session.commit()
             return queued

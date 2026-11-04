@@ -1,12 +1,9 @@
-import json
-import re
 from datetime import date
 from pathlib import Path
-from typing import Annotated, Any, Literal, Self
+from typing import Literal, Self
 from urllib.parse import urlsplit
 
 from pydantic import (
-    BeforeValidator,
     Field,
     PostgresDsn,
     SecretStr,
@@ -14,85 +11,27 @@ from pydantic import (
     field_validator,
     model_validator,
 )
-from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from ai_trainer.domain.llm_calls import ProviderPreferences, ReasoningEffort
-
-
-def _split_comma_separated(value: Any) -> Any:  # noqa: ANN401 -- raw env input of any type
-    if isinstance(value, str):
-        return [item.strip() for item in value.split(",") if item.strip()]
-    return value
-
-
-CommaSeparated = Annotated[list[str], NoDecode, BeforeValidator(_split_comma_separated)]
-
-
-def _json_object(value: Any) -> Any:  # noqa: ANN401 -- raw env input of any type
-    # Decoded here, not by pydantic-settings, so a blank value copied from `.env.example` is
-    # unset rather than invalid JSON; the object is then checked field by field.
-    if isinstance(value, str):
-        return json.loads(value) if value.strip() else None
-    return value
-
-
-# A template's OpenRouter provider preferences as one JSON object, e.g.
-# `{"sort": "latency", "preferred_max_latency": {"p90": 2}}` (ADR-0026 step 4).
-ProviderPreferencesSetting = Annotated[
-    ProviderPreferences | None, NoDecode, BeforeValidator(_json_object)
-]
-# A template's own call timeout; unset falls back to `llm_call_timeout_seconds`.
-CallTimeout = Annotated[float | None, Field(gt=0)]
-
-# Picked on `onboarding.about_you`'s first eval baseline (ADR-0028, #254): 98% of its
-# assertions at `low` effort on fp8/nvfp4 upstreams sorted by latency. OpenRouter's default
-# price sort lands on an upstream with no structured outputs, which fails the read.
-DEFAULT_ONBOARDING_MODEL = "z-ai/glm-5.3-flash"
-DEFAULT_ONBOARDING_PROVIDER = ProviderPreferences(sort="latency", quantizations=["fp8", "nvfp4"])
-DEFAULT_ONBOARDING_REASONING_EFFORT: ReasoningEffort = "low"
-
-# The starting point for `<sport>.answer` (#421), confirmed by its smoke set: what the other
-# templates run on, at `low` effort so a tool loop stays quick.
-DEFAULT_ANSWER_MODEL = "z-ai/glm-5.3-flash"
-DEFAULT_ANSWER_PROVIDER = ProviderPreferences(sort="latency", quantizations=["fp8", "nvfp4"])
-DEFAULT_ANSWER_REASONING_EFFORT: ReasoningEffort = "low"
-
-# A Jev ID carries a version number; aliases such as `~typesafe/jev-latest` move under a
-# calibrated threshold, so they are refused (ADR-0020).
-_VERSIONED_DECISION_MODEL = re.compile(r"^[a-z0-9-]+/jev-\d+\.\d+(\.\d+)?(-\d{8})?$")
-# The only hosts `LLM_DEBUG_LOG` may run behind (#278); `localhost.example.com` is public.
-_LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1"})
-# Set together or not at all (ADR-0033). `object_storage_region` has a default, so it isn't one.
-_OBJECT_STORAGE_KEYS = (
-    "object_storage_endpoint",
-    "object_storage_access_key_id",
-    "object_storage_secret_access_key",
-    "object_storage_uploads_bucket",
+from ai_trainer.domain.knowledge_document import EMBEDDING_DIMENSIONS
+from ai_trainer.domain.llm_calls import ReasoningEffort
+from ai_trainer.settings_values import (
+    DEFAULT_ANSWER_MODEL,
+    DEFAULT_ANSWER_PROVIDER,
+    DEFAULT_ANSWER_REASONING_EFFORT,
+    DEFAULT_EMBEDDING_MODEL,
+    DEFAULT_EMBEDDING_PROVIDER,
+    DEFAULT_ONBOARDING_MODEL,
+    DEFAULT_ONBOARDING_PROVIDER,
+    DEFAULT_ONBOARDING_REASONING_EFFORT,
+    LOCAL_HOSTS,
+    OBJECT_STORAGE_KEYS,
+    VERSIONED_DECISION_MODEL,
+    CallTimeout,
+    CommaSeparated,
+    ProviderPreferencesSetting,
+    http_origin,
 )
-
-
-def _origin(value: str) -> str | None:
-    """`value` as a lower-case http(s) origin, or None when it is anything else."""
-    try:
-        parts = urlsplit(value.strip())
-        host = parts.hostname or ""
-        port = parts.port
-    except ValueError:
-        return None
-    # An IPv6 literal or a trailing-dot host would never match the Host header Starlette's
-    # trusted-host check compares, locking the app out of every request.
-    has_host = bool(host) and ":" not in host and not host.endswith(".") and port != 0
-    if (
-        parts.scheme not in ("http", "https")
-        or not has_host
-        or parts.path not in ("", "/")
-        or parts.query
-        or parts.fragment
-        or parts.username is not None
-        or parts.password is not None
-    ):
-        return None
-    return f"{parts.scheme}://{parts.netloc.lower()}"
 
 
 class Settings(BaseSettings):
@@ -258,6 +197,28 @@ class Settings(BaseSettings):
     # The largest knowledge file an admin may upload, in MiB (ADR-0033). At most 90, so the form
     # fits Caddy's and Cloudflare's 100 MB on that route (ADR-0029).
     knowledge_max_upload_mb: int = Field(default=50, ge=1, le=90)
+    # Embeddings (ADR-0033): the model and dimension every chunk records, pinned to one upstream
+    # with a one-name `only`, since a chunk doesn't record its upstream. The dimension is the
+    # `vector(1024)` column's; another one needs a migration and a re-embed job (ADR-0011).
+    embedding_model: str = DEFAULT_EMBEDDING_MODEL
+    embedding_dim: int = Field(
+        default=EMBEDDING_DIMENSIONS, ge=EMBEDDING_DIMENSIONS, le=EMBEDDING_DIMENSIONS
+    )
+    embedding_provider_preferences: ProviderPreferencesSetting = DEFAULT_EMBEDDING_PROVIDER
+    embedding_call_timeout_seconds: float = Field(default=60.0, gt=0)
+    # Ingestion (ADR-0036, #423). Inputs per embedding call, provisional until #462 reads the
+    # upstream's limits; a 429 is retried with backoff up to this many attempts in all.
+    knowledge_embedding_batch_size: int = Field(default=32, ge=1, le=256)
+    knowledge_embedding_max_attempts: int = Field(default=5, ge=1)
+    # The chunk budget in words, and the size under which a section merges with a sibling;
+    # provisional until `search_knowledge`'s retrieval checks settle them (#424).
+    knowledge_chunk_max_words: int = Field(default=300, ge=20)
+    knowledge_chunk_min_words: int = Field(default=80, ge=0)
+    # The worker's lease on a source, renewed by a heartbeat every third of it; a lapsed lease
+    # lets the next worker take the source over. The poll interval is how long an idle worker
+    # waits before looking again.
+    knowledge_ingest_lease_seconds: float = Field(default=300.0, ge=30)
+    knowledge_ingest_poll_seconds: float = Field(default=5.0, gt=0)
 
     # Google sign-in (ADR-0005). No Google access or refresh token is ever stored.
     # Required and non-blank: a blank value otherwise fails only on Google's own page.
@@ -309,7 +270,7 @@ class Settings(BaseSettings):
     @field_validator("public_base_url")
     @classmethod
     def _origin_only(cls, value: str) -> str:
-        origin = _origin(value)
+        origin = http_origin(value)
         if origin is None:
             raise ValueError(
                 "PUBLIC_BASE_URL must be an http(s) origin without a path, such as "
@@ -322,7 +283,7 @@ class Settings(BaseSettings):
     def _object_storage_endpoint_is_an_origin(cls, value: str | None) -> str | None:
         if value is None:
             return None
-        origin = _origin(value)
+        origin = http_origin(value)
         if origin is None:
             # Never echoes the value: credentials pasted into the URL would reach the log.
             raise ValueError(
@@ -335,16 +296,25 @@ class Settings(BaseSettings):
     def _object_storage_all_or_nothing(self) -> Self:
         # Unset is fine until the admin upload ticket needs it, so a release never waits on new
         # keys. Half set is a mistake that should stop the app at start, not at an admin's upload.
-        missing = [key.upper() for key in _OBJECT_STORAGE_KEYS if getattr(self, key) is None]
-        if 0 < len(missing) < len(_OBJECT_STORAGE_KEYS):
+        missing = [key.upper() for key in OBJECT_STORAGE_KEYS if getattr(self, key) is None]
+        if 0 < len(missing) < len(OBJECT_STORAGE_KEYS):
             raise ValueError(f"object storage is only partly set; missing {', '.join(missing)}")
+        return self
+
+    @model_validator(mode="after")
+    def _merge_floor_below_the_budget(self) -> Self:
+        if self.knowledge_chunk_min_words >= self.knowledge_chunk_max_words:
+            raise ValueError(
+                "KNOWLEDGE_CHUNK_MIN_WORDS must be below KNOWLEDGE_CHUNK_MAX_WORDS, or every "
+                "section would merge"
+            )
         return self
 
     @model_validator(mode="after")
     def _llm_debug_log_only_on_localhost(self) -> Self:
         # The debug log holds athletes' words (ADR-0018), so it is refused wherever the app is
         # served beyond this machine, and logs may leave the host (ADR-0030, #278).
-        if self.llm_debug_log and urlsplit(self.public_base_url).hostname not in _LOCAL_HOSTS:
+        if self.llm_debug_log and urlsplit(self.public_base_url).hostname not in LOCAL_HOSTS:
             raise ValueError(
                 "LLM_DEBUG_LOG must be off unless PUBLIC_BASE_URL's host is localhost or 127.0.0.1"
             )
@@ -378,6 +348,7 @@ class Settings(BaseSettings):
         "answer_reasoning_effort",
         "object_storage_region",
         "object_storage_timeout_seconds",
+        "embedding_provider_preferences",
         mode="before",
     )
     @classmethod
@@ -392,7 +363,7 @@ class Settings(BaseSettings):
     @field_validator("decision_model")
     @classmethod
     def _versioned_decision_model(cls, value: str) -> str:
-        if not _VERSIONED_DECISION_MODEL.fullmatch(value):
+        if not VERSIONED_DECISION_MODEL.fullmatch(value):
             raise ValueError(
                 "DECISION_MODEL must be a versioned Jev ID such as typesafe/jev-1.13, "
                 f"not {value!r}"

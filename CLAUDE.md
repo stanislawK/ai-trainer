@@ -100,6 +100,7 @@ uv run ai-trainer import-exercises   # upsert the exercise catalogue from the da
 uv run ai-trainer backfill-gym-sessions   # write gym sessions logged before the typed tables into them, payloads untouched; a second run writes nothing (ADR-0032)
 uv run ai-trainer feedback-report [--since <ISO time>]   # counts of the content-free feedback events per kind, template and field; "no feedback events" when empty (ADR-0034)
 uv run ai-trainer storage-check   # put, read back and delete a probe object in the configured uploads bucket, and try a short presigned link; `make storage-check` runs it on `make start` with no R2 account (ADR-0033)
+uv run ai-trainer ingest-worker [--once]   # ingest `uploaded` knowledge sources outside the web process: read, chunk, embed (real OpenRouter calls), store; `make ingest-once` runs it once on `make start` (ADR-0036)
 make latency-scenario [sport=gym]   # replay the latency scenario on `make start`, p50/p95 per log turn (ADR-0026; costs money); sport=gym exercises gym naming (ADR-0031)
 uv run playwright install chromium   # one-time browser download for e2e
 uv run pytest tests/e2e -n 0     # e2e specs, serial (needs `docker compose up`; excluded from `uv run pytest`)

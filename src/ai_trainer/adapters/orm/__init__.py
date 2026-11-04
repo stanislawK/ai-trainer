@@ -2,7 +2,7 @@ from ai_trainer.adapters.orm.base import Base
 from ai_trainer.adapters.orm.conversations import ChatMessageOrm, ConversationOrm
 from ai_trainer.adapters.orm.exercises import ExerciseAliasOrm, ExerciseOrm, ExerciseTextOrm
 from ai_trainer.adapters.orm.feedback import FeedbackEventOrm
-from ai_trainer.adapters.orm.knowledge import AdminTokenOrm, KnowledgeSourceOrm
+from ai_trainer.adapters.orm.knowledge import AdminTokenOrm, KnowledgeChunkOrm, KnowledgeSourceOrm
 from ai_trainer.adapters.orm.llm_calls import LlmCallOrm
 from ai_trainer.adapters.orm.profile import (
     AthleteProfileOrm,
@@ -40,6 +40,7 @@ __all__ = [
     "GoalOrm",
     "GymExerciseEntryOrm",
     "GymSetOrm",
+    "KnowledgeChunkOrm",
     "KnowledgeSourceOrm",
     "LlmCallOrm",
     "OnboardingAnswerOrm",

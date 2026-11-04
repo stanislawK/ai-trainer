@@ -1,6 +1,8 @@
 import uuid
 from datetime import datetime
 
+import sqlalchemy as sa
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     TIMESTAMP,
     BigInteger,
@@ -11,10 +13,11 @@ from sqlalchemy import (
     UniqueConstraint,
     text,
 )
-from sqlalchemy.dialects.postgresql import ARRAY
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, TSVECTOR
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ai_trainer.adapters.orm.base import Base
+from ai_trainer.domain.knowledge_document import EMBEDDING_DIMENSIONS
 
 
 class KnowledgeSourceOrm(Base):
@@ -123,6 +126,82 @@ class KnowledgeSourceOrm(Base):
     # timestamptz, UTC (ADR-0004 invariant 5).
     uploaded_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
     ingested_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
+    # The worker's claim on an `ingesting` source and its heartbeat lease (#423). A source whose
+    # lease has lapsed is claimed again; one whose claim changed is no longer this worker's.
+    claim_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True
+    )
+    # What the last ingest stored, written with its chunks, for the admin list (#423).
+    chunk_count: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    embedding_model: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class KnowledgeChunkOrm(Base):
+    """One passage of an ingested source, with its embedding and full-text vector (ADR-0011,
+    ADR-0033, ADR-0036). Shared reference data: no `user_id`, nothing about an athlete, and it
+    goes with its source."""
+
+    __tablename__ = "knowledge_chunks"
+    __table_args__ = (
+        CheckConstraint("ordinal >= 0", name="knowledge_chunks_ordinal"),
+        CheckConstraint("btrim(text) <> ''", name="knowledge_chunks_text"),
+        CheckConstraint("btrim(embedding_model) <> ''", name="knowledge_chunks_embedding_model"),
+        CheckConstraint("cardinality(sports) > 0", name="knowledge_chunks_sports_not_empty"),
+        CheckConstraint("language IN ('en', 'pl')", name="knowledge_chunks_language"),
+        CheckConstraint(
+            "section_kind IN ('abstract', 'body', 'table')", name="knowledge_chunks_section_kind"
+        ),
+        CheckConstraint(
+            "locator ->> 'kind' IN ('section', 'page', 'spine', 'cue')",
+            name="knowledge_chunks_locator_kind",
+        ),
+        UniqueConstraint("source_id", "ordinal", name="knowledge_chunks_source_id_ordinal_key"),
+        Index(
+            "ix_knowledge_chunks_embedding",
+            "embedding",
+            postgresql_using="hnsw",
+            postgresql_ops={"embedding": "vector_cosine_ops"},
+        ),
+        Index("ix_knowledge_chunks_search_vector", "search_vector", postgresql_using="gin"),
+        Index(
+            "ix_knowledge_chunks_exercise_id",
+            "exercise_id",
+            postgresql_where=sa.text("exercise_id IS NOT NULL"),
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
+    source_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("knowledge_sources.id", ondelete="CASCADE"), nullable=False
+    )
+    # The chunk's place in its source, from 0.
+    ordinal: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    embedding: Mapped[list[float]] = mapped_column(Vector(EMBEDDING_DIMENSIONS), nullable=False)
+    # Chunks from different models are never searched together (ADR-0011 invariant 4).
+    embedding_model: Mapped[str] = mapped_column(Text, nullable=False)
+    # Copied from the source, so a search filters chunks alone.
+    sports: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False)
+    topics: Mapped[list[str]] = mapped_column(
+        ARRAY(Text), nullable=False, server_default=sa.text("'{}'::text[]")
+    )
+    language: Mapped[str] = mapped_column(Text, nullable=False)
+    heading_path: Mapped[list[str]] = mapped_column(
+        ARRAY(Text), nullable=False, server_default=sa.text("'{}'::text[]")
+    )
+    section_kind: Mapped[str] = mapped_column(Text, nullable=False)
+    # A section, page, spine item or cue, by `kind` (`domain/knowledge_document.Locator`).
+    locator: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False)
+    # A catalogue exercise's text (#427); NULL for every uploaded source's chunk.
+    exercise_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("exercises.id", ondelete="CASCADE"), nullable=True
+    )
+    # Title A, heading path B, text D, in `english` or `simple` by language (ADR-0033, ADR-0036);
+    # written by the insert, since a generated column can't read the source's title.
+    search_vector: Mapped[str] = mapped_column(TSVECTOR, nullable=False)
+    # timestamptz, UTC (ADR-0004 invariant 5).
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
 
 
 class AdminTokenOrm(Base):

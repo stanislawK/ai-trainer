@@ -5,6 +5,7 @@ import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from html import unescape
 from uuid import UUID, uuid4
 
 import httpx2
@@ -817,3 +818,92 @@ async def test_a_422_source_still_lists_and_re_ingests(
         LicenseId.OTHER,
         "Owner's copy",
     )
+
+
+# --- #423: the chunks line and the failed source's reason ----------------------------------
+
+
+async def _set_chunk_stats(
+    factory: Callable[[], AsyncSession], source_id: UUID, count: int, model: str
+) -> None:
+    """What the worker's `finish` writes with a source's chunks (#423)."""
+    async with factory() as session:
+        await session.execute(
+            text(
+                "UPDATE knowledge_sources SET chunk_count = :count, embedding_model = :model"
+                " WHERE id = :id"
+            ),
+            {"count": count, "model": model, "id": source_id},
+        )
+        await session.commit()
+
+
+@pytest.mark.parametrize(
+    ("count", "line"),
+    [(214, "214 chunks · qwen/qwen3-embedding-8b"), (1, "1 chunk · qwen/qwen3-embedding-8b")],
+    ids=["many", "one"],
+)
+async def test_an_ingested_source_shows_its_chunk_count_and_model(
+    db_session_factory: Callable[[], AsyncSession], count: int, line: str
+) -> None:
+    page = await _page(db_session_factory, f"knowledge-chunks-{count}")
+    _, source = await _stored_with_status(
+        page, db_session_factory, f"chunks-{count}", "ingested", None
+    )
+    await _set_chunk_stats(db_session_factory, source.id, count, "qwen/qwen3-embedding-8b")
+
+    html = _source_html(page.client.get("/admin/knowledge").text, source.id)
+
+    # Once in the phone card and once in the desktop row's source cell (the mock's meta line).
+    assert html.count(line) == 2
+
+
+async def test_a_source_without_chunks_shows_no_chunks_line(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    page = await _page(db_session_factory, "knowledge-no-chunks")
+    _, source = await _stored_with_status(page, db_session_factory, "no-chunks", "uploaded", None)
+
+    html = _source_html(page.client.get("/admin/knowledge").text, source.id)
+
+    assert "chunk" not in html
+
+
+@pytest.mark.parametrize(
+    ("error", "copy"),
+    [
+        ("no_reader", "PDF files can't be read yet."),
+        ("not_utf8", "The file isn't UTF-8 text, so it couldn't be read."),
+        ("no_text", "The file has no text to ingest."),
+        ("file_missing", "The file is missing from storage."),
+        ("embedding_failed", "The embedding call failed. Try Re-ingest."),
+        ("rate_limited", "OpenRouter kept answering “too many requests”. Try Re-ingest later."),
+        ("no_acting_admin", "The admin who uploaded it no longer has an account."),
+        ("ingest_error", "Ingestion failed unexpectedly. Try Re-ingest"),
+        ("Something only #422 wrote.", "Something only #422 wrote."),
+    ],
+    ids=[
+        "no_reader",
+        "not_utf8",
+        "no_text",
+        "missing",
+        "embedding",
+        "rate",
+        "orphan",
+        "unexpected",
+        "free",
+    ],
+)
+async def test_a_failed_source_words_its_reason(
+    db_session_factory: Callable[[], AsyncSession], error: str, copy: str
+) -> None:
+    page = await _page(db_session_factory, f"knowledge-reason-{error[:12]}")
+    _, source = await _stored_with_status(
+        page, db_session_factory, f"reason-{error}", "failed", error
+    )
+
+    html = unescape(_source_html(page.client.get("/admin/knowledge").text, source.id))
+
+    assert html.count(copy) == 2
+    if error != copy:
+        assert error not in html

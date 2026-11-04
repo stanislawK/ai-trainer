@@ -49,6 +49,36 @@
   "nd": {"label": "ND · review", "title": "No derivatives: flagged until a lawyer has read its terms (ADR-0036)"},
 } %}
 
+{#- Why a source failed, by the worker's reason (`IngestFailure`, #423). A reason the worker didn't
+    write, such as a #422 row's, shows as stored. -#}
+{% set file_type_labels = {"pdf": "PDF", "epub": "EPUB", "markdown": "Markdown", "text": "Text", "vtt": ".vtt", "srt": ".srt", "jats": "JATS"} %}
+{% set ingest_errors = {
+  "not_utf8": "The file isn't UTF-8 text, so it couldn't be read.",
+  "no_text": "The file has no text to ingest.",
+  "file_missing": "The file is missing from storage. Delete this source and upload it again.",
+  "storage_failed": "File storage didn't answer. Try Re-ingest.",
+  "embedding_failed": "The embedding call failed. Try Re-ingest.",
+  "embedding_timeout": "The embedding call timed out. Try Re-ingest.",
+  "rate_limited": "OpenRouter kept answering “too many requests”. Try Re-ingest later.",
+  "wrong_shape": "The embedding service sent back vectors of the wrong size. Try Re-ingest.",
+  "no_acting_admin": "The admin who uploaded it no longer has an account. Re-ingest it to ingest it as you.",
+  "ingest_error": "Ingestion failed unexpectedly. Try Re-ingest; if it fails again, the file may be malformed.",
+} %}
+
+{% macro ingest_error(source) -%}
+{%- if source.error == "no_reader" -%}
+{{ file_type_labels.get(source.file_type, "These") }} files can't be read yet. Re-ingest once they can.
+{%- else -%}
+{{ ingest_errors.get(source.error, source.error) }}
+{%- endif -%}
+{%- endmacro %}
+
+{#- The mock's meta line: how many chunks a source has and the model that embedded them, left out
+    for a source with none (#423). -#}
+{% macro chunks_line(source) -%}
+{%- if source.chunk_count %}<span class="text-[13px] lbl-2">{{ source.chunk_count }} chunk{% if source.chunk_count != 1 %}s{% endif %} · {{ source.embedding_model }}</span>{% endif -%}
+{%- endmacro %}
+
 {#- Bytes as the browser's script shows them: KB under a megabyte, else MB to one decimal. -#}
 {% macro file_size(size) -%}
 {%- if size < 1048576 %}{{ [1, (size / 1024) | round | int] | max }} KB{% else %}{{ "%g" | format((size / 1048576) | round(1)) }} MB{% endif -%}
@@ -114,8 +144,9 @@
   <span class="text-[13px] lbl-2">Waiting to be ingested</span>
   {%- endif %}
   {%- if source.status == "failed" and source.error %}
-  <p class="text-[13px]">{{ source.error }}</p>
+  <p class="text-[13px]">{{ ingest_error(source) }}</p>
   {%- endif %}
+  {{ chunks_line(source) }}
   <div class="flex gap-2 mt-1">
     {{ reingest_button(source, true) }}
     {{ delete_button(source, true) }}
@@ -124,12 +155,11 @@
 {%- endmacro %}
 
 {#- Source, Licence, Status and actions (the Admin Staging mock). Chunks and the embedding model
-    fold into the source cell's last line once ingestion records them (#423); until then there is
-    nothing to show. -#}
+    fold into the source cell under the byline (#423). -#}
 {% macro source_row(source) -%}
 <tr class="border-base-content/10 align-top" data-source-id="{{ source.id }}" data-status="{{ source.status }}">
-  <td><span class="flex flex-col gap-0.5"><span class="font-medium">{{ source.title }}</span><span class="text-[13px] lbl-2">{{ byline(source) }}</span>
-    {%- if source.status == "failed" and source.error %}<span class="text-[13px] mt-1">{{ source.error }}</span>{% endif %}</span></td>
+  <td><span class="flex flex-col gap-0.5"><span class="font-medium">{{ source.title }}</span><span class="text-[13px] lbl-2">{{ byline(source) }}</span>{{ chunks_line(source) }}
+    {%- if source.status == "failed" and source.error %}<span class="text-[13px] mt-1">{{ ingest_error(source) }}</span>{% endif %}</span></td>
   <td>{{ licence_cell(source) }}</td>
   <td>{{ status_badge(source, "whitespace-nowrap") }}</td>
   <td><div class="flex justify-end gap-2">
@@ -199,7 +229,7 @@ aria-invalid="{{ 'true' if name in sheet.problems else 'false' }}"
 {%- set existing = sheet.existing %}
 <div class="rounded-2xl bg-base-content/10 p-3 flex flex-col gap-2" role="alert">
   {%- if existing.status == "failed" %}
-  <div class="flex items-start gap-3">{{ icon("circle-alert", "size-5 shrink-0 text-error") }}<p class="text-[14px] leading-5">This file is already here as “{{ existing.title }}”, and its last ingest failed{% if existing.error %}: {{ existing.error }}{% else %}.{% endif %}</p></div>
+  <div class="flex items-start gap-3">{{ icon("circle-alert", "size-5 shrink-0 text-error") }}<p class="text-[14px] leading-5">This file is already here as “{{ existing.title }}”, and its last ingest failed{% if existing.error %}: {{ ingest_error(existing) }}{% else %}.{% endif %}</p></div>
   <button
     type="button"
     class="lg lg-clear lg-sm self-start ml-8"

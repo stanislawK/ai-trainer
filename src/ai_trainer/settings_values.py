@@ -1,0 +1,92 @@
+"""The value types, defaults and checks `Settings` is built from (ADR-0002), kept apart so the
+class stays within the size rule (ADR-0003). Nothing here reads the environment."""
+
+import json
+import re
+from typing import Annotated, Any
+from urllib.parse import urlsplit
+
+from pydantic import BeforeValidator, Field
+from pydantic_settings import NoDecode
+
+from ai_trainer.domain.llm_calls import ProviderPreferences, ReasoningEffort
+
+
+def split_comma_separated(value: Any) -> Any:  # noqa: ANN401 -- raw env input of any type
+    if isinstance(value, str):
+        return [item.strip() for item in value.split(",") if item.strip()]
+    return value
+
+
+CommaSeparated = Annotated[list[str], NoDecode, BeforeValidator(split_comma_separated)]
+
+
+def json_object(value: Any) -> Any:  # noqa: ANN401 -- raw env input of any type
+    # Decoded here, not by pydantic-settings, so a blank value copied from `.env.example` is
+    # unset rather than invalid JSON; the object is then checked field by field.
+    if isinstance(value, str):
+        return json.loads(value) if value.strip() else None
+    return value
+
+
+# A template's OpenRouter provider preferences as one JSON object, e.g.
+# `{"sort": "latency", "preferred_max_latency": {"p90": 2}}` (ADR-0026 step 4).
+ProviderPreferencesSetting = Annotated[
+    ProviderPreferences | None, NoDecode, BeforeValidator(json_object)
+]
+# A template's own call timeout; unset falls back to `llm_call_timeout_seconds`.
+CallTimeout = Annotated[float | None, Field(gt=0)]
+
+# Picked on `onboarding.about_you`'s first eval baseline (ADR-0028, #254): 98% of its
+# assertions at `low` effort on fp8/nvfp4 upstreams sorted by latency. OpenRouter's default
+# price sort lands on an upstream with no structured outputs, which fails the read.
+DEFAULT_ONBOARDING_MODEL = "z-ai/glm-5.3-flash"
+DEFAULT_ONBOARDING_PROVIDER = ProviderPreferences(sort="latency", quantizations=["fp8", "nvfp4"])
+DEFAULT_ONBOARDING_REASONING_EFFORT: ReasoningEffort = "low"
+
+# The starting point for `<sport>.answer` (#421), confirmed by its smoke set: what the other
+# templates run on, at `low` effort so a tool loop stays quick.
+DEFAULT_ANSWER_MODEL = "z-ai/glm-5.3-flash"
+DEFAULT_ANSWER_PROVIDER = ProviderPreferences(sort="latency", quantizations=["fp8", "nvfp4"])
+DEFAULT_ANSWER_REASONING_EFFORT: ReasoningEffort = "low"
+
+# Chosen by the owner at #417 (ADR-0033): one space for English and Polish, on DeepInfra only.
+DEFAULT_EMBEDDING_MODEL = "qwen/qwen3-embedding-8b"
+DEFAULT_EMBEDDING_PROVIDER = ProviderPreferences(only=["deepinfra"])
+
+# A Jev ID carries a version number; aliases such as `~typesafe/jev-latest` move under a
+# calibrated threshold, so they are refused (ADR-0020).
+VERSIONED_DECISION_MODEL = re.compile(r"^[a-z0-9-]+/jev-\d+\.\d+(\.\d+)?(-\d{8})?$")
+# The only hosts `LLM_DEBUG_LOG` may run behind (#278); `localhost.example.com` is public.
+LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1"})
+# Set together or not at all (ADR-0033). `object_storage_region` has a default, so it isn't one.
+OBJECT_STORAGE_KEYS = (
+    "object_storage_endpoint",
+    "object_storage_access_key_id",
+    "object_storage_secret_access_key",
+    "object_storage_uploads_bucket",
+)
+
+
+def http_origin(value: str) -> str | None:
+    """`value` as a lower-case http(s) origin, or None when it is anything else."""
+    try:
+        parts = urlsplit(value.strip())
+        host = parts.hostname or ""
+        port = parts.port
+    except ValueError:
+        return None
+    # An IPv6 literal or a trailing-dot host would never match the Host header Starlette's
+    # trusted-host check compares, locking the app out of every request.
+    has_host = bool(host) and ":" not in host and not host.endswith(".") and port != 0
+    if (
+        parts.scheme not in ("http", "https")
+        or not has_host
+        or parts.path not in ("", "/")
+        or parts.query
+        or parts.fragment
+        or parts.username is not None
+        or parts.password is not None
+    ):
+        return None
+    return f"{parts.scheme}://{parts.netloc.lower()}"

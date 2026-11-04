@@ -54,10 +54,14 @@ class CallAccountant:
         *,
         usage: Callable[[T], CallUsage],
         timeout_seconds: float | None = None,
+        outcome_of: Callable[[T], LlmCallOutcome] | None = None,
     ) -> Attempt[T]:
         """Awaits `call` under `timeout_seconds` (the accountant's own when unset) and records
         it. Every model or provider failure becomes an outcome, never an exception (ADR-0007);
-        a cancelled caller is recorded as `cancelled` and the cancellation goes on."""
+        a cancelled caller is recorded as `cancelled` and the cancellation goes on.
+
+        `outcome_of` reads the outcome from a returned value, for a call that returns its
+        failure (an HTTP error status) instead of raising it; unset, a value is a success."""
         started = time.monotonic()
         try:
             value = await asyncio.wait_for(
@@ -71,8 +75,9 @@ class CallAccountant:
             raise
         except Exception:
             return await self._failed(key, started, LlmCallOutcome.ERROR)
-        await self.shielded(self.write(key, usage(value), started, LlmCallOutcome.SUCCESS))
-        return Attempt(value, LlmCallOutcome.SUCCESS)
+        outcome = LlmCallOutcome.SUCCESS if outcome_of is None else outcome_of(value)
+        await self.shielded(self.write(key, usage(value), started, outcome))
+        return Attempt(value, outcome)
 
     async def _failed(self, key: CallKey, started: float, outcome: LlmCallOutcome) -> Attempt[Any]:
         await self.shielded(self.write(key, CallUsage(), started, outcome))

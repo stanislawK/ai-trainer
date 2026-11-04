@@ -1,12 +1,13 @@
 """Composition root: the only place concrete classes are wired (ADR-0003)."""
 
 import mimetypes
-from collections.abc import AsyncIterator, Callable, Mapping
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from contextlib import asynccontextmanager
 from datetime import timedelta
 from pathlib import Path
 from urllib.parse import urlsplit
 
+import httpx2
 from authlib.integrations.starlette_client import OAuth
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
@@ -42,6 +43,7 @@ from ai_trainer.adapters.google_oauth import AuthlibGoogleOAuthClient
 from ai_trainer.adapters.gym_activity_store import GymActivityStore
 from ai_trainer.adapters.gym_band_order import SqlAlchemyBandOrder
 from ai_trainer.adapters.health import PsycopgDatabaseHealth
+from ai_trainer.adapters.knowledge_chunk_repository import SqlAlchemyKnowledgeIngestionRepository
 from ai_trainer.adapters.knowledge_repository import SqlAlchemyKnowledgeSourcesRepository
 from ai_trainer.adapters.llm_calls_repository import SqlAlchemyLlmCallsRepository
 from ai_trainer.adapters.log_records import configure_logging
@@ -60,6 +62,7 @@ from ai_trainer.application.budgeted_gateways import BudgetedDecisionGateway, Bu
 from ai_trainer.application.exercise_lookup import ExerciseFinder
 from ai_trainer.application.exercise_resolution import ResolutionLimits, ResolveExercises
 from ai_trainer.application.feedback import FeedbackRecorder
+from ai_trainer.application.knowledge_ingestion import KnowledgeIngestion
 from ai_trainer.application.knowledge_sources import KnowledgeSources
 from ai_trainer.application.metered_calls import MeteredLlmCallsRepository
 from ai_trainer.application.model_budget import ModelCallBudget
@@ -69,12 +72,16 @@ from ai_trainer.application.ports.decision_gateway import DecisionGatewayPort
 from ai_trainer.application.ports.draft_settling import DraftSettlerPort
 from ai_trainer.application.ports.llm_gateway import LlmGatewayPort
 from ai_trainer.application.ports.metrics import NO_METRICS, MetricsPort
+from ai_trainer.application.ports.object_storage import ObjectStoragePort
 from ai_trainer.application.reply import ReplyServices
 from ai_trainer.application.training_history import ExerciseTrainingHistory, TrainingHistory
 from ai_trainer.domain.sports.registry import SportRegistry, default_sport_registry
+from ai_trainer.knowledge.chunker import Chunker
+from ai_trainer.knowledge.readers import DocumentReaders
 from ai_trainer.llm.conversation import LlmConversation, build_prompt_registry
 from ai_trainer.llm.debug_log import build_debug_log
 from ai_trainer.llm.decision_gateway import OpenRouterDecisionGateway
+from ai_trainer.llm.embeddings import OpenRouterEmbeddingGateway
 from ai_trainer.llm.exercise_shortlist import JevExercisePicker
 from ai_trainer.llm.gateway import OpenRouterGateway
 from ai_trainer.llm.onboarding import LlmOnboardingReader
@@ -192,6 +199,63 @@ def build_onboarding_reader(
     )
 
 
+def build_uploads_storage(settings: Settings) -> ObstoreObjectStorage | None:
+    """The `uploads` bucket from `OBJECT_STORAGE_*`, or None while they are unset (ADR-0033):
+    the app then lists sources and refuses uploads, and the worker refuses to start."""
+    endpoint = settings.object_storage_endpoint
+    access_key_id = settings.object_storage_access_key_id
+    secret_access_key = settings.object_storage_secret_access_key
+    bucket = settings.object_storage_uploads_bucket
+    if endpoint is None or access_key_id is None or secret_access_key is None or bucket is None:
+        return None
+    return ObstoreObjectStorage(
+        endpoint=endpoint,
+        region=settings.object_storage_region,
+        access_key_id=access_key_id.get_secret_value(),
+        secret_access_key=secret_access_key.get_secret_value(),
+        bucket=bucket,
+        timeout_seconds=settings.object_storage_timeout_seconds,
+    )
+
+
+def build_knowledge_ingestion(
+    settings: Settings,
+    storage: ObjectStoragePort,
+    session_factory: Callable[[], AsyncSession],
+    *,
+    sleep: Callable[[float], Awaitable[None]],
+    embedding_transport: httpx2.AsyncBaseTransport | None = None,
+) -> KnowledgeIngestion:
+    """`ai-trainer ingest-worker`'s worker, outside the web process (ADR-0036). Its embedding
+    calls are outside ADR-0029's per-user budget, bounded by its concurrency of 1; each still
+    writes its `llm_calls` row."""
+    return KnowledgeIngestion(
+        repository=SqlAlchemyKnowledgeIngestionRepository(session_factory),
+        storage=storage,
+        readers=DocumentReaders(),
+        chunker=Chunker(
+            max_words=settings.knowledge_chunk_max_words,
+            min_words=settings.knowledge_chunk_min_words,
+        ),
+        embeddings=OpenRouterEmbeddingGateway(
+            api_key=settings.openrouter_api_key.get_secret_value(),
+            model=settings.embedding_model,
+            dimensions=settings.embedding_dim,
+            provider=settings.embedding_provider_preferences,
+            timeout_seconds=settings.embedding_call_timeout_seconds,
+            calls_repository=SqlAlchemyLlmCallsRepository(session_factory),
+            http_client=httpx2.AsyncClient(
+                transport=embedding_transport, timeout=settings.embedding_call_timeout_seconds
+            ),
+        ),
+        clock=UtcClock(),
+        sleep=sleep,
+        batch_size=settings.knowledge_embedding_batch_size,
+        max_attempts=settings.knowledge_embedding_max_attempts,
+        lease=timedelta(seconds=settings.knowledge_ingest_lease_seconds),
+    )
+
+
 def build_knowledge_sources(
     settings: Settings,
     session_factory: Callable[[], AsyncSession],
@@ -200,22 +264,7 @@ def build_knowledge_sources(
 ) -> KnowledgeSources:
     """The admin's knowledge uploads (ADR-0033). Without the `OBJECT_STORAGE_*` settings the
     page still lists sources and refuses an upload, so a release never waits on the keys."""
-    endpoint = settings.object_storage_endpoint
-    access_key_id = settings.object_storage_access_key_id
-    secret_access_key = settings.object_storage_secret_access_key
-    bucket = settings.object_storage_uploads_bucket
-    storage = (
-        ObstoreObjectStorage(
-            endpoint=endpoint,
-            region=settings.object_storage_region,
-            access_key_id=access_key_id.get_secret_value(),
-            secret_access_key=secret_access_key.get_secret_value(),
-            bucket=bucket,
-            timeout_seconds=settings.object_storage_timeout_seconds,
-        )
-        if endpoint and access_key_id and secret_access_key and bucket
-        else None
-    )
+    storage = build_uploads_storage(settings)
     return KnowledgeSources(
         sources=SqlAlchemyKnowledgeSourcesRepository(session_factory),
         storage=storage,
