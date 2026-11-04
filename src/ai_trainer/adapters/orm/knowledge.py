@@ -132,6 +132,9 @@ class KnowledgeSourceOrm(Base):
     lease_expires_at: Mapped[datetime | None] = mapped_column(
         TIMESTAMP(timezone=True), nullable=True
     )
+    # What the last ingest stored, written with its chunks, for the admin list (#423).
+    chunk_count: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    embedding_model: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class KnowledgeChunkOrm(Base):

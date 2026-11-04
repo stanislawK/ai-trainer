@@ -3,7 +3,7 @@ a closed reason, a lost claim or a deleted source writing nothing, the heartbeat
 lease. The ACs on the real database are in `tests/integration/test_knowledge_ingestion.py`."""
 
 import asyncio
-from datetime import timedelta
+from datetime import datetime, timedelta
 from uuid import UUID, uuid4
 
 import pytest
@@ -374,6 +374,70 @@ async def test_a_claim_lost_during_the_last_batch_writes_nothing() -> None:
 
     assert report == IngestReport(source_id=source.id, result="gone")
     assert queue.chunks == {}
+
+
+async def test_a_retry_after_is_kept_within_zero_and_the_cap() -> None:
+    source, storage = _stored("retry-after-bounds")
+    sleep = RecordedSleep()
+
+    await ingestion(
+        repository=MemoryQueue(source),
+        storage=storage,
+        embeddings=ScriptedEmbeddings(
+            RateLimited(retry_after_seconds=86400.0), RateLimited(retry_after_seconds=-5.0)
+        ),
+        clock=FrozenClock(),
+        sleep=sleep,
+    ).ingest_next()
+
+    assert sleep.waits == [30.0, 0.0]
+
+
+async def test_an_unexpected_error_fails_the_source_instead_of_crashing_the_worker() -> None:
+    source, storage = _stored("unexpected")
+    queue = MemoryQueue(source)
+
+    async def _explode() -> None:
+        raise RuntimeError("a bug, not a provider failure")
+
+    report = await ingestion(
+        repository=queue,
+        storage=storage,
+        embeddings=ScriptedEmbeddings(during=_explode),
+        clock=FrozenClock(),
+    ).ingest_next()
+
+    assert report == IngestReport(
+        source_id=source.id, result="failed", reason=IngestFailure.INGEST_ERROR
+    )
+    assert queue.sources[source.id].error == "ingest_error"
+
+
+async def test_a_heartbeat_that_errors_keeps_beating_and_never_fails_the_ingest() -> None:
+    source, storage = _stored("heartbeat-blip")
+    queue = MemoryQueue(source)
+    calls = 0
+    original = queue.heartbeat
+
+    async def _flaky(source_id: UUID, *, claim_id: UUID, lease_until: datetime) -> bool:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise OSError("database blip")
+        return await original(source_id, claim_id=claim_id, lease_until=lease_until)
+
+    queue.heartbeat = _flaky  # type: ignore[method-assign]  # a repository whose first beat fails
+
+    report = await ingestion(
+        repository=queue,
+        storage=storage,
+        embeddings=ScriptedEmbeddings(during=lambda: asyncio.sleep(0.05)),
+        clock=FrozenClock(),
+        lease=timedelta(milliseconds=30),
+    ).ingest_next()
+
+    assert report == IngestReport(source_id=source.id, result="ingested", chunks=3)
+    assert calls >= 2
 
 
 async def test_run_polls_until_cancelled() -> None:

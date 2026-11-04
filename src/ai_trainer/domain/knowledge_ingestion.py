@@ -26,6 +26,9 @@ class IngestFailure(StrEnum):
     # The uploading admin's account is gone, so no one can be the calls' acting user (ADR-0018);
     # a re-ingest names an admin again.
     NO_ACTING_ADMIN = "no_acting_admin"
+    # Anything else that went wrong reading, chunking or embedding the file: a bug or a file no
+    # reader expected. The source fails instead of crashing the worker on every retry.
+    INGEST_ERROR = "ingest_error"
 
 
 @dataclass(frozen=True, slots=True)

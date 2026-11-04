@@ -48,7 +48,7 @@ from ai_trainer.adapters.knowledge_repository import SqlAlchemyKnowledgeSourcesR
 from ai_trainer.adapters.llm_calls_repository import SqlAlchemyLlmCallsRepository
 from ai_trainer.adapters.log_records import configure_logging
 from ai_trainer.adapters.metrics import OtelMetrics
-from ai_trainer.adapters.object_storage import uploads_storage
+from ai_trainer.adapters.object_storage import ObstoreObjectStorage
 from ai_trainer.adapters.onboarding_repository import SqlAlchemyOnboardingRepository
 from ai_trainer.adapters.session_draft_repository import SqlAlchemySessionDraftRepository
 from ai_trainer.adapters.sessions_repository import SqlAlchemySessionsRepository
@@ -199,6 +199,25 @@ def build_onboarding_reader(
     )
 
 
+def build_uploads_storage(settings: Settings) -> ObstoreObjectStorage | None:
+    """The `uploads` bucket from `OBJECT_STORAGE_*`, or None while they are unset (ADR-0033):
+    the app then lists sources and refuses uploads, and the worker refuses to start."""
+    endpoint = settings.object_storage_endpoint
+    access_key_id = settings.object_storage_access_key_id
+    secret_access_key = settings.object_storage_secret_access_key
+    bucket = settings.object_storage_uploads_bucket
+    if endpoint is None or access_key_id is None or secret_access_key is None or bucket is None:
+        return None
+    return ObstoreObjectStorage(
+        endpoint=endpoint,
+        region=settings.object_storage_region,
+        access_key_id=access_key_id.get_secret_value(),
+        secret_access_key=secret_access_key.get_secret_value(),
+        bucket=bucket,
+        timeout_seconds=settings.object_storage_timeout_seconds,
+    )
+
+
 def build_knowledge_ingestion(
     settings: Settings,
     storage: ObjectStoragePort,
@@ -245,7 +264,7 @@ def build_knowledge_sources(
 ) -> KnowledgeSources:
     """The admin's knowledge uploads (ADR-0033). Without the `OBJECT_STORAGE_*` settings the
     page still lists sources and refuses an upload, so a release never waits on the keys."""
-    storage = uploads_storage(settings)
+    storage = build_uploads_storage(settings)
     return KnowledgeSources(
         sources=SqlAlchemyKnowledgeSourcesRepository(session_factory),
         storage=storage,

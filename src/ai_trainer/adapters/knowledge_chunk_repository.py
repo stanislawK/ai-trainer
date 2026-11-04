@@ -83,7 +83,11 @@ class SqlAlchemyKnowledgeIngestionRepository:
             .where(
                 or_(
                     _S.status == SourceStatus.UPLOADED.value,
-                    and_(_S.status == SourceStatus.INGESTING.value, _S.lease_expires_at < now),
+                    # A lapsed lease, or none at all: an `ingesting` row no worker leases.
+                    and_(
+                        _S.status == SourceStatus.INGESTING.value,
+                        or_(_S.lease_expires_at.is_(None), _S.lease_expires_at < now),
+                    ),
                 )
             )
             .order_by(_S.uploaded_at, _S.id)
@@ -146,6 +150,8 @@ class SqlAlchemyKnowledgeIngestionRepository:
                 )
             source.status = SourceStatus.INGESTED.value
             source.ingested_at = ingested_at
+            source.chunk_count = len(rows)
+            source.embedding_model = model
             source.error = None
             source.claim_id = None
             source.lease_expires_at = None

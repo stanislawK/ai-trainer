@@ -192,6 +192,30 @@ async def test_a_live_lease_is_not_claimed_twice(world: _World) -> None:
     assert await world.status(source.id) == (SourceStatus.INGESTING, None)
 
 
+async def test_an_ingesting_source_with_no_lease_is_taken_over(world: _World) -> None:
+    source = await world.add("no-lease", status=SourceStatus.INGESTING)
+
+    reports = await world.ingest_once()
+
+    assert reports == [IngestReport(source_id=source.id, result="ingested", chunks=3)]
+
+
+async def test_a_failed_reingest_keeps_the_last_chunks_and_their_count(world: _World) -> None:
+    source = await world.add("failed-reingest")
+    await world.ingest_once()
+    assert isinstance(await world.service.reingest(world.admin.id, source.id), ReingestQueued)
+
+    await world.ingest_once(ScriptedEmbeddings(EmbeddingFailed(reason=EmbeddingFailure.ERROR)))
+
+    listed = next(s for s in await world.sources.list_all() if s.id == source.id)
+    assert (listed.status, listed.chunk_count, listed.embedding_model) == (
+        SourceStatus.FAILED,
+        3,
+        MODEL,
+    )
+    assert len(await world.chunks(source.id)) == 3
+
+
 async def test_a_heartbeat_extends_only_its_own_live_claim(world: _World) -> None:
     source = await world.add("heartbeat")
     now = world.clock.now()

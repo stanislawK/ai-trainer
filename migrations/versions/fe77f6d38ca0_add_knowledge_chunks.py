@@ -10,9 +10,11 @@ Expand only (ADR-0024), for #423:
   is created empty with its indexes in this transaction, so no lock is held on live data. It has
   no `user_id` and no reference to `users`: a chunk holds no athlete data (ADR-0011 invariant 2),
   and it goes with its source by cascade.
-- `knowledge_sources` gains two nullable columns, `claim_id` and `lease_expires_at`, the worker's
-  claim and its heartbeat lease (research knowledge-base.md rec 10). No default, no backfill:
-  every existing row reads NULL, which is "not claimed".
+- `knowledge_sources` gains four nullable columns: `claim_id` and `lease_expires_at`, the
+  worker's claim and its heartbeat lease (research knowledge-base.md rec 10), and `chunk_count`
+  and `embedding_model`, what the last ingest stored, so the admin list never aggregates the
+  chunks. No default, no backfill: every existing row reads NULL, which is "not claimed" and
+  "no chunks".
 
 Release N's code never reads either, so an app rollback stays safe (invariant 4).
 """
@@ -40,6 +42,8 @@ def upgrade() -> None:
         "knowledge_sources",
         sa.Column("lease_expires_at", sa.TIMESTAMP(timezone=True), nullable=True),
     )
+    op.add_column("knowledge_sources", sa.Column("chunk_count", sa.BigInteger(), nullable=True))
+    op.add_column("knowledge_sources", sa.Column("embedding_model", sa.Text(), nullable=True))
     op.create_table(
         "knowledge_chunks",
         sa.Column("id", sa.Uuid(), nullable=False),
@@ -110,5 +114,7 @@ def upgrade() -> None:
 def downgrade() -> None:
     # Dev and tests only; production is fixed forward, never downgraded (ADR-0024).
     op.drop_table("knowledge_chunks")
+    op.drop_column("knowledge_sources", "embedding_model")
+    op.drop_column("knowledge_sources", "chunk_count")
     op.drop_column("knowledge_sources", "lease_expires_at")
     op.drop_column("knowledge_sources", "claim_id")

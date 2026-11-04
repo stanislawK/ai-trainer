@@ -71,7 +71,7 @@ from ai_trainer.adapters.exercise_repository import SqlAlchemyExerciseRepository
 from ai_trainer.adapters.exercises_dataset import PinnedDatasetCatalogueSource
 from ai_trainer.adapters.feedback_repository import SqlAlchemyFeedbackEventsRepository
 from ai_trainer.adapters.gym_backfill import SqlAlchemyGymBackfillStore
-from ai_trainer.adapters.object_storage import UrllibPresignedLinks, uploads_storage
+from ai_trainer.adapters.object_storage import UrllibPresignedLinks
 from ai_trainer.application.exercise_catalogue import import_catalogue
 from ai_trainer.application.feedback import count_signals
 from ai_trainer.application.gym_backfill import backfill_gym_sessions as run_gym_backfill
@@ -89,7 +89,7 @@ from ai_trainer.application.storage_check import STEPS, check_storage
 from ai_trainer.domain.exercises import ExerciseCatalogueError, ExerciseDatasetError
 from ai_trainer.domain.knowledge_ingestion import IngestReport
 from ai_trainer.llm.debug_report import report
-from ai_trainer.main import build_knowledge_ingestion
+from ai_trainer.main import build_knowledge_ingestion, build_uploads_storage
 from ai_trainer.settings import Settings
 
 PURGE_CONVERSATIONS = "purge-conversations"
@@ -217,7 +217,7 @@ async def feedback_report(
 async def storage_check(
     settings: Settings, *, sleep: Callable[[float], Awaitable[None]], output: TextIO
 ) -> int:
-    storage = uploads_storage(settings)
+    storage = build_uploads_storage(settings)
     if storage is None:
         output.write(f"{STORAGE_CHECK}: result=failed reason=not_configured\n")
         return 1
@@ -306,7 +306,7 @@ async def run(
                 store=SqlAlchemyGymBackfillStore(build_session_factory(engine)), output=output
             )
         if args.command == INGEST_WORKER:
-            storage = uploads_storage(settings)
+            storage = build_uploads_storage(settings)
             if storage is None:
                 output.write(f"{INGEST_WORKER}: result=failed reason=not_configured\n")
                 return 1

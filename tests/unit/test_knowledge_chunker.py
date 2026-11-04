@@ -76,6 +76,15 @@ def test_a_sentence_over_the_budget_splits_on_words() -> None:
     assert [word_count(c.text) for c in chunks] == [30, 30, 10]
 
 
+def test_a_list_over_the_budget_splits_between_its_items_and_keeps_them_apart() -> None:
+    items = [f"- {_words(12)} item{n}" for n in range(3)]  # 14 words each; two fit in 30
+    block = Block(kind=BlockKind.LIST, text="\n".join(items), heading_path=("Plan",))
+
+    chunks = _chunk(block)
+
+    assert [c.text for c in chunks] == [f"{items[0]}\n{items[1]}", items[2]]
+
+
 def test_a_table_stays_whole_with_its_caption_even_over_the_budget() -> None:
     table = Block(kind=BlockKind.TABLE, text="\n".join(["| a |"] * 40), heading_path=("Results",))
     caption = Block(kind=BlockKind.CAPTION, text="Table 1. Sets.", heading_path=("Results",))

@@ -823,30 +823,18 @@ async def test_a_422_source_still_lists_and_re_ingests(
 # --- #423: the chunks line and the failed source's reason ----------------------------------
 
 
-async def _add_chunks(
+async def _set_chunk_stats(
     factory: Callable[[], AsyncSession], source_id: UUID, count: int, model: str
 ) -> None:
-    vector = "[" + ",".join(["0.1"] * 1024) + "]"
+    """What the worker's `finish` writes with a source's chunks (#423)."""
     async with factory() as session:
-        for ordinal in range(count):
-            await session.execute(
-                text(
-                    "INSERT INTO knowledge_chunks (id, source_id, ordinal, text, embedding,"
-                    " embedding_model, sports, language, section_kind, locator, search_vector,"
-                    " created_at) VALUES (:id, :source, :ordinal, 'Deload.',"
-                    " CAST(:vector AS vector), :model, '{gym}', 'en', 'body',"
-                    " CAST(:locator AS jsonb), 'deload', :at)"
-                ),
-                {
-                    "id": uuid4(),
-                    "source": source_id,
-                    "ordinal": ordinal,
-                    "vector": vector,
-                    "model": model,
-                    "locator": '{"kind": "section"}',
-                    "at": FROZEN_NOW,
-                },
-            )
+        await session.execute(
+            text(
+                "UPDATE knowledge_sources SET chunk_count = :count, embedding_model = :model"
+                " WHERE id = :id"
+            ),
+            {"count": count, "model": model, "id": source_id},
+        )
         await session.commit()
 
 
@@ -862,7 +850,7 @@ async def test_an_ingested_source_shows_its_chunk_count_and_model(
     _, source = await _stored_with_status(
         page, db_session_factory, f"chunks-{count}", "ingested", None
     )
-    await _add_chunks(db_session_factory, source.id, count, "qwen/qwen3-embedding-8b")
+    await _set_chunk_stats(db_session_factory, source.id, count, "qwen/qwen3-embedding-8b")
 
     html = _source_html(page.client.get("/admin/knowledge").text, source.id)
 
@@ -891,9 +879,20 @@ async def test_a_source_without_chunks_shows_no_chunks_line(
         ("embedding_failed", "The embedding call failed. Try Re-ingest."),
         ("rate_limited", "OpenRouter kept answering “too many requests”. Try Re-ingest later."),
         ("no_acting_admin", "The admin who uploaded it no longer has an account."),
+        ("ingest_error", "Ingestion failed unexpectedly. Try Re-ingest"),
         ("Something only #422 wrote.", "Something only #422 wrote."),
     ],
-    ids=["no_reader", "not_utf8", "no_text", "missing", "embedding", "rate", "orphan", "free"],
+    ids=[
+        "no_reader",
+        "not_utf8",
+        "no_text",
+        "missing",
+        "embedding",
+        "rate",
+        "orphan",
+        "unexpected",
+        "free",
+    ],
 )
 async def test_a_failed_source_words_its_reason(
     db_session_factory: Callable[[], AsyncSession], error: str, copy: str

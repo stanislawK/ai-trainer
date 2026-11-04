@@ -17,6 +17,7 @@ They are outside ADR-0029's per-user budget, bounded by the worker's concurrency
 
 import asyncio
 import contextlib
+import logging
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from datetime import timedelta
@@ -48,7 +49,8 @@ from ai_trainer.domain.knowledge_document import (
 from ai_trainer.domain.knowledge_ingestion import EmbeddedChunk, IngestFailure, IngestReport
 from ai_trainer.domain.object_storage import ObjectNotFoundError, ObjectStorageError
 
-# 1 s, doubling, at most 30 s, when a 429 doesn't say how long to wait.
+# 1 s, doubling, at most 30 s, when a 429 doesn't say how long to wait; a wait it names is kept
+# between 0 and the same cap, so one answer can't stall the queue.
 _BACKOFF_START_SECONDS = 1.0
 _BACKOFF_CAP_SECONDS = 30.0
 _EMBEDDING_FAILURES = {
@@ -60,6 +62,9 @@ _UNREADABLE = {
     UnreadableReason.NOT_UTF8: IngestFailure.NOT_UTF8,
     UnreadableReason.NO_TEXT: IngestFailure.NO_TEXT,
 }
+
+
+logger = logging.getLogger(__name__)
 
 
 class _ClaimLostError(Exception):
@@ -137,9 +142,14 @@ class KnowledgeIngestion:
         interval = self._lease.total_seconds() / 3
         while True:
             await asyncio.sleep(interval)
-            renewed = await self._repository.heartbeat(
-                source_id, claim_id=claim_id, lease_until=self._clock.now() + self._lease
-            )
+            try:
+                renewed = await self._repository.heartbeat(
+                    source_id, claim_id=claim_id, lease_until=self._clock.now() + self._lease
+                )
+            except Exception as exc:
+                # A blip: the next beat tries again, and `finish` checks the claim regardless.
+                logger.warning("ingest heartbeat failed: %s", type(exc).__name__)
+                continue
             if not renewed:
                 lost.set()
                 return
@@ -151,6 +161,10 @@ class KnowledgeIngestion:
             outcome = await self._read_and_embed(source, lost)
         except _ClaimLostError:
             return IngestReport(source_id=source.id, result="gone")
+        except Exception as exc:
+            # Never the file's content: only what kind of failure it was.
+            logger.exception("ingest failed unexpectedly: %s", type(exc).__name__)
+            outcome = IngestFailure.INGEST_ERROR
         if isinstance(outcome, IngestFailure):
             failed = await self._repository.fail(source.id, claim_id=claim_id, reason=outcome)
             if not failed:
@@ -238,6 +252,10 @@ class KnowledgeIngestion:
                 case RateLimited(retry_after_seconds=retry_after):
                     if attempt == self._max_attempts:
                         break
-                    await self._sleep(wait if retry_after is None else retry_after)
+                    await self._sleep(
+                        wait
+                        if retry_after is None
+                        else min(max(retry_after, 0.0), _BACKOFF_CAP_SECONDS)
+                    )
                     wait = min(wait * 2, _BACKOFF_CAP_SECONDS)
         return IngestFailure.RATE_LIMITED

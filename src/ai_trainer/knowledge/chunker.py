@@ -48,8 +48,9 @@ class _Draft:
 @dataclass(frozen=True)
 class _Unit:
     text: str
-    # Joined to the previous unit of the same block with a space, otherwise a blank line.
-    continues: bool
+    # What joins it to the previous unit of the same block: a line end between a list's items,
+    # a space inside a split line. None starts a new block, after a blank line.
+    joiner: str | None
 
 
 def _names(path: Sequence[str]) -> set[str]:
@@ -129,7 +130,7 @@ class Chunker:
                     yield _Draft("".join(texts), path, kind, locator)
                     texts, words, locator = [], 0, None
                 if texts:
-                    texts.append(" " if unit.continues else "\n\n")
+                    texts.append(unit.joiner or "\n\n")
                 texts.append(unit.text)
                 words += size
                 locator = locator or block.locator
@@ -138,16 +139,23 @@ class Chunker:
             yield _Draft("".join(texts), path, kind, locator)
 
     def _units(self, text: str) -> Iterator[_Unit]:
-        """A block as one unit, or split on sentence ends and then words when over budget."""
+        """A block as one unit, or, over budget, split between its lines (a list's items), then
+        on sentence ends, then on words."""
         if word_count(text) <= self._max:
-            yield _Unit(text, continues=False)
+            yield _Unit(text, joiner=None)
             return
-        first = True
-        for sentence in _SENTENCE_END.split(text):
+        joiner: str | None = None
+        for line in text.split("\n"):
+            for piece in self._pieces(line):
+                yield _Unit(piece, joiner=joiner)
+                joiner = " "
+            joiner = "\n"
+
+    def _pieces(self, line: str) -> Iterator[str]:
+        for sentence in _SENTENCE_END.split(line):
             words = sentence.split()
             for start in range(0, len(words), self._max):
-                yield _Unit(" ".join(words[start : start + self._max]), continues=not first)
-                first = False
+                yield " ".join(words[start : start + self._max])
 
     def _merge_siblings(self, drafts: list[tuple[_Draft, bool]]) -> Iterator[_Draft]:
         group: list[_Draft] = []

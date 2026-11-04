@@ -1,11 +1,11 @@
 from collections.abc import Callable, Sequence
 from uuid import UUID
 
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ai_trainer.adapters.orm import KnowledgeChunkOrm, KnowledgeSourceOrm
+from ai_trainer.adapters.orm import KnowledgeSourceOrm
 from ai_trainer.domain.knowledge import (
     REINGESTABLE,
     DuplicateSourceError,
@@ -21,9 +21,7 @@ from ai_trainer.domain.knowledge import (
 )
 
 
-def to_domain(
-    row: KnowledgeSourceOrm, *, chunk_count: int = 0, embedding_model: str | None = None
-) -> KnowledgeSource:
+def to_domain(row: KnowledgeSourceOrm) -> KnowledgeSource:
     return KnowledgeSource(
         id=row.id,
         title=row.title,
@@ -57,8 +55,8 @@ def to_domain(
         uploaded_by_user_id=row.uploaded_by_user_id,
         uploaded_at=row.uploaded_at,
         ingested_at=row.ingested_at,
-        chunk_count=chunk_count,
-        embedding_model=embedding_model,
+        chunk_count=row.chunk_count or 0,
+        embedding_model=row.embedding_model,
     )
 
 
@@ -69,28 +67,13 @@ class SqlAlchemyKnowledgeSourcesRepository:
         self._session_factory = session_factory
 
     async def list_all(self) -> Sequence[KnowledgeSource]:
-        # Each source's chunk count and model, from one grouped pass over its chunks (#423). A
-        # source's chunks come from one ingest, so they share one model.
-        chunks = (
-            select(
-                KnowledgeChunkOrm.source_id,
-                func.count().label("chunk_count"),
-                func.min(KnowledgeChunkOrm.embedding_model).label("embedding_model"),
-            )
-            .group_by(KnowledgeChunkOrm.source_id)
-            .subquery()
-        )
-        statement = (
-            select(KnowledgeSourceOrm, chunks.c.chunk_count, chunks.c.embedding_model)
-            .outerjoin(chunks, chunks.c.source_id == KnowledgeSourceOrm.id)
-            .order_by(KnowledgeSourceOrm.uploaded_at.desc(), KnowledgeSourceOrm.id)
-        )
         async with self._session_factory() as session:
-            rows = await session.execute(statement)
-            return [
-                to_domain(row, chunk_count=count or 0, embedding_model=model)
-                for row, count, model in rows.tuples()
-            ]
+            rows = await session.scalars(
+                select(KnowledgeSourceOrm).order_by(
+                    KnowledgeSourceOrm.uploaded_at.desc(), KnowledgeSourceOrm.id
+                )
+            )
+            return [to_domain(row) for row in rows]
 
     async def list_page(self, *, after: UUID | None, limit: int) -> Sequence[KnowledgeSource]:
         query = select(KnowledgeSourceOrm).order_by(KnowledgeSourceOrm.id).limit(limit)

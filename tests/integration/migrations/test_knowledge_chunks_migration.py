@@ -129,7 +129,8 @@ def test_the_migration_downgrades_and_upgrades_again_keeping_sources() -> None:
         command.upgrade(cfg, "head")
         with _connect() as conn:
             claim = conn.execute(
-                "SELECT claim_id, lease_expires_at FROM knowledge_sources WHERE id = %s",
+                "SELECT claim_id, lease_expires_at, chunk_count, embedding_model"
+                " FROM knowledge_sources WHERE id = %s",
                 (source_id,),
             ).fetchone()
     finally:
@@ -138,4 +139,4 @@ def test_the_migration_downgrades_and_upgrades_again_keeping_sources() -> None:
             conn.execute("DELETE FROM knowledge_sources WHERE id = %s", (source_id,))
             conn.commit()
     assert gone == (None,)
-    assert claim == (None, None)
+    assert claim == (None, None, None, None)
