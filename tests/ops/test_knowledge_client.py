@@ -5,6 +5,7 @@ import json
 import runpy
 import sys
 from email.message import Message
+from http.client import IncompleteRead
 from io import BytesIO
 from pathlib import Path
 from types import TracebackType
@@ -179,6 +180,21 @@ def test_connection_error_never_prints_the_token(
 
     captured = capsys.readouterr()
     assert captured.err.strip()
+    assert TOKEN not in captured.out + captured.err
+
+
+def test_a_dropped_connection_mid_response_never_prints_the_token(
+    configured: None, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def fake(request: Request, timeout: float) -> _Response:
+        raise IncompleteRead(TOKEN.encode())
+
+    monkeypatch.setattr(knowledge_client, "urlopen", fake)
+
+    assert knowledge_client.main(["list"]) == 1
+
+    captured = capsys.readouterr()
+    assert "IncompleteRead" in captured.err
     assert TOKEN not in captured.out + captured.err
 
 

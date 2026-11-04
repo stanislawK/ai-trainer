@@ -15,6 +15,7 @@ import json
 import os
 import sys
 from collections.abc import Sequence
+from http.client import HTTPException
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
@@ -45,7 +46,7 @@ def fetch_page(request: Request) -> dict[str, Any]:
     except HTTPError as error:
         error.close()
         raise ClientError(f"the knowledge API answered HTTP {error.code}") from None
-    except (URLError, OSError, ValueError) as error:
+    except (URLError, OSError, ValueError, HTTPException) as error:
         raise ClientError(f"the knowledge API was unreachable ({type(error).__name__})") from None
     try:
         page = json.loads(body)
