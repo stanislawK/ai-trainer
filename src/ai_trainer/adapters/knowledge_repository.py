@@ -80,7 +80,7 @@ class SqlAlchemyKnowledgeSourcesRepository:
         if after is not None:
             query = query.where(KnowledgeSourceOrm.id > after)
         async with self._session_factory() as session:
-            return [_to_domain(row) for row in await session.scalars(query)]
+            return [to_domain(row) for row in await session.scalars(query)]
 
     async def get(self, source_id: UUID) -> KnowledgeSource | None:
         async with self._session_factory() as session:
