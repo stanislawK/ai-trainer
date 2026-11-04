@@ -1,0 +1,449 @@
+"""The ingestion use case on fakes (ADR-0036, #423): batches with backoff on 429, every failure
+a closed reason, a lost claim or a deleted source writing nothing, the heartbeat renewing the
+lease. The ACs on the real database are in `tests/integration/test_knowledge_ingestion.py`."""
+
+import asyncio
+from collections.abc import Sequence
+from datetime import datetime, timedelta
+from uuid import UUID, uuid4
+
+import pytest
+
+from ai_trainer.domain.embeddings import (
+    Embedded,
+    EmbeddingFailed,
+    EmbeddingFailure,
+    RateLimited,
+)
+from ai_trainer.domain.knowledge import KnowledgeFileType, KnowledgeSource, SourceStatus
+from ai_trainer.domain.knowledge_ingestion import EmbeddedChunk, IngestFailure, IngestReport
+from tests.ingestion_support import (
+    DIMENSIONS,
+    MODEL,
+    FrozenClock,
+    RecordedSleep,
+    ScriptedEmbeddings,
+    guide_markdown,
+    ingestion,
+    uploaded_source,
+)
+from tests.knowledge_support import MemoryStorage
+
+_ADMIN = uuid4()
+
+
+class MemoryQueue:
+    """Implements `KnowledgeIngestionRepositoryPort` in memory, one claim at a time."""
+
+    def __init__(self, *sources: KnowledgeSource) -> None:
+        self.sources = {source.id: source for source in sources}
+        self.claims: dict[UUID, UUID] = {}
+        self.leases: dict[UUID, datetime] = {}
+        self.chunks: dict[UUID, list[EmbeddedChunk]] = {}
+        self.models: dict[UUID, str] = {}
+        self.heartbeats = 0
+        self.steal_on_heartbeat = False
+
+    async def claim_next(
+        self, *, claim_id: UUID, now: datetime, lease_until: datetime
+    ) -> KnowledgeSource | None:
+        for source in self.sources.values():
+            if source.status is SourceStatus.UPLOADED:
+                self.sources[source.id] = source.model_copy(
+                    update={"status": SourceStatus.INGESTING}
+                )
+                self.claims[source.id] = claim_id
+                self.leases[source.id] = lease_until
+                return self.sources[source.id]
+        return None
+
+    def _holds(self, source_id: UUID, claim_id: UUID) -> bool:
+        return source_id in self.sources and self.claims.get(source_id) == claim_id
+
+    async def heartbeat(self, source_id: UUID, *, claim_id: UUID, lease_until: datetime) -> bool:
+        self.heartbeats += 1
+        if self.steal_on_heartbeat:
+            self.claims[source_id] = uuid4()
+        if not self._holds(source_id, claim_id):
+            return False
+        self.leases[source_id] = lease_until
+        return True
+
+    async def finish(
+        self,
+        source_id: UUID,
+        *,
+        claim_id: UUID,
+        chunks: Sequence[EmbeddedChunk],
+        model: str,
+        ingested_at: datetime,
+    ) -> bool:
+        if not self._holds(source_id, claim_id):
+            return False
+        self.chunks[source_id] = list(chunks)
+        self.models[source_id] = model
+        self.sources[source_id] = self.sources[source_id].model_copy(
+            update={"status": SourceStatus.INGESTED, "ingested_at": ingested_at}
+        )
+        return True
+
+    async def fail(self, source_id: UUID, *, claim_id: UUID, reason: IngestFailure) -> bool:
+        if not self._holds(source_id, claim_id):
+            return False
+        self.sources[source_id] = self.sources[source_id].model_copy(
+            update={"status": SourceStatus.FAILED, "error": reason.value}
+        )
+        return True
+
+
+def _stored(
+    marker: str,
+    *,
+    data: bytes | None = None,
+    file_type: KnowledgeFileType = KnowledgeFileType.MARKDOWN,
+    admin_id: UUID | None = _ADMIN,
+) -> tuple[KnowledgeSource, MemoryStorage]:
+    new = uploaded_source(admin_id=admin_id, marker=marker, file_type=file_type)
+    storage = MemoryStorage()
+    assert new.storage_key is not None
+    storage.objects[new.storage_key] = guide_markdown(marker) if data is None else data
+    return KnowledgeSource(**new.model_dump()), storage
+
+
+async def test_chunks_are_embedded_in_batches_as_title_and_heading_path_then_text() -> None:
+    source, storage = _stored("batches")
+    queue = MemoryQueue(source)
+    embeddings = ScriptedEmbeddings()
+
+    report = await ingestion(
+        repository=queue, storage=storage, embeddings=embeddings, clock=FrozenClock()
+    ).ingest_next()
+
+    assert report == IngestReport(source_id=source.id, result="ingested", chunks=3)
+    assert [len(texts) for texts, _ in embeddings.calls] == [2, 1]
+    assert {admin for _, admin in embeddings.calls} == {_ADMIN}
+    first = embeddings.calls[0][0][0]
+    assert first.startswith(f"{source.title} — Deload guide > Why\n\nFatigue masks")
+    assert queue.models[source.id] == MODEL
+    assert [c.chunk.ordinal for c in queue.chunks[source.id]] == [0, 1, 2]
+    assert all(len(c.embedding) == DIMENSIONS for c in queue.chunks[source.id])
+
+
+async def test_nothing_to_claim_reports_nothing() -> None:
+    queue = MemoryQueue()
+
+    report = await ingestion(
+        repository=queue,
+        storage=MemoryStorage(),
+        embeddings=ScriptedEmbeddings(),
+        clock=FrozenClock(),
+    ).ingest_next()
+
+    assert report is None
+
+
+async def test_drain_ingests_every_queued_source_then_stops() -> None:
+    first, storage = _stored("drain-1")
+    second = KnowledgeSource(**uploaded_source(admin_id=_ADMIN, marker="drain-2").model_dump())
+    assert second.storage_key is not None
+    storage.objects[second.storage_key] = guide_markdown("drain-2")
+    queue = MemoryQueue(first, second)
+
+    reports = await ingestion(
+        repository=queue, storage=storage, embeddings=ScriptedEmbeddings(), clock=FrozenClock()
+    ).drain()
+
+    assert [(r.source_id, r.result) for r in reports] == [
+        (first.id, "ingested"),
+        (second.id, "ingested"),
+    ]
+
+
+async def test_a_rate_limited_batch_backs_off_then_succeeds() -> None:
+    source, storage = _stored("backoff")
+    sleep = RecordedSleep()
+    embeddings = ScriptedEmbeddings(RateLimited(), RateLimited(retry_after_seconds=7.0))
+
+    report = await ingestion(
+        repository=MemoryQueue(source),
+        storage=storage,
+        embeddings=embeddings,
+        clock=FrozenClock(),
+        sleep=sleep,
+        max_attempts=3,
+    ).ingest_next()
+
+    assert report is not None
+
+    assert report.result == "ingested"
+    assert sleep.waits == [1.0, 7.0]
+    # The rate-limited batch is sent three times, then the second batch once.
+    assert len(embeddings.calls) == 4
+
+
+async def test_backoff_doubles_up_to_its_cap() -> None:
+    source, storage = _stored("cap")
+    sleep = RecordedSleep()
+
+    await ingestion(
+        repository=MemoryQueue(source),
+        storage=storage,
+        embeddings=ScriptedEmbeddings(*[RateLimited()] * 7),
+        clock=FrozenClock(),
+        sleep=sleep,
+        max_attempts=8,
+    ).ingest_next()
+
+    assert sleep.waits == [1.0, 2.0, 4.0, 8.0, 16.0, 30.0, 30.0]
+
+
+async def test_rate_limits_past_the_attempts_fail_the_source() -> None:
+    source, storage = _stored("too-many")
+    queue = MemoryQueue(source)
+
+    report = await ingestion(
+        repository=queue,
+        storage=storage,
+        embeddings=ScriptedEmbeddings(*[RateLimited()] * 3),
+        clock=FrozenClock(),
+        max_attempts=3,
+    ).ingest_next()
+
+    assert report == IngestReport(
+        source_id=source.id, result="failed", reason=IngestFailure.RATE_LIMITED
+    )
+    assert queue.sources[source.id].error == "rate_limited"
+    assert source.id not in queue.chunks
+
+
+@pytest.mark.parametrize(
+    ("failure", "reason"),
+    [
+        (EmbeddingFailure.ERROR, IngestFailure.EMBEDDING_FAILED),
+        (EmbeddingFailure.TIMEOUT, IngestFailure.EMBEDDING_TIMEOUT),
+        (EmbeddingFailure.WRONG_SHAPE, IngestFailure.WRONG_SHAPE),
+    ],
+    ids=["error", "timeout", "wrong_shape"],
+)
+async def test_an_embedding_failure_fails_the_source_without_retrying(
+    failure: EmbeddingFailure, reason: IngestFailure
+) -> None:
+    source, storage = _stored(f"fail-{failure}")
+    queue = MemoryQueue(source)
+    embeddings = ScriptedEmbeddings(EmbeddingFailed(reason=failure))
+
+    report = await ingestion(
+        repository=queue, storage=storage, embeddings=embeddings, clock=FrozenClock()
+    ).ingest_next()
+
+    assert report == IngestReport(source_id=source.id, result="failed", reason=reason)
+    assert len(embeddings.calls) == 1
+
+
+async def test_a_vector_of_the_wrong_length_fails_the_source() -> None:
+    source, storage = _stored("short-vector")
+    embeddings = ScriptedEmbeddings(Embedded(vectors=((0.1,) * 3, (0.2,) * 3), model=MODEL))
+
+    report = await ingestion(
+        repository=MemoryQueue(source), storage=storage, embeddings=embeddings, clock=FrozenClock()
+    ).ingest_next()
+
+    assert report is not None
+
+    assert report.reason is IngestFailure.WRONG_SHAPE
+
+
+@pytest.mark.parametrize(
+    ("data", "file_type", "reason"),
+    [
+        (b"%PDF-1.7", KnowledgeFileType.PDF, IngestFailure.NO_READER),
+        (b"\xff\xfe", KnowledgeFileType.MARKDOWN, IngestFailure.NOT_UTF8),
+        (b"# Only a title\n", KnowledgeFileType.MARKDOWN, IngestFailure.NO_TEXT),
+        (b"## References\n\nSmith 2020.\n", KnowledgeFileType.MARKDOWN, IngestFailure.NO_TEXT),
+    ],
+    ids=["no_reader", "not_utf8", "only_headings", "only_references"],
+)
+async def test_a_file_that_gives_no_chunks_fails_with_its_reason_and_no_call(
+    data: bytes, file_type: KnowledgeFileType, reason: IngestFailure
+) -> None:
+    source, storage = _stored(f"unreadable-{reason}", data=data, file_type=file_type)
+    embeddings = ScriptedEmbeddings()
+
+    report = await ingestion(
+        repository=MemoryQueue(source), storage=storage, embeddings=embeddings, clock=FrozenClock()
+    ).ingest_next()
+
+    assert report == IngestReport(source_id=source.id, result="failed", reason=reason)
+    assert embeddings.calls == []
+
+
+async def test_a_missing_file_fails_the_source() -> None:
+    source, storage = _stored("missing")
+    storage.objects.clear()
+
+    report = await ingestion(
+        repository=MemoryQueue(source),
+        storage=storage,
+        embeddings=ScriptedEmbeddings(),
+        clock=FrozenClock(),
+    ).ingest_next()
+
+    assert report is not None
+
+    assert report.reason is IngestFailure.FILE_MISSING
+
+
+async def test_a_storage_outage_fails_the_source() -> None:
+    source, storage = _stored("outage")
+
+    async def _broken(key: str) -> bytes:
+        from ai_trainer.domain.object_storage import ObjectStorageError
+
+        raise ObjectStorageError("get", "unavailable")
+
+    storage.get = _broken  # type: ignore[method-assign]  # a storage that fails on read
+
+    report = await ingestion(
+        repository=MemoryQueue(source),
+        storage=storage,
+        embeddings=ScriptedEmbeddings(),
+        clock=FrozenClock(),
+    ).ingest_next()
+
+    assert report is not None
+
+    assert report.reason is IngestFailure.STORAGE_FAILED
+
+
+async def test_a_source_whose_uploader_is_gone_fails_with_no_call() -> None:
+    source, storage = _stored("orphan", admin_id=None)
+    embeddings = ScriptedEmbeddings()
+
+    report = await ingestion(
+        repository=MemoryQueue(source), storage=storage, embeddings=embeddings, clock=FrozenClock()
+    ).ingest_next()
+
+    assert report is not None
+
+    assert report.reason is IngestFailure.NO_ACTING_ADMIN
+    assert embeddings.calls == []
+
+
+async def test_a_source_with_no_file_fails_as_missing() -> None:
+    source, storage = _stored("no-key")
+    source = source.model_copy(update={"storage_key": None})
+
+    report = await ingestion(
+        repository=MemoryQueue(source),
+        storage=storage,
+        embeddings=ScriptedEmbeddings(),
+        clock=FrozenClock(),
+    ).ingest_next()
+
+    assert report is not None
+
+    assert report.reason is IngestFailure.FILE_MISSING
+
+
+async def test_a_source_deleted_while_embedding_is_gone_and_writes_nothing() -> None:
+    source, storage = _stored("deleted")
+    queue = MemoryQueue(source)
+
+    async def _delete() -> None:
+        queue.sources.pop(source.id, None)
+
+    report = await ingestion(
+        repository=queue,
+        storage=storage,
+        embeddings=ScriptedEmbeddings(during=_delete),
+        clock=FrozenClock(),
+    ).ingest_next()
+
+    assert report == IngestReport(source_id=source.id, result="gone")
+    assert queue.chunks == {}
+
+
+async def test_a_failure_on_a_source_deleted_meanwhile_is_gone() -> None:
+    source, storage = _stored("deleted-failing")
+    queue = MemoryQueue(source)
+
+    async def _delete() -> None:
+        queue.sources.pop(source.id, None)
+
+    report = await ingestion(
+        repository=queue,
+        storage=storage,
+        embeddings=ScriptedEmbeddings(
+            EmbeddingFailed(reason=EmbeddingFailure.ERROR), during=_delete
+        ),
+        clock=FrozenClock(),
+    ).ingest_next()
+
+    assert report == IngestReport(source_id=source.id, result="gone")
+
+
+async def test_the_heartbeat_renews_the_lease_while_the_source_is_read() -> None:
+    source, storage = _stored("heartbeat")
+    queue = MemoryQueue(source)
+
+    async def _slow() -> None:
+        await asyncio.sleep(0.05)
+
+    report = await ingestion(
+        repository=queue,
+        storage=storage,
+        embeddings=ScriptedEmbeddings(during=_slow),
+        clock=FrozenClock(),
+        lease=timedelta(milliseconds=30),
+    ).ingest_next()
+
+    assert report is not None
+
+    assert report.result == "ingested"
+    assert queue.heartbeats >= 2
+
+
+async def test_a_lost_claim_stops_before_the_next_batch() -> None:
+    source, storage = _stored("stolen")
+    queue = MemoryQueue(source)
+    queue.steal_on_heartbeat = True
+    embeddings = ScriptedEmbeddings(during=lambda: asyncio.sleep(0.05))
+
+    report = await ingestion(
+        repository=queue,
+        storage=storage,
+        embeddings=embeddings,
+        clock=FrozenClock(),
+        lease=timedelta(milliseconds=30),
+    ).ingest_next()
+
+    assert report == IngestReport(source_id=source.id, result="gone")
+    assert len(embeddings.calls) == 1
+    assert queue.chunks == {}
+
+
+async def test_run_polls_until_cancelled() -> None:
+    source, storage = _stored("run")
+    queue = MemoryQueue(source)
+    sleep = RecordedSleep()
+    service = ingestion(
+        repository=queue,
+        storage=storage,
+        embeddings=ScriptedEmbeddings(),
+        clock=FrozenClock(),
+        sleep=sleep,
+    )
+    seen: list[IngestReport] = []
+
+    async def _report(report: IngestReport) -> None:
+        seen.append(report)
+
+    task = asyncio.create_task(service.run(poll_seconds=2.0, on_report=_report))
+    while len(sleep.waits) < 2:
+        await asyncio.sleep(0)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert [r.source_id for r in seen] == [source.id]
+    assert sleep.waits[:2] == [2.0, 2.0]

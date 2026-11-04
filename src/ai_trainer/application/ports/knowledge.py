@@ -1,8 +1,16 @@
 from collections.abc import Sequence
+from datetime import datetime
 from typing import Protocol
 from uuid import UUID
 
-from ai_trainer.domain.knowledge import KnowledgeSource, NewKnowledgeSource
+from ai_trainer.domain.knowledge import KnowledgeFileType, KnowledgeSource, NewKnowledgeSource
+from ai_trainer.domain.knowledge_document import (
+    KnowledgeDocument,
+    NewKnowledgeChunk,
+    NoReader,
+    Unreadable,
+)
+from ai_trainer.domain.knowledge_ingestion import EmbeddedChunk, IngestFailure
 
 
 class KnowledgeSourcesRepositoryPort(Protocol):
@@ -38,3 +46,50 @@ class KnowledgeSourcesRepositoryPort(Protocol):
         """Sets an `ingested` or `failed` source back to `uploaded`, clearing its error and
         ingest time. None, changing nothing, for any other status or an unknown source."""
         ...
+
+
+class KnowledgeIngestionRepositoryPort(Protocol):
+    """The worker's queue is the sources' status row (ADR-0036, knowledge-base.md rec 10). A claim
+    is a `claim_id` with a lease; every write after the claim names it, so a worker whose lease
+    lapsed and was taken over, or whose source was deleted, changes nothing."""
+
+    async def claim_next(
+        self, *, claim_id: UUID, now: datetime, lease_until: datetime
+    ) -> KnowledgeSource | None:
+        """Takes the oldest `uploaded` source, or an `ingesting` one whose lease lapsed before
+        `now`, with `FOR UPDATE SKIP LOCKED`, and marks it `ingesting` under `claim_id`. Never
+        a `proposed`, `detecting` or `rejected` source (ADR-0036 invariant 1). None when there is
+        nothing to do."""
+        ...
+
+    async def heartbeat(self, source_id: UUID, *, claim_id: UUID, lease_until: datetime) -> bool:
+        """Extends the lease. False when the source is gone or no longer this claim's."""
+        ...
+
+    async def finish(
+        self,
+        source_id: UUID,
+        *,
+        claim_id: UUID,
+        chunks: Sequence[EmbeddedChunk],
+        model: str,
+        ingested_at: datetime,
+    ) -> bool:
+        """In one transaction: locks the source, replaces its chunks and sets `ingested`. False,
+        writing nothing, when the source is gone or no longer this claim's."""
+        ...
+
+    async def fail(self, source_id: UUID, *, claim_id: UUID, reason: IngestFailure) -> bool:
+        """Sets `failed` with `reason`, keeping any chunks an earlier ingest wrote. False when the
+        source is gone or no longer this claim's."""
+        ...
+
+
+class DocumentReadersPort(Protocol):
+    def parse(
+        self, file_type: KnowledgeFileType, data: bytes
+    ) -> KnowledgeDocument | Unreadable | NoReader: ...
+
+
+class ChunkerPort(Protocol):
+    def chunk(self, document: KnowledgeDocument) -> Sequence[NewKnowledgeChunk]: ...

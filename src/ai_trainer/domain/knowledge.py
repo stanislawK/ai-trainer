@@ -234,8 +234,12 @@ class NewKnowledgeSource(SourceDetails):
 
 
 class KnowledgeSource(NewKnowledgeSource):
+    # One of `IngestFailure`'s values for a `failed` source (#423).
     error: str | None = None
     ingested_at: datetime | None = None
+    # What the source's chunks hold, for the admin list (#423): 0 and None until ingested.
+    chunk_count: int = 0
+    embedding_model: str | None = None
 
     @property
     def licence_flag(self) -> LicenceFlag | None:

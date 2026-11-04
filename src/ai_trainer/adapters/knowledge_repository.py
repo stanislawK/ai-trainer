@@ -1,11 +1,11 @@
 from collections.abc import Callable, Sequence
 from uuid import UUID
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ai_trainer.adapters.orm import KnowledgeSourceOrm
+from ai_trainer.adapters.orm import KnowledgeChunkOrm, KnowledgeSourceOrm
 from ai_trainer.domain.knowledge import (
     REINGESTABLE,
     DuplicateSourceError,
@@ -21,7 +21,9 @@ from ai_trainer.domain.knowledge import (
 )
 
 
-def _to_domain(row: KnowledgeSourceOrm) -> KnowledgeSource:
+def to_domain(
+    row: KnowledgeSourceOrm, *, chunk_count: int = 0, embedding_model: str | None = None
+) -> KnowledgeSource:
     return KnowledgeSource(
         id=row.id,
         title=row.title,
@@ -55,6 +57,8 @@ def _to_domain(row: KnowledgeSourceOrm) -> KnowledgeSource:
         uploaded_by_user_id=row.uploaded_by_user_id,
         uploaded_at=row.uploaded_at,
         ingested_at=row.ingested_at,
+        chunk_count=chunk_count,
+        embedding_model=embedding_model,
     )
 
 
@@ -65,13 +69,28 @@ class SqlAlchemyKnowledgeSourcesRepository:
         self._session_factory = session_factory
 
     async def list_all(self) -> Sequence[KnowledgeSource]:
-        async with self._session_factory() as session:
-            rows = await session.scalars(
-                select(KnowledgeSourceOrm).order_by(
-                    KnowledgeSourceOrm.uploaded_at.desc(), KnowledgeSourceOrm.id
-                )
+        # Each source's chunk count and model, from one grouped pass over its chunks (#423). A
+        # source's chunks come from one ingest, so they share one model.
+        chunks = (
+            select(
+                KnowledgeChunkOrm.source_id,
+                func.count().label("chunk_count"),
+                func.min(KnowledgeChunkOrm.embedding_model).label("embedding_model"),
             )
-            return [_to_domain(row) for row in rows]
+            .group_by(KnowledgeChunkOrm.source_id)
+            .subquery()
+        )
+        statement = (
+            select(KnowledgeSourceOrm, chunks.c.chunk_count, chunks.c.embedding_model)
+            .outerjoin(chunks, chunks.c.source_id == KnowledgeSourceOrm.id)
+            .order_by(KnowledgeSourceOrm.uploaded_at.desc(), KnowledgeSourceOrm.id)
+        )
+        async with self._session_factory() as session:
+            rows = await session.execute(statement)
+            return [
+                to_domain(row, chunk_count=count or 0, embedding_model=model)
+                for row, count, model in rows.tuples()
+            ]
 
     async def list_page(self, *, after: UUID | None, limit: int) -> Sequence[KnowledgeSource]:
         query = select(KnowledgeSourceOrm).order_by(KnowledgeSourceOrm.id).limit(limit)
@@ -83,14 +102,14 @@ class SqlAlchemyKnowledgeSourcesRepository:
     async def get(self, source_id: UUID) -> KnowledgeSource | None:
         async with self._session_factory() as session:
             row = await session.get(KnowledgeSourceOrm, source_id)
-            return None if row is None else _to_domain(row)
+            return None if row is None else to_domain(row)
 
     async def get_by_hash(self, content_hash: str) -> KnowledgeSource | None:
         async with self._session_factory() as session:
             row = await session.scalar(
                 select(KnowledgeSourceOrm).where(KnowledgeSourceOrm.content_hash == content_hash)
             )
-            return None if row is None else _to_domain(row)
+            return None if row is None else to_domain(row)
 
     async def add(self, source: NewKnowledgeSource) -> KnowledgeSource:
         values = source.model_dump(mode="python")
@@ -107,7 +126,7 @@ class SqlAlchemyKnowledgeSourcesRepository:
             row = await session.scalar(statement)
             if row is None:
                 raise DuplicateSourceError
-            stored = _to_domain(row)
+            stored = to_domain(row)
             await session.commit()
             return stored
 
@@ -139,6 +158,6 @@ class SqlAlchemyKnowledgeSourcesRepository:
                 )
                 .returning(KnowledgeSourceOrm)
             )
-            queued = None if row is None else _to_domain(row)
+            queued = None if row is None else to_domain(row)
             await session.commit()
             return queued
