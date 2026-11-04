@@ -1,5 +1,6 @@
 """Staging PMC articles by ID (ADR-0036, #458), with in-memory sources and a fake PMC port."""
 
+import asyncio
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
@@ -224,13 +225,40 @@ async def test_unknown_and_unreachable_ids_are_reported_per_id() -> None:
     assert isinstance(outcomes[2], Staged)
 
 
-async def test_a_repeated_id_is_staged_once_in_request_order() -> None:
-    pmc = FakePmc({"PMC5": _article("PMC5"), "PMC4": _article("PMC4")})
+async def test_metadata_the_template_refuses_is_malformed_for_that_id_only() -> None:
+    # Built past validation, as a future drift in PMC's fields could arrive: a PMID the
+    # template's pattern refuses.
+    bad = _article("PMC5").model_copy(update={"pmid": "not-a-pmid"})
+    pmc = FakePmc({"PMC5": bad, "PMC4": _article("PMC4")})
 
-    outcomes = await _staging(pmc).stage_pmc(ADMIN, [_ask("PMC5"), _ask("PMC4"), _ask("PMC5")])
+    outcomes = await _staging(pmc).stage_pmc(ADMIN, [_ask("PMC5"), _ask("PMC4")])
 
-    assert [o.pmcid for o in outcomes] == ["PMC5", "PMC4"]
-    assert sorted(pmc.fetched) == ["PMC4", "PMC5"]
+    assert outcomes[0] == Unavailable("PMC5", PmcFetchProblem.MALFORMED)
+    assert isinstance(outcomes[1], Staged)
+
+
+class _BrokenSources(MemorySources):
+    """The database fails for one article's lookup; the others' lookups take a moment."""
+
+    async def find_by_identifiers(
+        self, *, pmcid: str | None = None, doi: str | None = None, pmid: str | None = None
+    ) -> KnowledgeSource | None:
+        if pmcid == "PMC1":
+            raise ConnectionError("database gone")
+        await asyncio.sleep(0.01)
+        return await super().find_by_identifiers(pmcid=pmcid, doi=doi, pmid=pmid)
+
+
+async def test_an_unexpected_error_cancels_the_other_stages_before_it_propagates() -> None:
+    sources = _BrokenSources()
+    pmc = FakePmc({f"PMC{n}": _article(f"PMC{n}") for n in range(2, 6)})
+
+    with pytest.raises(ExceptionGroup) as raised:
+        await _staging(pmc, sources).stage_pmc(ADMIN, [_ask(f"PMC{n}") for n in range(1, 6)])
+
+    assert raised.group_contains(ConnectionError)
+    # Cancelled mid-lookup: nothing was staged behind the failed request's back.
+    assert sources.rows == {}
 
 
 @pytest.mark.parametrize(
@@ -243,9 +271,15 @@ async def test_a_repeated_id_is_staged_once_in_request_order() -> None:
     ids=["unknown-sport", "catalogue-tier", "valid"],
 )
 def test_a_request_is_checked_before_any_fetch(ask: PmcStageRequest, problem: str | None) -> None:
-    found = _staging(FakePmc({})).problem([ask])
+    found = _staging(FakePmc({})).problem([ask, _ask("PMC2")])
     if problem is None:
         assert found is None
     else:
         assert found is not None
         assert found.startswith(problem)
+
+
+def test_a_repeated_pmc_id_is_refused_rather_than_one_entry_guessed() -> None:
+    asks = [_ask("PMC5"), _ask("PMC4", sports=("climbing",)), _ask("PMC5"), _ask("PMC4")]
+
+    assert _staging(FakePmc({})).problem(asks) == "Name each PMC ID once: PMC4, PMC5."

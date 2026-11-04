@@ -1,6 +1,9 @@
 """Reading article metadata from PMC's Cloud Service bucket (ADR-0036, #458). No network: every
 response comes from the fake bucket's mock transport."""
 
+import asyncio
+
+import httpx2
 import pytest
 
 from ai_trainer.adapters.pmc import PmcCloudMetadata
@@ -90,3 +93,28 @@ async def test_a_listed_version_that_is_gone_is_unavailable() -> None:
     bucket.failing["PMC4"] = "gone"
 
     assert await _metadata(bucket).fetch("PMC4") == PmcUnavailable(PmcFetchProblem.FAILED)
+
+
+async def test_json_of_another_version_is_malformed() -> None:
+    # The listing says version 2; the object under that key says it is version 1.
+    bucket = bucket_with(article("PMC3", version=2))
+    bucket.articles["PMC3"][2] = article("PMC3", version=1)
+
+    assert await _metadata(bucket).fetch("PMC3") == PmcUnavailable(PmcFetchProblem.MALFORMED)
+
+
+async def test_one_deadline_bounds_both_requests_together() -> None:
+    """Each GET answers just inside the timeout, but the two together don't: the article's
+    deadline stops it (an httpx timeout alone bounds each phase separately)."""
+    bucket = bucket_with(article("PMC2"))
+    inner = bucket.transport()
+
+    async def slow(request: httpx2.Request) -> httpx2.Response:
+        await asyncio.sleep(0.06)
+        return await inner.handle_async_request(request)
+
+    metadata = PmcCloudMetadata(
+        bucket_url=BUCKET, timeout_seconds=0.1, transport=httpx2.MockTransport(slow)
+    )
+
+    assert await metadata.fetch("PMC2") == PmcUnavailable(PmcFetchProblem.TIMEOUT)

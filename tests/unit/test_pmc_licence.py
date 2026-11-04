@@ -55,10 +55,14 @@ def test_the_bucket_json_reads_as_an_article() -> None:
         ("not a doi", None),
         ("", None),
         (None, None),
+        (12345, None),
+        ({"value": "10.1000/x"}, None),
     ],
 )
-def test_a_doi_is_kept_only_when_it_is_one(doi: str | None, expected: str | None) -> None:
-    article = PmcArticle(pmcid="PMC1", version=1, title="T", is_retracted=False, doi=doi)
+def test_a_doi_is_kept_only_when_it_is_one(doi: object, expected: str | None) -> None:
+    article = PmcArticle.model_validate(
+        {"pmcid": "PMC1", "version": 1, "title": "T", "is_retracted": False, "doi": doi}
+    )
     assert article.doi == expected
 
 

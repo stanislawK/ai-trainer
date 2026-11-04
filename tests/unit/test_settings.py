@@ -240,7 +240,7 @@ def test_the_pmc_bucket_defaults_to_pmcs_cloud_service(monkeypatch: pytest.Monke
         ("PMC_BUCKET_URL", "https://pmc-oa-opendata.s3.amazonaws.com/metadata"),
         ("PMC_BUCKET_URL", "pmc-oa-opendata.s3.amazonaws.com"),
         ("PMC_TIMEOUT_SECONDS", "0"),
-        ("PMC_TIMEOUT_SECONDS", "31"),
+        ("PMC_TIMEOUT_SECONDS", "11"),
     ],
     ids=["path", "no-scheme", "zero-timeout", "long-timeout"],
 )

@@ -7,9 +7,12 @@ outcome, so one bad ID never fails the others.
 """
 
 import asyncio
+from collections import Counter
 from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 from uuid import UUID, uuid4
+
+from pydantic import ValidationError
 
 from ai_trainer.application.ports.clock import ClockPort
 from ai_trainer.application.ports.knowledge import KnowledgeSourcesRepositoryPort
@@ -108,6 +111,11 @@ class KnowledgeStaging:
     def problem(self, requests: Sequence[PmcStageRequest]) -> str | None:
         """What makes the request invalid as a whole, checked before any fetch: the admin's own
         fields, which no article's metadata can fix."""
+        counts = Counter(r.pmcid for r in requests)
+        repeated = sorted(pmcid for pmcid, count in counts.items() if count > 1)
+        if repeated:
+            # Two entries could disagree on tier, sports or topics; neither is guessed at.
+            return f"Name each PMC ID once: {', '.join(repeated)}."
         unknown = sorted({s for r in requests for s in r.sports if s not in self._sports})
         if unknown:
             return f"Name only the app's sports: {', '.join(unknown)}."
@@ -118,18 +126,18 @@ class KnowledgeStaging:
     async def stage_pmc(
         self, admin_id: UUID, requests: Sequence[PmcStageRequest]
     ) -> list[PmcOutcome]:
-        """One outcome per distinct PMC ID, in the order first asked. Check `problem` first."""
-        first: dict[str, PmcStageRequest] = {}
-        for request in requests:
-            first.setdefault(request.pmcid, request)
-        distinct = list(first.values())
+        """One outcome per PMC ID, in the order asked. Check `problem` first. An unexpected error
+        in one stage cancels the others before it propagates, so none goes on staging
+        unreported."""
         limit = asyncio.Semaphore(self._concurrency)
 
         async def one(request: PmcStageRequest) -> PmcOutcome:
             async with limit:
                 return await self._stage_one(admin_id, request)
 
-        return list(await asyncio.gather(*(one(r) for r in distinct)))
+        async with asyncio.TaskGroup() as group:
+            tasks = [group.create_task(one(request)) for request in requests]
+        return [task.result() for task in tasks]
 
     async def _stage_one(self, admin_id: UUID, request: PmcStageRequest) -> PmcOutcome:
         pmcid = request.pmcid
@@ -143,7 +151,11 @@ class KnowledgeStaging:
             return Unavailable(pmcid, fetched.problem)
         if fetched.is_retracted:
             return Refused(pmcid, PmcRefusal.RETRACTED, fetched.license_code)
-        source = self._proposal(admin_id, request, fetched)
+        try:
+            source = self._proposal(admin_id, request, fetched)
+        except ValidationError:
+            # Metadata the template refuses, which `problem` and `PmcArticle` didn't catch.
+            return Unavailable(pmcid, PmcFetchProblem.MALFORMED)
         if source is None:
             return Refused(pmcid, PmcRefusal.LICENCE_NOT_ADMITTED, fetched.license_code)
         # The same paper may be a source already under its DOI or PMID, e.g. uploaded as a PDF.

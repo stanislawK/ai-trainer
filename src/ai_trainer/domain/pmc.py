@@ -54,11 +54,11 @@ class PmcUnavailable:
     problem: PmcFetchProblem
 
 
-def _bare_doi(value: object) -> object:
+def _bare_doi(value: object) -> str | None:
     """A bare, lowercased DOI, or None for anything that isn't one: a bad DOI from PMC costs the
     source its DOI, never the source."""
     if not isinstance(value, str):
-        return value
+        return None
     doi = value.strip().lower()
     for prefix in _DOI_PREFIXES:
         doi = doi.removeprefix(prefix)

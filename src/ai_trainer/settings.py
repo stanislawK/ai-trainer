@@ -220,9 +220,10 @@ class Settings(BaseSettings):
     knowledge_ingest_lease_seconds: float = Field(default=300.0, ge=30)
     knowledge_ingest_poll_seconds: float = Field(default=5.0, gt=0)
     # PMC's Cloud Service bucket, public and anonymous, read by PMC ID when an admin token stages
-    # papers (ADR-0036, #458). The timeout bounds each of the two GETs per article.
+    # papers (ADR-0036, #458). The timeout bounds one article's two GETs together; at most 10, so
+    # a request's 20 articles, five at a time, answer well inside Cloudflare's 100 seconds.
     pmc_bucket_url: str = "https://pmc-oa-opendata.s3.amazonaws.com"
-    pmc_timeout_seconds: float = Field(default=8.0, gt=0, le=30)
+    pmc_timeout_seconds: float = Field(default=8.0, gt=0, le=10)
 
     # Google sign-in (ADR-0005). No Google access or refresh token is ever stored.
     # Required and non-blank: a blank value otherwise fails only on Google's own page.

@@ -37,8 +37,8 @@ from ai_trainer.web.api.paths import KNOWLEDGE_API_PREFIX
 
 DEFAULT_PAGE = 200
 MAX_PAGE = 500
-# Two GETs to PMC's bucket per article, five at a time, each bounded by PMC_TIMEOUT_SECONDS:
-# 20 articles stay well inside Cloudflare's 100-second answer limit.
+# Five articles at a time, each article's two GETs to PMC's bucket bounded together by
+# PMC_TIMEOUT_SECONDS (at most 10): 20 articles answer within 40 s, inside Cloudflare's 100.
 MAX_PMC_ARTICLES = 20
 
 

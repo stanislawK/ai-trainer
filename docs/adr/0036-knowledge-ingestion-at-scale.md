@@ -196,4 +196,7 @@ PMC sources carry "Source: NLM PMC" in their attribution.
     - Source: the [bucket README](https://pmc-oa-opendata.s3.amazonaws.com/README.txt), read 2026-11-04.
   - **The licence code.** The JSON writes CC codes with a space (`CC BY`, `CC BY-NC-ND`, `CC0`), as read for PMC13692514 and a sample of ten articles on 2026-11-04. They map to `license_id` with `license_source = pmc`. `TDM`, a missing code or any other value is refused.
   - **Covered.** An ID is reported covered, without a fetch, when a source has that PMC ID, whatever its status. After the fetch it is also covered when a source has the article's DOI or PMID, such as the same paper uploaded as a PDF.
-  - **Gotcha:** the integration tests' session factory joins every session to one connection, so they run the per-ID stages one at a time. The app runs five at a time, each on its own pooled connection.
+  - **A request's bound.** A request takes 1 to 20 articles, each PMC ID once, and stages five at a time. `PMC_TIMEOUT_SECONDS` (default 8, at most 10) is one deadline for an article's two GETs together, so a request answers within about 40 seconds, inside Cloudflare's 100.
+  - **Gotchas:**
+    - An httpx timeout bounds each phase (connect, read, write, pool) separately, so it alone can't bound a request. The adapter wraps both GETs in one `asyncio.timeout`.
+    - The integration tests' session factory joins every session to one connection, so they run the per-ID stages one at a time. The app runs five at a time, each on its own pooled connection.

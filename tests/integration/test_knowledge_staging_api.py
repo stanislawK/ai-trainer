@@ -237,4 +237,7 @@ async def test_an_invalid_request_is_refused_whole_before_any_fetch(
     assert unknown_sport.status_code == 422
     assert unknown_sport.json() == {"detail": "Name only the app's sports: chess."}
     assert _stage(api, token, _ask(pmcid, evidence_tier="catalogue")).status_code == 422
+    repeated = _stage(api, token, _ask(pmcid), _ask(pmcid, topics=["other"]))
+    assert repeated.status_code == 422
+    assert repeated.json() == {"detail": f"Name each PMC ID once: {pmcid}."}
     assert bucket.requests == []

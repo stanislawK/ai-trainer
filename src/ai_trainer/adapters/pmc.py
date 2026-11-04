@@ -5,6 +5,7 @@ Two anonymous GETs per article, both naming only its PMC ID: ListObjectsV2 on
 bucket is read here; the article's XML is fetched after approval (#463).
 """
 
+import asyncio
 import re
 
 import httpx2
@@ -28,10 +29,15 @@ class PmcCloudMetadata:
         self._transport = transport
 
     async def fetch(self, pmcid: str) -> PmcArticle | PmcNotFound | PmcUnavailable:
+        # One deadline for the article's two GETs, connect and read included: an httpx timeout
+        # bounds each phase separately, which would let a slow bucket outlast Cloudflare's 100 s.
         try:
-            async with httpx2.AsyncClient(
-                base_url=self._bucket_url, transport=self._transport, timeout=self._timeout
-            ) as client:
+            async with (
+                asyncio.timeout(self._timeout),
+                httpx2.AsyncClient(
+                    base_url=self._bucket_url, transport=self._transport, timeout=self._timeout
+                ) as client,
+            ):
                 listing = await client.get(
                     "/", params={"list-type": "2", "prefix": f"metadata/{pmcid}."}
                 )
@@ -40,13 +46,15 @@ class PmcCloudMetadata:
                     return PmcNotFound()
                 response = await client.get(f"/metadata/{pmcid}.{version}.json")
                 article = PmcArticle.model_validate_json(response.raise_for_status().content)
-        except httpx2.TimeoutException:
+        except TimeoutError, httpx2.TimeoutException:
             return PmcUnavailable(PmcFetchProblem.TIMEOUT)
         except httpx2.HTTPError:
             return PmcUnavailable(PmcFetchProblem.FAILED)
         except ValidationError:
             return PmcUnavailable(PmcFetchProblem.MALFORMED)
-        if article.pmcid != pmcid:
+        if (article.pmcid, article.version) != (pmcid, version):
+            # Another article's or another version's JSON under this key: its licence and
+            # retraction flag can't be trusted for this one.
             return PmcUnavailable(PmcFetchProblem.MALFORMED)
         return article
 
