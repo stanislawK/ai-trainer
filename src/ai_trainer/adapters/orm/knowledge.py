@@ -9,7 +9,6 @@ from sqlalchemy import (
     CheckConstraint,
     ForeignKey,
     Index,
-    Integer,
     Text,
     UniqueConstraint,
     text,
@@ -174,7 +173,7 @@ class KnowledgeChunkOrm(Base):
         ForeignKey("knowledge_sources.id", ondelete="CASCADE"), nullable=False
     )
     # The chunk's place in its source, from 0.
-    ordinal: Mapped[int] = mapped_column(Integer, nullable=False)
+    ordinal: Mapped[int] = mapped_column(BigInteger, nullable=False)
     text: Mapped[str] = mapped_column(Text, nullable=False)
     embedding: Mapped[list[float]] = mapped_column(Vector(EMBEDDING_DIMENSIONS), nullable=False)
     # Chunks from different models are never searched together (ADR-0011 invariant 4).

@@ -44,7 +44,7 @@ def upgrade() -> None:
         "knowledge_chunks",
         sa.Column("id", sa.Uuid(), nullable=False),
         sa.Column("source_id", sa.Uuid(), nullable=False),
-        sa.Column("ordinal", sa.Integer(), nullable=False),
+        sa.Column("ordinal", sa.BigInteger(), nullable=False),
         sa.Column("text", sa.Text(), nullable=False),
         sa.Column("embedding", Vector(_DIMENSIONS), nullable=False),
         sa.Column("embedding_model", sa.Text(), nullable=False),
