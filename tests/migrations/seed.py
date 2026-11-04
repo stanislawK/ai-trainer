@@ -367,6 +367,29 @@ def _rows() -> dict[str, tuple[Row, ...]]:
                 "last_used_at": _at(n, 18) if a else None,
             }
         )
+        # Shared reference data reaching `users` through its source (#423).
+        rows.setdefault("knowledge_chunks", []).append(
+            {
+                "id": _id(user, 20),
+                "source_id": _id(user, 18),
+                "ordinal": n,
+                "text": "Deload every fourth week." if a else "  Okres  roztrenowania ",
+                "embedding": "[" + ",".join([("0.25" if a else "-0.5")] * 1024) + "]",
+                "embedding_model": "qwen/qwen3-embedding-8b" if a else "  baai/bge-m3 ",
+                "sports": ["gym"] if a else ["climbing", "gym"],
+                "topics": ["deload"] if a else [],
+                "language": "en" if a else "pl",
+                "heading_path": ["Methods", "Deload"] if a else [],
+                "section_kind": "abstract" if a else "table",
+                "locator": (
+                    '{"kind": "page", "page": 3, "page_label": "iii"}'
+                    if a
+                    else '{"kind": "section", "section": null}'
+                ),
+                "search_vector": "'deload':1A 'week':4" if a else "'okres':1",
+                "created_at": _at(n, 16),
+            }
+        )
     return {table: tuple(table_rows) for table, table_rows in rows.items()}
 
 
