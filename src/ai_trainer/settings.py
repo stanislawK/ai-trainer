@@ -248,7 +248,7 @@ class Settings(BaseSettings):
     # in that sport, e.g. the climbing kinds they do (ticket #164).
     extract_recent_sessions: int = Field(default=10, ge=1)
     # The private `uploads` bucket on an S3-compatible service (ADR-0033): R2 in production,
-    # versitygw under `make start`. R2's region is `auto`; the timeout bounds a call with retries.
+    # versitygw under `make start`. R2's region is `auto`; the timeout bounds one request+retries.
     object_storage_endpoint: str | None = None
     object_storage_region: str = "auto"
     object_storage_access_key_id: SecretStr | None = None

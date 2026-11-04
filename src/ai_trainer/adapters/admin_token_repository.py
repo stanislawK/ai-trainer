@@ -57,7 +57,13 @@ class SqlAlchemyAdminTokensRepository:
         async with self._session_factory() as session:
             await session.execute(
                 update(AdminTokenOrm)
-                .where(AdminTokenOrm.user_id == user_id, AdminTokenOrm.id == token_id)
+                .where(
+                    AdminTokenOrm.user_id == user_id,
+                    AdminTokenOrm.id == token_id,
+                    # A revoke that lands mid-request isn't followed by a later use.
+                    AdminTokenOrm.revoked_at.is_(None),
+                    AdminTokenOrm.expires_at > at,
+                )
                 .values(last_used_at=at)
             )
             await session.commit()

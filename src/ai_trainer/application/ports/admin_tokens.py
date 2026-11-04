@@ -27,5 +27,6 @@ class AdminTokensRepositoryPort(Protocol):
         ...
 
     async def touch(self, user_id: UUID, token_id: UUID, *, at: datetime) -> None:
-        """Sets `last_used_at` on the user's own token; does nothing for anyone else's."""
+        """Sets `last_used_at` on the user's own token while it is still active at `at`; does
+        nothing for anyone else's, or for one revoked or expired meanwhile."""
         ...

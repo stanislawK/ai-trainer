@@ -584,3 +584,19 @@ def test_a_look_alike_path_is_counted_by_the_session_as_before() -> None:
 
     assert _hit(client, "/api/admin/knowledgex", headers=_bearer(_TOKEN_A)) == 200
     assert _hit(client, "/api/admin/knowledgex", headers=_bearer(_TOKEN_A)) == 429
+
+
+def test_the_window_reads_the_bearer_as_the_route_does() -> None:
+    """Extra spaces after the scheme are the same credential to `HTTPBearer`, so to the window."""
+    client = TestClient(_http_app(FakeClock(), token=1))
+
+    assert _hit(client, _API, headers=_bearer(_TOKEN_A)) == 200
+    assert _hit(client, _API, headers={"Authorization": f"Bearer   {_TOKEN_A}"}) == 429
+
+
+def test_an_oversized_bearer_is_keyed_by_its_first_200_characters() -> None:
+    client = TestClient(_http_app(FakeClock(), token=1))
+    head = "x" * 200
+
+    assert _hit(client, _API, headers=_bearer(head + "a" * 8000)) == 200
+    assert _hit(client, _API, headers=_bearer(head + "b")) == 429

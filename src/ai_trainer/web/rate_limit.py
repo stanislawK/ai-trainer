@@ -11,6 +11,7 @@ the rest. `/health` and `/static` are not counted.
 from datetime import timedelta
 from typing import cast
 
+from fastapi.security.utils import get_authorization_scheme_param
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.templating import Jinja2Templates
@@ -31,6 +32,8 @@ _CF_CONNECTING_IP = b"cf-connecting-ip"
 _COOKIE = b"cookie"
 _AUTHORIZATION = b"authorization"
 _BEARER = "bearer"
+# A token is 47 characters; anything longer is refused by the route anyway.
+_MAX_BEARER_LENGTH = 200
 _MAX_ADDRESS_LENGTH = 64
 _MAX_COOKIE_LENGTH = 200
 _TOO_MANY = 429
@@ -133,11 +136,12 @@ def _session_cookie(scope: Scope) -> str | None:
 
 
 def _bearer_token(scope: Scope) -> str | None:
+    # The parser `HTTPBearer` uses, so the window counts the credential the route checks.
     for name, value in scope.get("headers", []):
         if name.lower() != _AUTHORIZATION:
             continue
-        scheme, _, credentials = cast(str, value.decode("latin-1")).partition(" ")
+        scheme, credentials = get_authorization_scheme_param(cast(str, value.decode("latin-1")))
         if scheme.lower() == _BEARER and credentials:
-            return credentials
+            return credentials[:_MAX_BEARER_LENGTH]
         return None
     return None

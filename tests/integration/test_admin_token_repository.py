@@ -157,3 +157,19 @@ async def test_touch_sets_last_used_at_only_on_the_users_own_token(
     [untouched] = await repository.list_for_user(other.id)
     assert listed.last_used_at == used
     assert untouched.last_used_at is None
+
+
+async def test_touch_leaves_a_token_revoked_or_expired_meanwhile_unused(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    """A revoke that lands between the lookup and the touch isn't followed by a later use."""
+    repository = SqlAlchemyAdminTokensRepository(db_session_factory)
+    admin = await _admin(db_session_factory, "tokens-touch-revoked")
+    revoked = await repository.add(_new(admin))
+    expiring = await repository.add(_new(admin, days=1))
+    await repository.revoke(admin.id, revoked.id, at=NOW + timedelta(minutes=1))
+
+    await repository.touch(admin.id, revoked.id, at=NOW + timedelta(minutes=2))
+    await repository.touch(admin.id, expiring.id, at=NOW + timedelta(days=1))
+
+    assert all(t.last_used_at is None for t in await repository.list_for_user(admin.id))
