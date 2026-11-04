@@ -11,6 +11,8 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from ai_trainer.domain.knowledge import KnowledgeFileType
+
 # ADR-0033: `qwen/qwen3-embedding-8b` asked for 1,024 dimensions, stored as `vector(1024)`.
 EMBEDDING_DIMENSIONS = 1024
 
@@ -93,6 +95,12 @@ class Unreadable(_Frozen):
     """A file its reader can't turn into a document, and why."""
 
     reason: UnreadableReason
+
+
+class NoReader(_Frozen):
+    """A file type no reader handles yet (PDF #425, EPUB/VTT/SRT #426, JATS #463)."""
+
+    file_type: KnowledgeFileType
 
 
 class NewKnowledgeChunk(_Frozen):

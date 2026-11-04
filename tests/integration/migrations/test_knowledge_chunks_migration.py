@@ -74,9 +74,9 @@ def test_the_chunk_indexes_are_hnsw_on_cosine_and_gin_on_the_tsvector(
         "SELECT indexname, indexdef FROM pg_indexes WHERE tablename = 'knowledge_chunks'"
     ).fetchall()
     definitions = dict(rows)
-    assert "USING hnsw (embedding vector_cosine_ops)" in definitions[
-        "ix_knowledge_chunks_embedding"
-    ]
+    assert (
+        "USING hnsw (embedding vector_cosine_ops)" in definitions["ix_knowledge_chunks_embedding"]
+    )
     assert "USING gin (search_vector)" in definitions["ix_knowledge_chunks_search_vector"]
     assert "WHERE (exercise_id IS NOT NULL)" in definitions["ix_knowledge_chunks_exercise_id"]
 

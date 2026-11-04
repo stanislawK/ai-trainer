@@ -82,9 +82,7 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["source_id"], ["knowledge_sources.id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(["exercise_id"], ["exercises.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint(
-            "source_id", "ordinal", name="knowledge_chunks_source_id_ordinal_key"
-        ),
+        sa.UniqueConstraint("source_id", "ordinal", name="knowledge_chunks_source_id_ordinal_key"),
     )
     # pgvector's defaults (m = 16, ef_construction = 64), kept until a recall check says
     # otherwise (hybrid-search.md). A bulk load rebuilds it (#462).
