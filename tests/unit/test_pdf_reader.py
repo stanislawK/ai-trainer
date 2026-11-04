@@ -99,8 +99,9 @@ def test_a_pdf_with_no_pages_is_unreadable() -> None:
     assert read_pdf(blank_pdf(pages=0)) == Unreadable(reason=UnreadableReason.CORRUPT)
 
 
-def test_an_encrypted_pdf_is_unreadable() -> None:
-    data = encrypted_pdf(text_pdf([[_LONG]]), user_password="secret")
+@pytest.mark.parametrize("algorithm", ["RC4-128", "AES-256"])
+def test_an_encrypted_pdf_is_unreadable(algorithm: str) -> None:
+    data = encrypted_pdf(text_pdf([[_LONG]]), user_password="secret", algorithm=algorithm)
 
     assert read_pdf(data) == Unreadable(reason=UnreadableReason.ENCRYPTED)
 

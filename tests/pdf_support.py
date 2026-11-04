@@ -65,10 +65,16 @@ def blank_pdf(pages: int = 2) -> bytes:
     return buffer.getvalue()
 
 
-def encrypted_pdf(pdf: bytes, *, user_password: str, owner_password: str | None = None) -> bytes:
-    """`pdf` encrypted with RC4, which pypdf handles without the `cryptography` package."""
+def encrypted_pdf(
+    pdf: bytes,
+    *,
+    user_password: str,
+    owner_password: str | None = None,
+    algorithm: str = "RC4-128",
+) -> bytes:
+    """`pdf` encrypted with RC4, or with AES, which needs the `cryptography` package."""
     writer = PdfWriter(clone_from=PdfReader(BytesIO(pdf)))
-    writer.encrypt(user_password, owner_password, algorithm="RC4-128")
+    writer.encrypt(user_password, owner_password, algorithm=algorithm)
     buffer = BytesIO()
     writer.write(buffer)
     return buffer.getvalue()
