@@ -1,6 +1,6 @@
 .PHONY: install css test test-fast test-ops test-unit test-integration coverage lint format format-check \
 	typecheck import-lint squawk uv-pins-check suppressions-check openapi openapi-check check up up-build start stop down logs ps \
-	health smoke-setup smoke-up smoke-down alloy-check cloud-init-check backup-check migrate purge-conversations import-exercises backfill-gym-sessions storage-check ingest-once llm-report latency-scenario evals e2e-install e2e worktree worktree-rm worktree-prune stack-owner
+	health smoke-setup smoke-up smoke-down alloy-check cloud-init-check backup-check migrate purge-conversations import-exercises backfill-gym-sessions storage-check ingest-once search-knowledge llm-report latency-scenario evals e2e-install e2e worktree worktree-rm worktree-prune stack-owner
 
 # The checkout's own database (ADR-0035): the last path segment of DATABASE_URL in its .env,
 # read by compose.yaml, so `make start` in a ticket's worktree serves `ai_trainer_wt<n>`.
@@ -183,6 +183,9 @@ ingest-once: ## Ingest the knowledge sources waiting as `uploaded`, then exit (A
 
 llm-report: ## Summarize the LLM debug log per template and model (#179); fails when there is no log. Usage: make llm-report [since=2026-10-18T20:00Z]
 	uv run ai-trainer llm-debug-report $(if $(since),--since $(since))
+
+search-knowledge: ## Call search_knowledge as the seeded dev user and print its result as JSON (ADR-0036, #424); one real embedding call (about $0.00001). Needs the database `make start` uses. Usage: make search-knowledge q="how often should I deload?" [sport=gym] [limit=5]
+	uv run python -m scripts.search_knowledge "$(q)" $(if $(sport),--sport $(sport)) $(if $(limit),--limit $(limit))
 
 latency-scenario: ## Replay the latency scenario on the running app and print p50/p95 per log turn (ADR-0026, #185) — calls real models, costs money. Needs `make start`. Usage: make latency-scenario [url=http://localhost:8000] [sport=gym]
 	uv run python -m scripts.latency_scenario $(if $(url),--url $(url)) $(if $(sport),--sport $(sport))

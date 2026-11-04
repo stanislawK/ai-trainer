@@ -11,6 +11,7 @@ import httpx2
 from authlib.integrations.starlette_client import OAuth
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
+from fastmcp import FastMCP
 from opentelemetry import trace
 from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
@@ -45,6 +46,7 @@ from ai_trainer.adapters.gym_band_order import SqlAlchemyBandOrder
 from ai_trainer.adapters.health import PsycopgDatabaseHealth
 from ai_trainer.adapters.knowledge_chunk_repository import SqlAlchemyKnowledgeIngestionRepository
 from ai_trainer.adapters.knowledge_repository import SqlAlchemyKnowledgeSourcesRepository
+from ai_trainer.adapters.knowledge_search_repository import SqlAlchemyKnowledgeSearch
 from ai_trainer.adapters.llm_calls_repository import SqlAlchemyLlmCallsRepository
 from ai_trainer.adapters.log_records import configure_logging
 from ai_trainer.adapters.metrics import OtelMetrics
@@ -64,6 +66,7 @@ from ai_trainer.application.exercise_lookup import ExerciseFinder
 from ai_trainer.application.exercise_resolution import ResolutionLimits, ResolveExercises
 from ai_trainer.application.feedback import FeedbackRecorder
 from ai_trainer.application.knowledge_ingestion import KnowledgeIngestion
+from ai_trainer.application.knowledge_search import KnowledgeSearch
 from ai_trainer.application.knowledge_sources import KnowledgeSources
 from ai_trainer.application.knowledge_staging import KnowledgeStaging
 from ai_trainer.application.metered_calls import MeteredLlmCallsRepository
@@ -72,6 +75,7 @@ from ai_trainer.application.ports.clock import ClockPort
 from ai_trainer.application.ports.conversation import ConversationModelPort
 from ai_trainer.application.ports.decision_gateway import DecisionGatewayPort
 from ai_trainer.application.ports.draft_settling import DraftSettlerPort
+from ai_trainer.application.ports.llm_calls import LlmCallsRepositoryPort
 from ai_trainer.application.ports.llm_gateway import LlmGatewayPort
 from ai_trainer.application.ports.metrics import NO_METRICS, MetricsPort
 from ai_trainer.application.ports.object_storage import ObjectStoragePort
@@ -220,6 +224,65 @@ def build_uploads_storage(settings: Settings) -> ObstoreObjectStorage | None:
     )
 
 
+def build_knowledge_search(
+    settings: Settings,
+    session_factory: Callable[[], AsyncSession],
+    sports: SportRegistry,
+    *,
+    calls_repository: LlmCallsRepositoryPort,
+    embedding_transport: httpx2.AsyncBaseTransport | None = None,
+) -> KnowledgeSearch:
+    """`search_knowledge`'s use case (ADR-0036, #424 amendment). Its query embedding has its
+    own, shorter timeout than ingestion's, and isn't charged to ADR-0029's budget separately: it
+    runs inside a specialist's tool loop, which already holds one slot."""
+    timeout = settings.knowledge_query_timeout_seconds
+    return KnowledgeSearch(
+        embeddings=OpenRouterEmbeddingGateway(
+            api_key=settings.openrouter_api_key.get_secret_value(),
+            model=settings.embedding_model,
+            dimensions=settings.embedding_dim,
+            provider=settings.embedding_provider_preferences,
+            timeout_seconds=timeout,
+            calls_repository=calls_repository,
+            http_client=httpx2.AsyncClient(transport=embedding_transport, timeout=timeout),
+        ),
+        repository=SqlAlchemyKnowledgeSearch(session_factory),
+        sports=sports,
+        embedding_model=settings.embedding_model,
+        depth=settings.knowledge_search_depth,
+    )
+
+
+def build_app_mcp_server(
+    settings: Settings,
+    session_factory: Callable[[], AsyncSession],
+    sports: SportRegistry,
+    *,
+    training_sessions: SqlAlchemyTrainingSessionRepository,
+    calls_repository: LlmCallsRepositoryPort,
+) -> FastMCP:
+    """The app's MCP server with every tool (ADR-0010), for the specialists' toolset and for
+    `scripts/search_knowledge.py`."""
+    exercise_repository = SqlAlchemyExerciseRepository(session_factory)
+    exercise_history = SqlAlchemyExerciseHistory(session_factory)
+    return build_mcp_server(
+        TrainingHistory(training_sessions, sports),
+        ExerciseFinder(
+            exercise_repository,
+            ResolutionLimits(
+                near_match=settings.exercise_near_match_threshold,
+                candidate_floor=settings.exercise_candidate_floor,
+                shortlist_size=settings.exercise_shortlist_size,
+            ),
+            exercise_history,
+        ),
+        ExerciseTrainingHistory(exercise_repository, exercise_history),
+        knowledge=build_knowledge_search(
+            settings, session_factory, sports, calls_repository=calls_repository
+        ),
+    )
+
+
 def build_knowledge_ingestion(
     settings: Settings,
     storage: ObjectStoragePort,
@@ -363,23 +426,15 @@ def create_app(  # noqa: PLR0915 -- composition root: objects are built only her
         metrics=metrics,
     )
     training_sessions = SqlAlchemyTrainingSessionRepository(session_factory, stores=activity_stores)
-    exercise_repository = SqlAlchemyExerciseRepository(session_factory)
-    exercise_history = SqlAlchemyExerciseHistory(session_factory)
     # The MCP server in process, which the answer specialists read through (ADR-0010). Nothing
     # mounts it over HTTP: that waits for an amendment on how tokens are issued.
     app.state.mcp_toolset = build_toolset(
-        build_mcp_server(
-            TrainingHistory(training_sessions, sport_registry),
-            ExerciseFinder(
-                exercise_repository,
-                ResolutionLimits(
-                    near_match=settings.exercise_near_match_threshold,
-                    candidate_floor=settings.exercise_candidate_floor,
-                    shortlist_size=settings.exercise_shortlist_size,
-                ),
-                exercise_history,
-            ),
-            ExerciseTrainingHistory(exercise_repository, exercise_history),
+        build_app_mcp_server(
+            settings,
+            session_factory,
+            sport_registry,
+            training_sessions=training_sessions,
+            calls_repository=llm_calls,
         )
     )
     gateway = BudgetedLlmGateway(

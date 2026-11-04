@@ -200,3 +200,21 @@ PMC sources carry "Source: NLM PMC" in their attribution.
   - **Gotchas:**
     - An httpx timeout bounds each phase (connect, read, write, pool) separately, so it alone can't bound a request. The adapter wraps both GETs in one `asyncio.timeout`.
     - The integration tests' session factory joins every session to one connection, so they run the per-ID stages one at a time. The app runs five at a time, each on its own pooled connection.
+- **Amended at #424 (`search_knowledge`), owner-approved at its plan gate, 2026-11-04.** ADR-0033 left two things to this ticket: how long a search may take, and what it does when the pinned upstream is down. The Decision and invariants stand.
+  - **The query instruction is a file.** `llm/prompts/knowledge.query/v1.en.md` holds the `Instruct:` line, followed by `Query:`, in the model card's form; the question is appended as written. A document still carries no instruction (ADR-0033).
+    - Its `llm_calls` row is keyed `knowledge.query`, version 1, with the athlete who searched as the acting user (ADR-0018). Only the question leaves the app.
+    - No `/tune-prompt` smoke set applies. Smoke sets grade generated text, and the only grader for this line is the retrieval checks below.
+  - **Budget.** A query embedding isn't charged to ADR-0029's per-user budget on its own. It runs inside a specialist's tool loop, which already holds one slot and counts once (ADR-0010, #421 amendment).
+  - **Time, and the upstream down.** `KNOWLEDGE_QUERY_TIMEOUT_SECONDS` (default 10) bounds the query's embedding call. It runs on its own gateway instance, so ingestion keeps `EMBEDDING_CALL_TIMEOUT_SECONDS`.
+    - A timeout, an error, a 429 or a wrong-shaped vector returns `success=False`, with a recovery hint to answer without citing and say no source could be checked.
+    - There is **no full-text-only fallback.** It would silently drop the passages in the other language, which only the vector leg finds (hybrid-search.md finding 5).
+  - **Fusion.** RRF at k = 60 over two lists, each `KNOWLEDGE_SEARCH_DEPTH` deep (default 20, as pgvector's `rrf.py`; 1–100). `limit` is 1–10, default 5, and `truncated` says when more matched.
+  - **The vector leg** uses cosine distance on the HNSW index. Its filters are the embedding model (always), the sport (`= ANY(sports)`), topics (overlap) and `exercise_id`, **never language**.
+    - `hnsw.iterative_scan = relaxed_order` is set with `SET LOCAL` in the search's transaction, so a pooled connection never carries it on.
+    - The rows are sorted by distance again in code, which stands in for the README's materialized CTE ([pgvector README, Iterative Index Scans](https://github.com/pgvector/pgvector/blob/master/README.md), via context7, 2026-11-04).
+  - **The full-text leg is one list.** `websearch_to_tsquery` runs in `english` for English chunks and in `simple` for Polish ones, the configurations their `tsvector` was built with. It takes the same filters and ranks by `ts_rank_cd`. Whether to split it into two RRF inputs stays with the retrieval checks.
+  - **The retrieval checks move to their own ticket.** The #423 amendment said #424's checks settle the chunk budget. Those checks need an ingested corpus and paid embedding runs, and no corpus is ingested yet.
+    - Until that ticket runs hybrid-search.md finding 6's checks on real questions in both languages, `KNOWLEDGE_CHUNK_*`, the depth, k and the query instruction stay provisional.
+    - The checks' paid runs need the owner's yes.
+  - **Not on `gym.answer` yet.** The app's toolset offers every server tool to the specialist, so `build_toolset` filters `search_knowledge` out (`HELD_BACK_TOOLS`). #428 lifts the filter when it wires cited answers through `/tune-prompt`. The tool is on the server, so `Client(server)` and the demo reach it.
+  - **Demo.** The server has no stdio or HTTP entry, and the MCP Inspector sends no user in the request meta. So the demo is `scripts/search_knowledge.py "<question>" [--sport gym]`, which calls the tool as the seeded dev user with one real embedding call.
