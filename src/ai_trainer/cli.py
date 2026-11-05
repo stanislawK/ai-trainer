@@ -21,9 +21,10 @@ UTC, like every stored time (ADR-0014).
 
 `import-exercises` upserts the exercise catalogue from the dataset commit pinned in `Settings` and
 `EXERCISE_CATALOGUE_DIR` (ADR-0031). Running it again changes nothing, and it never touches an
-athlete's custom exercises or aliases. An import that wrote anything queues the catalogue's two
-knowledge sources, English and Polish, for `ingest-worker`, which embeds only the texts that
-changed (ADR-0036's #427 amendment); the line's `catalogue_queued=<n>` says how many. It prints one
+athlete's custom exercises or aliases. It then queues each of the catalogue's two knowledge
+sources, English and Polish, that is missing, failed or has a changed text, for `ingest-worker`,
+which embeds only the texts that changed (ADR-0036's #427 amendment); the line's
+`catalogue_queued=<n>` says how many. It prints one
 line, `import-exercises: result=ok ...` or `import-exercises: result=failed
 reason=<download|catalogue> ...`, the second with exit code 1 and no row changed.
 

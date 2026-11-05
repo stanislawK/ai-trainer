@@ -138,15 +138,15 @@ class CatalogueSourcesPort(Protocol):
     async def queue(
         self,
         *,
-        changed: bool,
         attribution: str | None,
         admin_emails: Sequence[str],
         now: datetime,
     ) -> int:
-        """Adds a missing source as `uploaded`, and sets every existing one `uploaded` when
-        `changed`, even an `ingesting` one, whose worker then loses its claim. Each queued
-        source's acting user is the oldest `active` user whose email is in `admin_emails`, or
-        None when there is no such user. Returns how many sources were queued."""
+        """Adds a missing source as `uploaded`. An existing one goes back to `uploaded` when it
+        `failed`, or when any of its language's texts has no chunk or a changed one, even while
+        `ingesting`, whose worker then loses its claim. It reads what is stored, not what this
+        import wrote. Each queued source's acting user is the oldest `active` user whose email is
+        in `admin_emails`, or None when there is none. Returns how many sources were queued."""
         ...
 
 

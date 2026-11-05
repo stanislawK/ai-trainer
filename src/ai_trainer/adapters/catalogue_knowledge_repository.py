@@ -11,7 +11,8 @@ from collections.abc import Callable, Sequence
 from datetime import datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import delete, func, insert, select, update
+from sqlalchemy import and_, delete, func, insert, or_, select
+from sqlalchemy.dialects.postgresql import array
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -44,13 +45,14 @@ from ai_trainer.domain.users import UserStatus
 _C = KnowledgeChunkOrm
 _S = KnowledgeSourceOrm
 _CATALOGUE_SPORTS = ["gym"]
-# A source in these may be queued again; nothing else exists for a catalogue source.
-_QUEUEABLE = (
-    SourceStatus.UPLOADED.value,
+# `uploaded` is waiting already; the others are queued again when their texts are stale.
+_REQUEUEABLE = (
     SourceStatus.INGESTING.value,
     SourceStatus.INGESTED.value,
     SourceStatus.FAILED.value,
 )
+# Python's `str.strip()`, as `catalogue_chunk` trims a text, so a stored chunk compares equal.
+_WHITESPACE = r"^\s+|\s+$"
 
 
 class SqlAlchemyCatalogueSources:
@@ -62,7 +64,6 @@ class SqlAlchemyCatalogueSources:
     async def queue(
         self,
         *,
-        changed: bool,
         attribution: str | None,
         admin_emails: Sequence[str],
         now: datetime,
@@ -71,12 +72,50 @@ class SqlAlchemyCatalogueSources:
             admin = await _acting_admin(session, admin_emails)
             queued = 0
             for language in SourceLanguage:
-                if await _add(session, language, attribution, admin, now) or (
-                    changed and await _requeue(session, language, attribution, admin, now)
+                if await _add(session, language, attribution, admin, now):
+                    queued += 1
+                    continue
+                source = await session.scalar(
+                    select(_S)
+                    .where(_S.content_hash == catalogue_content_hash(language))
+                    .with_for_update()
+                )
+                if source is None or source.status not in _REQUEUEABLE:
+                    continue
+                if source.status == SourceStatus.FAILED.value or await _stale(
+                    session, language, source.id
                 ):
+                    _requeue(source, attribution, admin, now)
                     queued += 1
             await session.commit()
             return queued
+
+
+async def _stale(session: AsyncSession, language: SourceLanguage, source_id: UUID) -> bool:
+    """Whether any catalogue text in `language` has no chunk, or one whose text or name
+    differs. It reads the database, not what this import wrote, so an import that committed its
+    rows but failed before queueing is caught by the next one. A model change is a re-embed job
+    (ADR-0033 invariant 4), started by Re-ingest."""
+    instructions = func.regexp_replace(ExerciseTextOrm.instructions, _WHITESPACE, "", "g")
+    statement = (
+        select(ExerciseTextOrm.exercise_id)
+        .join(ExerciseOrm, ExerciseOrm.id == ExerciseTextOrm.exercise_id)
+        .outerjoin(
+            _C, and_(_C.source_id == source_id, _C.exercise_id == ExerciseTextOrm.exercise_id)
+        )
+        .where(
+            ExerciseOrm.owner_user_id.is_(None),
+            ExerciseTextOrm.lang == language.value,
+            instructions != "",
+            or_(
+                _C.id.is_(None),
+                _C.text.is_distinct_from(instructions),
+                _C.heading_path.is_distinct_from(array([ExerciseOrm.name])),
+            ),
+        )
+        .limit(1)
+    )
+    return await session.scalar(statement) is not None
 
 
 async def _acting_admin(session: AsyncSession, admin_emails: Sequence[str]) -> UUID | None:
@@ -128,34 +167,19 @@ async def _add(
     return await session.scalar(statement) is not None
 
 
-async def _requeue(
-    session: AsyncSession,
-    language: SourceLanguage,
-    attribution: str | None,
-    admin: UUID | None,
-    now: datetime,
-) -> bool:
+def _requeue(
+    source: KnowledgeSourceOrm, attribution: str | None, admin: UUID | None, now: datetime
+) -> None:
     """Back to `uploaded`. An `ingesting` worker's later writes name a status this clears, so
     they change nothing, and the next claim works out what changed again."""
-    row = await session.scalar(
-        update(_S)
-        .where(
-            _S.content_hash == catalogue_content_hash(language),
-            _S.status.in_(_QUEUEABLE),
-        )
-        .values(
-            status=SourceStatus.UPLOADED.value,
-            uploaded_by_user_id=admin,
-            uploaded_at=now,
-            attribution=attribution,
-            error=None,
-            ingested_at=None,
-            claim_id=None,
-            lease_expires_at=None,
-        )
-        .returning(_S.id)
-    )
-    return row is not None
+    source.status = SourceStatus.UPLOADED.value
+    source.uploaded_by_user_id = admin
+    source.uploaded_at = now
+    source.attribution = attribution
+    source.error = None
+    source.ingested_at = None
+    source.claim_id = None
+    source.lease_expires_at = None
 
 
 class SqlAlchemyCatalogueChunks:
@@ -225,8 +249,8 @@ class SqlAlchemyCatalogueChunks:
                 rows.append(_row(source, embedded, ordinal=ordinal, model=model, at=at))
             if rows:
                 await session.execute(insert(_C).values(rows))
+            # The model is the source's only once `finish` has every chunk on it.
             source.chunk_count = await _count(session, source_id)
-            source.embedding_model = model
             await session.commit()
             return True
 

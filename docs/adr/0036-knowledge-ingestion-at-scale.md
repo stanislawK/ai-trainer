@@ -255,13 +255,17 @@ PMC sources carry "Source: NLM PMC" in their attribution.
     - the licence is `other`/`admin` with the note "MIT licence (data/catalogue/LICENSE.exercises-dataset)", and the attribution is the exercises' own (ADR-0031 G10).
 
     The admin list shows two rows with their chunk counts, not one per exercise.
-  - **Queueing.** `import-exercises` creates any missing source as `uploaded`. When the import inserted, updated or rewrote anything (a renamed exercise changes its chunk's heading), it sets both sources `uploaded` again.
-    - That includes an `ingesting` source. Its worker's later writes name a status that is now gone, so they change nothing, and the next claim works out the difference afresh.
+  - **Queueing.** After its upsert, `import-exercises` creates any missing source as `uploaded`. It sets an existing source `uploaded` again when the source `failed`, or when any of its language's texts has no chunk or one whose text or name differs.
+    - This reads the database, not what the run wrote, so an import that committed its rows but failed before queueing is caught by the next run (found by `/code-review` at #427).
+    - A source that is already `uploaded` is left waiting.
+    - An `ingesting` one goes back too. Its worker's later writes name a status that is now gone, so they change nothing, and the next claim works out the difference afresh.
     - The output line gains `catalogue_queued=<n>`.
+    - A change of `EMBEDDING_MODEL` isn't seen here. It is a re-embed job (ADR-0033 invariant 4), started by Re-ingest.
     - Invariant 1 is about uploaded and proposed sources. The catalogue is queued by the owner's `import-exercises` run, as ADR-0033 provides.
   - **The acting user** of the embedding calls (`llm_calls.user_id` is NOT NULL) is the oldest `active` user whose email is in `ADMIN_EMAILS`, compared case-insensitively. It is resolved on every import and stored as the source's `uploaded_by_user_id`. Admin rights still come only from the setting (ADR-0005).
     - With no such user, the source is queued without one and the worker fails it as `no_acting_admin`.
-    - An admin's Re-ingest on `/admin/knowledge` then runs it as that admin.
+    - The next `import-exercises`, after a listed admin has signed in, queues the failed source again as that admin. So does an admin's Re-ingest on `/admin/knowledge`, as the admin who clicks it.
+    - The admin page words `no_acting_admin` as "the admin who uploaded it no longer has an account". That is loose for the catalogue, but its advice to Re-ingest still holds. Changing the wording is a template change, left to a UI ticket.
   - **Only what changed is embedded.** The worker reads the language's texts and the source's chunks (no vectors). It embeds an exercise only when:
     - it has no chunk;
     - its chunk's text or heading differs;
@@ -276,6 +280,7 @@ PMC sources carry "Source: NLM PMC" in their attribution.
   - **Writes per batch, unlike a file.** Each embedded batch is written at once, under the claim:
     - a replaced chunk keeps its ordinal, and a new exercise takes the next free one;
     - a failed batch fails the source and keeps every chunk written before it, and the next run embeds only the rest;
+    - a batch updates `chunk_count`; only finishing sets `embedding_model`, once every chunk carries it;
     - finishing removes the chunk of an exercise with no text left in that language, then sets `ingested`, `chunk_count` and `embedding_model`.
 
     A file's chunks still go in one write, because they only make sense as a set. A catalogue chunk stands alone.

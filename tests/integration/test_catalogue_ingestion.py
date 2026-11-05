@@ -4,8 +4,9 @@ embedding gateway faked at its port and `search_knowledge` called through `Clien
 
 The catalogue's sources are one row per language, shared by every test, so this module runs in
 the `db_schema` group (tests/conftest.py). Queueing dates the sources 2001, so a claim takes them
-before any committed source. Assertions name the sample's `zz-test-` exercises, so a database
-that also holds a real import still passes, only slower.
+before any committed source. Like `test_first_gym_session_replay.py`, it expects the worktree's
+database to hold no imported catalogue: a real one's chunks would crowd the sample's out of a
+search, and its sources out of the counts.
 """
 
 import json
@@ -303,7 +304,8 @@ async def test_a_changed_text_replaces_its_own_chunk_and_no_other(world: _World)
     for row in sample:
         if row["id"] == _PULL_APART:
             row["instructions"]["pl"] = "Rozciągnij gumę na boki."
-    assert await world.import_sample(json.dumps(sample).encode()) == 2
+    # Only the Polish source has a stale text, so only it is queued.
+    assert await world.import_sample(json.dumps(sample).encode()) == 1
     changed = _ByName()
     await world.ingest_catalogue(changed)
 
@@ -363,8 +365,9 @@ async def test_the_sources_are_licensed_and_run_as_the_oldest_listed_admin(world
             ("gym",),
             None,
         )
+        # The dataset's, which most rows carry, never the in-house `extra.yaml` row's.
         assert source.attribution is not None
-        assert "exercises-dataset (MIT)" in source.attribution
+        assert "(MIT)" in source.attribution
 
 
 async def test_english_chunks_use_english_full_text_and_polish_ones_simple(world: _World) -> None:
@@ -388,14 +391,17 @@ async def test_a_requeue_mid_ingest_leaves_the_running_worker_writing_nothing(
     queue = SqlAlchemyKnowledgeIngestionRepository(world.factory)
     old_claim = UUID(int=427)
     now = world.clock.now()
-    while (claimed := await queue.claim_next(claim_id=old_claim, now=now, lease_until=now)) and (
-        claimed.id != english.id
-    ):
-        pass
+    claimed: set[UUID] = set()
+    while english.id not in claimed:
+        taken = await queue.claim_next(claim_id=old_claim, now=now, lease_until=now)
+        assert taken is not None
+        claimed.add(taken.id)
 
     sample = json.loads(SAMPLE.read_text())
     sample[0]["instructions"]["en"] = "Press the bar up from your chest."
-    assert await world.import_sample(json.dumps(sample).encode()) == 2
+    # Every claimed source is stale (an `uploaded` one would be waiting already), so each goes
+    # back, its claim with it.
+    assert await world.import_sample(json.dumps(sample).encode()) == len(claimed)
 
     assert (await world.source(SourceLanguage.EN)).status is SourceStatus.UPLOADED
     assert not await world.chunk_repository.write_batch(
@@ -428,9 +434,40 @@ async def test_with_no_listed_admin_the_sources_wait_and_fail_without_an_acting_
 
 async def test_with_admin_emails_unset_no_one_is_the_acting_user(world: _World) -> None:
     queued = await SqlAlchemyCatalogueSources(world.factory).queue(
-        changed=True, attribution=None, admin_emails=[], now=world.clock.now()
+        attribution=None, admin_emails=[], now=world.clock.now()
     )
 
     assert queued == 2
     for language in SourceLanguage:
         assert (await world.source(language)).uploaded_by_user_id is None
+
+
+async def test_an_import_after_one_that_never_queued_still_queues_the_stale_texts(
+    world: _World,
+) -> None:
+    await world.import_sample()
+    await world.ingest_catalogue(_ByName())
+    sample = json.loads(SAMPLE.read_text())
+    sample[1]["instructions"]["en"] = "Jump your feet apart and back together."
+    # An import whose rows committed but which never reached the queueing step.
+    await import_catalogue(
+        source=sample_source(dataset_transport(json.dumps(sample).encode())),
+        exercises=SqlAlchemyExerciseRepository(world.factory),
+    )
+
+    assert await world.import_sample(json.dumps(sample).encode()) == 1
+    fixed = _ByName()
+    await world.ingest({SourceLanguage.EN: fixed})
+    assert len(fixed.embedded) == 1
+    assert fixed.embedded[0].endswith("Jump your feet apart and back together.")
+
+
+async def test_a_failed_source_is_queued_again_by_a_plain_rerun(world: _World) -> None:
+    await world.import_sample()
+    await world.ingest(
+        {SourceLanguage.EN: _ByName(fail_call=1), SourceLanguage.PL: _ByName()}, batch_size=64
+    )
+    assert (await world.source(SourceLanguage.EN)).status is SourceStatus.FAILED
+
+    assert await world.import_sample() == 1
+    assert (await world.source(SourceLanguage.EN)).status is SourceStatus.UPLOADED
