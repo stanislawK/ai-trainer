@@ -1,8 +1,9 @@
-// The admin's knowledge page (B7, ADR-0033, ticket #422). It opens and closes the upload sheet
-// and the delete dialogs, and runs the checks a browser can make (type, size, a blank required
-// field) before anything is sent, showing the template's own messages. While the file is on its
-// way it shows an Uploading row, whose Cancel aborts the request. The server checks everything
-// again and answers with the whole `#knowledge` region, so its reply replaces that row.
+// The admin's knowledge page (B7, ADR-0033, ticket #422). It opens and closes the upload sheet,
+// a proposal's Set licence sheet (#461) and the delete dialogs, and runs the checks a browser can
+// make (type, size, a blank required field) before anything is sent, showing the template's own
+// messages. While the file is on its way it shows an Uploading row, whose Cancel aborts the
+// request. The server checks everything again and answers with the whole `#knowledge` region, so
+// its reply replaces that row. Selection and the bulk bar are in `knowledge_proposals.js`.
 (function () {
   var MB = 1024 * 1024;
 
@@ -31,11 +32,31 @@
     }
   }
 
+  // Closes whichever sheet is open: the upload sheet or a Set licence sheet.
   function closeSheet() {
     var root = region();
-    var sheet = root && sheetOf(root);
-    if (sheet) {
+    if (!root) {
+      return;
+    }
+    root.querySelectorAll("[data-knowledge-sheet], [data-knowledge-licence-sheet]").forEach(function (sheet) {
       sheet.hidden = true;
+    });
+  }
+
+  function anySheetOpen() {
+    var root = region();
+    return Boolean(root && root.querySelector("[data-knowledge-sheet]:not([hidden]), [data-knowledge-licence-sheet]:not([hidden])"));
+  }
+
+  function openLicenceSheet(id) {
+    var sheet = document.getElementById(id);
+    if (!sheet) {
+      return;
+    }
+    sheet.hidden = false;
+    var select = sheet.querySelector("[data-licence-input]");
+    if (select) {
+      select.focus();
     }
   }
 
@@ -106,16 +127,17 @@
     return true;
   }
 
-  // The licence select (#456): Detect from the file shows no licence fields; a licence shows
-  // its URL, copyright statement and attribution; Other also asks what permission is held.
-  // The hint, its warning tint for SA and ND, and the button's label follow the pick.
+  // The licence select (#456): Detect from the file, or no pick yet on Set licence, shows no
+  // licence fields; a licence shows its URL, copyright statement and attribution; Other also asks
+  // what permission is held. The hint, its warning tint for SA and ND, and the upload button's
+  // label follow the pick.
   function showLicence(form) {
     var select = form.querySelector("[data-licence-input]");
     if (!select) {
       return;
     }
     var option = select.options[select.selectedIndex];
-    var picked = select.value !== "detect";
+    var picked = select.value !== "detect" && select.value !== "";
     form.querySelectorAll("[data-licence-field]").forEach(function (field) {
       field.hidden = !picked;
     });
@@ -127,14 +149,16 @@
     hint.classList.toggle("text-warning", warn);
     hint.classList.toggle("lbl-2", !warn);
     var submit = form.querySelector("[data-licence-submit]");
-    submit.textContent = picked ? submit.dataset.ingest : submit.dataset.detect;
+    if (submit) {
+      submit.textContent = picked ? submit.dataset.ingest : submit.dataset.detect;
+    }
   }
 
   // The browser's own checks; the server's are the ones that count. A field the licence pick
   // hides isn't asked for.
   function check(form) {
     clearErrors(form);
-    var ok = checkFile(form);
+    var ok = form.querySelector("[data-file-input]") ? checkFile(form) : true;
     form.querySelectorAll("[data-required]").forEach(function (field) {
       if (field.closest("[hidden]")) {
         return;
@@ -168,10 +192,15 @@
     var table = root.querySelector("[data-knowledge-table] tbody");
     var card = root.querySelector("#knowledge-uploading-card");
     var row = root.querySelector("#knowledge-uploading-row");
-    root.dataset.wasEmpty = cards.hidden ? "true" : "false";
+    var empty = root.querySelector("[data-knowledge-empty]");
+    var filterEmpty = root.querySelector("[data-knowledge-filter-empty]");
+    // What the list showed before, so a cancelled upload puts it back: the empty card with no
+    // sources at all, or the filter's empty line (#461).
+    root.dataset.wasEmpty = cards.hidden ? (empty.hidden ? "filter" : "true") : "false";
     cards.hidden = false;
     root.querySelector("[data-knowledge-table]").hidden = false;
-    root.querySelector("[data-knowledge-empty]").hidden = true;
+    empty.hidden = true;
+    filterEmpty.hidden = true;
     cards.prepend(fill(card.content.firstElementChild.cloneNode(true), form));
     table.prepend(fill(row.content.firstElementChild.cloneNode(true), form));
   }
@@ -180,10 +209,11 @@
     root.querySelectorAll("[data-uploading]").forEach(function (row) {
       row.remove();
     });
-    if (root.dataset.wasEmpty === "true") {
+    if (root.dataset.wasEmpty !== "false") {
       root.querySelector("[data-knowledge-cards]").hidden = true;
       root.querySelector("[data-knowledge-table]").hidden = true;
-      root.querySelector("[data-knowledge-empty]").hidden = false;
+      root.querySelector("[data-knowledge-empty]").hidden = root.dataset.wasEmpty !== "true";
+      root.querySelector("[data-knowledge-filter-empty]").hidden = root.dataset.wasEmpty !== "filter";
     }
   }
 
@@ -200,6 +230,8 @@
       var root = region();
       htmx.trigger(formOf(root), "htmx:abort");
       hideUploading(root);
+    } else if (target.closest("[data-knowledge-licence]")) {
+      openLicenceSheet(target.closest("[data-knowledge-licence]").dataset.knowledgeLicence);
     } else {
       var opener = target.closest("[data-knowledge-delete]");
       var dialog = opener && document.getElementById(opener.dataset.knowledgeDelete);
@@ -210,9 +242,7 @@
   });
 
   document.addEventListener("keydown", function (event) {
-    var root = region();
-    var sheet = root && sheetOf(root);
-    if (event.key === "Escape" && sheet && !sheet.hidden) {
+    if (event.key === "Escape" && anySheetOpen()) {
       closeSheet();
     }
   });
@@ -295,7 +325,17 @@
 
   document.addEventListener("htmx:before:request", function (event) {
     var form = event.target;
-    if (!(form instanceof HTMLFormElement) || !form.matches("[data-knowledge-form]")) {
+    if (!(form instanceof HTMLFormElement)) {
+      return;
+    }
+    // Set licence: the same checks, and the server's reply replaces the sheet.
+    if (form.matches("[data-licence-sheet]")) {
+      if (!check(form)) {
+        event.preventDefault();
+      }
+      return;
+    }
+    if (!form.matches("[data-knowledge-form]")) {
       return;
     }
     if (!check(form)) {

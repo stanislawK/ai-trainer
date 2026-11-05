@@ -22,12 +22,19 @@ from ai_trainer.domain.knowledge import (
     KnowledgeFileType,
     KnowledgeSource,
     NewKnowledgeSource,
+    ProposalDecision,
+    SkipReason,
     SourceStatus,
     UploadProblem,
     check_file,
     content_hash,
 )
-from ai_trainer.domain.knowledge_form import UploadAnswers, UploadField, read_details
+from ai_trainer.domain.knowledge_form import (
+    UploadAnswers,
+    UploadField,
+    read_details,
+    read_licence,
+)
 from ai_trainer.domain.object_storage import ObjectStorageError
 
 
@@ -90,9 +97,51 @@ class SourcesPage:
     next: UUID | None
 
 
+@dataclass(frozen=True)
+class Skipped:
+    """A selected proposal left as it was, and why. `source` is None once it was deleted."""
+
+    reason: SkipReason
+    source: KnowledgeSource | None
+
+
+@dataclass(frozen=True)
+class ProposalsDecided:
+    decision: ProposalDecision
+    done: int
+    skipped: tuple[Skipped, ...]
+
+
+@dataclass(frozen=True)
+class LicenceSet:
+    source: KnowledgeSource
+
+
+@dataclass(frozen=True)
+class LicenceRefused:
+    problems: Mapping[UploadField, UploadProblem]
+
+
+@dataclass(frozen=True)
+class NotProposed:
+    """Decided in another tab: its licence is no longer the admin's to set here."""
+
+    source: KnowledgeSource
+
+
 type UploadOutcome = SourceStored | UploadRefused | AlreadyStored | StorageUnavailable
 type DeleteOutcome = SourceDeleted | SourceNotFound | StorageUnavailable
 type ReingestOutcome = ReingestQueued | NotReingestable | SourceNotFound
+
+
+@dataclass(frozen=True)
+class AlreadyLicensed:
+    """Set licence is for a proposal that has none; one read from PMC or the file keeps it."""
+
+    source: KnowledgeSource
+
+
+type LicenceOutcome = LicenceSet | LicenceRefused | NotProposed | AlreadyLicensed | SourceNotFound
 
 
 class KnowledgeSources:
@@ -223,6 +272,63 @@ class KnowledgeSources:
         # Its status changed since the lookup.
         current = await self._sources.get(source_id)
         return SourceNotFound() if current is None else NotReingestable(source=current)
+
+    async def decide(
+        self, admin_id: UUID, source_ids: Sequence[UUID], decision: ProposalDecision
+    ) -> ProposalsDecided:
+        """Approves or rejects the selected proposals in one statement (ADR-0036, #461). Each one
+        the statement left alone is reported: decided in another tab, still without a licence,
+        or deleted. The phone card and desktop row each post a source's ID, so it counts once."""
+        wanted = list(dict.fromkeys(source_ids))
+        changed = set(
+            await self._sources.decide_proposals(
+                wanted, status=decision.status, decided_by=admin_id
+            )
+        )
+        left = [source_id for source_id in wanted if source_id not in changed]
+        current = {source.id: source for source in await self._sources.get_many(left)}
+        return ProposalsDecided(
+            decision=decision,
+            done=len(changed),
+            skipped=tuple(_skipped(current.get(source_id)) for source_id in left),
+        )
+
+    async def set_licence(self, source_id: UUID, answers: UploadAnswers) -> LicenceOutcome:
+        """An admin's licence on a proposal that has none, so it can be approved (the #454
+        amendment)."""
+        refused = _unlicensable(await self._sources.get(source_id))
+        if refused is not None:
+            return refused
+        terms = read_licence(answers)
+        if isinstance(terms, dict):
+            return LicenceRefused(problems=terms)
+        updated = await self._sources.set_licence(source_id, terms)
+        if updated is not None:
+            return LicenceSet(source=updated)
+        # Decided, licensed or deleted in another tab since the lookup.
+        current = await self._sources.get(source_id)
+        return _unlicensable(current) or SourceNotFound()
+
+
+def _unlicensable(
+    source: KnowledgeSource | None,
+) -> NotProposed | AlreadyLicensed | SourceNotFound | None:
+    """Why Set licence can't apply to this source, or None when it can."""
+    if source is None:
+        return SourceNotFound()
+    if source.status is not SourceStatus.PROPOSED:
+        return NotProposed(source=source)
+    if source.license_id is not None:
+        return AlreadyLicensed(source=source)
+    return None
+
+
+def _skipped(source: KnowledgeSource | None) -> Skipped:
+    if source is None:
+        return Skipped(reason=SkipReason.GONE, source=None)
+    if source.status is SourceStatus.PROPOSED:
+        return Skipped(reason=SkipReason.UNLICENSED, source=source)
+    return Skipped(reason=SkipReason.MOVED, source=source)
 
 
 async def _discard(storage: ObjectStoragePort, key: str) -> None:

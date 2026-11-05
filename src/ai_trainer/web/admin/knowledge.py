@@ -1,13 +1,15 @@
-"""The admin's knowledge sources (ADR-0033, PRD B7): `GET /admin/knowledge` lists them with the
-upload sheet, `POST /admin/knowledge/sources` uploads one, and each source has `DELETE` and
-`POST …/reingest`. Every response renders the whole `#knowledge` region, the list and the sheet,
-so a refusal reopens the sheet and a success replaces the browser's Uploading row.
+"""The admin's knowledge sources (ADR-0033, ADR-0036, PRD B7): `GET /admin/knowledge` lists them
+with the upload sheet, `POST /admin/knowledge/sources` uploads one, and each source has `DELETE`,
+`POST …/reingest` and, while proposed, `POST …/licence`. Selected proposals are approved or
+rejected at `POST /admin/knowledge/proposals/{approve,reject}` (#461). Every response renders the
+whole `#knowledge` region, the list and its sheets, so a refusal reopens a sheet and a success
+replaces the browser's Uploading row. The filter chip travels as `?show=` on every request, so
+each re-render keeps it.
 
-As on the users page, the admin check comes before anything from the request is parsed: the
-upload's body and every source ID are read by hand after it, so a non-admin gets 403, never a
-422 or 404."""
+As on the users page, the admin check comes before anything from the request is parsed: every
+body and source ID is read by hand after it, so a non-admin gets 403, never a 422 or 404."""
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from uuid import UUID
 
@@ -17,9 +19,14 @@ from starlette.datastructures import FormData, UploadFile
 from starlette.templating import Jinja2Templates
 
 from ai_trainer.application.knowledge_sources import (
+    AlreadyLicensed,
     AlreadyStored,
     KnowledgeSources,
+    LicenceRefused,
+    LicenceSet,
+    NotProposed,
     NotReingestable,
+    ProposalsDecided,
     ReingestQueued,
     SourceDeleted,
     SourceNotFound,
@@ -33,6 +40,8 @@ from ai_trainer.domain.knowledge import (
     UPLOAD_SOURCE_TYPES,
     KnowledgeSource,
     LicenseId,
+    ProposalDecision,
+    SourceFilter,
     SourceLanguage,
 )
 from ai_trainer.domain.knowledge_form import DETECT_LICENCE, UploadAnswers
@@ -54,8 +63,22 @@ _TEXT_FIELDS = (
     "license_note",
     "source_url",
 )
+# The Set licence sheet's fields (the #454 amendment).
+_LICENCE_FIELDS = (
+    "license_id",
+    "license_url",
+    "copyright_statement",
+    "attribution",
+    "license_note",
+)
 # The licence select's options, in its order: Detect from the file first (the #454 amendment).
 _LICENCE_CHOICES = (DETECT_LICENCE, *(value.value for value in LicenseId))
+# Set licence offers the licences only: the file was read already.
+_SET_LICENCE_CHOICES = tuple(value.value for value in LicenseId)
+# Form fields per decision. Each selected proposal posts its ID twice, once from its phone card
+# and once from its desktop row, so this lets about 2,000 proposals through; past it the form
+# parser answers 400. The list has no Select all, so a selection is made by hand.
+_MAX_DECIDED_FIELDS = 4000
 
 
 @dataclass(frozen=True)
@@ -74,8 +97,18 @@ class _Sheet:
     file_size: int | None = None
 
 
-def _answers(form: FormData) -> UploadAnswers:
-    texts = {name: form.get(name) for name in _TEXT_FIELDS}
+@dataclass(frozen=True)
+class _LicenceSheet:
+    """One proposal's Set licence sheet, reopened after a refusal with the answers as typed; with
+    no source, the blank state every other sheet starts from."""
+
+    source_id: UUID | None
+    answers: UploadAnswers
+    problems: Mapping[str, str]
+
+
+def _answers(form: FormData, names: Sequence[str] = _TEXT_FIELDS) -> UploadAnswers:
+    texts = {name: form.get(name) for name in names}
     return UploadAnswers(
         **{name: value for name, value in texts.items() if isinstance(value, str)},
         sports=tuple(value for value in form.getlist("sports") if isinstance(value, str)),
@@ -87,6 +120,21 @@ def _source_id(raw: str) -> UUID | None:
         return UUID(raw)
     except ValueError:
         return None
+
+
+def _source_ids(form: FormData) -> list[UUID] | None:
+    """Every selected ID, or None when any of them isn't one."""
+    ids = [
+        _source_id(value) if isinstance(value, str) else None for value in form.getlist("source_id")
+    ]
+    return None if any(i is None for i in ids) else [i for i in ids if i is not None]
+
+
+def _counts(sources: Sequence[KnowledgeSource]) -> Mapping[str, int]:
+    return {
+        chip.value: sum(1 for source in sources if chip.shows(source.status))
+        for chip in SourceFilter
+    }
 
 
 class _KnowledgeRoutes:
@@ -110,15 +158,30 @@ class _KnowledgeRoutes:
         status_code: int = 200,
         sheet: _Sheet | None = None,
         alert: str | None = None,
+        decided: ProposalsDecided | None = None,
+        licence_sheet: _LicenceSheet | None = None,
     ) -> HTMLResponse:
+        show = SourceFilter.read(request.query_params.get("show"))
+        every = await self._knowledge.list()
         context = {
-            "sources": await self._knowledge.list(),
+            "sources": [source for source in every if show.shows(source.status)],
+            "any_sources": bool(every),
+            "show": show.value,
+            # Each action's URL keeps the filter it was drawn under; All needs no query.
+            "show_query": "" if show is SourceFilter.ALL else f"?show={show.value}",
+            "filters": tuple(chip.value for chip in SourceFilter),
+            "counts": _counts(every),
             "sheet": sheet or _Sheet(),
+            "licence_reopened": licence_sheet,
+            # A Set licence sheet no refusal reopened starts blank.
+            "blank_licence": _LicenceSheet(source_id=None, answers=UploadAnswers(), problems={}),
             "alert": alert,
+            "decided": decided,
             "source_types": UPLOAD_SOURCE_TYPES,
             "evidence_tiers": UPLOAD_EVIDENCE_TIERS,
             "languages": tuple(SourceLanguage),
             "licence_choices": _LICENCE_CHOICES,
+            "set_licence_choices": _SET_LICENCE_CHOICES,
             "sports": self._sports.all(),
             "max_upload_mb": self._max_upload_mb,
             "max_upload_bytes": self._max_upload_mb * 1024 * 1024,
@@ -198,6 +261,45 @@ class _KnowledgeRoutes:
             case SourceNotFound():
                 return not_found(request, self._templates)
 
+    async def approve(self, request: Request) -> Response:
+        return await self._decide(request, ProposalDecision.APPROVE)
+
+    async def reject(self, request: Request) -> Response:
+        return await self._decide(request, ProposalDecision.REJECT)
+
+    async def _decide(self, request: Request, decision: ProposalDecision) -> Response:
+        if not is_admin(request):
+            return forbidden(request, self._templates)
+        async with request.form(max_files=0, max_fields=_MAX_DECIDED_FIELDS) as form:
+            ids = _source_ids(form)
+        if ids is None:
+            return not_found(request, self._templates)
+        outcome = await self._knowledge.decide(request.state.user.id, ids, decision)
+        return await self._region(request, decided=outcome)
+
+    async def set_licence(self, request: Request, source_id: str) -> Response:
+        if not is_admin(request):
+            return forbidden(request, self._templates)
+        parsed = _source_id(source_id)
+        if parsed is None:
+            return not_found(request, self._templates)
+        async with request.form(max_files=0, max_fields=len(_LICENCE_FIELDS) + 2) as form:
+            answers = _answers(form, _LICENCE_FIELDS)
+        outcome = await self._knowledge.set_licence(parsed, answers)
+        match outcome:
+            case LicenceSet():
+                return await self._region(request)
+            case LicenceRefused(problems=problems):
+                marked = {name.value: problem.value for name, problem in problems.items()}
+                sheet = _LicenceSheet(source_id=parsed, answers=answers, problems=marked)
+                return await self._region(request, status_code=422, licence_sheet=sheet)
+            case NotProposed():
+                return await self._region(request, status_code=409, alert="licence_not_proposed")
+            case AlreadyLicensed():
+                return await self._region(request, status_code=409, alert="licence_already_set")
+            case SourceNotFound():
+                return not_found(request, self._templates)
+
 
 def build_knowledge_router(
     *,
@@ -218,4 +320,9 @@ def build_knowledge_router(
     router.post("/admin/knowledge/sources/{source_id}/reingest", response_class=HTMLResponse)(
         routes.reingest
     )
+    router.post("/admin/knowledge/sources/{source_id}/licence", response_class=HTMLResponse)(
+        routes.set_licence
+    )
+    router.post("/admin/knowledge/proposals/approve", response_class=HTMLResponse)(routes.approve)
+    router.post("/admin/knowledge/proposals/reject", response_class=HTMLResponse)(routes.reject)
     return router

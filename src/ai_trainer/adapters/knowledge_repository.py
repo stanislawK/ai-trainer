@@ -1,4 +1,4 @@
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Collection, Sequence
 from uuid import UUID
 
 from sqlalchemy import delete, or_, select, update
@@ -19,6 +19,10 @@ from ai_trainer.domain.knowledge import (
     SourceStatus,
     SourceType,
 )
+from ai_trainer.domain.source_template import LicenceTerms
+
+# What a proposal can become (#461).
+_DECIDED = frozenset({SourceStatus.UPLOADED, SourceStatus.REJECTED})
 
 
 def to_domain(row: KnowledgeSourceOrm) -> KnowledgeSource:
@@ -189,3 +193,66 @@ class SqlAlchemyKnowledgeSourcesRepository:
             queued = None if row is None else to_domain(row)
             await session.commit()
             return queued
+
+    async def get_many(self, source_ids: Collection[UUID]) -> Sequence[KnowledgeSource]:
+        if not source_ids:
+            return []
+        async with self._session_factory() as session:
+            rows = await session.scalars(
+                select(KnowledgeSourceOrm).where(KnowledgeSourceOrm.id.in_(list(source_ids)))
+            )
+            return [to_domain(row) for row in rows]
+
+    async def decide_proposals(
+        self, source_ids: Collection[UUID], *, status: SourceStatus, decided_by: UUID
+    ) -> Sequence[UUID]:
+        if status not in _DECIDED:
+            raise ValueError(f"a proposal becomes uploaded or rejected, not {status}")
+        if not source_ids:
+            return []
+        # Approving makes the admin the acting user of the source's embedding calls (ADR-0036).
+        approver = {"uploaded_by_user_id": decided_by} if status is SourceStatus.UPLOADED else {}
+        statement = (
+            update(KnowledgeSourceOrm)
+            .where(
+                KnowledgeSourceOrm.id.in_(list(source_ids)),
+                KnowledgeSourceOrm.status == SourceStatus.PROPOSED.value,
+                # No licence, no leaving `proposed` (ADR-0036 invariant 4, `licence_set`).
+                KnowledgeSourceOrm.license_id.is_not(None),
+            )
+            .values(status=status.value, **approver)
+            .returning(KnowledgeSourceOrm.id)
+        )
+        async with self._session_factory() as session:
+            changed = list(await session.scalars(statement))
+            await session.commit()
+            return changed
+
+    async def set_licence(self, source_id: UUID, terms: LicenceTerms) -> KnowledgeSource | None:
+        statement = (
+            update(KnowledgeSourceOrm)
+            .where(
+                KnowledgeSourceOrm.id == source_id,
+                KnowledgeSourceOrm.status == SourceStatus.PROPOSED.value,
+                # Only a proposal with none: one read from PMC or the file keeps its own.
+                KnowledgeSourceOrm.license_id.is_(None),
+            )
+            .values(
+                license_id=terms.license_id.value,
+                license_source=terms.license_source.value,
+                license_url=terms.license_url,
+                copyright_statement=terms.copyright_statement,
+                attribution=terms.attribution,
+                license_note=terms.license_note,
+                # What detection found no longer describes the licence: the admin set it.
+                license_matched_line=None,
+                license_locator=None,
+                license_detection_reason=None,
+            )
+            .returning(KnowledgeSourceOrm)
+        )
+        async with self._session_factory() as session:
+            row = await session.scalar(statement)
+            updated = None if row is None else to_domain(row)
+            await session.commit()
+            return updated
