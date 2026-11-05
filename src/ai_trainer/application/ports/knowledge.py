@@ -3,10 +3,16 @@ from datetime import datetime
 from typing import Protocol
 from uuid import UUID
 
+from ai_trainer.domain.catalogue_knowledge import (
+    CatalogueChunkState,
+    CatalogueText,
+    EmbeddedCatalogueChunk,
+)
 from ai_trainer.domain.knowledge import (
     KnowledgeFileType,
     KnowledgeSource,
     NewKnowledgeSource,
+    SourceLanguage,
     SourceStatus,
 )
 from ai_trainer.domain.knowledge_document import (
@@ -123,6 +129,61 @@ class KnowledgeIngestionRepositoryPort(Protocol):
     async def fail(self, source_id: UUID, *, claim_id: UUID, reason: IngestFailure) -> bool:
         """Sets `failed` with `reason`, keeping any chunks an earlier ingest wrote. False when the
         source is gone or no longer this claim's."""
+        ...
+
+
+class CatalogueSourcesPort(Protocol):
+    """The catalogue's two sources, one per language (ADR-0036's #427 amendment)."""
+
+    async def queue(
+        self,
+        *,
+        changed: bool,
+        attribution: str | None,
+        admin_emails: Sequence[str],
+        now: datetime,
+    ) -> int:
+        """Adds a missing source as `uploaded`, and sets every existing one `uploaded` when
+        `changed`, even an `ingesting` one, whose worker then loses its claim. Each queued
+        source's acting user is the oldest `active` user whose email is in `admin_emails`, or
+        None when there is no such user. Returns how many sources were queued."""
+        ...
+
+
+class CatalogueChunksRepositoryPort(Protocol):
+    """A catalogue source's chunks, written batch by batch under the worker's claim, unlike a
+    file source's single write: each chunk stands alone (ADR-0036's #427 amendment)."""
+
+    async def texts(self, language: SourceLanguage) -> Sequence[CatalogueText]:
+        """Every catalogue exercise's text in `language`, never an athlete's custom one."""
+        ...
+
+    async def chunk_states(self, source_id: UUID) -> Sequence[CatalogueChunkState]: ...
+
+    async def write_batch(
+        self,
+        source_id: UUID,
+        *,
+        claim_id: UUID,
+        chunks: Sequence[EmbeddedCatalogueChunk],
+        model: str,
+        at: datetime,
+    ) -> bool:
+        """Replaces each exercise's chunk, keeping its ordinal, and adds new ones after the
+        last. False, writing nothing, when the source is gone or no longer this claim's."""
+        ...
+
+    async def finish(
+        self,
+        source_id: UUID,
+        *,
+        claim_id: UUID,
+        keep: frozenset[UUID],
+        model: str,
+        ingested_at: datetime,
+    ) -> bool:
+        """Removes the chunks of exercises not in `keep` and sets `ingested` with the count.
+        False, writing nothing, when the source is gone or no longer this claim's."""
         ...
 
 

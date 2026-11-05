@@ -32,6 +32,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from ai_trainer.adapters.activity_stores import ActivityStores
 from ai_trainer.adapters.admin_token_repository import SqlAlchemyAdminTokensRepository
+from ai_trainer.adapters.catalogue_knowledge_repository import SqlAlchemyCatalogueChunks
 from ai_trainer.adapters.chat_repository import SqlAlchemyChatRepository
 from ai_trainer.adapters.clarification_repository import SqlAlchemyClarificationRepository
 from ai_trainer.adapters.clock import UtcClock
@@ -62,6 +63,7 @@ from ai_trainer.adapters.users_repository import SqlAlchemyUsersRepository
 from ai_trainer.application.admin_tokens import AdminTokens, TokenAuthenticator
 from ai_trainer.application.background_reads import BackgroundReads
 from ai_trainer.application.budgeted_gateways import BudgetedDecisionGateway, BudgetedLlmGateway
+from ai_trainer.application.catalogue_ingestion import CatalogueIngestion
 from ai_trainer.application.exercise_lookup import ExerciseFinder
 from ai_trainer.application.exercise_resolution import ResolutionLimits, ResolveExercises
 from ai_trainer.application.feedback import FeedbackRecorder
@@ -306,6 +308,18 @@ def build_knowledge_ingestion(
     """`ai-trainer ingest-worker`'s worker, outside the web process (ADR-0036). Its embedding
     calls are outside ADR-0029's per-user budget, bounded by its concurrency of 1; each still
     writes its `llm_calls` row."""
+    embeddings = OpenRouterEmbeddingGateway(
+        api_key=settings.openrouter_api_key.get_secret_value(),
+        model=settings.embedding_model,
+        dimensions=settings.embedding_dim,
+        provider=settings.embedding_provider_preferences,
+        timeout_seconds=settings.embedding_call_timeout_seconds,
+        calls_repository=SqlAlchemyLlmCallsRepository(session_factory),
+        http_client=httpx2.AsyncClient(
+            transport=embedding_transport, timeout=settings.embedding_call_timeout_seconds
+        ),
+    )
+    clock = UtcClock()
     return KnowledgeIngestion(
         repository=SqlAlchemyKnowledgeIngestionRepository(session_factory),
         storage=storage,
@@ -314,22 +328,21 @@ def build_knowledge_ingestion(
             max_words=settings.knowledge_chunk_max_words,
             min_words=settings.knowledge_chunk_min_words,
         ),
-        embeddings=OpenRouterEmbeddingGateway(
-            api_key=settings.openrouter_api_key.get_secret_value(),
-            model=settings.embedding_model,
-            dimensions=settings.embedding_dim,
-            provider=settings.embedding_provider_preferences,
-            timeout_seconds=settings.embedding_call_timeout_seconds,
-            calls_repository=SqlAlchemyLlmCallsRepository(session_factory),
-            http_client=httpx2.AsyncClient(
-                transport=embedding_transport, timeout=settings.embedding_call_timeout_seconds
-            ),
-        ),
-        clock=UtcClock(),
+        embeddings=embeddings,
+        clock=clock,
         sleep=sleep,
         batch_size=settings.knowledge_embedding_batch_size,
         max_attempts=settings.knowledge_embedding_max_attempts,
         lease=timedelta(seconds=settings.knowledge_ingest_lease_seconds),
+        catalogue=CatalogueIngestion(
+            repository=SqlAlchemyCatalogueChunks(session_factory),
+            embeddings=embeddings,
+            clock=clock,
+            sleep=sleep,
+            batch_size=settings.knowledge_embedding_batch_size,
+            max_attempts=settings.knowledge_embedding_max_attempts,
+            model=settings.embedding_model,
+        ),
     )
 
 

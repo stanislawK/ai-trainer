@@ -13,6 +13,9 @@ It runs outside the web process (`ai-trainer ingest-worker`, in the `ingest` con
 Parsing and chunking are CPU-bound, so they run in a thread and the heartbeat keeps beating.
 Embedding calls go in batches, each a call with its own `llm_calls` row, with backoff on 429.
 They are outside ADR-0029's per-user budget, bounded by the worker's concurrency of 1 instead.
+
+A `catalogue` source has no file: `CatalogueIngestion` embeds only its changed texts and writes
+them batch by batch, under the same claim and heartbeat (ADR-0036's #427 amendment).
 """
 
 import asyncio
@@ -23,6 +26,8 @@ from dataclasses import dataclass
 from datetime import timedelta
 from uuid import UUID, uuid4
 
+from ai_trainer.application.catalogue_ingestion import CatalogueIngestion
+from ai_trainer.application.embedding_batches import embed_batch
 from ai_trainer.application.ports.clock import ClockPort
 from ai_trainer.application.ports.embeddings import EmbeddingGatewayPort
 from ai_trainer.application.ports.knowledge import (
@@ -31,15 +36,8 @@ from ai_trainer.application.ports.knowledge import (
     KnowledgeIngestionRepositoryPort,
 )
 from ai_trainer.application.ports.object_storage import ObjectStoragePort
-from ai_trainer.domain.embeddings import (
-    Embedded,
-    EmbeddingFailed,
-    EmbeddingFailure,
-    RateLimited,
-)
-from ai_trainer.domain.knowledge import KnowledgeFileType, KnowledgeSource
+from ai_trainer.domain.knowledge import KnowledgeFileType, KnowledgeSource, SourceType
 from ai_trainer.domain.knowledge_document import (
-    EMBEDDING_DIMENSIONS,
     NewKnowledgeChunk,
     NoReader,
     Unreadable,
@@ -49,15 +47,6 @@ from ai_trainer.domain.knowledge_document import (
 from ai_trainer.domain.knowledge_ingestion import EmbeddedChunk, IngestFailure, IngestReport
 from ai_trainer.domain.object_storage import ObjectNotFoundError, ObjectStorageError
 
-# 1 s, doubling, at most 30 s, when a 429 doesn't say how long to wait; a wait it names is kept
-# between 0 and the same cap, so one answer can't stall the queue.
-_BACKOFF_START_SECONDS = 1.0
-_BACKOFF_CAP_SECONDS = 30.0
-_EMBEDDING_FAILURES = {
-    EmbeddingFailure.ERROR: IngestFailure.EMBEDDING_FAILED,
-    EmbeddingFailure.TIMEOUT: IngestFailure.EMBEDDING_TIMEOUT,
-    EmbeddingFailure.WRONG_SHAPE: IngestFailure.WRONG_SHAPE,
-}
 _UNREADABLE = {
     UnreadableReason.NOT_UTF8: IngestFailure.NOT_UTF8,
     UnreadableReason.NO_TEXT: IngestFailure.NO_TEXT,
@@ -94,8 +83,10 @@ class KnowledgeIngestion:
         batch_size: int,
         max_attempts: int,
         lease: timedelta,
+        catalogue: CatalogueIngestion,
     ) -> None:
         self._repository = repository
+        self._catalogue = catalogue
         self._storage = storage
         self._readers = readers
         self._chunker = chunker
@@ -160,6 +151,35 @@ class KnowledgeIngestion:
     async def _ingest(
         self, source: KnowledgeSource, claim_id: UUID, lost: asyncio.Event
     ) -> IngestReport:
+        if source.source_type is SourceType.CATALOGUE:
+            return await self._ingest_catalogue(source, claim_id, lost)
+        return await self._ingest_file(source, claim_id, lost)
+
+    async def _fail(
+        self, source: KnowledgeSource, claim_id: UUID, reason: IngestFailure
+    ) -> IngestReport:
+        failed = await self._repository.fail(source.id, claim_id=claim_id, reason=reason)
+        if not failed:
+            return IngestReport(source_id=source.id, result="gone")
+        return IngestReport(source_id=source.id, result="failed", reason=reason)
+
+    async def _ingest_catalogue(
+        self, source: KnowledgeSource, claim_id: UUID, lost: asyncio.Event
+    ) -> IngestReport:
+        try:
+            outcome = await self._catalogue.ingest(source, claim_id, lost)
+        except Exception as exc:
+            logger.exception("catalogue ingest failed unexpectedly: %s", type(exc).__name__)
+            outcome = IngestFailure.INGEST_ERROR
+        if isinstance(outcome, IngestFailure):
+            return await self._fail(source, claim_id, outcome)
+        if outcome == "gone":
+            return IngestReport(source_id=source.id, result="gone")
+        return IngestReport(source_id=source.id, result="ingested", chunks=outcome)
+
+    async def _ingest_file(
+        self, source: KnowledgeSource, claim_id: UUID, lost: asyncio.Event
+    ) -> IngestReport:
         try:
             outcome = await self._read_and_embed(source, lost)
         except _ClaimLostError:
@@ -169,10 +189,7 @@ class KnowledgeIngestion:
             logger.exception("ingest failed unexpectedly: %s", type(exc).__name__)
             outcome = IngestFailure.INGEST_ERROR
         if isinstance(outcome, IngestFailure):
-            failed = await self._repository.fail(source.id, claim_id=claim_id, reason=outcome)
-            if not failed:
-                return IngestReport(source_id=source.id, result="gone")
-            return IngestReport(source_id=source.id, result="failed", reason=outcome)
+            return await self._fail(source, claim_id, outcome)
         finished = await self._repository.finish(
             source.id,
             claim_id=claim_id,
@@ -227,13 +244,15 @@ class KnowledgeIngestion:
             if lost.is_set():
                 raise _ClaimLostError
             batch = chunks[start : start + self._batch_size]
-            outcome = await self._embed_batch(
-                [embedding_input(source.title, chunk) for chunk in batch], acting_user
+            outcome = await embed_batch(
+                self._embeddings,
+                [embedding_input(source.title, chunk) for chunk in batch],
+                acting_user=acting_user,
+                sleep=self._sleep,
+                max_attempts=self._max_attempts,
             )
             if isinstance(outcome, IngestFailure):
                 return outcome
-            if any(len(vector) != EMBEDDING_DIMENSIONS for vector in outcome.vectors):
-                return IngestFailure.WRONG_SHAPE
             embedded.extend(
                 EmbeddedChunk(chunk=chunk, embedding=vector)
                 for chunk, vector in zip(batch, outcome.vectors, strict=True)
@@ -242,23 +261,3 @@ class KnowledgeIngestion:
         if lost.is_set():
             raise _ClaimLostError
         return _Embeddings(chunks=tuple(embedded), model=model)
-
-    async def _embed_batch(self, texts: list[str], acting_user: UUID) -> Embedded | IngestFailure:
-        wait = _BACKOFF_START_SECONDS
-        for attempt in range(1, self._max_attempts + 1):
-            outcome = await self._embeddings.embed_documents(texts, acting_user_id=acting_user)
-            match outcome:
-                case Embedded():
-                    return outcome
-                case EmbeddingFailed(reason=reason):
-                    return _EMBEDDING_FAILURES[reason]
-                case RateLimited(retry_after_seconds=retry_after):
-                    if attempt == self._max_attempts:
-                        break
-                    await self._sleep(
-                        wait
-                        if retry_after is None
-                        else min(max(retry_after, 0.0), _BACKOFF_CAP_SECONDS)
-                    )
-                    wait = min(wait * 2, _BACKOFF_CAP_SECONDS)
-        return IngestFailure.RATE_LIMITED

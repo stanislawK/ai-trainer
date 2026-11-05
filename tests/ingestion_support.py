@@ -6,10 +6,19 @@ from collections.abc import Awaitable, Callable, Sequence
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
+from ai_trainer.application.catalogue_ingestion import CatalogueIngestion
 from ai_trainer.application.knowledge_ingestion import KnowledgeIngestion
 from ai_trainer.application.ports.embeddings import EmbeddingGatewayPort
-from ai_trainer.application.ports.knowledge import KnowledgeIngestionRepositoryPort
+from ai_trainer.application.ports.knowledge import (
+    CatalogueChunksRepositoryPort,
+    KnowledgeIngestionRepositoryPort,
+)
 from ai_trainer.application.ports.object_storage import ObjectStoragePort
+from ai_trainer.domain.catalogue_knowledge import (
+    CatalogueChunkState,
+    CatalogueText,
+    EmbeddedCatalogueChunk,
+)
 from ai_trainer.domain.embeddings import Embedded, EmbeddingOutcome
 from ai_trainer.domain.knowledge import (
     EvidenceTier,
@@ -155,7 +164,9 @@ def ingestion(
     batch_size: int = 2,
     max_attempts: int = 3,
     lease: timedelta = timedelta(minutes=5),
+    catalogue: CatalogueChunksRepositoryPort | None = None,
 ) -> KnowledgeIngestion:
+    sleep = sleep or RecordedSleep()
     return KnowledgeIngestion(
         repository=repository,
         storage=storage,
@@ -163,11 +174,77 @@ def ingestion(
         chunker=Chunker(max_words=40, min_words=5),
         embeddings=embeddings,
         clock=clock,
-        sleep=sleep or RecordedSleep(),
+        sleep=sleep,
         batch_size=batch_size,
         max_attempts=max_attempts,
         lease=lease,
+        catalogue=CatalogueIngestion(
+            repository=catalogue or MemoryCatalogueChunks(),
+            embeddings=embeddings,
+            clock=clock,
+            sleep=sleep,
+            batch_size=batch_size,
+            max_attempts=max_attempts,
+            model=MODEL,
+        ),
     )
+
+
+class MemoryCatalogueChunks:
+    """Implements `CatalogueChunksRepositoryPort` in memory, for any claim (#427)."""
+
+    def __init__(self, *texts: tuple[SourceLanguage, CatalogueText]) -> None:
+        self.texts_by_language = list(texts)
+        self.chunks: dict[UUID, EmbeddedCatalogueChunk] = {}
+        self.models: dict[UUID, str] = {}
+        self.writes = 0
+        self.finished: frozenset[UUID] | None = None
+        self.gone_after_writes: int | None = None
+
+    async def texts(self, language: SourceLanguage) -> Sequence[CatalogueText]:
+        return [text for lang, text in self.texts_by_language if lang is language]
+
+    async def chunk_states(self, source_id: UUID) -> Sequence[CatalogueChunkState]:
+        return [
+            CatalogueChunkState(
+                exercise_id,
+                chunk.item.chunk.text,
+                chunk.item.chunk.heading_path,
+                self.models[exercise_id],
+            )
+            for exercise_id, chunk in self.chunks.items()
+        ]
+
+    async def write_batch(
+        self,
+        source_id: UUID,
+        *,
+        claim_id: UUID,
+        chunks: Sequence[EmbeddedCatalogueChunk],
+        model: str,
+        at: datetime,
+    ) -> bool:
+        if self.gone_after_writes is not None and self.writes >= self.gone_after_writes:
+            return False
+        self.writes += 1
+        for chunk in chunks:
+            self.chunks[chunk.item.exercise_id] = chunk
+            self.models[chunk.item.exercise_id] = model
+        return True
+
+    async def finish(
+        self,
+        source_id: UUID,
+        *,
+        claim_id: UUID,
+        keep: frozenset[UUID],
+        model: str,
+        ingested_at: datetime,
+    ) -> bool:
+        if self.gone_after_writes is not None and self.writes >= self.gone_after_writes:
+            return False
+        self.finished = keep
+        return True
 
 
 class MemoryQueue:

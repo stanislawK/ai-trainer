@@ -26,12 +26,27 @@ def _renamed(content: str) -> str:
     return content.replace("zz-test-", "zz-cli-").replace("Zz Extra", "Zz Cli Extra")
 
 
+_CATALOGUE_SOURCES = "source_type = 'catalogue'"
+
+
 @pytest.fixture
 async def _clean_rows() -> AsyncIterator[None]:
-    yield
+    """Removes the sample's rows, and the catalogue's knowledge sources when this test made them
+    (#427); ones a real import made stay, queued again."""
     engine = build_engine(str(Settings().database_url))
+    async with engine.connect() as connection:
+        existed = bool(
+            await connection.scalar(
+                text(f"SELECT count(*) FROM knowledge_sources WHERE {_CATALOGUE_SOURCES}")
+            )
+        )
+    yield
     async with engine.begin() as connection:
         await connection.execute(text(f"DELETE FROM exercises WHERE {_REFS}"))
+        if not existed:
+            await connection.execute(
+                text(f"DELETE FROM knowledge_sources WHERE {_CATALOGUE_SOURCES}")
+            )
     await engine.dispose()
 
 
@@ -75,11 +90,13 @@ async def test_main_imports_prints_the_outcome_line_and_a_second_run_writes_noth
     assert (first_code, second_code) == (0, 0)
     assert first.getvalue() == (
         f"import-exercises: result=ok exercises={SAMPLE_EXERCISES} inserted={SAMPLE_EXERCISES} "
-        f"updated=0 unchanged=0 texts_written={2 * (SAMPLE_EXERCISES - 1) + 1} skipped=1\n"
+        f"updated=0 unchanged=0 texts_written={2 * (SAMPLE_EXERCISES - 1) + 1} skipped=1 "
+        "catalogue_queued=2\n"
     )
     assert second.getvalue() == (
         f"import-exercises: result=ok exercises={SAMPLE_EXERCISES} inserted=0 "
-        f"updated=0 unchanged={SAMPLE_EXERCISES} texts_written=0 skipped=1\n"
+        f"updated=0 unchanged={SAMPLE_EXERCISES} texts_written=0 skipped=1 "
+        "catalogue_queued=0\n"
     )
     assert len(versions) == SAMPLE_EXERCISES
     assert await _versions() == versions

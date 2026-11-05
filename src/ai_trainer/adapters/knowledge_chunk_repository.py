@@ -61,7 +61,7 @@ def search_vector(
     )
 
 
-def _held(source_id: UUID, claim_id: UUID) -> ColumnElement[bool]:
+def held(source_id: UUID, claim_id: UUID) -> ColumnElement[bool]:
     return and_(
         _S.id == source_id,
         _S.claim_id == claim_id,
@@ -114,7 +114,7 @@ class SqlAlchemyKnowledgeIngestionRepository:
     async def heartbeat(self, source_id: UUID, *, claim_id: UUID, lease_until: datetime) -> bool:
         statement = (
             update(_S)
-            .where(_held(source_id, claim_id))
+            .where(held(source_id, claim_id))
             .values(lease_expires_at=lease_until)
             .returning(_S.id)
         )
@@ -136,7 +136,7 @@ class SqlAlchemyKnowledgeIngestionRepository:
             # The row lock holds off a delete until this commits; the delete then removes these
             # chunks with the source, by cascade.
             source = await session.scalar(
-                select(_S).where(_held(source_id, claim_id)).with_for_update()
+                select(_S).where(held(source_id, claim_id)).with_for_update()
             )
             if source is None:
                 return False
@@ -189,7 +189,7 @@ class SqlAlchemyKnowledgeIngestionRepository:
     async def fail(self, source_id: UUID, *, claim_id: UUID, reason: IngestFailure) -> bool:
         statement = (
             update(_S)
-            .where(_held(source_id, claim_id))
+            .where(held(source_id, claim_id))
             .values(
                 status=SourceStatus.FAILED.value,
                 error=reason.value,

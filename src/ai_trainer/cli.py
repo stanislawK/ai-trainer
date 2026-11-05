@@ -21,9 +21,11 @@ UTC, like every stored time (ADR-0014).
 
 `import-exercises` upserts the exercise catalogue from the dataset commit pinned in `Settings` and
 `EXERCISE_CATALOGUE_DIR` (ADR-0031). Running it again changes nothing, and it never touches an
-athlete's custom exercises or aliases. It prints one line, `import-exercises: result=ok ...` or
-`import-exercises: result=failed reason=<download|catalogue> ...`, the second with exit code 1 and
-no row changed.
+athlete's custom exercises or aliases. An import that wrote anything queues the catalogue's two
+knowledge sources, English and Polish, for `ingest-worker`, which embeds only the texts that
+changed (ADR-0036's #427 amendment); the line's `catalogue_queued=<n>` says how many. It prints one
+line, `import-exercises: result=ok ...` or `import-exercises: result=failed
+reason=<download|catalogue> ...`, the second with exit code 1 and no row changed.
 
 `backfill-gym-sessions` writes the entries and sets of gym sessions logged before the typed tables
 from their v1 payload, with `exercise_id` and `source_id` NULL (ADR-0032, #377). It only inserts,
@@ -64,6 +66,7 @@ from uuid import uuid4
 
 import httpx2
 
+from ai_trainer.adapters.catalogue_knowledge_repository import SqlAlchemyCatalogueSources
 from ai_trainer.adapters.clock import UtcClock
 from ai_trainer.adapters.conversation_repository import SqlAlchemyConversationRepository
 from ai_trainer.adapters.db import build_engine, build_session_factory
@@ -72,7 +75,7 @@ from ai_trainer.adapters.exercises_dataset import PinnedDatasetCatalogueSource
 from ai_trainer.adapters.feedback_repository import SqlAlchemyFeedbackEventsRepository
 from ai_trainer.adapters.gym_backfill import SqlAlchemyGymBackfillStore
 from ai_trainer.adapters.object_storage import UrllibPresignedLinks
-from ai_trainer.application.exercise_catalogue import import_catalogue
+from ai_trainer.application.exercise_catalogue import CatalogueQueueing, import_catalogue
 from ai_trainer.application.feedback import count_signals
 from ai_trainer.application.gym_backfill import backfill_gym_sessions as run_gym_backfill
 from ai_trainer.application.knowledge_ingestion import KnowledgeIngestion
@@ -172,10 +175,11 @@ async def import_exercises(
     *,
     source: ExerciseCatalogueSourcePort,
     exercises: ExerciseRepositoryPort,
+    knowledge: CatalogueQueueing,
     output: TextIO,
 ) -> int:
     try:
-        done = await import_catalogue(source=source, exercises=exercises)
+        done = await import_catalogue(source=source, exercises=exercises, knowledge=knowledge)
     except ExerciseDatasetError as exc:
         return _import_failed("download", exc, output)
     except ExerciseCatalogueError as exc:
@@ -183,7 +187,8 @@ async def import_exercises(
     output.write(
         f"import-exercises: result=ok exercises={done.total} inserted={done.write.inserted} "
         f"updated={done.write.updated} unchanged={done.write.unchanged} "
-        f"texts_written={done.write.texts_written} skipped={done.skipped}\n"
+        f"texts_written={done.write.texts_written} skipped={done.skipped} "
+        f"catalogue_queued={done.catalogue_queued}\n"
     )
     return 0
 
@@ -299,6 +304,11 @@ async def run(
                     transport=dataset_transport,
                 ),
                 exercises=SqlAlchemyExerciseRepository(build_session_factory(engine)),
+                knowledge=CatalogueQueueing(
+                    sources=SqlAlchemyCatalogueSources(build_session_factory(engine)),
+                    admin_emails=settings.admin_emails,
+                    clock=UtcClock(),
+                ),
                 output=output,
             )
         if args.command == BACKFILL_GYM_SESSIONS:

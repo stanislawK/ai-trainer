@@ -76,6 +76,8 @@ class CatalogueImportReport(BaseModel):
     total: int
     skipped: int
     write: CatalogueWrite
+    # How many of the catalogue's knowledge sources it queued for the ingest worker (#427).
+    catalogue_queued: int = 0
 
 
 class Exercise(BaseModel):
