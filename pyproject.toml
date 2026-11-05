@@ -56,7 +56,7 @@ dev = [
     "pytest-xdist>=3.8.0",
     "ruff>=0.16.8",
     "squawk-cli==2.70.0",
-    "types-pyyaml>=6.0.12.20260906",
+    "types-pyyaml>=6.0.12.20261030",
 ]
 
 [tool.ruff]
