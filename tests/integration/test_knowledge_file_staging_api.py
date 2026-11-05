@@ -7,6 +7,7 @@ test's open transaction holds would wait for it (knowledge_support.py)."""
 
 import logging
 from collections.abc import Callable, Iterator
+from datetime import timedelta
 from typing import Any
 from uuid import uuid4
 
@@ -115,8 +116,28 @@ async def test_stage_put_register_leaves_a_proposed_source_with_its_type_and_siz
     assert row["status"] == SourceStatus.PROPOSED
     assert row["file_type"] == KnowledgeFileType.PDF
     assert row["content_hash"] == content_hash(data)
-    assert server.objects[upload_key(staged["upload_id"])] == data
+    assert [body for key, body in server.objects.items() if key.startswith("sources/")] == [data]
+    assert upload_key(staged["upload_id"]) not in server.objects
     assert staged_key(staged["upload_id"]) not in server.objects
+
+
+async def test_a_put_through_the_link_after_register_never_reaches_the_source(
+    db_session_factory: Callable[[], AsyncSession], server: S3State
+) -> None:
+    api = await _files_api(db_session_factory, server)
+    token = await api.token()
+    data = pdf_bytes(f"checked-{uuid4()}")
+    staged = _stage(api, token)
+    put_via_link(staged["put_url"], data)
+    assert _register(api, token, staged["upload_id"]).json()["outcome"] == "registered"
+
+    # The link is still live for its hour: a second PUT lands under the upload key only.
+    assert put_via_link(staged["put_url"], b"%PDF-" + b"x" * (MAX_BYTES * 4)) == 200
+    again = _register(api, token, staged["upload_id"]).json()
+
+    assert again["outcome"] == "registered"
+    assert again["size_bytes"] == len(data)
+    assert [body for key, body in server.objects.items() if key.startswith("sources/")] == [data]
 
 
 async def test_registering_a_file_already_ingested_reports_it_and_deletes_the_new_object(
@@ -186,6 +207,21 @@ async def test_registering_before_the_put_reports_the_object_missing(
     assert body["source_id"] is None
     put_via_link(staged["put_url"], pdf_bytes(f"late-put-{uuid4()}"))
     assert _register(api, token, staged["upload_id"]).json()["outcome"] == "registered"
+
+
+async def test_registering_after_the_link_expired_with_nothing_put_reports_it_expired(
+    db_session_factory: Callable[[], AsyncSession], server: S3State
+) -> None:
+    api = await _files_api(db_session_factory, server)
+    token = await api.token()
+    staged = _stage(api, token)
+
+    api.clock.at += timedelta(hours=1)
+    body = _register(api, token, staged["upload_id"]).json()
+
+    assert body["outcome"] == "expired"
+    assert staged_key(staged["upload_id"]) not in server.objects
+    assert _register(api, token, staged["upload_id"]).status_code == 404
 
 
 async def test_an_expired_link_is_refused_and_staging_again_issues_a_new_one(

@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, JsonValue
 from ai_trainer.application.admin_tokens import TokenAuthenticator
 from ai_trainer.application.knowledge_file_staging import (
     FileStaging,
+    LinkExpired,
     ObjectMissing,
     RegisterCovered,
     Registered,
@@ -185,6 +186,8 @@ class RegisterResult(StrEnum):
     COVERED = "covered"
     REFUSED = "refused"
     MISSING = "missing"
+    # Nothing was PUT before the link expired; the stage is gone, so stage again.
+    EXPIRED = "expired"
 
 
 class ApiRegisteredFile(BaseModel):
@@ -241,8 +244,14 @@ def _registered(outcome: RegisterOutcome) -> ApiRegisteredFile:
             return ApiRegisteredFile(outcome=RegisterResult.REFUSED, reason=problem)
         case ObjectMissing():
             return ApiRegisteredFile(outcome=RegisterResult.MISSING)
+        case LinkExpired():
+            return ApiRegisteredFile(outcome=RegisterResult.EXPIRED)
         case UploadNotFound():
-            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="No stage issued that upload.")
+            raise HTTPException(
+                status.HTTP_404_NOT_FOUND,
+                detail="No stage stands for that upload: it was used up or is no longer valid. "
+                "Stage again.",
+            )
         case StorageUnavailable():
             raise _unavailable(outcome)
         case _:  # pragma: no cover -- exhaustive over RegisterOutcome
@@ -315,7 +324,8 @@ def build_knowledge_api_router(
         """Check an uploaded object as the upload form checks a file: type by its bytes, size and
         content hash. A good one becomes a `proposed` source for an admin to approve. A
         duplicate is `covered` and a bad one `refused`; either way the new object is deleted.
-        `missing` means nothing was PUT yet: PUT it and register again."""
+        `missing` means nothing was PUT yet: PUT it and register again. `expired` means the
+        link expired with nothing PUT: stage again."""
         return _registered(await files.register(admin_id, body.upload_id))
 
     return router

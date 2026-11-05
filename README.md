@@ -92,8 +92,10 @@ curl -s -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   - `registered`;
   - `covered`, the same file or identifiers already stored: the new object is deleted;
   - `refused`, an empty, oversized (`KNOWLEDGE_MAX_UPLOAD_MB`) or wrong-type file: the object is deleted;
-  - `missing`, nothing was PUT yet: PUT, then register again.
-- **Errors:** 422 for an invalid template, 404 for an upload no stage issued, 503 when storage isn't set up or fails.
+  - `missing`, nothing was PUT yet: PUT, then register again;
+  - `expired`, the link expired with nothing PUT: stage again.
+- **Errors:** 422 for an invalid template, 404 for an upload no stage stands for (stage again), 503 when storage isn't set up or fails.
+- **After register,** another PUT through the same link never changes the source: register keeps its own copy of the bytes it checked.
 - **The link is a secret:** it carries the key ID and a signature, so don't paste it anywhere.
 
 ```bash

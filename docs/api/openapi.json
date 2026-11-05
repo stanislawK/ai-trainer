@@ -624,7 +624,8 @@
           "registered",
           "covered",
           "refused",
-          "missing"
+          "missing",
+          "expired"
         ],
         "title": "RegisterResult",
         "type": "string"
@@ -999,7 +1000,7 @@
     },
     "/api/admin/knowledge/register": {
       "post": {
-        "description": "Check an uploaded object as the upload form checks a file: type by its bytes, size and\ncontent hash. A good one becomes a `proposed` source for an admin to approve. A\nduplicate is `covered` and a bad one `refused`; either way the new object is deleted.\n`missing` means nothing was PUT yet: PUT it and register again.",
+        "description": "Check an uploaded object as the upload form checks a file: type by its bytes, size and\ncontent hash. A good one becomes a `proposed` source for an admin to approve. A\nduplicate is `covered` and a bad one `refused`; either way the new object is deleted.\n`missing` means nothing was PUT yet: PUT it and register again. `expired` means the\nlink expired with nothing PUT: stage again.",
         "operationId": "register_file_api_admin_knowledge_register_post",
         "requestBody": {
           "content": {

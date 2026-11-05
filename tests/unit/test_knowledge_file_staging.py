@@ -13,6 +13,7 @@ from pydantic import JsonValue
 from ai_trainer.application.knowledge_file_staging import (
     LINK_LIFETIME,
     FileStaging,
+    LinkExpired,
     ObjectMissing,
     RegisterCovered,
     Registered,
@@ -43,8 +44,16 @@ MAX_BYTES = 1024
 
 
 class Clock:
+    """Frozen at `at`; a test moves it. With `tick`, each read moves it on by that much."""
+
+    def __init__(self, tick: timedelta = timedelta(0)) -> None:
+        self.at = NOW
+        self.tick = tick
+
     def now(self) -> datetime:
-        return NOW
+        at = self.at
+        self.at += self.tick
+        return at
 
 
 def template(**overrides: JsonValue) -> dict[str, JsonValue]:
@@ -71,7 +80,9 @@ def template(**overrides: JsonValue) -> dict[str, JsonValue]:
 
 
 def staging(
-    sources: MemorySources | None = None, storage: MemoryStorage | None = None
+    sources: MemorySources | None = None,
+    storage: MemoryStorage | None = None,
+    clock: Clock | None = None,
 ) -> tuple[FileStaging, MemorySources, MemoryStorage]:
     sources = sources or MemorySources()
     storage = storage or MemoryStorage()
@@ -79,7 +90,7 @@ def staging(
         FileStaging(
             sources=sources,
             storage=storage,
-            clock=Clock(),
+            clock=clock or Clock(),
             max_upload_bytes=MAX_BYTES,
             sports=["gym", "climbing"],
         ),
@@ -238,7 +249,10 @@ async def test_register_stores_a_proposed_source_with_its_type_size_and_licence(
     assert source.file_type is KnowledgeFileType.PDF
     assert source.size_bytes == len(data)
     assert source.file_name == "zatsiorsky.pdf"
-    assert source.storage_key == upload_key(upload_id)
+    assert source.storage_key is not None
+    assert source.storage_key.startswith("sources/")
+    assert storage.objects[source.storage_key] == data
+    assert storage.content_types[source.storage_key] == "application/pdf"
     assert source.content_hash == content_hash(data)
     assert source.isbn == "9781492592006"
     assert source.author == "Vladimir Zatsiorsky"
@@ -247,8 +261,28 @@ async def test_register_stores_a_proposed_source_with_its_type_size_and_licence(
     assert source.uploaded_by_user_id == ADMIN
     assert source.uploaded_at == NOW
     assert sources.rows[upload_id] == source
-    assert upload_key(upload_id) in storage.objects
+    assert upload_key(upload_id) not in storage.objects
     assert staged_key(upload_id) not in storage.objects
+
+
+async def test_a_put_after_register_never_changes_the_sources_object() -> None:
+    """The link stays live for its hour, but it writes only the upload key, never the key the
+    source names, so checked bytes can't be swapped for unchecked ones (#460 review)."""
+    service, sources, storage = staging()
+    upload_id = await ready(service)
+    data = pdf_bytes("checked")
+    storage.objects[upload_key(upload_id)] = data
+    outcome = await service.register(ADMIN, upload_id)
+    assert isinstance(outcome, Registered)
+    assert outcome.source.storage_key is not None
+
+    # The client PUTs again through the same, still-valid link.
+    storage.objects[upload_key(upload_id)] = b"%PDF-" + b"x" * (MAX_BYTES * 4)
+    again = await service.register(ADMIN, upload_id)
+
+    assert again == outcome
+    assert storage.objects[outcome.source.storage_key] == data
+    assert sources.rows[upload_id].content_hash == content_hash(data)
 
 
 async def test_a_template_without_a_licence_registers_proposed_with_none() -> None:
@@ -273,8 +307,9 @@ async def test_registering_again_answers_with_the_source_and_deletes_nothing() -
     second = await service.register(ADMIN, upload_id)
 
     assert isinstance(first, Registered)
+    assert first.source.storage_key is not None
     assert second == first
-    assert upload_key(upload_id) in storage.objects
+    assert first.source.storage_key in storage.objects
 
 
 async def test_registering_a_file_already_stored_reports_it_and_deletes_the_new_object() -> None:
@@ -292,6 +327,7 @@ async def test_registering_a_file_already_stored_reports_it_and_deletes_the_new_
     assert upload_key(upload_id) not in storage.objects
     assert staged_key(upload_id) not in storage.objects
     assert upload_id not in sources.rows
+    assert not any(key.startswith("sources/") for key in storage.objects)
 
 
 async def test_a_source_staged_by_identifier_since_the_stage_covers_the_upload() -> None:
@@ -318,20 +354,55 @@ async def test_a_duplicate_stored_between_the_lookup_and_the_insert_is_covered()
 
     assert isinstance(outcome, RegisterCovered)
     assert upload_key(upload_id) not in storage.objects
+    # The copy it made before the insert clashed is gone too: no source names it.
+    assert not any(key.startswith("sources/") for key in storage.objects)
 
 
-async def test_a_second_register_of_one_upload_racing_the_first_deletes_nothing() -> None:
+async def test_a_second_register_of_one_upload_racing_the_first_leaves_the_winners_object() -> None:
     service, sources, storage = staging()
     upload_id = await ready(service)
     storage.objects[upload_key(upload_id)] = pdf_bytes("register-race")
-    winner = existing(id=upload_id, storage_key=upload_key(upload_id), status=SourceStatus.PROPOSED)
+    winners_key = f"sources/{uuid4()}"
+    storage.objects[winners_key] = b"the winner's checked bytes"
+    winner = existing(id=upload_id, storage_key=winners_key, status=SourceStatus.PROPOSED)
     # The other register's insert commits between this one's lookup and its insert.
     sources.racing = winner
 
     outcome = await service.register(ADMIN, upload_id)
 
     assert outcome == Registered(source=winner)
-    assert upload_key(upload_id) in storage.objects
+    assert storage.objects[winners_key] == b"the winner's checked bytes"
+    # Its own copy went under a fresh key, removed again once the insert clashed.
+    assert [key for key in storage.objects if key.startswith("sources/")] == [winners_key]
+
+
+async def test_an_unexpected_failure_after_the_copy_removes_it() -> None:
+    sources = MemorySources()
+    service, _, storage = staging(sources)
+    upload_id = await ready(service)
+    storage.objects[upload_key(upload_id)] = pdf_bytes("insert-crash")
+
+    async def crash(source: NewKnowledgeSource) -> KnowledgeSource | None:
+        raise ConnectionError("database gone")
+
+    sources.add_if_new = crash  # type: ignore[method-assign]  # a one-off failure
+
+    with pytest.raises(ConnectionError):
+        await service.register(ADMIN, upload_id)
+
+    assert not any(key.startswith("sources/") for key in storage.objects)
+    assert staged_key(upload_id) in storage.objects
+
+
+async def test_a_failed_copy_is_reported_and_keeps_the_stage() -> None:
+    service, sources, storage = staging()
+    upload_id = await ready(service)
+    storage.objects[upload_key(upload_id)] = pdf_bytes("copy-failure")
+    storage.failing.add("put")
+
+    assert await service.register(ADMIN, upload_id) == StorageUnavailable(reason="failed")
+    assert staged_key(upload_id) in storage.objects
+    assert sources.rows == {}
 
 
 @pytest.mark.parametrize(
@@ -430,3 +501,54 @@ async def test_a_clash_with_a_source_deleted_since_keeps_the_upload_for_a_retry(
     assert upload_key(upload_id) in storage.objects
     assert staged_key(upload_id) in storage.objects
     assert isinstance(await service.register(ADMIN, upload_id), Registered)
+
+
+async def test_the_expiry_reported_is_read_before_the_link_is_signed() -> None:
+    clock = Clock(tick=timedelta(seconds=5))
+    service, _, _ = staging(clock=clock)
+
+    outcome = await service.stage("a.pdf", template())
+
+    assert isinstance(outcome, UploadReady)
+    assert outcome.expires_at == NOW + LINK_LIFETIME
+
+
+async def test_nothing_put_before_the_link_expired_is_expired_and_removes_the_stage() -> None:
+    clock = Clock()
+    service, _, storage = staging(clock=clock)
+    upload_id = await ready(service)
+
+    clock.at = NOW + LINK_LIFETIME - timedelta(seconds=1)
+    assert await service.register(ADMIN, upload_id) == ObjectMissing()
+    clock.at = NOW + LINK_LIFETIME
+    assert await service.register(ADMIN, upload_id) == LinkExpired()
+    assert staged_key(upload_id) not in storage.objects
+    assert await service.register(ADMIN, upload_id) == UploadNotFound()
+
+
+async def test_an_unreadable_stage_is_not_found_and_removed() -> None:
+    service, _, storage = staging()
+    upload_id = await ready(service)
+    storage.objects[upload_key(upload_id)] = pdf_bytes("unreadable-stage")
+    # Written by an older shape of the stage.
+    storage.objects[staged_key(upload_id)] = json.dumps({"file_name": "a.pdf"}).encode()
+
+    assert await service.register(ADMIN, upload_id) == UploadNotFound()
+    assert staged_key(upload_id) not in storage.objects
+    assert upload_key(upload_id) not in storage.objects
+
+
+async def test_a_template_that_no_longer_validates_is_not_found_and_removed() -> None:
+    sources, storage = MemorySources(), MemoryStorage()
+    before, _, _ = staging(sources, storage)
+    upload_id = await ready(before, sports=["climbing"])
+    storage.objects[upload_key(upload_id)] = pdf_bytes("stale-template")
+    # A deploy since dropped the sport the stage named.
+    after = FileStaging(
+        sources=sources, storage=storage, clock=Clock(), max_upload_bytes=MAX_BYTES, sports=["gym"]
+    )
+
+    assert await after.register(ADMIN, upload_id) == UploadNotFound()
+    assert staged_key(upload_id) not in storage.objects
+    assert upload_key(upload_id) not in storage.objects
+    assert sources.rows == {}

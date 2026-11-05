@@ -6,9 +6,10 @@ registers the upload, which runs ADR-0033's checks on the stored object and leav
 `proposed` (invariant 1).
 
 Nothing is written to the database before register. The validated metadata waits in the bucket
-as `staging/<id>.json`, so only an upload a stage issued can register. The file's key is
-`sources/<id>`, and the source takes the upload's id. Only an object no source names is ever
-deleted.
+as `staging/<id>.json`, so only an upload a stage issued can register. The link writes only
+`staging/<id>.file`. Register copies the bytes it checked to a fresh `sources/<key>` that no
+link can write, so a PUT after register never changes what a source names. The source takes the
+upload's id. Only an object no source names is ever deleted.
 """
 
 import asyncio
@@ -18,13 +19,14 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, ConfigDict, JsonValue, ValidationError
+from pydantic import AwareDatetime, BaseModel, ConfigDict, JsonValue, ValidationError
 
 from ai_trainer.application.knowledge_sources import StorageUnavailable
 from ai_trainer.application.ports.clock import ClockPort
 from ai_trainer.application.ports.knowledge import KnowledgeSourcesRepositoryPort
 from ai_trainer.application.ports.object_storage import ObjectStoragePort
 from ai_trainer.domain.knowledge import (
+    CONTENT_TYPES,
     KnowledgeFileType,
     KnowledgeSource,
     NewKnowledgeSource,
@@ -43,13 +45,19 @@ _STAGED_CONTENT_TYPE = "application/json"
 
 
 def upload_key(upload_id: UUID) -> str:
-    """Where the client's PUT writes the file; the source's `storage_key` once registered."""
-    return f"sources/{upload_id}"
+    """Where the client's PUT writes the file. No source ever names it."""
+    return f"staging/{upload_id}.file"
 
 
 def staged_key(upload_id: UUID) -> str:
     """Where the stage keeps the validated metadata until register."""
     return f"staging/{upload_id}.json"
+
+
+def _source_key() -> str:
+    # Fresh per register, so a register that loses a race to another never overwrites the
+    # winner's object.
+    return f"sources/{uuid4()}"
 
 
 class _Staged(BaseModel):
@@ -58,6 +66,8 @@ class _Staged(BaseModel):
     file_name: str
     # #456's template, as validated at the stage, under its CSL-JSON keys.
     source: dict[str, JsonValue]
+    # When the link stops working: a missing object after it can't arrive any more.
+    expires_at: AwareDatetime
 
 
 @dataclass(frozen=True)
@@ -106,8 +116,13 @@ class ObjectMissing:
 
 
 @dataclass(frozen=True)
+class LinkExpired:
+    """Nothing was PUT before the link expired. The stage is removed: stage again."""
+
+
+@dataclass(frozen=True)
 class UploadNotFound:
-    """No stage issued this upload, or its stage was used up."""
+    """No stage issued this upload, its stage was used up, or it no longer validates."""
 
 
 type StageOutcome = UploadReady | StageCovered | StageRefused | StorageUnavailable
@@ -116,9 +131,21 @@ type RegisterOutcome = (
     | RegisterCovered
     | RegisterRefused
     | ObjectMissing
+    | LinkExpired
     | UploadNotFound
     | StorageUnavailable
 )
+
+
+@dataclass(frozen=True)
+class _Checked:
+    """An upload whose bytes passed ADR-0033's checks, with its still-valid template."""
+
+    template: SourceTemplate
+    file_name: str
+    file_type: KnowledgeFileType
+    digest: str
+    data: bytes
 
 
 class FileStaging:
@@ -149,8 +176,12 @@ class FileStaging:
         if covered is not None:
             return StageCovered(source=covered)
         upload_id = uuid4()
+        # Read before signing, so the time reported is never later than the signature's.
+        expires_at = self._clock.now() + LINK_LIFETIME
         staged = _Staged(
-            file_name=file_name, source=template.model_dump(mode="json", by_alias=True)
+            file_name=file_name,
+            source=template.model_dump(mode="json", by_alias=True),
+            expires_at=expires_at,
         )
         try:
             await self._storage.put(
@@ -164,9 +195,7 @@ class FileStaging:
         except ObjectStorageError:
             # A metadata object left behind names no source and is harmless.
             return StorageUnavailable(reason="failed")
-        return UploadReady(
-            upload_id=upload_id, put_url=put_url, expires_at=self._clock.now() + LINK_LIFETIME
-        )
+        return UploadReady(upload_id=upload_id, put_url=put_url, expires_at=expires_at)
 
     def _template(
         self, file_name: str, source: Mapping[str, JsonValue]
@@ -186,10 +215,38 @@ class FileStaging:
         storage = self._storage
         if storage is None:
             return StorageUnavailable(reason="not_configured")
-        # A retry after a lost answer: the stage is used up, and the source answers for it.
+        # A retry after a lost answer: the stage is used up, and the source answers for it. Its
+        # object is under a key no link writes, so it is still the file checked then.
         stored = await self._sources.get(upload_id)
         if stored is not None:
             return Registered(source=stored)
+        checked = await self._check(storage, upload_id)
+        if not isinstance(checked, _Checked):
+            return checked
+        covered = await self._covering(checked.template, digest=checked.digest)
+        if covered is not None:
+            await _discard(storage, upload_id)
+            return RegisterCovered(source=covered)
+        source_key = _source_key()
+        try:
+            await storage.put(
+                source_key, checked.data, content_type=CONTENT_TYPES[checked.file_type]
+            )
+        except ObjectStorageError:
+            return StorageUnavailable(reason="failed")
+        try:
+            return await self._add(
+                storage, self._proposal(admin_id, upload_id, source_key, checked)
+            )
+        except BaseException:
+            await _delete(storage, source_key)
+            raise
+
+    async def _check(
+        self, storage: ObjectStoragePort, upload_id: UUID
+    ) -> _Checked | RegisterOutcome:
+        """The upload's template and bytes once they pass; otherwise what to answer, with the
+        upload and its stage removed unless another PUT could still put things right."""
         fetched = await self._fetch(storage, upload_id)
         if not isinstance(fetched, tuple):
             return fetched
@@ -199,19 +256,15 @@ class FileStaging:
         if isinstance(file_type, UploadProblem):
             await _discard(storage, upload_id)
             return RegisterRefused(problem=file_type)
-        # Validated at the stage; a sport removed from the registry since is a bug to see.
-        template = SourceTemplate.model_validate(staged.source, context={"sports": self._sports})
-        covered = await self._covering(template, digest=digest)
-        if covered is not None:
+        try:
+            # Validated at the stage, but a deploy since may have changed the template or sports.
+            template = SourceTemplate.model_validate(
+                staged.source, context={"sports": self._sports}
+            )
+        except ValidationError:
             await _discard(storage, upload_id)
-            return RegisterCovered(source=covered)
-        source = self._proposal(
-            admin_id,
-            upload_id,
-            template,
-            _StoredFile(staged.file_name, file_type, digest, len(data)),
-        )
-        return await self._add(storage, source, template)
+            return UploadNotFound()
+        return _Checked(template, staged.file_name, file_type, digest, data)
 
     async def _fetch(
         self, storage: ObjectStoragePort, upload_id: UUID
@@ -224,6 +277,10 @@ class FileStaging:
             return UploadNotFound()
         except ObjectStorageError:
             return StorageUnavailable(reason="failed")
+        except ValidationError:
+            # Written by an older shape of this module: it can't be read, so it can't register.
+            await _discard(storage, upload_id)
+            return UploadNotFound()
         try:
             size = await storage.size(upload_key(upload_id))
             if size > self._max_upload_bytes:
@@ -231,7 +288,10 @@ class FileStaging:
                 return RegisterRefused(problem=UploadProblem.TOO_LARGE)
             return staged, await storage.get(upload_key(upload_id))
         except ObjectNotFoundError:
-            return ObjectMissing()
+            if self._clock.now() < staged.expires_at:
+                return ObjectMissing()
+            await _discard(storage, upload_id)
+            return LinkExpired()
         except ObjectStorageError:
             return StorageUnavailable(reason="failed")
 
@@ -252,19 +312,24 @@ class FileStaging:
             pmcid=template.pmcid, doi=template.doi, pmid=template.pmid, isbn=template.isbn
         )
 
-    async def _add(
-        self, storage: ObjectStoragePort, source: NewKnowledgeSource, template: SourceTemplate
-    ) -> RegisterOutcome:
+    async def _add(self, storage: ObjectStoragePort, source: NewKnowledgeSource) -> RegisterOutcome:
+        """Stores the row for an object already under `source.storage_key`; when the row can't
+        be written, that object, which no source then names, is removed."""
+        assert source.storage_key is not None
         added = await self._sources.add_if_new(source)
         if added is not None:
-            with contextlib.suppress(ObjectStorageError):
-                await storage.delete(staged_key(source.id))
+            await _discard(storage, source.id)
             return Registered(source=added)
-        # Another register of this upload stored it since the lookup: its row names the object.
+        await _delete(storage, source.storage_key)
+        # Another register of this upload stored it since the lookup, with its own object.
         winner = await self._sources.get(source.id)
         if winner is not None:
             return Registered(source=winner)
-        covered = await self._covering(template, digest=source.content_hash)
+        covered = await self._sources.get_by_hash(source.content_hash) or (
+            await self._sources.find_by_identifiers(
+                pmcid=source.pmcid, doi=source.doi, pmid=source.pmid, isbn=source.isbn
+            )
+        )
         if covered is not None:
             await _discard(storage, source.id)
             return RegisterCovered(source=covered)
@@ -272,11 +337,11 @@ class FileStaging:
         return StorageUnavailable(reason="failed")
 
     def _proposal(
-        self, admin_id: UUID, upload_id: UUID, template: SourceTemplate, file: _StoredFile
+        self, admin_id: UUID, upload_id: UUID, source_key: str, checked: _Checked
     ) -> NewKnowledgeSource:
-        licence = template.licence
+        licence = checked.template.licence
         return NewKnowledgeSource(
-            **template.details().model_dump(),
+            **checked.template.details().model_dump(),
             # Without a licence the admin sets one before approving (#461).
             license_id=None if licence is None else licence.license_id,
             license_source=None if licence is None else licence.license_source,
@@ -285,27 +350,24 @@ class FileStaging:
             attribution=None if licence is None else licence.attribution,
             id=upload_id,
             status=SourceStatus.PROPOSED,
-            content_hash=file.digest,
-            file_type=file.file_type,
-            file_name=file.name,
-            size_bytes=file.size,
-            storage_key=upload_key(upload_id),
+            content_hash=checked.digest,
+            file_type=checked.file_type,
+            file_name=checked.file_name,
+            size_bytes=len(checked.data),
+            storage_key=source_key,
             uploaded_by_user_id=admin_id,
             uploaded_at=self._clock.now(),
         )
 
 
-@dataclass(frozen=True)
-class _StoredFile:
-    name: str
-    file_type: KnowledgeFileType
-    digest: str
-    size: int
+async def _delete(storage: ObjectStoragePort, key: str) -> None:
+    """Removes an object no source names. If that fails, the orphan is harmless, and the
+    outcome that led here is what the client needs to see."""
+    with contextlib.suppress(ObjectStorageError):
+        await storage.delete(key)
 
 
 async def _discard(storage: ObjectStoragePort, upload_id: UUID) -> None:
-    """Removes an upload no source names, with its stage. If that fails, the orphan is harmless,
-    and the refusal that led here is what the client needs to see."""
+    """Removes an upload and its stage, once registered, refused or covered."""
     for key in (upload_key(upload_id), staged_key(upload_id)):
-        with contextlib.suppress(ObjectStorageError):
-            await storage.delete(key)
+        await _delete(storage, key)
