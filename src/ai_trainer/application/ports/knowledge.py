@@ -1,9 +1,14 @@
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from datetime import datetime
 from typing import Protocol
 from uuid import UUID
 
-from ai_trainer.domain.knowledge import KnowledgeFileType, KnowledgeSource, NewKnowledgeSource
+from ai_trainer.domain.knowledge import (
+    KnowledgeFileType,
+    KnowledgeSource,
+    NewKnowledgeSource,
+    SourceStatus,
+)
 from ai_trainer.domain.knowledge_document import (
     KnowledgeDocument,
     NewKnowledgeChunk,
@@ -12,6 +17,7 @@ from ai_trainer.domain.knowledge_document import (
 )
 from ai_trainer.domain.knowledge_ingestion import EmbeddedChunk, IngestFailure
 from ai_trainer.domain.knowledge_search import KnowledgeCandidates, KnowledgeFilters
+from ai_trainer.domain.source_template import LicenceTerms
 
 
 class KnowledgeSourcesRepositoryPort(Protocol):
@@ -62,6 +68,23 @@ class KnowledgeSourcesRepositoryPort(Protocol):
     ) -> KnowledgeSource | None:
         """Sets an `ingested` or `failed` source back to `uploaded`, clearing its error and
         ingest time. None, changing nothing, for any other status or an unknown source."""
+        ...
+
+    async def get_many(self, source_ids: Collection[UUID]) -> Sequence[KnowledgeSource]:
+        """The sources with these IDs that exist, in no particular order."""
+        ...
+
+    async def decide_proposals(
+        self, source_ids: Collection[UUID], *, status: SourceStatus, decided_by: UUID
+    ) -> Sequence[UUID]:
+        """In one statement, sets each `proposed` source that has a licence to `status`, which is
+        `uploaded` or `rejected` (ADR-0036, #461). Approving records `decided_by` as the source's
+        acting admin. Returns the IDs it changed; any other is left as it was."""
+        ...
+
+    async def set_licence(self, source_id: UUID, terms: LicenceTerms) -> KnowledgeSource | None:
+        """Writes an admin's licence on a `proposed` source, clearing what detection left (the
+        #454 amendment). None, changing nothing, for any other status or an unknown source."""
         ...
 
 

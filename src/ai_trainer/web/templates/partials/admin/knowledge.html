@@ -1,22 +1,27 @@
 {% from "components/icon.html" import icon %}
 {% from "components/admin_tabs.html" import admin_tabs %}
 {% from "components/sport_copy.html" import sport_copy %}
-{% from "components/knowledge_sources.html" import tier_labels, type_labels, language_labels, licence_copy, file_types_hint, source_card, source_row, delete_dialog, file_size, uploading_templates, field_error, invalid, notice, file_errors with context %}
-{#- The knowledge page's region (B7, ADR-0033, the Knowledge mock from #419). Every action renders
-    it whole: the list, and the upload sheet open after a refusal or notice with the answers kept.
-    `static/js/knowledge_upload.js` opens the sheet and the dialogs, runs the browser's own checks,
-    and shows the Uploading row while the file is sent. -#}
+{% from "components/knowledge_sources.html" import tier_labels, type_labels, language_labels, licence_copy, filter_empty, file_types_hint, source_card, source_row, delete_dialog, file_size, uploading_templates, field_error, invalid, notice, file_errors, licence_fields with context %}
+{% from "components/knowledge_proposals.html" import filter_chips, bulk_bar, reject_dialog, toast, licence_sheet with context %}
+{#- The knowledge page's region (B7, ADR-0033, ADR-0036, the Knowledge and Admin Staging mocks).
+    Every action renders it whole: the filtered list, the toast after a decision, and the upload
+    or Set licence sheet open after a refusal or notice with the answers kept. The scripts open
+    the sheets and dialogs, run the browser's own checks, keep the selection and its bulk bar,
+    and show the Uploading row while the file is sent. -#}
 {% set answers = sheet.answers %}
 {#- The licence as posted, so a reopened sheet shows the fields that pick needs; an unknown one
     falls back to Detect, whose fields are none. -#}
 {% set licence = answers.license_id | trim %}
 {% set licence = licence if licence in licence_choices else "detect" %}
 {% set licence_picked = licence != "detect" %}
+{#- A Set licence sheet no refusal reopened starts blank. -#}
+{% set blank_licence = {"answers": {"license_id": "", "license_url": "", "copyright_statement": "", "attribution": "", "license_note": ""}, "problems": {}} %}
+{% set set_choices = [""] + (set_licence_choices | list) %}
 <div class="flex flex-col gap-4 px-4 pt-14 lg:pt-2 lg:w-[960px] lg:mx-auto" id="knowledge">
   {{ admin_tabs("knowledge") }}
   <div class="flex items-center justify-between gap-3">
     <h1 class="text-[34px]/[40px] lg:text-[28px]/[34px] font-semibold tracking-tight">Knowledge</h1>
-    <button type="button" class="lg lg-tinted" data-knowledge-open{% if not sources %} hidden{% endif %}>{{ icon("upload", "size-4") }}Upload source</button>
+    <button type="button" class="lg lg-tinted" data-knowledge-open{% if not any_sources %} hidden{% endif %}>{{ icon("upload", "size-4") }}Upload source</button>
   </div>
 
   {%- if alert %}
@@ -26,11 +31,17 @@
       {%- if alert == "delete_failed" %}The file couldn't be removed. Nothing was deleted. Try again.
       {%- elif alert == "delete_not_configured" %}File storage isn't set up, so the file can't be removed. Nothing was deleted.
       {%- elif alert == "reingest_waiting" %}That source is already waiting to be ingested. Nothing changed.
+      {%- elif alert == "licence_not_proposed" %}That source is no longer proposed: it was decided in another tab. Nothing changed.
       {%- endif %}</p>
   </div>
   {%- endif %}
 
-  <div class="mat-content rounded-box p-6 flex flex-col items-center text-center gap-3" data-knowledge-empty{% if sources %} hidden{% endif %}>
+  {%- if any_sources %}
+  {{ filter_chips(show, filters, counts) }}
+  {%- endif %}
+  <p class="text-[15px] lbl-2 px-1" data-knowledge-filter-empty{% if sources or not any_sources %} hidden{% endif %}>{{ filter_empty[show] }}</p>
+
+  <div class="mat-content rounded-box p-6 flex flex-col items-center text-center gap-3" data-knowledge-empty{% if any_sources %} hidden{% endif %}>
     {{ icon("book-open", "size-8 lbl-2") }}
     <h2 class="text-[17px] font-semibold">No sources yet</h2>
     <p class="text-[15px] lbl-2 max-w-[44ch]">Upload research, coaching books, talks or articles. Each one needs an evidence tier and a licence, which can be read from the file.</p>
@@ -45,7 +56,7 @@
 
   <div class="mat-content rounded-box overflow-hidden hidden lg:block" data-knowledge-table{% if not sources %} hidden{% endif %}>
     <table class="table text-[15px]">
-      <thead class="text-[12px] lbl-2"><tr class="border-base-content/10"><th>Source</th><th>Licence</th><th>Status</th><th><span class="sr-only">Actions</span></th></tr></thead>
+      <thead class="text-[12px] lbl-2"><tr class="border-base-content/10"><th class="w-12 px-2"><span class="sr-only">Select</span></th><th>Source</th><th>Licence</th><th>Status</th><th><span class="sr-only">Actions</span></th></tr></thead>
       <tbody>
         {% for source in sources %}
         {{ source_row(source) }}
@@ -56,8 +67,15 @@
 
   {% for source in sources %}
   {{ delete_dialog(source) }}
+  {%- if source.status == "proposed" and not source.license_id %}
+  {%- set mine = licence_reopened is not none and licence_reopened.source_id == source.id %}
+  {{ licence_sheet(source, licence_reopened if mine else blank_licence, set_choices, mine) }}
+  {%- endif %}
   {% endfor %}
   {{ uploading_templates() }}
+  {{ bulk_bar() }}
+  {{ reject_dialog() }}
+  {{ toast(decided) }}
 
   <div data-knowledge-sheet{% if not sheet.open %} hidden{% endif %}>
     <div class="fixed inset-0 z-40 bg-base-300/60" data-knowledge-close></div>
@@ -66,7 +84,7 @@
       aria-label="Upload a source"
       role="dialog"
       aria-modal="true"
-      hx-post="/admin/knowledge/sources"
+      hx-post="/admin/knowledge/sources{{ show_query }}"
       hx-encoding="multipart/form-data"
       hx-target="#knowledge"
       hx-swap="outerHTML"
@@ -147,38 +165,7 @@
           </div>
           {#- The licence (ADR-0036, the #454 amendment): Detect from the file first. Picking one
               shows its fields; Other also asks what permission the admin holds. -#}
-          <div class="grid gap-x-3 gap-y-1 grid-cols-1 lg:grid-cols-2" data-licence>
-            <fieldset class="fieldset{% if not licence_picked %} lg:col-span-2{% endif %}" data-licence-select>
-              <legend class="fieldset-legend text-[13px]">Licence</legend>
-              <select class="lg-field lg-select" name="license_id" aria-describedby="licence-hint" {{ invalid(sheet, "license_id") }} data-licence-input>
-                {% for value in licence_choices %}
-                <option value="{{ value }}"{% if value == licence %} selected{% endif %} data-hint="{{ licence_copy[value].hint }}" data-warn="{{ 'true' if licence_copy[value].warn else 'false' }}">{{ licence_copy[value].label }}</option>
-                {% endfor %}
-              </select>
-              <p id="licence-hint" class="label text-[13px] whitespace-normal leading-5 {{ 'text-warning' if licence_copy[licence].warn else 'lbl-2' }}" data-licence-hint>{{ licence_copy[licence].hint }}</p>
-              {{ field_error(sheet, "license_id", "Pick a licence.") }}
-            </fieldset>
-            <fieldset class="fieldset" data-licence-field{% if not licence_picked %} hidden{% endif %}>
-              <legend class="fieldset-legend text-[13px]">Licence URL · optional</legend>
-              <input class="lg-field" name="license_url" type="url" inputmode="url" value="{{ answers.license_url }}" placeholder="https://" {{ invalid(sheet, "license_url") }} />
-              {{ field_error(sheet, "license_url", "Use a full link that starts with http:// or https://.") }}
-            </fieldset>
-            <fieldset class="fieldset" data-licence-field{% if not licence_picked %} hidden{% endif %}>
-              <legend class="fieldset-legend text-[13px]">Copyright statement · optional</legend>
-              <input class="lg-field" name="copyright_statement" value="{{ answers.copyright_statement }}" placeholder="© 2024 The Authors" />
-            </fieldset>
-            <fieldset class="fieldset" data-licence-field{% if not licence_picked %} hidden{% endif %}>
-              <legend class="fieldset-legend text-[13px]">Attribution</legend>
-              <input class="lg-field" name="attribution" value="{{ answers.attribution }}" {{ invalid(sheet, "attribution") }} data-required />
-              <p class="label text-[13px] lbl-2 whitespace-normal">Shown with every answer that cites it.</p>
-              {{ field_error(sheet, "attribution", "Add an attribution.") }}
-            </fieldset>
-            <fieldset class="fieldset lg:col-span-2" data-licence-note{% if licence != "other" %} hidden{% endif %}>
-              <legend class="fieldset-legend text-[13px]">What permission do you hold?</legend>
-              <textarea class="lg-field min-h-20 py-2" name="license_note" placeholder="e.g. The author granted written permission on 12 Oct 2026 to use the book in this app." {{ invalid(sheet, "license_note") }} data-required>{{ answers.license_note }}</textarea>
-              {{ field_error(sheet, "license_note", "Say what permission you hold. “Other” needs it.") }}
-            </fieldset>
-          </div>
+          {{ licence_fields(sheet, licence_choices, licence, "licence-hint") }}
           <fieldset class="fieldset" data-required-group="sports">
             <legend class="fieldset-legend text-[13px]">Sports</legend>
             <div class="flex flex-wrap gap-x-6">

@@ -106,6 +106,7 @@ _XDIST_GROUPS = {
         # waiting source, could take that row and hold its lock until the test rolls back.
         "tests/integration/test_ingest_worker_cli.py",
         "tests/integration/test_knowledge_ingestion.py",
+        "tests/integration/test_admin_knowledge_proposals.py",
     ),
     "src_tree": ("tests/unit/test_import_boundaries.py", "tests/unit/test_clock_usage.py"),
 }

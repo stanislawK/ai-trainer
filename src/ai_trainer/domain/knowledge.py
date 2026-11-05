@@ -126,6 +126,47 @@ UPLOAD_EVIDENCE_TIERS = (
 )
 REINGESTABLE = frozenset({SourceStatus.INGESTED, SourceStatus.FAILED})
 
+
+class ProposalDecision(StrEnum):
+    """What an admin does with selected proposals on `/admin/knowledge` (ADR-0036, #461)."""
+
+    APPROVE = "approve"
+    REJECT = "reject"
+
+    @property
+    def status(self) -> SourceStatus:
+        return SourceStatus.UPLOADED if self is ProposalDecision.APPROVE else SourceStatus.REJECTED
+
+
+class SourceFilter(StrEnum):
+    """The list's filter chips on `/admin/knowledge`, in their order (#461). Statuses without a
+    chip of their own show under All."""
+
+    ALL = "all"
+    PROPOSED = "proposed"
+    INGESTED = "ingested"
+    REJECTED = "rejected"
+
+    @classmethod
+    def read(cls, value: str | None) -> SourceFilter:
+        """An unknown or missing value is All."""
+        return next((chip for chip in cls if chip.value == value), cls.ALL)
+
+    def shows(self, status: SourceStatus) -> bool:
+        return self is SourceFilter.ALL or self.value == status.value
+
+
+class SkipReason(StrEnum):
+    """Why a selected proposal was left as it was."""
+
+    # No longer `proposed`: decided in another tab since the page was drawn.
+    MOVED = "moved"
+    # Still `proposed`, with no licence: it can't leave `proposed` (ADR-0036 invariant 4).
+    UNLICENSED = "unlicensed"
+    # Deleted since the page was drawn.
+    GONE = "gone"
+
+
 _EXTENSIONS: Mapping[str, KnowledgeFileType] = {
     ".pdf": KnowledgeFileType.PDF,
     ".epub": KnowledgeFileType.EPUB,

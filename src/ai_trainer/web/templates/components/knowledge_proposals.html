@@ -1,0 +1,137 @@
+{% from "components/icon.html" import icon %}
+{% from "components/knowledge_sources.html" import filter_labels, status_copy, licence_fields with context %}
+{#- Proposals on the knowledge page (ADR-0036 and its #454 amendment, the Admin Staging mock,
+    #461): the filter chips, the bulk bar and its Reject dialog, the toast that reports a
+    decision, and a proposal's Set licence sheet. Every word the admin reads is here (G5). The
+    filter travels as `?show=` on each request, so a re-render keeps it. -#}
+
+{% macro filter_chips(show, filters, counts) -%}
+<div class="flex gap-2 flex-wrap" role="group" aria-label="Show">
+  {% for chip in filters %}
+  <button
+    type="button"
+    class="lg lg-chip relative {{ 'lg-clear' if chip == show else 'lg-ghost' }}"
+    data-knowledge-chip="{{ chip }}"
+    aria-pressed="{{ 'true' if chip == show else 'false' }}"
+    hx-get="/admin/knowledge?show={{ chip }}"
+    hx-target="#knowledge"
+    hx-swap="outerHTML"
+    hx-push-url="true"
+  ><span class="absolute inset-x-0 -inset-y-1.5" aria-hidden="true"></span>{{ filter_labels[chip] }} · {{ counts[chip] }}</button>
+  {% endfor %}
+</div>
+{%- endmacro %}
+
+{#- Rises once a proposal is selected: over the dock on a phone, centred in the column on desktop
+    (the column starts after the 20 rem sidebar). Approve asks nothing; Reject asks first. -#}
+{% macro bulk_bar() -%}
+<div
+  class="lgs lgs-thick fixed z-40 rounded-full p-1.5 pl-5 flex items-center gap-2 bottom-[100px] inset-x-4 lg:inset-x-auto lg:bottom-8 lg:left-[calc(50%-40px)] lg:w-[400px]"
+  role="toolbar"
+  aria-label="Selected proposals"
+  data-knowledge-bulk
+  hidden
+>
+  <span class="text-[15px] font-medium flex-1 whitespace-nowrap" data-knowledge-selected data-template="{n} selected">0 selected</span>
+  <button type="button" class="lg lg-quiet" data-knowledge-reject>Reject</button>
+  <button
+    type="button"
+    class="lg lg-tinted"
+    hx-post="/admin/knowledge/proposals/approve{{ show_query }}"
+    hx-include="[data-pick]:checked"
+    hx-target="#knowledge"
+    hx-swap="outerHTML"
+  >Approve</button>
+</div>
+{%- endmacro %}
+
+{% macro reject_dialog() -%}
+<dialog id="knowledge-reject" class="modal bg-base-300/60" aria-label="Reject the selected proposals">
+  <div class="modal-box lgs lgs-thick relative w-[92%] max-w-[480px] p-5 flex flex-col gap-3">
+    <h3 class="text-[17px] font-semibold" data-knowledge-reject-title data-one="Reject 1 proposal?" data-many="Reject {n} proposals?">Reject these proposals?</h3>
+    <p class="text-[14px]">They stay in the list as Rejected and are never ingested. You can delete them later.</p>
+    <div class="flex justify-end gap-2">
+      <form method="dialog"><button class="lg lg-ghost"><span class="absolute inset-x-0 -inset-y-0.5" aria-hidden="true"></span>Cancel</button></form>
+      <button
+        type="button"
+        class="lg lg-danger"
+        hx-post="/admin/knowledge/proposals/reject{{ show_query }}"
+        hx-include="[data-pick]:checked"
+        hx-target="#knowledge"
+        hx-swap="outerHTML"
+      ><span class="absolute inset-x-0 -inset-y-0.5" aria-hidden="true"></span>Reject</button>
+    </div>
+  </div>
+  <form method="dialog" class="modal-backdrop"><button>close</button></form>
+</dialog>
+{%- endmacro %}
+
+{#- What was decided, and each selected source left as it was, by name: one approved in another
+    tab is the usual case. A deleted one has no title left, so it is counted. -#}
+{% macro skipped_line(item, decision) -%}
+{%- set source = item.source -%}
+{%- if item.reason == "moved" -%}
+“{{ source.title }}” was no longer proposed. {% if source.status == "rejected" %}It was rejected in another tab.{% elif source.status in ("uploaded", "ingesting", "ingested", "failed") %}It was approved in another tab.{% else %}It is now {{ status_copy[source.status].label | lower }}.{% endif %}
+{%- elif decision == "approve" -%}
+“{{ source.title }}” has no licence yet. Set one, then approve it.
+{%- else -%}
+“{{ source.title }}” has no licence yet, so it can't be rejected. Delete it instead.
+{%- endif -%}
+{%- endmacro %}
+
+{% macro toast(decided) -%}
+{%- if decided and (decided.done or decided.skipped) %}
+{%- set approve = decided.decision == "approve" %}
+{%- set named = decided.skipped | rejectattr("reason", "equalto", "gone") | list %}
+{%- set gone = decided.skipped | length - named | length %}
+<div class="alert lgs lgs-thick fixed z-50 items-start gap-3 rounded-box p-4 flex top-12 inset-x-4 lg:top-auto lg:inset-x-auto lg:bottom-8 lg:right-8 lg:w-[420px]" role="status" data-knowledge-toast>
+  {{ icon("circle-check" if decided.done else "info", "size-5 shrink-0 mt-0.5 " ~ ("text-success" if decided.done else "text-info")) }}
+  <span class="flex flex-col gap-0.5 text-[14px] leading-5 flex-1 min-w-0">
+    <span class="font-semibold">
+      {%- if decided.done and approve %}{{ decided.done }} approved and queued for ingest.
+      {%- elif decided.done %}{{ decided.done }} rejected.
+      {%- elif approve %}Nothing was approved.
+      {%- else %}Nothing was rejected.{% endif -%}
+    </span>
+    {%- if decided.skipped %}
+    <span>{{ decided.skipped | length }} skipped:{% for item in named %} {{ skipped_line(item, decided.decision) }}{% endfor %}{% if gone %} {{ gone }} {{ "was" if gone == 1 else "were" }} deleted in another tab.{% endif %}</span>
+    {%- endif %}
+  </span>
+  <button type="button" class="lg lg-ghost lg-icon lg-sm relative shrink-0 -mr-1 -mt-1" aria-label="Dismiss" data-knowledge-dismiss><span class="absolute -inset-1" aria-hidden="true"></span>{{ icon("x", "size-4") }}</button>
+</div>
+{%- endif %}
+{%- endmacro %}
+
+{#- A proposal with no licence gets one here before it can be approved (the #454 amendment). The
+    server reopens it after a refusal with the answers as typed. -#}
+{% macro licence_sheet(source, state, choices, open) -%}
+{%- set licence = state.answers.license_id | trim -%}
+{%- set chosen = licence if licence in choices else "" -%}
+<div id="knowledge-licence-{{ source.id }}" data-knowledge-licence-sheet{% if not open %} hidden{% endif %}>
+  <div class="fixed inset-0 z-40 bg-base-300/60" data-knowledge-close></div>
+  <form
+    class="mat-content fixed z-50 p-0 flex flex-col inset-x-0 bottom-0 top-12 rounded-t-[28px] lg:inset-x-auto lg:bottom-auto lg:top-24 lg:left-[calc(50%-340px)] lg:w-[680px] lg:max-h-[calc(100dvh-8rem)] lg:rounded-box"
+    aria-label="Set licence"
+    role="dialog"
+    aria-modal="true"
+    hx-post="/admin/knowledge/sources/{{ source.id }}/licence{{ show_query }}"
+    hx-target="#knowledge"
+    hx-swap="outerHTML"
+    data-licence-sheet="{{ source.id }}"
+    data-open="{{ 'true' if open else 'false' }}"
+    novalidate
+  >
+    <div class="flex items-center justify-between gap-2 px-4 pt-3 pb-2">
+      <h2 class="text-[17px] font-semibold">Set licence</h2>
+      <button type="button" class="lg lg-ghost lg-icon" aria-label="Close" data-knowledge-close>{{ icon("x", "size-5") }}</button>
+    </div>
+    <div class="flex-1 min-h-0 overflow-y-auto">
+      <div class="px-4 pb-3 flex flex-col gap-3">
+        <p class="text-[14px] lbl-2">“{{ source.title }}”: no licence was found in the file. Set the one it's published under, or the permission you hold.</p>
+        {{ licence_fields(state, choices, chosen, "licence-hint-" ~ source.id) }}
+      </div>
+    </div>
+    <div class="px-4 pt-2 pb-[max(1rem,env(safe-area-inset-bottom))] border-t border-base-content/10"><button type="submit" class="lg lg-tinted w-full">Save licence</button></div>
+  </form>
+</div>
+{%- endmacro %}

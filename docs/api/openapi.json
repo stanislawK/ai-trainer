@@ -780,6 +780,42 @@
         "summary": "Page"
       }
     },
+    "/admin/knowledge/proposals/approve": {
+      "post": {
+        "operationId": "approve_admin_knowledge_proposals_approve_post",
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Approve"
+      }
+    },
+    "/admin/knowledge/proposals/reject": {
+      "post": {
+        "operationId": "reject_admin_knowledge_proposals_reject_post",
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Reject"
+      }
+    },
     "/admin/knowledge/sources": {
       "post": {
         "operationId": "upload_admin_knowledge_sources_post",
@@ -835,6 +871,45 @@
           }
         },
         "summary": "Delete"
+      }
+    },
+    "/admin/knowledge/sources/{source_id}/licence": {
+      "post": {
+        "operationId": "set_licence_admin_knowledge_sources__source_id__licence_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "source_id",
+            "required": true,
+            "schema": {
+              "title": "Source Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Set Licence"
       }
     },
     "/admin/knowledge/sources/{source_id}/reingest": {

@@ -386,6 +386,11 @@
     gap: 7px;
     font-size: 13px;
     font-weight: 500;
+  }
+
+  /* `.lg-chip.lg` outranks `.lg-ghost`, which the mock's plain `.lg-chip` doesn't: keep the
+     chip's edge off a ghost chip, so it stays unlit until hovered, as drawn (#461). */
+  &.lg:not(.lg-ghost) {
     --lg-edge: light-dark(oklch(100% 0 0 / .9), oklch(100% 0 0 / .08));
   }
 

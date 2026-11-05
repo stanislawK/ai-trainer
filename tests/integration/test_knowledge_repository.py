@@ -23,6 +23,7 @@ from ai_trainer.domain.knowledge import (
     SourceType,
     content_hash,
 )
+from ai_trainer.domain.source_template import LicenceTerms
 from ai_trainer.domain.users import NewUser, User, UserStatus
 
 NOW = datetime(2026, 11, 2, 9, 30, tzinfo=UTC)
@@ -370,3 +371,120 @@ async def test_find_by_identifiers_matches_an_isbn(
 
     assert (await repo.find_by_identifiers(isbn=isbn)) == stored
     assert await repo.find_by_identifiers(isbn=f"979{uuid4().int % 10**10:010d}") is None
+
+
+# --- #461: deciding on proposals and setting a proposal's licence -----------------------------
+
+
+async def test_approve_and_reject_change_only_licensed_proposals(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    admin = await _admin(db_session_factory, "repo-decide")
+    repo = SqlAlchemyKnowledgeSourcesRepository(db_session_factory)
+    licensed = await repo.add(_source("decide-a", admin, status=SourceStatus.PROPOSED))
+    other = await repo.add(_source("decide-b", admin, status=SourceStatus.PROPOSED))
+    unlicensed = await repo.add(
+        _source(
+            "decide-c",
+            admin,
+            status=SourceStatus.PROPOSED,
+            license_id=None,
+            license_source=None,
+            license_note=None,
+        )
+    )
+    ingested = await repo.add(_source("decide-d", admin))
+    await _set_status(db_session_factory, ingested.id, "ingested")
+    approver = await _admin(db_session_factory, "repo-decide-approver")
+
+    approved = await repo.decide_proposals(
+        [licensed.id, unlicensed.id, ingested.id, uuid4()],
+        status=SourceStatus.UPLOADED,
+        decided_by=approver.id,
+    )
+    rejected = await repo.decide_proposals(
+        [other.id, licensed.id], status=SourceStatus.REJECTED, decided_by=approver.id
+    )
+
+    assert list(approved) == [licensed.id]
+    assert list(rejected) == [other.id]
+    rows = {s.id: s for s in await repo.get_many([licensed.id, other.id, unlicensed.id])}
+    assert rows[licensed.id].status is SourceStatus.UPLOADED
+    assert rows[licensed.id].uploaded_by_user_id == approver.id
+    assert rows[other.id].status is SourceStatus.REJECTED
+    assert rows[other.id].uploaded_by_user_id == admin.id
+    assert rows[unlicensed.id].status is SourceStatus.PROPOSED
+    assert (await repo.get(ingested.id)).status is SourceStatus.INGESTED  # type: ignore[union-attr]
+
+
+async def test_decide_proposals_refuses_a_status_other_than_uploaded_or_rejected(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    repo = SqlAlchemyKnowledgeSourcesRepository(db_session_factory)
+
+    with pytest.raises(ValueError, match="uploaded or rejected"):
+        await repo.decide_proposals([uuid4()], status=SourceStatus.INGESTED, decided_by=uuid4())
+
+
+async def test_decide_proposals_with_no_ids_changes_nothing(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    repo = SqlAlchemyKnowledgeSourcesRepository(db_session_factory)
+
+    assert await repo.decide_proposals([], status=SourceStatus.REJECTED, decided_by=uuid4()) == []
+
+
+async def test_get_many_skips_unknown_ids(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    admin = await _admin(db_session_factory, "repo-get-many")
+    repo = SqlAlchemyKnowledgeSourcesRepository(db_session_factory)
+    stored = await repo.add(_source("get-many", admin))
+
+    assert [s.id for s in await repo.get_many([stored.id, uuid4()])] == [stored.id]
+    assert await repo.get_many([]) == []
+
+
+async def test_set_licence_writes_only_a_proposed_source(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    admin = await _admin(db_session_factory, "repo-set-licence")
+    repo = SqlAlchemyKnowledgeSourcesRepository(db_session_factory)
+    waiting = await repo.add(
+        _source(
+            "set-licence-a",
+            admin,
+            status=SourceStatus.PROPOSED,
+            license_id=None,
+            license_source=None,
+            license_note=None,
+            license_detection_reason="none_found",
+        )
+    )
+    uploaded = await repo.add(_source("set-licence-b", admin))
+    terms = LicenceTerms(
+        license_id=LicenseId.OTHER,
+        license_source=LicenseSource.ADMIN,
+        license_url="https://example.org/permission",
+        copyright_statement="© 2025 R. Lind",
+        attribution="R. Lind, used with permission",
+        license_note="Written permission, 28 Oct 2026.",
+    )
+
+    updated = await repo.set_licence(waiting.id, terms)
+    refused = await repo.set_licence(uploaded.id, terms)
+
+    assert updated is not None
+    assert (updated.status, updated.license_id, updated.license_source) == (
+        SourceStatus.PROPOSED,
+        LicenseId.OTHER,
+        LicenseSource.ADMIN,
+    )
+    assert updated.license_url == "https://example.org/permission"
+    assert updated.copyright_statement == "© 2025 R. Lind"
+    assert updated.attribution == "R. Lind, used with permission"
+    assert updated.license_note == "Written permission, 28 Oct 2026."
+    # Detection's leftovers no longer describe the licence: the admin set it.
+    assert updated.license_detection_reason is None
+    assert refused is None
+    assert (await repo.get(uploaded.id)).license_id is LicenseId.OTHER  # type: ignore[union-attr]

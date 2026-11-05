@@ -12,7 +12,7 @@ from enum import StrEnum
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from ai_trainer.domain.knowledge import LicenseSource, UploadProblem
-from ai_trainer.domain.source_template import SourceTemplate
+from ai_trainer.domain.source_template import LicenceTerms, SourceTemplate
 
 # The licence select's first option and default.
 DETECT_LICENCE = "detect"
@@ -85,18 +85,7 @@ def _present(**values: str) -> dict[str, str]:
 
 
 def _template_input(answers: UploadAnswers) -> dict[str, object]:
-    licence: dict[str, str] | None = None
-    if not answers.detects_licence:
-        licence = {
-            "license_source": LicenseSource.ADMIN.value,
-            **_present(
-                license_id=answers.license_id,
-                license_url=answers.license_url,
-                copyright_statement=answers.copyright_statement,
-                attribution=answers.attribution,
-                license_note=answers.license_note,
-            ),
-        }
+    licence = None if answers.detects_licence else _licence_input(answers)
     author = answers.author.strip()
     return {
         **_present(
@@ -113,6 +102,50 @@ def _template_input(answers: UploadAnswers) -> dict[str, object]:
     }
 
 
+def _licence_input(answers: UploadAnswers) -> dict[str, str]:
+    return {
+        "license_source": LicenseSource.ADMIN.value,
+        **_present(
+            license_id=answers.license_id,
+            license_url=answers.license_url,
+            copyright_statement=answers.copyright_statement,
+            attribution=answers.attribution,
+            license_note=answers.license_note,
+        ),
+    }
+
+
+def _problems(
+    error: ValidationError, fields: Mapping[tuple[str | int, ...], UploadField]
+) -> dict[UploadField, UploadProblem]:
+    problems: dict[UploadField, UploadProblem] = {}
+    for detail in error.errors():
+        # The form posts nothing else, so any other location is a bug: a KeyError, loudly.
+        field = fields[tuple(detail["loc"])]
+        problems.setdefault(field, _PROBLEMS.get(detail["type"], UploadProblem.UNKNOWN))
+    return problems
+
+
+# Where each of the licence's fields sits on the Set licence sheet.
+_LICENCE_FIELDS: Mapping[tuple[str | int, ...], UploadField] = {
+    ("license_id",): UploadField.LICENSE_ID,
+    ("license_url",): UploadField.LICENSE_URL,
+    ("attribution",): UploadField.ATTRIBUTION,
+    ("license_note",): UploadField.LICENSE_NOTE,
+}
+
+
+def read_licence(answers: UploadAnswers) -> LicenceTerms | dict[UploadField, UploadProblem]:
+    """The Set licence sheet's answers as the admin's licence, or every problem at once (the #454
+    amendment). Detect isn't a licence here: the file was read already."""
+    if answers.detects_licence:
+        return {UploadField.LICENSE_ID: UploadProblem.UNKNOWN}
+    try:
+        return LicenceTerms.model_validate(_licence_input(answers))
+    except ValidationError as error:
+        return _problems(error, _LICENCE_FIELDS)
+
+
 def read_details(
     answers: UploadAnswers, *, known_sports: Collection[str]
 ) -> SourceTemplate | dict[UploadField, UploadProblem]:
@@ -122,9 +155,4 @@ def read_details(
             _template_input(answers), context={"sports": known_sports}
         )
     except ValidationError as error:
-        problems: dict[UploadField, UploadProblem] = {}
-        for detail in error.errors():
-            # The form posts nothing else, so any other location is a bug: a KeyError, loudly.
-            field = _FIELDS[tuple(detail["loc"])]
-            problems.setdefault(field, _PROBLEMS.get(detail["type"], UploadProblem.UNKNOWN))
-        return problems
+        return _problems(error, _FIELDS)

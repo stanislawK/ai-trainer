@@ -40,7 +40,19 @@
   "cc-by-nd": {"label": "CC BY-ND", "warn": true, "hint": "Reuse with credit, without adaptations. Flagged in the list until its terms are reviewed."},
   "cc-by-nc-nd": {"label": "CC BY-NC-ND", "warn": true, "hint": "Reuse with credit, non-commercially, without adaptations. Flagged in the list until its terms are reviewed."},
   "other": {"label": "Other, with permission", "warn": false, "hint": "Not a CC licence: say below what permission you hold."},
+  "": {"label": "Choose a licence", "warn": false, "hint": "The licence it's published under, or Other for a permission you hold."},
 } %}
+{#- The filter chips over the list (#461); other statuses show under All. -#}
+{% set filter_labels = {"all": "All", "proposed": "Proposed", "ingested": "Ingested", "rejected": "Rejected"} %}
+{% set filter_empty = {
+  "all": "No sources yet.",
+  "proposed": "No proposals are waiting.",
+  "ingested": "No sources are ingested yet.",
+  "rejected": "No sources are rejected.",
+} %}
+{#- Why a proposal has no licence. No ticket has settled detection's reasons yet, so a stored one
+    shows as stored, and none shows this. -#}
+{% set no_licence_copy = "No licence found in the file. Set one before approving." %}
 {#- Where a licence was read; an admin's own pick needs no note. -#}
 {% set licence_from = {"pmc": "from PMC", "jats": "from the article", "file": "detected in the file", "admin": ""} %}
 {#- The SA and ND flags, until a lawyer has read their terms (ADR-0036). -#}
@@ -102,19 +114,75 @@
 <button
   type="button"
   class="lg lg-clear lg-sm{% if not phone %} whitespace-nowrap{% endif %}"
-  hx-post="/admin/knowledge/sources/{{ source.id }}/reingest"
+  hx-post="/admin/knowledge/sources/{{ source.id }}/reingest{{ show_query }}"
   hx-target="#knowledge"
   hx-swap="outerHTML"
 ><span class="absolute inset-x-0 -inset-y-1" aria-hidden="true"></span>{% if phone %}{{ icon("refresh-cw", "size-4") }}{% endif %}Re-ingest</button>
 {%- endif %}
 {%- endmacro %}
 
+{#- A proposal with no stored file, such as a paper staged by PMC ID, is dismissed with Reject,
+    so it has no Delete (the Admin Staging mock). -#}
+{% macro deletable(source) -%}
+{{- "yes" if source.status != "proposed" or source.storage_key else "" -}}
+{%- endmacro %}
+
+{% macro needs_licence(source) -%}
+{{- "yes" if source.status == "proposed" and not source.license_id else "" -}}
+{%- endmacro %}
+
+{% macro set_licence_button(source, phone) -%}
+{%- if needs_licence(source) %}
+<button
+  type="button"
+  class="lg lg-clear lg-sm relative{% if not phone %} whitespace-nowrap{% endif %}"
+  data-knowledge-licence="knowledge-licence-{{ source.id }}"
+><span class="absolute inset-x-0 -inset-y-1" aria-hidden="true"></span>{% if phone %}{{ icon("scale", "size-4") }}{% endif %}Set licence</button>
+{%- endif %}
+{%- endmacro %}
+
+{#- A 44 px checkbox on proposed rows, disabled until the proposal has a licence (the #454
+    amendment). Other rows keep the column, empty, so the lists line up. Each source has a
+    checkbox in the phone card and one in the desktop row; the script keeps them in step and
+    the server counts a repeated ID once. -#}
+{% macro pick(source, phone) -%}
+{%- set label = "relative flex items-start justify-center w-11 -ml-3 shrink-0" if phone else "relative flex items-center justify-center w-11 h-11 -my-2.5" -%}
+{%- if source.status == "proposed" %}
+<label class="{{ label }}">{% if phone %}<span class="absolute -inset-y-2 inset-x-0" aria-hidden="true"></span>{% endif %}<input type="checkbox" class="checkbox checkbox-primary{% if phone %} mt-0.5{% endif %}" name="source_id" value="{{ source.id }}" aria-label="Select this source" data-pick{% if needs_licence(source) %} disabled{% endif %} /></label>
+{%- else %}
+<span class="{{ label }} invisible" aria-hidden="true"></span>
+{%- endif %}
+{%- endmacro %}
+
+{#- The bibliographic identifiers in mono: PMC ID, DOI and ISBN, as the mock draws them. -#}
+{% macro identifiers(source, extra="") -%}
+{%- set ids = [] -%}
+{%- if source.pmcid %}{% set _ = ids.append(source.pmcid) %}{% endif -%}
+{%- if source.doi %}{% set _ = ids.append("doi:" ~ source.doi) %}{% endif -%}
+{%- if source.isbn %}{% set _ = ids.append("isbn:" ~ source.isbn) %}{% endif -%}
+{%- if ids %}<span class="text-[13px] lbl-2 font-mono break-all {{ extra }}">{{ ids | join(" · ") }}</span>{% endif -%}
+{%- endmacro %}
+
+{#- A licence found in the file quotes the line it was read from, for the admin to check before
+    approving (the #454 amendment). -#}
+{% macro matched_line(source, extra="") -%}
+{%- if source.license_source == "file" and source.license_matched_line %}<span class="text-[13px] lbl-2 italic border-l-2 border-base-content/20 pl-2 {{ extra }}">“{{ source.license_matched_line }}”</span>{% endif -%}
+{%- endmacro %}
+
+{% macro licence_reason(source, phone) -%}
+{%- if needs_licence(source) %}
+<span class="flex items-start {{ 'gap-2' if phone else 'gap-1.5 max-w-[160px]' }} text-[13px]">{{ icon("circle-alert", "size-4 shrink-0 text-warning mt-0.5") }}{{ source.license_detection_reason or no_licence_copy }}</span>
+{%- endif %}
+{%- endmacro %}
+
 {% macro delete_button(source, phone) -%}
+{%- if deletable(source) %}
 <button
   type="button"
   class="lg lg-quiet lg-sm"
   data-knowledge-delete="knowledge-delete-{{ source.id }}"
 ><span class="absolute inset-x-0 -inset-y-1" aria-hidden="true"></span>{% if phone %}{{ icon("trash-2", "size-4") }}{% endif %}Delete</button>
+{%- endif %}
 {%- endmacro %}
 
 {% macro licence_flag_badge(source) -%}
@@ -139,33 +207,45 @@
 {%- endmacro %}
 
 {% macro source_card(source) -%}
-<li class="mat-content rounded-box p-4 flex flex-col gap-1" data-source-id="{{ source.id }}" data-status="{{ source.status }}">
-  <span class="flex items-start gap-3"><span class="text-[16px] font-medium break-words flex-1 min-w-0">{{ source.title }}</span>{{ status_badge(source, "shrink-0") }}</span>
-  <span class="text-[13px] lbl-2">{{ byline(source) }}</span>
-  {{ licence_line(source) }}
-  {%- if source.status == "uploaded" %}
-  <span class="text-[13px] lbl-2">Waiting to be ingested</span>
-  {%- endif %}
-  {%- if source.status == "failed" and source.error %}
-  <p class="text-[13px]">{{ ingest_error(source) }}</p>
-  {%- endif %}
-  {{ chunks_line(source) }}
-  <div class="flex gap-2 mt-1">
-    {{ reingest_button(source, true) }}
-    {{ delete_button(source, true) }}
-  </div>
+{%- set has_actions = needs_licence(source) or source.status in ("ingested", "failed") or deletable(source) -%}
+<li class="mat-content rounded-box p-4 flex gap-1" data-source-id="{{ source.id }}" data-status="{{ source.status }}">
+  {{ pick(source, true) }}
+  <span class="flex flex-col gap-1 flex-1 min-w-0">
+    <span class="flex items-start gap-3"><span class="text-[16px] font-medium break-words flex-1 min-w-0">{{ source.title }}</span>{{ status_badge(source, "shrink-0") }}</span>
+    <span class="text-[13px] lbl-2">{{ byline(source) }}</span>
+    {{ identifiers(source) }}
+    {{ licence_line(source) }}
+    {{ matched_line(source) }}
+    {{ licence_reason(source, true) }}
+    {%- if source.status == "uploaded" %}
+    <span class="text-[13px] lbl-2">Waiting to be ingested</span>
+    {%- endif %}
+    {%- if source.status == "failed" and source.error %}
+    <span class="text-[13px]">{{ ingest_error(source) }}</span>
+    {%- endif %}
+    {{ chunks_line(source) }}
+    {%- if has_actions %}
+    <span class="flex gap-2 mt-1">
+      {{ set_licence_button(source, true) }}
+      {{ reingest_button(source, true) }}
+      {{ delete_button(source, true) }}
+    </span>
+    {%- endif %}
+  </span>
 </li>
 {%- endmacro %}
 
-{#- Source, Licence, Status and actions (the Admin Staging mock). Chunks and the embedding model
-    fold into the source cell under the byline (#423). -#}
+{#- Select, Source, Licence, Status and actions (the Admin Staging mock). Chunks and the
+    embedding model fold into the source cell under the byline (#423). -#}
 {% macro source_row(source) -%}
 <tr class="border-base-content/10 align-top" data-source-id="{{ source.id }}" data-status="{{ source.status }}">
-  <td><span class="flex flex-col gap-0.5"><span class="font-medium">{{ source.title }}</span><span class="text-[13px] lbl-2">{{ byline(source) }}</span>{{ chunks_line(source) }}
+  <td class="px-2">{{ pick(source, false) }}</td>
+  <td><span class="flex flex-col gap-0.5 max-w-[280px]"><span class="font-medium">{{ source.title }}</span><span class="text-[13px] lbl-2">{{ byline(source) }}</span>{{ identifiers(source) }}{{ chunks_line(source) }}{{ matched_line(source, "mt-1") }}
     {%- if source.status == "failed" and source.error %}<span class="text-[13px] mt-1">{{ ingest_error(source) }}</span>{% endif %}</span></td>
-  <td>{{ licence_cell(source) }}</td>
+  <td><span class="flex flex-col gap-1">{{ licence_cell(source) }}{{ licence_reason(source, false) }}</span></td>
   <td>{{ status_badge(source, "whitespace-nowrap") }}</td>
   <td><div class="flex justify-end gap-2">
+    {{ set_licence_button(source, false) }}
     {{ reingest_button(source, false) }}
     {{ delete_button(source, false) }}
   </div></td>
@@ -183,7 +263,7 @@
       <button
         type="button"
         class="lg lg-danger"
-        hx-delete="/admin/knowledge/sources/{{ source.id }}"
+        hx-delete="/admin/knowledge/sources/{{ source.id }}{{ show_query }}"
         hx-target="#knowledge"
         hx-swap="outerHTML"
       ><span class="absolute inset-x-0 -inset-y-0.5" aria-hidden="true"></span>Delete source</button>
@@ -236,7 +316,7 @@ aria-invalid="{{ 'true' if name in sheet.problems else 'false' }}"
   <button
     type="button"
     class="lg lg-clear lg-sm self-start ml-8"
-    hx-post="/admin/knowledge/sources/{{ existing.id }}/reingest"
+    hx-post="/admin/knowledge/sources/{{ existing.id }}/reingest{{ show_query }}"
     hx-target="#knowledge"
     hx-swap="outerHTML"
   ><span class="absolute inset-x-0 -inset-y-1" aria-hidden="true"></span>{{ icon("refresh-cw", "size-4") }}Re-ingest</button>
@@ -266,4 +346,46 @@ aria-invalid="{{ 'true' if name in sheet.problems else 'false' }}"
   data-template="This file is {size}. The limit is {{ max_upload_mb }} MB."
   {% if problem != "too_large" %}hidden{% endif %}
 >{% if sheet.file_size %}This file is {{ file_size(sheet.file_size) }}. {% endif %}The limit is {{ max_upload_mb }} MB.</p>
+{%- endmacro %}
+
+{#- The licence select and its fields (ADR-0036, the #454 amendment), on the upload sheet and the
+    Set licence sheet. `state` has the answers and the server's problems; `chosen` is the pick
+    to draw. Detect, or no pick yet, shows no fields; a licence shows its URL, copyright and
+    attribution; Other also asks what permission is held. The script toggles them as the pick
+    changes. -#}
+{% macro licence_fields(state, choices, chosen, hint_id) -%}
+{%- set answers = state.answers -%}
+{%- set picked = chosen not in ("detect", "") -%}
+<div class="grid gap-x-3 gap-y-1 grid-cols-1 lg:grid-cols-2" data-licence>
+  <fieldset class="fieldset{% if not picked %} lg:col-span-2{% endif %}" data-licence-select>
+    <legend class="fieldset-legend text-[13px]">Licence</legend>
+    <select class="lg-field lg-select" name="license_id" aria-describedby="{{ hint_id }}" {{ invalid(state, "license_id") }} data-licence-input{% if "" in choices %} data-required{% endif %}>
+      {% for value in choices %}
+      <option value="{{ value }}"{% if value == chosen %} selected{% endif %} data-hint="{{ licence_copy[value].hint }}" data-warn="{{ 'true' if licence_copy[value].warn else 'false' }}">{{ licence_copy[value].label }}</option>
+      {% endfor %}
+    </select>
+    <p id="{{ hint_id }}" class="label text-[13px] whitespace-normal leading-5 {{ 'text-warning' if licence_copy[chosen].warn else 'lbl-2' }}" data-licence-hint>{{ licence_copy[chosen].hint }}</p>
+    {{ field_error(state, "license_id", "Pick a licence.") }}
+  </fieldset>
+  <fieldset class="fieldset" data-licence-field{% if not picked %} hidden{% endif %}>
+    <legend class="fieldset-legend text-[13px]">Licence URL · optional</legend>
+    <input class="lg-field" name="license_url" type="url" inputmode="url" value="{{ answers.license_url }}" placeholder="https://" {{ invalid(state, "license_url") }} />
+    {{ field_error(state, "license_url", "Use a full link that starts with http:// or https://.") }}
+  </fieldset>
+  <fieldset class="fieldset" data-licence-field{% if not picked %} hidden{% endif %}>
+    <legend class="fieldset-legend text-[13px]">Copyright statement · optional</legend>
+    <input class="lg-field" name="copyright_statement" value="{{ answers.copyright_statement }}" placeholder="© 2024 The Authors" />
+  </fieldset>
+  <fieldset class="fieldset" data-licence-field{% if not picked %} hidden{% endif %}>
+    <legend class="fieldset-legend text-[13px]">Attribution</legend>
+    <input class="lg-field" name="attribution" value="{{ answers.attribution }}" {{ invalid(state, "attribution") }} data-required />
+    <p class="label text-[13px] lbl-2 whitespace-normal">Shown with every answer that cites it.</p>
+    {{ field_error(state, "attribution", "Add an attribution.") }}
+  </fieldset>
+  <fieldset class="fieldset lg:col-span-2" data-licence-note{% if chosen != "other" %} hidden{% endif %}>
+    <legend class="fieldset-legend text-[13px]">What permission do you hold?</legend>
+    <textarea class="lg-field min-h-20 py-2" name="license_note" placeholder="e.g. The author granted written permission on 12 Oct 2026 to use the book in this app." {{ invalid(state, "license_note") }} data-required>{{ answers.license_note }}</textarea>
+    {{ field_error(state, "license_note", "Say what permission you hold. “Other” needs it.") }}
+  </fieldset>
+</div>
 {%- endmacro %}

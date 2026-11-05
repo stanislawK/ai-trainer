@@ -6,9 +6,9 @@ unique, and a second insert of a hash another test's open transaction holds woul
 
 import io
 import zipfile
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from datetime import datetime, timedelta
-from typing import TypedDict
+from typing import Literal, TypedDict
 from uuid import UUID
 
 from ai_trainer.application.knowledge_sources import KnowledgeSources
@@ -23,6 +23,7 @@ from ai_trainer.domain.object_storage import (
     ObjectStorageError,
     ObjectStorageOperation,
 )
+from ai_trainer.domain.source_template import LicenceTerms
 from ai_trainer.domain.sports.registry import SportRegistry, default_sport_registry
 
 
@@ -113,6 +114,9 @@ class MemorySources:
     def __init__(self) -> None:
         self.rows: dict[UUID, KnowledgeSource] = {}
         self.racing: KnowledgeSource | None = None
+        # What another tab leaves behind before `set_licence` writes: the source as it decided
+        # it, or "deleted".
+        self.race_licence: KnowledgeSource | Literal["deleted"] | None = None
 
     async def list_all(self) -> Sequence[KnowledgeSource]:
         return sorted(self.rows.values(), key=lambda s: s.uploaded_at, reverse=True)
@@ -192,6 +196,48 @@ class MemorySources:
         )
         self.rows[source_id] = queued
         return queued
+
+    async def get_many(self, source_ids: Collection[UUID]) -> Sequence[KnowledgeSource]:
+        return [self.rows[i] for i in source_ids if i in self.rows]
+
+    async def decide_proposals(
+        self, source_ids: Collection[UUID], *, status: SourceStatus, decided_by: UUID
+    ) -> Sequence[UUID]:
+        changed: list[UUID] = []
+        for source_id in source_ids:
+            source = self.rows.get(source_id)
+            if source is None or source.status is not SourceStatus.PROPOSED:
+                continue
+            if source.license_id is None:
+                continue
+            update: dict[str, object] = {"status": status}
+            if status is SourceStatus.UPLOADED:
+                update["uploaded_by_user_id"] = decided_by
+            self.rows[source_id] = source.model_copy(update=update)
+            changed.append(source_id)
+        return changed
+
+    async def set_licence(self, source_id: UUID, terms: LicenceTerms) -> KnowledgeSource | None:
+        if self.race_licence is not None:
+            # Another tab decided on, or deleted, the source between the lookup and this write.
+            if isinstance(self.race_licence, KnowledgeSource):
+                self.rows[source_id] = self.race_licence
+            else:
+                self.rows.pop(source_id, None)
+            return None
+        source = self.rows.get(source_id)
+        if source is None or source.status is not SourceStatus.PROPOSED:
+            return None
+        updated = source.model_copy(
+            update={
+                **terms.model_dump(),
+                "license_matched_line": None,
+                "license_locator": None,
+                "license_detection_reason": None,
+            }
+        )
+        self.rows[source_id] = updated
+        return updated
 
 
 class _NoClock:
