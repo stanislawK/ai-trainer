@@ -107,6 +107,8 @@ _XDIST_GROUPS = {
         "tests/integration/test_ingest_worker_cli.py",
         "tests/integration/test_knowledge_ingestion.py",
         "tests/integration/test_admin_knowledge_proposals.py",
+        # The catalogue's two sources are shared rows every test here queues and claims (#427).
+        "tests/integration/test_catalogue_ingestion.py",
     ),
     "src_tree": ("tests/unit/test_import_boundaries.py", "tests/unit/test_clock_usage.py"),
 }

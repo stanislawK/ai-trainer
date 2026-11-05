@@ -247,3 +247,44 @@ PMC sources carry "Source: NLM PMC" in their attribution.
     - The link can't pin Content-Type or length (`obstore`'s `sign_async` takes no headers, research finding 1), so register checks both on the stored bytes.
     - Under `make start` the link names `storage:7070`. versitygw's port is published on the host's loopback, so the host reaches it with `curl --connect-to storage:7070:127.0.0.1:7070 -T <file> "$PUT_URL"`. That keeps the Host header the link was signed for, so there is no dev-only signing endpoint. In production the link names R2's S3 endpoint.
     - The test S3 server in `tests/object_storage_support.py` checks a PUT link's expiry as it does a GET link's, and answers HEAD.
+- **Amended at #427 (the catalogue's texts), owner-approved at its plan gate, 2026-11-05.** ADR-0033 *Catalogue texts* says the worker ingests `exercise_texts` as one chunk per exercise and language, again whenever `import-exercises` changes a text. This records how. The Decision and invariants stand.
+  - **Two sources, one per language.** Each is titled "Exercise catalogue":
+    - `source_type` and `evidence_tier` are `catalogue`, `sports = {gym}`, and `language` is `en` or `pl`;
+    - there is no file, so `storage_key` and the file columns are NULL;
+    - `content_hash` is the SHA-256 of `catalogue:<lang>`, unique per language and never a file's hash in practice, as #458 keys staged articles;
+    - the licence is `other`/`admin` with the note "MIT licence (data/catalogue/LICENSE.exercises-dataset)", and the attribution is the exercises' own (ADR-0031 G10).
+
+    The admin list shows two rows with their chunk counts, not one per exercise.
+  - **Queueing.** After its upsert, `import-exercises` creates any missing source as `uploaded`. It sets an existing source `uploaded` again when the source `failed`, or when any of its language's texts has no chunk or one whose text or name differs.
+    - This reads the database, not what the run wrote, so an import that committed its rows but failed before queueing is caught by the next run (found by `/code-review` at #427).
+    - A source that is already `uploaded` is left waiting.
+    - An `ingesting` one goes back too. Its worker's later writes name a status that is now gone, so they change nothing, and the next claim works out the difference afresh.
+    - The output line gains `catalogue_queued=<n>`.
+    - A change of `EMBEDDING_MODEL` isn't seen here. It is a re-embed job (ADR-0033 invariant 4), started by Re-ingest.
+    - Invariant 1 is about uploaded and proposed sources. The catalogue is queued by the owner's `import-exercises` run, as ADR-0033 provides.
+  - **The acting user** of the embedding calls (`llm_calls.user_id` is NOT NULL) is the oldest `active` user whose email is in `ADMIN_EMAILS`, compared case-insensitively. It is resolved on every import and stored as the source's `uploaded_by_user_id`. Admin rights still come only from the setting (ADR-0005).
+    - With no such user, the source is queued without one and the worker fails it as `no_acting_admin`.
+    - The next `import-exercises`, after a listed admin has signed in, queues the failed source again as that admin. So does an admin's Re-ingest on `/admin/knowledge`, as the admin who clicks it.
+    - The admin page words `no_acting_admin` as "the admin who uploaded it no longer has an account". That is loose for the catalogue, but its advice to Re-ingest still holds. Changing the wording is a template change, left to a UI ticket.
+  - **Only what changed is embedded.** The worker reads the language's texts and the source's chunks (no vectors). It embeds an exercise only when:
+    - it has no chunk;
+    - its chunk's text or heading differs;
+    - its chunk was embedded by a model other than the configured `EMBEDDING_MODEL`.
+
+    A run with nothing changed makes no call.
+  - **The chunk:**
+    - its text is the exercise's `instructions`;
+    - its heading path is the exercise name, with a `section` locator of the name and `section_kind = body`;
+    - it is embedded as `Exercise catalogue — <name>`, then the text, in this ADR's form;
+    - its `tsvector` weights the **exercise name A** and the text D, in `english` or `simple`. The source title would put the same two words in every chunk.
+  - **Writes per batch, unlike a file.** Each embedded batch is written at once, under the claim:
+    - a replaced chunk keeps its ordinal, and a new exercise takes the next free one;
+    - a failed batch fails the source and keeps every chunk written before it, and the next run embeds only the rest;
+    - a batch updates `chunk_count`; only finishing sets `embedding_model`, once every chunk carries it;
+    - finishing removes the chunk of an exercise with no text left in that language, then sets `ingested`, `chunk_count` and `embedding_model`.
+
+    A file's chunks still go in one write, because they only make sense as a set. A catalogue chunk stands alone.
+  - **Cost.** Counted on the worktree's import of commit `7455efa` (2026-11-05): 1,315 English texts (607,098 characters) and 1,314 Polish (573,028).
+    - That is about 370,000 tokens with the headings, matching the 376,000 estimated above.
+    - DeepInfra charges $0.01/M (OpenRouter's public endpoints API, 2026-11-05; the MCP wasn't authorized), so a full embed is about **$0.004** and a run with nothing changed costs nothing.
+  - **Gotcha:** `dict()` over a SQLAlchemy `Result` treats it as a mapping, because a `Result` has `keys()`. Rows are built into a dict with a comprehension.
