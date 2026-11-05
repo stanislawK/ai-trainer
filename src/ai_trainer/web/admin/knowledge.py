@@ -19,6 +19,7 @@ from starlette.datastructures import FormData, UploadFile
 from starlette.templating import Jinja2Templates
 
 from ai_trainer.application.knowledge_sources import (
+    AlreadyLicensed,
     AlreadyStored,
     KnowledgeSources,
     LicenceRefused,
@@ -74,9 +75,10 @@ _LICENCE_FIELDS = (
 _LICENCE_CHOICES = (DETECT_LICENCE, *(value.value for value in LicenseId))
 # Set licence offers the licences only: the file was read already.
 _SET_LICENCE_CHOICES = tuple(value.value for value in LicenseId)
-# Selected proposals per decision; more is refused by the form parser. The list has no Select
-# all, so a selection is made by hand.
-_MAX_DECIDED = 1000
+# Form fields per decision. Each selected proposal posts its ID twice, once from its phone card
+# and once from its desktop row, so this lets about 2,000 proposals through; past it the form
+# parser answers 400. The list has no Select all, so a selection is made by hand.
+_MAX_DECIDED_FIELDS = 4000
 
 
 @dataclass(frozen=True)
@@ -97,9 +99,10 @@ class _Sheet:
 
 @dataclass(frozen=True)
 class _LicenceSheet:
-    """One proposal's Set licence sheet, reopened after a refusal with the answers as typed."""
+    """One proposal's Set licence sheet, reopened after a refusal with the answers as typed; with
+    no source, the blank state every other sheet starts from."""
 
-    source_id: UUID
+    source_id: UUID | None
     answers: UploadAnswers
     problems: Mapping[str, str]
 
@@ -170,6 +173,8 @@ class _KnowledgeRoutes:
             "counts": _counts(every),
             "sheet": sheet or _Sheet(),
             "licence_reopened": licence_sheet,
+            # A Set licence sheet no refusal reopened starts blank.
+            "blank_licence": _LicenceSheet(source_id=None, answers=UploadAnswers(), problems={}),
             "alert": alert,
             "decided": decided,
             "source_types": UPLOAD_SOURCE_TYPES,
@@ -265,7 +270,7 @@ class _KnowledgeRoutes:
     async def _decide(self, request: Request, decision: ProposalDecision) -> Response:
         if not is_admin(request):
             return forbidden(request, self._templates)
-        async with request.form(max_files=0, max_fields=_MAX_DECIDED) as form:
+        async with request.form(max_files=0, max_fields=_MAX_DECIDED_FIELDS) as form:
             ids = _source_ids(form)
         if ids is None:
             return not_found(request, self._templates)
@@ -290,6 +295,8 @@ class _KnowledgeRoutes:
                 return await self._region(request, status_code=422, licence_sheet=sheet)
             case NotProposed():
                 return await self._region(request, status_code=409, alert="licence_not_proposed")
+            case AlreadyLicensed():
+                return await self._region(request, status_code=409, alert="licence_already_set")
             case SourceNotFound():
                 return not_found(request, self._templates)
 

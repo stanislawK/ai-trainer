@@ -228,6 +228,8 @@ class MemorySources:
         source = self.rows.get(source_id)
         if source is None or source.status is not SourceStatus.PROPOSED:
             return None
+        if source.license_id is not None:
+            return None
         updated = source.model_copy(
             update={
                 **terms.model_dump(),

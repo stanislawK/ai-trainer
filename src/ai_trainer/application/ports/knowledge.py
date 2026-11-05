@@ -83,8 +83,9 @@ class KnowledgeSourcesRepositoryPort(Protocol):
         ...
 
     async def set_licence(self, source_id: UUID, terms: LicenceTerms) -> KnowledgeSource | None:
-        """Writes an admin's licence on a `proposed` source, clearing what detection left (the
-        #454 amendment). None, changing nothing, for any other status or an unknown source."""
+        """Writes an admin's licence on a `proposed` source that has none, clearing what detection
+        left (the #454 amendment). None, changing nothing, for any other status, a source that
+        has a licence, or an unknown source."""
         ...
 
 

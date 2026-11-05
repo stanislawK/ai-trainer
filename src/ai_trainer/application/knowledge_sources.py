@@ -132,7 +132,16 @@ class NotProposed:
 type UploadOutcome = SourceStored | UploadRefused | AlreadyStored | StorageUnavailable
 type DeleteOutcome = SourceDeleted | SourceNotFound | StorageUnavailable
 type ReingestOutcome = ReingestQueued | NotReingestable | SourceNotFound
-type LicenceOutcome = LicenceSet | LicenceRefused | NotProposed | SourceNotFound
+
+
+@dataclass(frozen=True)
+class AlreadyLicensed:
+    """Set licence is for a proposal that has none; one read from PMC or the file keeps it."""
+
+    source: KnowledgeSource
+
+
+type LicenceOutcome = LicenceSet | LicenceRefused | NotProposed | AlreadyLicensed | SourceNotFound
 
 
 class KnowledgeSources:
@@ -287,19 +296,31 @@ class KnowledgeSources:
     async def set_licence(self, source_id: UUID, answers: UploadAnswers) -> LicenceOutcome:
         """An admin's licence on a proposal that has none, so it can be approved (the #454
         amendment)."""
-        source = await self._sources.get(source_id)
-        if source is None:
-            return SourceNotFound()
-        if source.status is not SourceStatus.PROPOSED:
-            return NotProposed(source=source)
+        refused = _unlicensable(await self._sources.get(source_id))
+        if refused is not None:
+            return refused
         terms = read_licence(answers)
         if isinstance(terms, dict):
             return LicenceRefused(problems=terms)
         updated = await self._sources.set_licence(source_id, terms)
         if updated is not None:
             return LicenceSet(source=updated)
+        # Decided, licensed or deleted in another tab since the lookup.
         current = await self._sources.get(source_id)
-        return SourceNotFound() if current is None else NotProposed(source=current)
+        return _unlicensable(current) or SourceNotFound()
+
+
+def _unlicensable(
+    source: KnowledgeSource | None,
+) -> NotProposed | AlreadyLicensed | SourceNotFound | None:
+    """Why Set licence can't apply to this source, or None when it can."""
+    if source is None:
+        return SourceNotFound()
+    if source.status is not SourceStatus.PROPOSED:
+        return NotProposed(source=source)
+    if source.license_id is not None:
+        return AlreadyLicensed(source=source)
+    return None
 
 
 def _skipped(source: KnowledgeSource | None) -> Skipped:

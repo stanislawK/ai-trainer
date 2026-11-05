@@ -234,6 +234,8 @@ class SqlAlchemyKnowledgeSourcesRepository:
             .where(
                 KnowledgeSourceOrm.id == source_id,
                 KnowledgeSourceOrm.status == SourceStatus.PROPOSED.value,
+                # Only a proposal with none: one read from PMC or the file keeps its own.
+                KnowledgeSourceOrm.license_id.is_(None),
             )
             .values(
                 license_id=terms.license_id.value,

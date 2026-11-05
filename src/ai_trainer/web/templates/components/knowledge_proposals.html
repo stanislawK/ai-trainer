@@ -33,7 +33,9 @@
   hidden
 >
   <span class="text-[15px] font-medium flex-1 whitespace-nowrap" data-knowledge-selected data-template="{n} selected">0 selected</span>
-  <button type="button" class="lg lg-quiet" data-knowledge-reject>Reject</button>
+  <button type="button" class="lg lg-quiet" data-knowledge-reject data-knowledge-decide>Reject</button>
+  {#- Every decision button is disabled while one decision is on its way, so a double click
+      can't post twice and report the first post's sources as decided in another tab. #}
   <button
     type="button"
     class="lg lg-tinted"
@@ -41,6 +43,8 @@
     hx-include="[data-pick]:checked"
     hx-target="#knowledge"
     hx-swap="outerHTML"
+    hx-disable="[data-knowledge-decide]"
+    data-knowledge-decide
   >Approve</button>
 </div>
 {%- endmacro %}
@@ -59,6 +63,8 @@
         hx-include="[data-pick]:checked"
         hx-target="#knowledge"
         hx-swap="outerHTML"
+        hx-disable="[data-knowledge-decide]"
+        data-knowledge-decide
       ><span class="absolute inset-x-0 -inset-y-0.5" aria-hidden="true"></span>Reject</button>
     </div>
   </div>

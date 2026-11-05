@@ -488,3 +488,6 @@ async def test_set_licence_writes_only_a_proposed_source(
     assert updated.license_detection_reason is None
     assert refused is None
     assert (await repo.get(uploaded.id)).license_id is LicenseId.OTHER  # type: ignore[union-attr]
+    # A proposal that has a licence keeps it: Set licence is for one that has none.
+    assert await repo.set_licence(waiting.id, terms.model_copy(update={"attribution": "x"})) is None
+    assert (await repo.get(waiting.id)).attribution == "R. Lind, used with permission"  # type: ignore[union-attr]

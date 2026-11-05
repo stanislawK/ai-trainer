@@ -7,6 +7,7 @@ from uuid import UUID, uuid4
 import pytest
 
 from ai_trainer.application.knowledge_sources import (
+    AlreadyLicensed,
     KnowledgeSources,
     LicenceRefused,
     LicenceSet,
@@ -216,6 +217,29 @@ async def test_set_licence_on_a_source_no_longer_proposed_is_refused() -> None:
 
     assert outcome == NotProposed(source=source)
     assert memory.rows[source.id] == source
+
+
+async def test_set_licence_on_a_proposal_that_has_one_is_refused() -> None:
+    source = _source("From PMC")
+    service, memory = _service(source)
+
+    outcome = await service.set_licence(source.id, _licence(license_id="cc0", attribution="x"))
+
+    assert outcome == AlreadyLicensed(source=source)
+    assert memory.rows[source.id] == source
+
+
+async def test_set_licence_that_loses_a_race_to_another_licence_says_so() -> None:
+    source = _source("Raced licence", licensed=False)
+    service, memory = _service(source)
+    licensed = source.model_copy(
+        update={"license_id": LicenseId.CC_BY, "license_source": LicenseSource.ADMIN}
+    )
+    memory.race_licence = licensed
+
+    outcome = await service.set_licence(source.id, _licence(license_id="cc0", attribution="x"))
+
+    assert outcome == AlreadyLicensed(source=licensed)
 
 
 async def test_set_licence_on_an_unknown_source_is_not_found() -> None:

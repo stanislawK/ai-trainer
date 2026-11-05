@@ -354,6 +354,21 @@ async def test_set_licence_on_a_source_no_longer_proposed_changes_nothing(
     assert stored.license_id is LicenseId.CC_BY
 
 
+async def test_set_licence_on_a_proposal_that_has_one_changes_nothing(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    page = await _page(db_session_factory, "proposals-set-licensed")
+    source = await _proposal(page, "PMC licensed paper")
+
+    response = _set_licence(page, source.id, license_id="cc0", attribution="Someone")
+
+    assert response.status_code == 409
+    assert "already has a licence" in unescape(response.text)
+    stored = await page.sources.get(source.id)
+    assert stored is not None
+    assert (stored.license_id, stored.license_source) == (LicenseId.CC_BY, LicenseSource.PMC)
+
+
 @pytest.mark.parametrize("source_id", ["unknown", "not-a-uuid"], ids=["unknown", "malformed"])
 async def test_set_licence_on_an_unknown_or_malformed_source_is_404(
     db_session_factory: Callable[[], AsyncSession], source_id: str

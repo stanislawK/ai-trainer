@@ -14,8 +14,6 @@
 {% set licence = answers.license_id | trim %}
 {% set licence = licence if licence in licence_choices else "detect" %}
 {% set licence_picked = licence != "detect" %}
-{#- A Set licence sheet no refusal reopened starts blank. -#}
-{% set blank_licence = {"answers": {"license_id": "", "license_url": "", "copyright_statement": "", "attribution": "", "license_note": ""}, "problems": {}} %}
 {% set set_choices = [""] + (set_licence_choices | list) %}
 <div class="flex flex-col gap-4 px-4 pt-14 lg:pt-2 lg:w-[960px] lg:mx-auto" id="knowledge">
   {{ admin_tabs("knowledge") }}
@@ -32,6 +30,7 @@
       {%- elif alert == "delete_not_configured" %}File storage isn't set up, so the file can't be removed. Nothing was deleted.
       {%- elif alert == "reingest_waiting" %}That source is already waiting to be ingested. Nothing changed.
       {%- elif alert == "licence_not_proposed" %}That source is no longer proposed: it was decided in another tab. Nothing changed.
+      {%- elif alert == "licence_already_set" %}That source already has a licence. Nothing changed.
       {%- endif %}</p>
   </div>
   {%- endif %}
