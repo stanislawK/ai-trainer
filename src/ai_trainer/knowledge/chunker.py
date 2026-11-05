@@ -1,10 +1,13 @@
 """The one chunker every reader's document goes through (ADR-0036, research
 knowledge-ingestion-at-scale.md recs 9-10, knowledge-base.md rec 5).
 
-- Blocks are grouped into sections by heading path, and a PDF's also by page.
+- Blocks are grouped into sections by heading path, and a PDF's also by page and an EPUB's by
+  spine item, so a chunk's locator is where all of it came from.
 - One word budget: a section's blocks are packed up to it, and only a block over it is split, on
   sentence ends and then on words.
-- Small sibling sections merge under their common parent, each keeping its heading as a line.
+- Small sibling sections merge under their common parent, each keeping its heading as a line,
+  but never across pages or spine items.
+- A chunk of transcript windows runs from its first window's start to its last window's end.
 - The abstract is its own chunk, never merged. A table stays whole with the caption after it,
   whatever its size.
 - A references section is not embedded.
@@ -22,11 +25,13 @@ from itertools import groupby
 from ai_trainer.domain.knowledge_document import (
     Block,
     BlockKind,
+    CueLocator,
     KnowledgeDocument,
     Locator,
     NewKnowledgeChunk,
     PageLocator,
     SectionKind,
+    SpineLocator,
     word_count,
 )
 
@@ -54,11 +59,27 @@ class _Unit:
     joiner: str | None
 
 
-def _section_key(block: Block) -> tuple[tuple[str, ...], int | None]:
-    """A section is a run of blocks under one heading path, and a PDF's also on one page, so a
-    chunk never spans two pages and its locator is its page."""
-    page = block.locator.page if isinstance(block.locator, PageLocator) else None
-    return block.heading_path, page
+def _unit(locator: Locator) -> int | str | None:
+    """The page of a PDF or the spine item of an EPUB: what a chunk must not span."""
+    if isinstance(locator, PageLocator):
+        return locator.page
+    if isinstance(locator, SpineLocator):
+        return locator.spine_item
+    return None
+
+
+def _section_key(block: Block) -> tuple[tuple[str, ...], int | str | None]:
+    """A section is a run of blocks under one heading path, and a PDF's also on one page and an
+    EPUB's in one spine item, so a chunk never spans two of them and its locator is its own."""
+    return block.heading_path, _unit(block.locator)
+
+
+def _span(first: Locator, last: Locator) -> Locator:
+    """The locator of a chunk from its first block's to its last's: transcript windows give the
+    times it runs between, any other locator is the first block's."""
+    if isinstance(first, CueLocator) and isinstance(last, CueLocator):
+        return CueLocator(start_seconds=first.start_seconds, end_seconds=last.end_seconds)
+    return first
 
 
 def _names(path: Sequence[str]) -> set[str]:
@@ -130,21 +151,25 @@ class Chunker:
         texts: list[str] = []
         words = 0
         locator: Locator | None = None
+        last: Locator | None = None
         for block in blocks:
             for unit in self._units(block.text):
                 size = word_count(unit.text)
                 if texts and words + size > self._max:
                     assert locator is not None
-                    yield _Draft("".join(texts), path, kind, locator)
+                    assert last is not None
+                    yield _Draft("".join(texts), path, kind, _span(locator, last))
                     texts, words, locator = [], 0, None
                 if texts:
                     texts.append(unit.joiner or "\n\n")
                 texts.append(unit.text)
                 words += size
                 locator = locator or block.locator
+                last = block.locator
         if texts:
             assert locator is not None
-            yield _Draft("".join(texts), path, kind, locator)
+            assert last is not None
+            yield _Draft("".join(texts), path, kind, _span(locator, last))
 
     def _units(self, text: str) -> Iterator[_Unit]:
         """A block as one unit, or, over budget, split between its lines (a list's items), then
@@ -171,6 +196,7 @@ class Chunker:
             if group and not (
                 mergeable
                 and draft.heading_path[:-1] == group[0].heading_path[:-1]
+                and _unit(draft.locator) == _unit(group[0].locator)
                 and self._merged_words([*group, draft]) <= self._max
             ):
                 yield self._merged(group)

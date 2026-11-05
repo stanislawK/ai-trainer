@@ -55,14 +55,16 @@ class PageLocator(_Frozen):
 
 
 class SpineLocator(_Frozen):
-    """EPUB: the spine item the passage is in (#426)."""
+    """EPUB: the spine item the passage is in (its path in the archive) and the chapter's title
+    from the book's navigation document, the first heading when that lists none (#426)."""
 
     kind: Literal["spine"] = "spine"
     spine_item: str
+    chapter: str | None = None
 
 
 class CueLocator(_Frozen):
-    """VTT and SRT: the first and last cue's times, in seconds (#426)."""
+    """VTT and SRT: where a passage starts and ends, in whole seconds (#426)."""
 
     kind: Literal["cue"] = "cue"
     start_seconds: Annotated[float, Field(ge=0)]
@@ -104,7 +106,7 @@ class Unreadable(_Frozen):
 
 
 class NoReader(_Frozen):
-    """A file type no reader handles yet (EPUB/VTT/SRT #426, JATS #463)."""
+    """A file type no reader handles yet (JATS, #463)."""
 
     file_type: KnowledgeFileType
 

@@ -876,7 +876,7 @@ async def test_a_source_without_chunks_shows_no_chunks_line(
         ("not_utf8", "The file isn't UTF-8 text, so it couldn't be read."),
         ("no_text", "The file has no text to ingest."),
         ("no_text_layer", "The PDF has no text layer"),
-        ("encrypted_file", "The PDF is password-protected"),
+        ("encrypted_file", "The file is protected (a password or DRM)"),
         ("corrupt_file", "The file is damaged"),
         ("file_missing", "The file is missing from storage."),
         ("embedding_failed", "The embedding call failed. Try Re-ingest."),

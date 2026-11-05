@@ -193,7 +193,8 @@ async def test_a_vector_of_the_wrong_length_fails_the_source() -> None:
 @pytest.mark.parametrize(
     ("data", "file_type", "reason"),
     [
-        (b"PK\x03\x04", KnowledgeFileType.EPUB, IngestFailure.NO_READER),
+        (b"<article/>", KnowledgeFileType.JATS, IngestFailure.NO_READER),
+        (b"PK\x03\x04", KnowledgeFileType.EPUB, IngestFailure.CORRUPT_FILE),
         (blank_pdf(), KnowledgeFileType.PDF, IngestFailure.NO_TEXT_LAYER),
         (b"%PDF-1.7 broken", KnowledgeFileType.PDF, IngestFailure.CORRUPT_FILE),
         (
@@ -207,6 +208,7 @@ async def test_a_vector_of_the_wrong_length_fails_the_source() -> None:
     ],
     ids=[
         "no_reader",
+        "corrupt_epub",
         "scanned_pdf",
         "corrupt_pdf",
         "encrypted_pdf",

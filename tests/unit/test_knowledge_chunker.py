@@ -4,11 +4,13 @@ what is too large split, the abstract its own chunk, a table whole, references n
 from ai_trainer.domain.knowledge_document import (
     Block,
     BlockKind,
+    CueLocator,
     KnowledgeDocument,
     NewKnowledgeChunk,
     PageLocator,
     SectionKind,
     SectionLocator,
+    SpineLocator,
     word_count,
 )
 from ai_trainer.knowledge.chunker import Chunker
@@ -192,3 +194,78 @@ def test_a_chunk_never_spans_two_pages() -> None:
 
 def test_a_document_of_only_references_gives_no_chunks() -> None:
     assert _chunk(_para("Smith 2020.", "References")) == ()
+
+
+def _in_item(item: str, text: str, *path: str, chapter: str | None = None) -> Block:
+    return Block(
+        kind=BlockKind.PARAGRAPH,
+        text=text,
+        heading_path=path,
+        locator=SpineLocator(spine_item=item, chapter=chapter),
+    )
+
+
+def test_a_chunk_never_spans_two_spine_items() -> None:
+    chunks = _chunk(
+        _in_item("OEBPS/a.xhtml", _words(12), chapter="A"),
+        _in_item("OEBPS/b.xhtml", _words(12), chapter="B"),
+    )
+
+    assert [c.locator for c in chunks] == [
+        SpineLocator(spine_item="OEBPS/a.xhtml", chapter="A"),
+        SpineLocator(spine_item="OEBPS/b.xhtml", chapter="B"),
+    ]
+
+
+def test_small_sections_in_different_spine_items_are_not_merged() -> None:
+    chunks = _chunk(
+        _in_item("OEBPS/a.xhtml", _words(5), "Book", "One"),
+        _in_item("OEBPS/b.xhtml", _words(5), "Book", "Two"),
+    )
+
+    assert [(c.heading_path, c.locator) for c in chunks] == [
+        (("Book", "One"), SpineLocator(spine_item="OEBPS/a.xhtml")),
+        (("Book", "Two"), SpineLocator(spine_item="OEBPS/b.xhtml")),
+    ]
+
+
+def test_small_sections_in_one_spine_item_still_merge() -> None:
+    chunks = _chunk(
+        _in_item("OEBPS/a.xhtml", _words(5), "Book", "One", chapter="A"),
+        _in_item("OEBPS/a.xhtml", _words(5), "Book", "Two", chapter="A"),
+    )
+
+    assert [(c.heading_path, c.locator) for c in chunks] == [
+        (("Book",), SpineLocator(spine_item="OEBPS/a.xhtml", chapter="A"))
+    ]
+
+
+def _cue(start: float, end: float, words: int = 12) -> Block:
+    return Block(
+        kind=BlockKind.CUE,
+        text=_words(words),
+        locator=CueLocator(start_seconds=start, end_seconds=end),
+    )
+
+
+def test_a_chunk_of_cue_windows_runs_from_the_first_start_to_the_last_end() -> None:
+    chunks = _chunk(_cue(0, 5), _cue(5, 9), _cue(9, 20))
+
+    assert [(word_count(c.text), c.locator) for c in chunks] == [
+        (24, CueLocator(start_seconds=0, end_seconds=9)),
+        (12, CueLocator(start_seconds=9, end_seconds=20)),
+    ]
+
+
+def test_the_pieces_of_one_oversized_cue_window_keep_that_windows_times() -> None:
+    chunks = _chunk(_cue(10, 40, words=45))
+
+    assert [c.locator for c in chunks] == [CueLocator(start_seconds=10, end_seconds=40)] * 2
+
+
+def test_a_table_that_opens_a_section_has_no_caption_to_take() -> None:
+    table = Block(kind=BlockKind.TABLE, text="Mon | Squat", heading_path=("Plan",))
+
+    chunks = _chunk(table)
+
+    assert [(c.text, c.section_kind) for c in chunks] == [("Mon | Squat", SectionKind.TABLE)]
