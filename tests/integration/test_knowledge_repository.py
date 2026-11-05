@@ -358,3 +358,15 @@ async def test_add_if_new_stores_a_source_and_skips_any_unique_conflict(
     # The same hash: skipped too.
     assert await repo.add_if_new(first.model_copy(update={"id": uuid4(), "pmcid": None})) is None
     assert await repo.get(first.id) == stored
+
+
+async def test_find_by_identifiers_matches_an_isbn(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    repo = SqlAlchemyKnowledgeSourcesRepository(db_session_factory)
+    admin = await _admin(db_session_factory, "knowledge-repo-isbn")
+    isbn = f"978{uuid4().int % 10**10:010d}"
+    stored = await repo.add(_source("book", admin, isbn=isbn))
+
+    assert (await repo.find_by_identifiers(isbn=isbn)) == stored
+    assert await repo.find_by_identifiers(isbn=f"979{uuid4().int % 10**10:010d}") is None

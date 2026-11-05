@@ -103,6 +103,86 @@
         "title": "ApiPmcResult",
         "type": "object"
       },
+      "ApiRegisterFile": {
+        "additionalProperties": false,
+        "properties": {
+          "upload_id": {
+            "format": "uuid",
+            "title": "Upload Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "upload_id"
+        ],
+        "title": "ApiRegisterFile",
+        "type": "object"
+      },
+      "ApiRegisteredFile": {
+        "properties": {
+          "file_type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/KnowledgeFileType"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "outcome": {
+            "$ref": "#/components/schemas/RegisterResult"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UploadProblem"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "size_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Size Bytes"
+          },
+          "source_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Id"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SourceStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "outcome"
+        ],
+        "title": "ApiRegisteredFile",
+        "type": "object"
+      },
       "ApiSource": {
         "properties": {
           "content_hash": {
@@ -276,6 +356,30 @@
         "title": "ApiSourcesPage",
         "type": "object"
       },
+      "ApiStageFile": {
+        "additionalProperties": false,
+        "properties": {
+          "file_name": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "File Name",
+            "type": "string"
+          },
+          "source": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "title": "Source",
+            "type": "object"
+          }
+        },
+        "required": [
+          "file_name",
+          "source"
+        ],
+        "title": "ApiStageFile",
+        "type": "object"
+      },
       "ApiStagePmc": {
         "additionalProperties": false,
         "properties": {
@@ -293,6 +397,75 @@
           "articles"
         ],
         "title": "ApiStagePmc",
+        "type": "object"
+      },
+      "ApiStagedFile": {
+        "properties": {
+          "expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          },
+          "outcome": {
+            "$ref": "#/components/schemas/StageResult"
+          },
+          "put_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Put Url"
+          },
+          "source_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Id"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SourceStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "upload_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Upload Id"
+          }
+        },
+        "required": [
+          "outcome"
+        ],
+        "title": "ApiStagedFile",
         "type": "object"
       },
       "ApiStagedPmc": {
@@ -365,6 +538,7 @@
         "title": "HealthResponse",
         "type": "object"
       },
+      "JsonValue": {},
       "KnowledgeFileType": {
         "enum": [
           "pdf",
@@ -445,6 +619,17 @@
         "title": "PmcResult",
         "type": "string"
       },
+      "RegisterResult": {
+        "enum": [
+          "registered",
+          "covered",
+          "refused",
+          "missing",
+          "expired"
+        ],
+        "title": "RegisterResult",
+        "type": "string"
+      },
       "SourceLanguage": {
         "enum": [
           "en",
@@ -464,6 +649,25 @@
           "failed"
         ],
         "title": "SourceStatus",
+        "type": "string"
+      },
+      "StageResult": {
+        "enum": [
+          "ready",
+          "covered"
+        ],
+        "title": "StageResult",
+        "type": "string"
+      },
+      "UploadProblem": {
+        "enum": [
+          "missing",
+          "unknown",
+          "too_large",
+          "unlisted_type",
+          "not_a_url"
+        ],
+        "title": "UploadProblem",
         "type": "string"
       },
       "ValidationError": {
@@ -794,6 +998,53 @@
         "summary": "Admin Update User Status"
       }
     },
+    "/api/admin/knowledge/register": {
+      "post": {
+        "description": "Check an uploaded object as the upload form checks a file: type by its bytes, size and\ncontent hash. A good one becomes a `proposed` source for an admin to approve. A\nduplicate is `covered` and a bad one `refused`; either way the new object is deleted.\n`missing` means nothing was PUT yet: PUT it and register again. `expired` means the\nlink expired with nothing PUT: stage again.",
+        "operationId": "register_file_api_admin_knowledge_register_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApiRegisterFile"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiRegisteredFile"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "AdminToken": []
+          }
+        ],
+        "summary": "Register File",
+        "tags": [
+          "knowledge-api"
+        ]
+      }
+    },
     "/api/admin/knowledge/sources": {
       "get": {
         "description": "Every knowledge source, by `id`, a page at a time.",
@@ -859,6 +1110,53 @@
           }
         ],
         "summary": "List Sources",
+        "tags": [
+          "knowledge-api"
+        ]
+      }
+    },
+    "/api/admin/knowledge/stage/file": {
+      "post": {
+        "description": "Stage a file's metadata and get a presigned PUT to the `uploads` bucket, live for an\nhour. Send the bytes there (`curl -T <file> \"$PUT_URL\"`), never here, then register the\nupload. A source with the same PMC ID, DOI, PMID or ISBN is `covered`, with no link.\nStaging again issues a new upload and link.",
+        "operationId": "stage_file_api_admin_knowledge_stage_file_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApiStageFile"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiStagedFile"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "AdminToken": []
+          }
+        ],
+        "summary": "Stage File",
         "tags": [
           "knowledge-api"
         ]

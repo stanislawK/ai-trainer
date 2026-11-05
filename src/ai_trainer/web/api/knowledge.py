@@ -1,16 +1,32 @@
 """The knowledge API for token clients (ADR-0036): the manifest of what is staged or stored
-already, so `/research-knowledge` can skip it (#457), and staging papers by PMC ID (#458).
-Status, identifiers, licence and content hash; nothing about an athlete (invariant 7)."""
+already, so `/research-knowledge` can skip it (#457), staging papers by PMC ID (#458), and
+staging files for upload by presigned PUT (#460). Status, identifiers, licence and content hash;
+nothing about an athlete (invariant 7). No route takes a file's bytes (invariant 3)."""
 
+from datetime import datetime
 from enum import StrEnum
 from typing import Annotated, assert_never
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
 from ai_trainer.application.admin_tokens import TokenAuthenticator
-from ai_trainer.application.knowledge_sources import KnowledgeSources
+from ai_trainer.application.knowledge_file_staging import (
+    FileStaging,
+    LinkExpired,
+    ObjectMissing,
+    RegisterCovered,
+    Registered,
+    RegisterOutcome,
+    RegisterRefused,
+    StageCovered,
+    StageOutcome,
+    StageRefused,
+    UploadNotFound,
+    UploadReady,
+)
+from ai_trainer.application.knowledge_sources import KnowledgeSources, StorageUnavailable
 from ai_trainer.application.knowledge_staging import (
     Covered,
     KnowledgeStaging,
@@ -30,6 +46,7 @@ from ai_trainer.domain.knowledge import (
     PmcId,
     SourceLanguage,
     SourceStatus,
+    UploadProblem,
 )
 from ai_trainer.domain.pmc import PmcFetchProblem, PmcRefusal
 from ai_trainer.web.api.auth import refuse_token_in_query, token_user
@@ -130,8 +147,123 @@ def _result(outcome: PmcOutcome) -> ApiPmcResult:
             assert_never(outcome)
 
 
+class ApiStageFile(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # The name the file goes by; its extension names the type register checks the bytes against.
+    file_name: str = Field(min_length=1, max_length=255)
+    # #456's template under its CSL-JSON keys (`type`, `title`, `author`, `ISBN`, …) plus
+    # `evidence_tier`, `source_type`, `sports`, `topics` and `licence`; null `licence` leaves it
+    # for the admin to set before approving.
+    source: dict[str, JsonValue]
+
+
+class StageResult(StrEnum):
+    READY = "ready"
+    COVERED = "covered"
+
+
+class ApiStagedFile(BaseModel):
+    outcome: StageResult
+    # For `ready`: PUT the bytes to `put_url` before `expires_at`, then register `upload_id`.
+    # The link is a secret: it carries the key ID and a signature.
+    upload_id: UUID | None = None
+    put_url: str | None = None
+    expires_at: datetime | None = None
+    # For `covered`: the source with the same PMC ID, DOI, PMID or ISBN, and its status.
+    source_id: UUID | None = None
+    status: SourceStatus | None = None
+
+
+class ApiRegisterFile(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    upload_id: UUID
+
+
+class RegisterResult(StrEnum):
+    REGISTERED = "registered"
+    COVERED = "covered"
+    REFUSED = "refused"
+    MISSING = "missing"
+    # Nothing was PUT before the link expired; the stage is gone, so stage again.
+    EXPIRED = "expired"
+
+
+class ApiRegisteredFile(BaseModel):
+    outcome: RegisterResult
+    # The source registered, or the one that covers it already; the new object is then deleted.
+    source_id: UUID | None = None
+    status: SourceStatus | None = None
+    file_type: KnowledgeFileType | None = None
+    size_bytes: int | None = None
+    # Why a `refused` object was deleted: empty (`missing`), `too_large` or `unlisted_type`.
+    reason: UploadProblem | None = None
+
+
+def _unavailable(outcome: StorageUnavailable) -> HTTPException:
+    return HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail=outcome.reason)
+
+
+def _staged(outcome: StageOutcome) -> ApiStagedFile:
+    match outcome:
+        case UploadReady(upload_id=upload_id, put_url=put_url, expires_at=expires_at):
+            return ApiStagedFile(
+                outcome=StageResult.READY,
+                upload_id=upload_id,
+                put_url=put_url,
+                expires_at=expires_at,
+            )
+        case StageCovered(source=source):
+            return ApiStagedFile(
+                outcome=StageResult.COVERED, source_id=source.id, status=source.status
+            )
+        case StageRefused(problems=problems):
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, detail=dict(problems))
+        case StorageUnavailable():
+            raise _unavailable(outcome)
+        case _:  # pragma: no cover -- exhaustive over StageOutcome
+            assert_never(outcome)
+
+
+def _registered(outcome: RegisterOutcome) -> ApiRegisteredFile:
+    match outcome:
+        case Registered(source=source):
+            return ApiRegisteredFile(
+                outcome=RegisterResult.REGISTERED,
+                source_id=source.id,
+                status=source.status,
+                file_type=source.file_type,
+                size_bytes=source.size_bytes,
+            )
+        case RegisterCovered(source=source):
+            return ApiRegisteredFile(
+                outcome=RegisterResult.COVERED, source_id=source.id, status=source.status
+            )
+        case RegisterRefused(problem=problem):
+            return ApiRegisteredFile(outcome=RegisterResult.REFUSED, reason=problem)
+        case ObjectMissing():
+            return ApiRegisteredFile(outcome=RegisterResult.MISSING)
+        case LinkExpired():
+            return ApiRegisteredFile(outcome=RegisterResult.EXPIRED)
+        case UploadNotFound():
+            raise HTTPException(
+                status.HTTP_404_NOT_FOUND,
+                detail="No stage stands for that upload: it was used up or is no longer valid. "
+                "Stage again.",
+            )
+        case StorageUnavailable():
+            raise _unavailable(outcome)
+        case _:  # pragma: no cover -- exhaustive over RegisterOutcome
+            assert_never(outcome)
+
+
 def build_knowledge_api_router(
-    *, authenticator: TokenAuthenticator, knowledge: KnowledgeSources, staging: KnowledgeStaging
+    *,
+    authenticator: TokenAuthenticator,
+    knowledge: KnowledgeSources,
+    staging: KnowledgeStaging,
+    files: FileStaging,
 ) -> APIRouter:
     # One callable, so FastAPI authenticates once per request where a route asks for the user.
     current_admin = token_user(authenticator)
@@ -176,5 +308,24 @@ def build_knowledge_api_router(
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, detail=problem)
         outcomes = await staging.stage_pmc(admin_id, requests)
         return ApiStagedPmc(results=[_result(outcome) for outcome in outcomes])
+
+    @router.post("/stage/file")
+    async def stage_file(body: ApiStageFile) -> ApiStagedFile:
+        """Stage a file's metadata and get a presigned PUT to the `uploads` bucket, live for an
+        hour. Send the bytes there (`curl -T <file> "$PUT_URL"`), never here, then register the
+        upload. A source with the same PMC ID, DOI, PMID or ISBN is `covered`, with no link.
+        Staging again issues a new upload and link."""
+        return _staged(await files.stage(body.file_name, body.source))
+
+    @router.post("/register")
+    async def register_file(
+        body: ApiRegisterFile, admin_id: Annotated[UUID, Depends(current_admin)]
+    ) -> ApiRegisteredFile:
+        """Check an uploaded object as the upload form checks a file: type by its bytes, size and
+        content hash. A good one becomes a `proposed` source for an admin to approve. A
+        duplicate is `covered` and a bad one `refused`; either way the new object is deleted.
+        `missing` means nothing was PUT yet: PUT it and register again. `expired` means the
+        link expired with nothing PUT: stage again."""
+        return _registered(await files.register(admin_id, body.upload_id))
 
     return router

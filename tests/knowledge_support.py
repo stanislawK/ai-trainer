@@ -18,7 +18,11 @@ from ai_trainer.domain.knowledge import (
     NewKnowledgeSource,
     SourceStatus,
 )
-from ai_trainer.domain.object_storage import ObjectNotFoundError, ObjectStorageError
+from ai_trainer.domain.object_storage import (
+    ObjectNotFoundError,
+    ObjectStorageError,
+    ObjectStorageOperation,
+)
 from ai_trainer.domain.sports.registry import SportRegistry, default_sport_registry
 
 
@@ -63,11 +67,14 @@ class MemoryStorage:
     def __init__(self) -> None:
         self.objects: dict[str, bytes] = {}
         self.content_types: dict[str, str] = {}
-        self.failing: set[str] = set()
+        self.failing: set[ObjectStorageOperation] = set()
+        self.put_links: list[tuple[str, timedelta]] = []
+        # Every key `get` was asked for, so a test can tell an object's bytes were never read.
+        self.reads: list[str] = []
 
-    def _check(self, operation: str) -> None:
+    def _check(self, operation: ObjectStorageOperation) -> None:
         if operation in self.failing:
-            raise ObjectStorageError("put" if operation == "put" else "delete", "unavailable")
+            raise ObjectStorageError(operation, "unavailable")
 
     async def put(self, key: str, data: bytes, *, content_type: str) -> None:
         self._check("put")
@@ -75,9 +82,17 @@ class MemoryStorage:
         self.content_types[key] = content_type
 
     async def get(self, key: str) -> bytes:
+        self.reads.append(key)
+        self._check("get")
         if key not in self.objects:
             raise ObjectNotFoundError("get")
         return self.objects[key]
+
+    async def size(self, key: str) -> int:
+        self._check("head")
+        if key not in self.objects:
+            raise ObjectNotFoundError("head")
+        return len(self.objects[key])
 
     async def delete(self, key: str) -> None:
         self._check("delete")
@@ -85,6 +100,11 @@ class MemoryStorage:
 
     async def presigned_get(self, key: str, *, expires_in: timedelta) -> str:
         raise AssertionError("the upload page makes no links")
+
+    async def presigned_put(self, key: str, *, expires_in: timedelta) -> str:
+        self._check("presign")
+        self.put_links.append((key, expires_in))
+        return f"https://storage.test/{key}?X-Amz-Signature=secret-{len(self.put_links)}"
 
 
 class MemorySources:
@@ -120,9 +140,14 @@ class MemorySources:
         return stored
 
     async def find_by_identifiers(
-        self, *, pmcid: str | None = None, doi: str | None = None, pmid: str | None = None
+        self,
+        *,
+        pmcid: str | None = None,
+        doi: str | None = None,
+        pmid: str | None = None,
+        isbn: str | None = None,
     ) -> KnowledgeSource | None:
-        wanted = {("pmcid", pmcid), ("doi", doi), ("pmid", pmid)}
+        wanted = {("pmcid", pmcid), ("doi", doi), ("pmid", pmid), ("isbn", isbn)}
         return next(
             (
                 s
@@ -138,8 +163,11 @@ class MemorySources:
             self.rows[self.racing.id] = self.racing
             self.racing = None
             return None
-        taken = await self.find_by_identifiers(pmcid=source.pmcid, doi=source.doi, pmid=source.pmid)
-        if taken is not None or await self.get_by_hash(source.content_hash) is not None:
+        taken = await self.find_by_identifiers(
+            pmcid=source.pmcid, doi=source.doi, pmid=source.pmid, isbn=source.isbn
+        )
+        clash = taken is not None or source.id in self.rows
+        if clash or await self.get_by_hash(source.content_hash) is not None:
             return None
         stored = KnowledgeSource(**source.model_dump())
         self.rows[stored.id] = stored

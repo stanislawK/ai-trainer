@@ -19,8 +19,10 @@ from ai_trainer.adapters.pmc import PmcCloudMetadata
 from ai_trainer.adapters.sessions_repository import SqlAlchemySessionsRepository
 from ai_trainer.adapters.users_repository import SqlAlchemyUsersRepository
 from ai_trainer.application.admin_tokens import AdminTokens, TokenAuthenticator
+from ai_trainer.application.knowledge_file_staging import FileStaging
 from ai_trainer.application.knowledge_sources import KnowledgeSources
 from ai_trainer.application.knowledge_staging import KnowledgeStaging
+from ai_trainer.application.ports.object_storage import ObjectStoragePort
 from ai_trainer.domain.knowledge import (
     EvidenceTier,
     KnowledgeFileType,
@@ -92,8 +94,11 @@ async def _api(
     per_minute: int = 120,
     failures: int = 10,
     bucket: FakeBucket | None = None,
+    storage: ObjectStoragePort | None = None,
+    max_upload_bytes: int = 1024,
 ) -> Api:
-    """The API with real Postgres; PMC's bucket is `bucket`'s mock transport, never the network."""
+    """The API with real Postgres; PMC's bucket is `bucket`'s mock transport, never the network.
+    `storage` is the `uploads` bucket the file staging routes sign links for (#460)."""
     users = SqlAlchemyUsersRepository(factory)
     sessions = SqlAlchemySessionsRepository(factory)
     tokens = SqlAlchemyAdminTokensRepository(factory)
@@ -127,6 +132,13 @@ async def _api(
                 # The test factory joins every session to one connection, whose savepoints
                 # can't interleave; in the app each session has its own pooled connection.
                 concurrency=1,
+            ),
+            files=FileStaging(
+                sources=sources,
+                storage=storage,
+                clock=clock,
+                max_upload_bytes=max_upload_bytes,
+                sports=["gym"],
             ),
         )
     )

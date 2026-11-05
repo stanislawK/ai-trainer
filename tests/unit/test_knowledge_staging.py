@@ -241,12 +241,17 @@ class _BrokenSources(MemorySources):
     """The database fails for one article's lookup; the others' lookups take a moment."""
 
     async def find_by_identifiers(
-        self, *, pmcid: str | None = None, doi: str | None = None, pmid: str | None = None
+        self,
+        *,
+        pmcid: str | None = None,
+        doi: str | None = None,
+        pmid: str | None = None,
+        isbn: str | None = None,
     ) -> KnowledgeSource | None:
         if pmcid == "PMC1":
             raise ConnectionError("database gone")
         await asyncio.sleep(0.01)
-        return await super().find_by_identifiers(pmcid=pmcid, doi=doi, pmid=pmid)
+        return await super().find_by_identifiers(pmcid=pmcid, doi=doi, pmid=pmid, isbn=isbn)
 
 
 async def test_an_unexpected_error_cancels_the_other_stages_before_it_propagates() -> None:

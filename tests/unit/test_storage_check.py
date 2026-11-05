@@ -39,6 +39,12 @@ class FakeStorage:
             raise ObjectNotFoundError("get")
         return b"something else" if self.corrupt else self.objects[key]
 
+    async def size(self, key: str) -> int:
+        raise AssertionError("storage-check reads no sizes")
+
+    async def presigned_put(self, key: str, *, expires_in: timedelta) -> str:
+        raise AssertionError("storage-check makes no upload links")
+
     async def delete(self, key: str) -> None:
         self._record("delete")
         if not self.keep_on_delete:
