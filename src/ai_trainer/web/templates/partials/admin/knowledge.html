@@ -67,10 +67,6 @@
 
   {% for source in sources %}
   {{ delete_dialog(source) }}
-  {%- if source.status == "proposed" and not source.license_id %}
-  {%- set mine = licence_reopened is not none and licence_reopened.source_id == source.id %}
-  {{ licence_sheet(source, licence_reopened if mine else blank_licence, set_choices, mine) }}
-  {%- endif %}
   {% endfor %}
   {{ uploading_templates() }}
   {{ bulk_bar() }}
@@ -180,4 +176,10 @@
       <div class="px-4 pt-2 pb-[max(1rem,env(safe-area-inset-bottom))] border-t border-base-content/10"><button type="submit" class="lg lg-tinted w-full" data-licence-submit data-detect="Upload and detect licence" data-ingest="Upload and ingest">{{ "Upload and ingest" if licence_picked else "Upload and detect licence" }}</button></div>
     </form>
   </div>
+
+  {#- Each proposal without a licence has its Set licence sheet, after the upload sheet. #}
+  {%- for source in sources if source.status == "proposed" and not source.license_id %}
+  {%- set mine = licence_reopened is not none and licence_reopened.source_id == source.id %}
+  {{ licence_sheet(source, licence_reopened if mine else blank_licence, set_choices, mine) }}
+  {%- endfor %}
 </div>
