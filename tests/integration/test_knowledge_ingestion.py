@@ -31,6 +31,7 @@ from ai_trainer.domain.knowledge import (
 from ai_trainer.domain.knowledge_document import SectionKind
 from ai_trainer.domain.knowledge_ingestion import IngestReport
 from ai_trainer.domain.users import NewUser, User, UserStatus
+from tests.epub_support import AES_ALGORITHM, Chapter, encryption_xml, epub
 from tests.ingestion_support import (
     DIMENSIONS,
     MODEL,
@@ -266,7 +267,7 @@ async def test_an_embedding_failure_fails_the_source_and_reingest_recovers_it(
 
 
 async def test_a_type_with_no_reader_fails_with_a_reason(world: _World) -> None:
-    source = await world.add("ac4-epub", data=b"PK\x03\x04", file_type=KnowledgeFileType.EPUB)
+    source = await world.add("ac4-jats", data=b"<article/>", file_type=KnowledgeFileType.JATS)
 
     reports = await world.ingest_once()
 
@@ -354,6 +355,119 @@ async def test_a_bad_pdf_fails_and_the_worker_ingests_the_next_source(
         (bad.id, "failed", reason),
         (good.id, "ingested", None),
     ]
+
+
+_BOOK = [
+    Chapter(
+        "ch1.xhtml",
+        "Warm-up",
+        f"<h1>Warm-up</h1><p>{' '.join(['lift'] * 25)}.</p>",
+    ),
+    Chapter(
+        "ch2.xhtml",
+        "Recovery",
+        f"<h1>Recovery</h1><p>{' '.join(['rest'] * 25)}.</p>",
+    ),
+]
+
+
+async def test_an_uploaded_epub_reaches_ingested_and_each_chunk_names_its_chapter(
+    world: _World,
+) -> None:
+    source = await world.add("epub-found", data=epub(_BOOK), file_type=KnowledgeFileType.EPUB)
+    source_id = source.id
+
+    reports = await world.ingest_once()
+
+    assert [(r.source_id, r.result, r.chunks) for r in reports] == [(source_id, "ingested", 2)]
+    assert await world.status(source_id) == (SourceStatus.INGESTED, None)
+    assert [c.locator for c in await world.chunks(source_id)] == [
+        {"kind": "spine", "spine_item": "OEBPS/ch1.xhtml", "chapter": "Warm-up"},
+        {"kind": "spine", "spine_item": "OEBPS/ch2.xhtml", "chapter": "Recovery"},
+    ]
+
+
+_TALK_VTT = f"""WEBVTT
+
+00:00:05.000 --> 00:00:09.000
+{" ".join(["lift"] * 25)}.
+
+00:01:30.000 --> 00:01:34.000
+{" ".join(["rest"] * 25)}.
+"""
+_TALK_SRT = f"""1
+00:00:05,000 --> 00:00:09,000
+{" ".join(["lift"] * 25)}.
+
+2
+00:01:30,000 --> 00:01:34,000
+{" ".join(["rest"] * 25)}.
+"""
+
+
+@pytest.mark.parametrize(
+    ("file_type", "data"),
+    [
+        (KnowledgeFileType.VTT, _TALK_VTT),
+        (KnowledgeFileType.SRT, _TALK_SRT),
+    ],
+    ids=["vtt", "srt"],
+)
+async def test_an_uploaded_transcript_reaches_ingested_and_each_chunk_gives_its_timestamp(
+    world: _World, file_type: KnowledgeFileType, data: str
+) -> None:
+    source = await world.add(f"talk-{file_type}", data=data.encode(), file_type=file_type)
+    source_id = source.id
+
+    reports = await world.ingest_once()
+
+    assert [(r.source_id, r.result, r.chunks) for r in reports] == [(source_id, "ingested", 2)]
+    assert await world.status(source_id) == (SourceStatus.INGESTED, None)
+    assert [c.locator for c in await world.chunks(source_id)] == [
+        {"kind": "cue", "start_seconds": 5, "end_seconds": 9},
+        {"kind": "cue", "start_seconds": 90, "end_seconds": 94},
+    ]
+
+
+@pytest.mark.parametrize(
+    ("file_type", "data", "reason"),
+    [
+        (KnowledgeFileType.EPUB, epub(_BOOK, rights=True), "encrypted_file"),
+        (
+            KnowledgeFileType.EPUB,
+            epub(_BOOK, encryption=encryption_xml((AES_ALGORITHM, "OEBPS/ch1.xhtml"))),
+            "encrypted_file",
+        ),
+        (KnowledgeFileType.EPUB, b"PK\x03\x04 truncated", "corrupt_file"),
+        (KnowledgeFileType.VTT, b"Just prose, not a transcript.", "corrupt_file"),
+        (KnowledgeFileType.SRT, b"Just prose, not a transcript.", "corrupt_file"),
+        (KnowledgeFileType.VTT, b"\x89PNG\r\n\x1a\n\x00", "not_utf8"),
+        (KnowledgeFileType.VTT, b"WEBVTT\n\n", "no_text"),
+    ],
+    ids=[
+        "drm-rights",
+        "drm-encrypted",
+        "truncated-epub",
+        "prose-vtt",
+        "prose-srt",
+        "binary",
+        "empty",
+    ],
+)
+async def test_a_protected_or_malformed_book_or_transcript_fails_with_its_reason(
+    world: _World, file_type: KnowledgeFileType, data: bytes, reason: str
+) -> None:
+    bad = await world.add(f"bad-{reason}-{file_type}", data=data, file_type=file_type)
+    good = await world.add(f"next-{reason}-{file_type}", minutes=1)
+
+    first = await world.ingest_once()
+    second = await world.ingest_once()
+
+    assert [(r.source_id, r.result, r.reason) for r in first + second] == [
+        (bad.id, "failed", reason),
+        (good.id, "ingested", None),
+    ]
+    assert await world.chunks(bad.id) == []
 
 
 @pytest.mark.parametrize(

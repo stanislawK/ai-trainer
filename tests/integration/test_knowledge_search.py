@@ -256,9 +256,10 @@ async def test_no_match_is_a_failure(world: _World) -> None:
         SectionLocator(),
         PageLocator(page=12, page_label="xii"),
         SpineLocator(spine_item="chapter-3.xhtml"),
+        SpineLocator(spine_item="OEBPS/chapter-3.xhtml", chapter="Recovery"),
         CueLocator(start_seconds=61.5, end_seconds=90.0),
     ],
-    ids=["section", "section_untitled", "page", "spine", "cue"],
+    ids=["section", "section_untitled", "page", "spine", "spine_chapter", "cue"],
 )
 async def test_each_locator_shape_comes_back_with_the_source_to_cite(
     world: _World, locator: Locator

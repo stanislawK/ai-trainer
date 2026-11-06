@@ -10,7 +10,7 @@ from ai_trainer.domain.knowledge_document import NewKnowledgeChunk
 
 
 class IngestFailure(StrEnum):
-    # The file's type has no reader yet (EPUB/VTT/SRT #426, JATS #463).
+    # The file's type has no reader yet (JATS, #463).
     NO_READER = "no_reader"
     NOT_UTF8 = "not_utf8"
     # Nothing to embed: an empty file, or only headings or references.

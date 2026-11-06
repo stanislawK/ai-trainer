@@ -147,7 +147,7 @@ def _add_search_knowledge(server: FastMCP, knowledge: KnowledgeSearch) -> None:
         articles and talks an admin added) that answer a training question, by meaning and by
         exact words, best first. Use it before giving training advice that needs a source, and
         cite each passage you use by its `title`, `author`, `evidence_tier` and `locator` (a
-        section, a page, an EPUB spine item or a transcript's cue times); don't use it for the
+        section, a page, an EPUB chapter or a transcript's cue times); don't use it for the
         athlete's own training, which `query_sessions` and `exercise_history` read. `query` is
         the question in the athlete's words, in English or Polish; a passage in the other
         language is still found. `sport` is a sport ID such as `climbing`, `gym` or `cycling`
