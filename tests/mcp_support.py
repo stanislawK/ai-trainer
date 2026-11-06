@@ -12,12 +12,6 @@ from ai_trainer.application.exercise_resolution import ResolutionLimits
 from ai_trainer.application.knowledge_search import KnowledgeSearch
 from ai_trainer.application.training_history import ExerciseTrainingHistory, TrainingHistory
 from ai_trainer.domain.embeddings import Embedded, EmbeddingOutcome
-from ai_trainer.domain.knowledge_search import KnowledgeCandidates, KnowledgeFilters, KnowledgeHit
-from ai_trainer.domain.sports.registry import default_sport_registry
-from ai_trainer.domain.training import SessionSummary
-from ai_trainer.mcp.server import build_mcp_server
-
-EMBEDDING_MODEL = "qwen/qwen3-embedding-8b"
 from ai_trainer.domain.exercises import (
     CatalogueExercise,
     CatalogueWrite,
@@ -30,7 +24,12 @@ from ai_trainer.domain.exercises import (
     ExerciseMeasure,
     LoggedName,
 )
+from ai_trainer.domain.knowledge_search import KnowledgeCandidates, KnowledgeFilters, KnowledgeHit
+from ai_trainer.domain.sports.registry import default_sport_registry
+from ai_trainer.domain.training import SessionSummary
+from ai_trainer.mcp.server import build_mcp_server
 
+EMBEDDING_MODEL = "qwen/qwen3-embedding-8b"
 _LIMITS = ResolutionLimits(near_match=0.75, candidate_floor=0.25, shortlist_size=4)
 
 

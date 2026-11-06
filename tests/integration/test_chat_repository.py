@@ -446,7 +446,7 @@ async def test_message_sources_round_trip(
         user_id,
         chat,
         ChatRole.ASSISTANT,
-        "A lighter week every 4–6 weeks.",
+        "A lighter week every 4-6 weeks.",
         _START + timedelta(seconds=1),
         sports=("gym",),
         template_id="gym.answer",

@@ -378,7 +378,9 @@ _DELOAD_PASSAGE: dict[str, Any] = {
 }
 
 
-def _searching(cite: bool, say: str = "Bompa suggests a lighter week every 4–6 weeks.") -> FunctionModel:
+def _searching(
+    cite: bool, say: str = "Bompa suggests a lighter week every 4-6 weeks."
+) -> FunctionModel:
     """Searches, then cites every passage it got when `cite`, then says `say`."""
 
     def respond(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:

@@ -10,8 +10,13 @@ from collections.abc import Iterator, Sequence
 from uuid import UUID
 
 from pydantic import BaseModel, ValidationError
-from pydantic_ai.messages import ModelMessage, ModelRequest, ModelResponse, ToolCallPart
-from pydantic_ai.messages import ToolReturnPart
+from pydantic_ai.messages import (
+    ModelMessage,
+    ModelRequest,
+    ModelResponse,
+    ToolCallPart,
+    ToolReturnPart,
+)
 
 from ai_trainer.domain.knowledge_search import CitedSource, KnowledgeHit, KnowledgeSearchPage
 from ai_trainer.mcp.results import ToolResult

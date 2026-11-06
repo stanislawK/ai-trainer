@@ -445,7 +445,7 @@ async def _search_cite_answer(messages: list[ModelMessage], info: AgentInfo) -> 
     elif len(returned) == 1:
         yield _call(CITE_SOURCES_TOOL, {"chunk_ids": [str(_PASSAGE.chunk_id)]}, "c")
     else:
-        yield "A lighter week every 4–6 weeks."
+        yield "A lighter week every 4-6 weeks."
 
 
 async def test_tool_loop_stream_end_carries_cited_sources() -> None:
@@ -464,7 +464,7 @@ async def test_a_gateway_with_no_citation_reader_cites_nothing() -> None:
     with gateway.tool_agent.override(model=FunctionModel(stream_function=_search_cite_answer)):
         _, end = await _collect(_stream(gateway))
 
-    assert end.result.output == "A lighter week every 4–6 weeks."
+    assert end.result.output == "A lighter week every 4-6 weeks."
     assert end.sources == ()
 
 

@@ -62,7 +62,7 @@ async def _page_with(*sources: CitedSource) -> str:
         user_id,
         conversation,
         ChatRole.ASSISTANT,
-        "Bompa suggests a lighter week every 4–6 weeks.",
+        "Bompa suggests a lighter week every 4-6 weeks.",
         FROZEN_NOW,
         sports=("gym",),
         template_id="gym.answer",
@@ -88,7 +88,9 @@ def _rows(page: str) -> list[list[str]]:
 async def test_reply_shows_title_author_tier_and_locator() -> None:
     page = await _page_with(_source())
 
-    assert _rows(page) == [["Periodization Training for Sports", "Tudor Bompa · Coaching book · p. 212"]]
+    assert _rows(page) == [
+        ["Periodization Training for Sports", "Tudor Bompa · Coaching book · p. 212"]
+    ]
     assert "1 source" not in page  # one source shows in full, with no chip
     assert "<details" not in page.split("Bompa suggests", 1)[1]
 

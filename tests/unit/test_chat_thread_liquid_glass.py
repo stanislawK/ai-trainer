@@ -47,7 +47,7 @@ def _render(template: str, **context: object) -> str:
 
 
 def _message(role: str, text: str = "Sent Hades 8a") -> SimpleNamespace:
-    return SimpleNamespace(id=_MESSAGE_ID, role=role, text=text, sports=[])
+    return SimpleNamespace(id=_MESSAGE_ID, role=role, text=text, sports=[], sources=())
 
 
 def _elements(html: str) -> list[_Element]:

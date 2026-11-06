@@ -51,12 +51,16 @@ def _hit(
 
 def _searched(*hits: KnowledgeHit, call_id: str = "search-1") -> list[ModelMessage]:
     result = ToolResult[KnowledgeSearchPage].ok(KnowledgeSearchPage(hits=hits, truncated=False))
-    return _returned(SEARCH_KNOWLEDGE_TOOL, {"query": "deload"}, result.model_dump(mode="json"), call_id)
+    return _returned(
+        SEARCH_KNOWLEDGE_TOOL, {"query": "deload"}, result.model_dump(mode="json"), call_id
+    )
 
 
 def _failed_search(call_id: str = "search-1") -> list[ModelMessage]:
     result = ToolResult[KnowledgeSearchPage].failed("No passage matches.", "Say so.")
-    return _returned(SEARCH_KNOWLEDGE_TOOL, {"query": "deload"}, result.model_dump(mode="json"), call_id)
+    return _returned(
+        SEARCH_KNOWLEDGE_TOOL, {"query": "deload"}, result.model_dump(mode="json"), call_id
+    )
 
 
 def _cited(*chunk_ids: UUID | str, call_id: str = "cite-1") -> list[ModelMessage]:
@@ -71,7 +75,7 @@ def _returned(name: str, args: dict[str, Any], content: object, call_id: str) ->
     ]
 
 
-_ANSWER: list[ModelMessage] = [ModelResponse(parts=[TextPart("A lighter week every 4–6 weeks.")])]
+_ANSWER: list[ModelMessage] = [ModelResponse(parts=[TextPart("A lighter week every 4-6 weeks.")])]
 
 
 def test_cited_sources_are_the_searched_passages_the_reply_cited() -> None:

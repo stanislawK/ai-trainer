@@ -51,9 +51,9 @@ from tests.chat_support import (
     reply_services,
 )
 from tests.exercise_support import sample_source
-from tests.mcp_support import EMBEDDING_MODEL, FixedPassages, QueryEmbeddings
 from tests.integration.test_mcp_exercise import _entry, _typed_only
 from tests.integration.test_mcp_query_sessions import _session, _user
+from tests.mcp_support import EMBEDDING_MODEL, FixedPassages, QueryEmbeddings
 from tests.unit.test_llm_gateway import FakeLlmCallsRepository, _settings
 
 SessionFactory = Callable[[], AsyncSession]
@@ -388,13 +388,13 @@ async def test_a_deload_question_answers_from_a_matching_source_and_saves_it(
         question="How often should I deload?",
         passages=[_DELOAD, _UNRELATED],
         tool_calls=[_SEARCH, ("cite_sources", {"chunk_ids": [str(_DELOAD.chunk_id)]})],
-        say="Bompa suggests a deload week every 4–6 weeks.",
+        say="Bompa suggests a deload week every 4-6 weeks.",
     )
 
     done = turn.events[-1]
     assert isinstance(done, ReplyDone)
     (reply,) = done.messages
-    assert reply.text == "Bompa suggests a deload week every 4–6 weeks."
+    assert reply.text == "Bompa suggests a deload week every 4-6 weeks."
     assert reply.sources == (CitedSource.of(_DELOAD),)
     assert [row.outcome for row in turn.calls.recorded] == [LlmCallOutcome.SUCCESS]
 
@@ -421,7 +421,7 @@ async def test_a_cited_id_no_search_returned_is_not_shown(world: _World) -> None
         question="How often should I deload?",
         passages=[_DELOAD],
         tool_calls=[_SEARCH, ("cite_sources", {"chunk_ids": [str(uuid4())]})],
-        say="Bompa suggests a deload week every 4–6 weeks.",
+        say="Bompa suggests a deload week every 4-6 weeks.",
     )
 
     done = turn.events[-1]

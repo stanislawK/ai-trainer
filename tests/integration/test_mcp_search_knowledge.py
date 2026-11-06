@@ -17,7 +17,6 @@ from pydantic_ai import Agent
 from pydantic_ai.models.test import TestModel
 
 from ai_trainer.domain.embeddings import (
-    Embedded,
     EmbeddingFailed,
     EmbeddingFailure,
     EmbeddingOutcome,
