@@ -24,10 +24,16 @@ from ai_trainer.application.ports.llm_gateway import (
     TextChunk,
     ToolLoop,
 )
+from ai_trainer.domain.knowledge import EvidenceTier, SourceLanguage, SourceType
+from ai_trainer.domain.knowledge_document import PageLocator
+from ai_trainer.domain.knowledge_search import CitedSource, KnowledgeHit
 from ai_trainer.domain.llm_calls import LlmCallOutcome, ProviderPreferences
 from ai_trainer.llm.gateway import OpenRouterGateway
+from ai_trainer.mcp.citations import cited_sources
 from ai_trainer.mcp.identity import current_user_id
+from ai_trainer.mcp.server import CITE_SOURCES_TOOL, SEARCH_KNOWLEDGE_TOOL
 from ai_trainer.mcp.toolset import build_toolset
+from tests.mcp_support import knowledge_server
 from tests.unit.test_llm_gateway import FakeLlmCallsRepository, _settings
 
 _USER = uuid4()
@@ -397,3 +403,83 @@ async def test_a_tool_stream_sends_its_routing_and_effort_in_the_request_body(
     assert body["reasoning"] == {"effort": "low"}
     assert body["session_id"] == "conversation-key"
     assert "lookup" in {tool["function"]["name"] for tool in body["tools"]}
+
+
+# Cited answers (ADR-0036 #428 amendment): the gateway reads which passages the reply cited from
+# the finished loop, through the reader `main.py` gives it, and hands them out on `StreamEnd`.
+
+_PASSAGE = KnowledgeHit(
+    chunk_id=uuid4(),
+    text="Plan a lighter week every fourth to sixth week.",
+    heading_path=("Deload",),
+    language=SourceLanguage.EN,
+    source_id=uuid4(),
+    title="Periodization",
+    author="Tudor Bompa",
+    evidence_tier=EvidenceTier.COACHING_BOOK,
+    source_type=SourceType.BOOK,
+    source_url=None,
+    attribution=None,
+    locator=PageLocator(page=12),
+    exercise_id=None,
+)
+
+
+def _cited_gateway(repository: FakeLlmCallsRepository, *, reader: bool = True) -> OpenRouterGateway:
+    return OpenRouterGateway(
+        _settings(),
+        repository,
+        toolset=build_toolset(knowledge_server([_PASSAGE])),
+        citations=cited_sources if reader else None,
+    )
+
+
+def _call(name: str, args: object, call_id: str) -> DeltaToolCalls:
+    return {0: DeltaToolCall(name=name, json_args=json.dumps(args), tool_call_id=call_id)}
+
+
+async def _search_cite_answer(messages: list[ModelMessage], info: AgentInfo) -> _Stream:
+    returned = _returned(messages)
+    if not returned:
+        yield _call(SEARCH_KNOWLEDGE_TOOL, {"query": "deload"}, "s")
+    elif len(returned) == 1:
+        yield _call(CITE_SOURCES_TOOL, {"chunk_ids": [str(_PASSAGE.chunk_id)]}, "c")
+    else:
+        yield "A lighter week every 4–6 weeks."
+
+
+async def test_tool_loop_stream_end_carries_cited_sources() -> None:
+    gateway = _cited_gateway(FakeLlmCallsRepository())
+
+    with gateway.tool_agent.override(model=FunctionModel(stream_function=_search_cite_answer)):
+        _, end = await _collect(_stream(gateway))
+
+    assert end.result.outcome is LlmCallOutcome.SUCCESS
+    assert end.sources == (CitedSource.of(_PASSAGE),)
+
+
+async def test_a_gateway_with_no_citation_reader_cites_nothing() -> None:
+    gateway = _cited_gateway(FakeLlmCallsRepository(), reader=False)
+
+    with gateway.tool_agent.override(model=FunctionModel(stream_function=_search_cite_answer)):
+        _, end = await _collect(_stream(gateway))
+
+    assert end.result.output == "A lighter week every 4–6 weeks."
+    assert end.sources == ()
+
+
+async def test_a_failed_loop_cites_nothing() -> None:
+    async def cites_then_breaks(messages: list[ModelMessage], info: AgentInfo) -> _Stream:
+        if len(_returned(messages)) < 2:
+            async for item in _search_cite_answer(messages, info):
+                yield item
+            return
+        raise RuntimeError("upstream went away")
+
+    gateway = _cited_gateway(FakeLlmCallsRepository())
+
+    with gateway.tool_agent.override(model=FunctionModel(stream_function=cites_then_breaks)):
+        _, end = await _collect(_stream(gateway))
+
+    assert end.result.outcome is LlmCallOutcome.ERROR
+    assert end.sources == ()

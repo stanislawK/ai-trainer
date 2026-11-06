@@ -19,6 +19,9 @@ from ai_trainer.application.reply import (
 )
 from ai_trainer.domain.chat import ChatMessage, ChatRole
 from ai_trainer.domain.conversation import Intent, IntentKind
+from ai_trainer.domain.knowledge import EvidenceTier, SourceType
+from ai_trainer.domain.knowledge_document import PageLocator
+from ai_trainer.domain.knowledge_search import CitedSource
 from ai_trainer.domain.llm_calls import LlmCallOutcome
 from tests.chat_support import (
     FROZEN_NOW,
@@ -192,6 +195,53 @@ async def test_pain_the_router_listed_last_still_comes_before_the_answer() -> No
     )
 
     assert [reply.template_id for reply in _done(events).messages] == ["chitchat", "gym.answer"]
+
+
+_DELOAD_SOURCE = CitedSource(
+    source_id=uuid4(),
+    title="Periodization",
+    author="Tudor Bompa",
+    evidence_tier=EvidenceTier.COACHING_BOOK,
+    source_type=SourceType.BOOK,
+    attribution=None,
+    locator=PageLocator(page=12),
+)
+
+
+async def test_answer_saves_its_cited_sources() -> None:
+    """PRD B8, ADR-0036 #428: the sources the reply cited are saved on it, so a reload shows
+    them as the stream's end did."""
+    chat = InMemoryChatRepository()
+    conversation = ScriptedConversation(answer_sources=(_DELOAD_SOURCE,))
+
+    events, _, _, user_id, _ = await _reply(
+        "How often should I deload?", _ASK, picked="gym", conversation=conversation, chat=chat
+    )
+
+    (reply,) = _done(events).messages
+    assert reply.sources == (_DELOAD_SOURCE,)
+    (saved,) = await chat.list_replies(user_id, await _asked(chat, user_id))
+    assert saved.sources == (_DELOAD_SOURCE,)
+
+
+async def _asked(chat: InMemoryChatRepository, user_id: UUID) -> ChatMessage:
+    return next(m for uid, m in chat.rows if uid == user_id and m.role is ChatRole.USER)
+
+
+async def test_safety_part_comes_before_a_cited_answer() -> None:
+    """G3: pain is answered first, and only the answer part carries the sources."""
+    conversation = ScriptedConversation(answer_sources=(_DELOAD_SOURCE,))
+
+    events, _, _, _, _ = await _reply(
+        "My knee hurts. How often should I deload?",
+        [Intent(kind="ask_training_question"), Intent(kind="wellbeing_or_injury")],
+        picked="gym",
+        conversation=conversation,
+    )
+
+    safety, answer = _done(events).messages
+    assert (safety.template_id, safety.sources) == ("chitchat", ())
+    assert (answer.template_id, answer.sources) == ("gym.answer", (_DELOAD_SOURCE,))
 
 
 async def test_a_log_and_a_question_get_a_draft_and_an_answer() -> None:

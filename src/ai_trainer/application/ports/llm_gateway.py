@@ -5,6 +5,7 @@ from uuid import UUID
 
 from pydantic import BaseModel
 
+from ai_trainer.domain.knowledge_search import CitedSource
 from ai_trainer.domain.llm_calls import LlmCallOutcome, ProviderPreferences, ReasoningEffort
 
 
@@ -24,9 +25,12 @@ class TextChunk:
 
 @dataclass(frozen=True, slots=True)
 class StreamEnd:
-    """Always the last event of a stream that runs to its end; `output` is the full reply text."""
+    """Always the last event of a stream that runs to its end; `output` is the full reply text.
+    `sources` are the knowledge passages a tool loop's reply cited, only on success (PRD B8,
+    ADR-0036 #428 amendment)."""
 
     result: LlmGatewayResult[str]
+    sources: tuple[CitedSource, ...] = ()
 
 
 type LlmStreamEvent = TextChunk | StreamEnd

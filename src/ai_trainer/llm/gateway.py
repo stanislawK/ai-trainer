@@ -1,6 +1,6 @@
 import asyncio
 import time
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Callable, Sequence
 from dataclasses import dataclass
 from typing import Any, cast
 from uuid import UUID
@@ -9,6 +9,7 @@ import httpx2
 from pydantic import BaseModel
 from pydantic_ai import Agent, AgentRetries, AgentRun, UsageLimits
 from pydantic_ai.exceptions import UnexpectedModelBehavior
+from pydantic_ai.messages import ModelMessage
 from pydantic_ai.models.openrouter import (
     OpenRouterModel,
     OpenRouterModelSettings,
@@ -28,6 +29,7 @@ from ai_trainer.application.ports.llm_gateway import (
     TextChunk,
     ToolLoop,
 )
+from ai_trainer.domain.knowledge_search import CitedSource
 from ai_trainer.domain.llm_calls import LlmCallOutcome, ProviderPreferences, ReasoningEffort
 from ai_trainer.llm.call_accounting import CallAccountant, CallKey, CallUsage, sum_cost
 from ai_trainer.llm.debug_log import CallRecorder, LlmDebugLog
@@ -50,6 +52,10 @@ class _Done:
 
 _DONE = _Done()
 
+# Reads which knowledge passages a finished tool loop's reply cited (`mcp/citations.py`, ADR-0036
+# #428 amendment). `main.py` hands it over with the toolset, since `llm` doesn't import `mcp`.
+type CitationReader = Callable[[Sequence[ModelMessage]], tuple[CitedSource, ...]]
+
 
 @dataclass(frozen=True, slots=True)
 class _ToolDeps:
@@ -64,6 +70,8 @@ class _StreamState:
     """The producer's run, shared so usage can be read however the stream ends."""
 
     streamed: StreamedRunResult[None, str] | AgentRun[_ToolDeps, str] | None = None
+    # What a tool loop's reply cited, set once the loop answered.
+    sources: tuple[CitedSource, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,6 +104,7 @@ class OpenRouterGateway:
         http_client: httpx2.AsyncClient | None = None,
         debug_log: LlmDebugLog | None = None,
         toolset: AbstractToolset[Any] | None = None,
+        citations: CitationReader | None = None,
     ) -> None:
         self._provider = OpenRouterProvider(
             api_key=settings.openrouter_api_key.get_secret_value(), http_client=http_client
@@ -110,6 +119,7 @@ class OpenRouterGateway:
         # The same, for a reply with a tool loop, whose run carries the user.
         self.tool_agent: Agent[_ToolDeps, str] = Agent(TestModel(), deps_type=_ToolDeps)
         self._toolset = toolset
+        self._citations = citations
 
     async def run[OutputT: BaseModel](
         self,
@@ -244,9 +254,14 @@ class OpenRouterGateway:
                 )
             )
 
-        output = "".join(parts) if outcome is LlmCallOutcome.SUCCESS else None
+        succeeded = outcome is LlmCallOutcome.SUCCESS
         yield StreamEnd(
-            LlmGatewayResult(output=output, friendly_error=friendly_error, outcome=outcome)
+            LlmGatewayResult(
+                output="".join(parts) if succeeded else None,
+                friendly_error=friendly_error,
+                outcome=outcome,
+            ),
+            sources=state.sources if succeeded else (),
         )
 
     async def _pump(
@@ -312,6 +327,8 @@ class OpenRouterGateway:
             answered = await stream_run_text(run, put)
         if not answered:
             raise UnexpectedModelBehavior("the tool loop ended with no answer")
+        if self._citations is not None and run.result is not None:
+            state.sources = self._citations(run.result.all_messages())
 
     def _recorder(
         self, template_id: str, template_version: int, model_id: str

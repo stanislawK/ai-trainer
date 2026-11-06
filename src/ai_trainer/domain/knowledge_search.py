@@ -39,6 +39,34 @@ class KnowledgeHit(BaseModel):
     exercise_id: UUID | None
 
 
+class CitedSource(BaseModel):
+    """One source row under a cited reply (PRD B8, ADR-0036 #428 amendment): what the reply
+    shows of a passage it used, kept on the reply as a snapshot, so it outlives the source. No
+    passage text. `attribution` is the licence's, shown with every answer that cites it."""
+
+    model_config = ConfigDict(frozen=True)
+
+    source_id: UUID
+    title: str
+    author: str | None
+    evidence_tier: EvidenceTier
+    source_type: SourceType
+    attribution: str | None
+    locator: Locator
+
+    @classmethod
+    def of(cls, hit: KnowledgeHit) -> CitedSource:
+        return cls(
+            source_id=hit.source_id,
+            title=hit.title,
+            author=hit.author,
+            evidence_tier=hit.evidence_tier,
+            source_type=hit.source_type,
+            attribution=hit.attribution,
+            locator=hit.locator,
+        )
+
+
 class KnowledgeSearchPage(BaseModel):
     """The best passages first. `truncated` is true when more passages matched than were
     asked for."""

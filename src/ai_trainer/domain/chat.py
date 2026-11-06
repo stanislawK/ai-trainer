@@ -4,6 +4,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
 
+from ai_trainer.domain.knowledge_search import CitedSource
+
 # A conversation's title is its first athlete message, cut to this many characters (ADR-0021).
 TITLE_LENGTH = 60
 
@@ -29,6 +31,8 @@ class ChatMessage(BaseModel):
     sports: tuple[str, ...] = ()
     template_id: str | None = None
     template_version: int | None = None
+    # The knowledge sources a cited reply used, as shown under it (PRD B8, ADR-0036 #428).
+    sources: tuple[CitedSource, ...] = ()
 
 
 class Conversation(BaseModel):

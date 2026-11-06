@@ -1,6 +1,6 @@
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy import text
@@ -11,6 +11,14 @@ from ai_trainer.adapters.chat_repository import SqlAlchemyChatRepository
 from ai_trainer.adapters.conversation_repository import SqlAlchemyConversationRepository
 from ai_trainer.adapters.users_repository import SqlAlchemyUsersRepository
 from ai_trainer.domain.chat import ChatMessage, ChatRole
+from ai_trainer.domain.knowledge import EvidenceTier, SourceType
+from ai_trainer.domain.knowledge_document import (
+    CueLocator,
+    PageLocator,
+    SectionLocator,
+    SpineLocator,
+)
+from ai_trainer.domain.knowledge_search import CitedSource
 from ai_trainer.domain.users import NewUser, UserStatus
 from tests.chat_support import FixedClock
 
@@ -383,3 +391,71 @@ async def test_replace_part_never_touches_another_users_part(
 
     assert replaced is None
     assert await repository.get(owner, failed.id) == failed
+
+
+_SOURCES = (
+    CitedSource(
+        source_id=uuid4(),
+        title="Periodization",
+        author="Tudor Bompa",
+        evidence_tier=EvidenceTier.COACHING_BOOK,
+        source_type=SourceType.BOOK,
+        attribution="Bompa, Periodization, CC BY 4.0",
+        locator=PageLocator(page=12, page_label="xii"),
+    ),
+    CitedSource(
+        source_id=uuid4(),
+        title="Recovery and deloads",
+        author=None,
+        evidence_tier=EvidenceTier.ARTICLE_OR_TRANSCRIPT,
+        source_type=SourceType.TALK_OR_PODCAST,
+        attribution=None,
+        locator=CueLocator(start_seconds=65, end_seconds=90.5),
+    ),
+    CitedSource(
+        source_id=uuid4(),
+        title="Training load in strength sport",
+        author="A. Author",
+        evidence_tier=EvidenceTier.PEER_REVIEWED,
+        source_type=SourceType.RESEARCH_PAPER,
+        attribution="Source: NLM PMC",
+        locator=SectionLocator(section="Discussion", doi="10.1000/xyz"),
+    ),
+    CitedSource(
+        source_id=uuid4(),
+        title="Strength book",
+        author="B. Author",
+        evidence_tier=EvidenceTier.COACHING_BOOK,
+        source_type=SourceType.BOOK,
+        attribution=None,
+        locator=SpineLocator(spine_item="ch03.xhtml", chapter="Deloading"),
+    ),
+)
+
+
+async def test_message_sources_round_trip(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    """PRD B8, ADR-0036 #428: a cited reply's sources come back on every read, so a reload
+    shows them; a message with none reads back with none."""
+    repository = SqlAlchemyChatRepository(db_session_factory)
+    user_id, chat = await _user(db_session_factory, "chat-sources")
+    asked = await repository.add(user_id, chat, ChatRole.USER, "How often should I deload?", _START)
+
+    reply = await repository.add(
+        user_id,
+        chat,
+        ChatRole.ASSISTANT,
+        "A lighter week every 4–6 weeks.",
+        _START + timedelta(seconds=1),
+        sports=("gym",),
+        template_id="gym.answer",
+        template_version=2,
+        sources=_SOURCES,
+    )
+
+    assert reply.sources == _SOURCES
+    assert asked.sources == ()
+    assert await repository.get(user_id, reply.id) == reply
+    assert await repository.list_replies(user_id, asked) == [reply]
+    assert await repository.list_recent(user_id, chat, 50) == [asked, reply]

@@ -6,13 +6,12 @@ from typing import Any, Protocol
 from uuid import UUID
 
 from fastmcp import FastMCP
-from pydantic_ai import RunContext, ToolDefinition
+from pydantic_ai import RunContext
 from pydantic_ai.mcp import CallToolFunc, MCPToolset
 from pydantic_ai.mcp import ToolResult as McpCallResult
 from pydantic_ai.toolsets import AbstractToolset
 
 from ai_trainer.mcp.identity import USER_ID_META_KEY, MissingUserError
-from ai_trainer.mcp.server import SEARCH_KNOWLEDGE_TOOL
 
 
 class UserDeps(Protocol):
@@ -38,17 +37,10 @@ async def inject_user(
     return await call_tool(name, tool_args, metadata={USER_ID_META_KEY: str(user_id)})
 
 
-# Tools on the server that no specialist sees yet. `search_knowledge` waits for #428, which
-# wires it into `gym.answer` through `/tune-prompt` (ADR-0036, #424 amendment).
-HELD_BACK_TOOLS = frozenset({SEARCH_KNOWLEDGE_TOOL})
-
-
-def _offered(_ctx: RunContext[UserDeps], tool: ToolDefinition) -> bool:
-    return tool.name not in HELD_BACK_TOOLS
-
-
 def build_toolset(server: FastMCP) -> AbstractToolset[UserDeps]:
+    """Every server tool, `search_knowledge` and `cite_sources` included since #428 (ADR-0036
+    #428 amendment). All of them only read."""
     # `tool_error_behavior` stays at its default 'retry', so the model can correct
     # schema-invalid arguments (R3).
     toolset: MCPToolset[UserDeps] = MCPToolset(server, process_tool_call=inject_user)
-    return toolset.filtered(_offered)
+    return toolset

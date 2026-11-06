@@ -99,6 +99,7 @@ from ai_trainer.llm.onboarding import LlmOnboardingReader
 from ai_trainer.llm.question_sport import JevQuestionSport
 from ai_trainer.llm.router_fast import JevFastRouter, RouterFastThresholds
 from ai_trainer.llm.safety_screen import JevSafetyScreen
+from ai_trainer.mcp.citations import cited_sources
 from ai_trainer.mcp.server import build_mcp_server
 from ai_trainer.mcp.toolset import build_toolset
 from ai_trainer.settings import Settings
@@ -486,7 +487,13 @@ def create_app(  # noqa: PLR0915 -- composition root: objects are built only her
         )
     )
     gateway = BudgetedLlmGateway(
-        OpenRouterGateway(settings, llm_calls, debug_log=debug_log, toolset=app.state.mcp_toolset),
+        OpenRouterGateway(
+            settings,
+            llm_calls,
+            debug_log=debug_log,
+            toolset=app.state.mcp_toolset,
+            citations=cited_sources,
+        ),
         budget,
     )
     conversation = build_llm_conversation(settings, sport_registry, gateway)

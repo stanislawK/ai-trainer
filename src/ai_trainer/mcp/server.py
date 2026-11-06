@@ -8,7 +8,7 @@ from uuid import UUID
 
 from fastmcp import FastMCP
 from fastmcp.server.context import Context
-from pydantic import Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from ai_trainer.application.exercise_lookup import (
     ExerciseFinder,
@@ -40,6 +40,8 @@ from ai_trainer.mcp.identity import current_user_id
 from ai_trainer.mcp.results import ToolResult
 
 SEARCH_KNOWLEDGE_TOOL = "search_knowledge"
+CITE_SOURCES_TOOL = "cite_sources"
+MAX_CITED = 10
 
 
 def build_mcp_server(
@@ -49,7 +51,8 @@ def build_mcp_server(
     *,
     knowledge: KnowledgeSearch | None = None,
 ) -> FastMCP:
-    """The server with its tools; `search_knowledge` only when `knowledge` is given (#424)."""
+    """The server with its tools; `search_knowledge` and `cite_sources` only when `knowledge`
+    is given (#424, #428)."""
     # Only a ToolError's message reaches the client; any other exception becomes a generic
     # one, so an unexpected failure can't leak athlete data (R3).
     server = FastMCP("ai-trainer", mask_error_details=True)
@@ -169,6 +172,36 @@ def _add_search_knowledge(server: FastMCP, knowledge: KnowledgeSearch) -> None:
         if isinstance(outcome, KnowledgeSearchFailed):
             return _search_failed(outcome)
         return ToolResult.ok(outcome)
+
+    @server.tool(name=CITE_SOURCES_TOOL)
+    async def cite_sources(
+        ctx: Context,
+        chunk_ids: Annotated[list[UUID], Field(max_length=MAX_CITED)],
+    ) -> ToolResult[Cited]:
+        """Name the passages from `search_knowledge` that your answer uses, so the athlete sees
+        their sources under the reply. Call it once, after searching and before you write the
+        answer, with the `chunk_id` of every passage the answer relies on, up to 10; don't call
+        it for passages you won't use, or when no passage answers the question, and never for
+        the athlete's own training. It only records what you name: it changes nothing and
+        returns how many distinct passages it took. A passage no search returned in this
+        conversation turn is never shown. An empty list comes back with `success` false and a
+        `recovery_hint`."""
+        current_user_id(ctx)  # the hook's identity, checked as on every tool (ADR-0010)
+        if not chunk_ids:
+            return ToolResult[Cited].failed(
+                "No passage named.",
+                "If no passage answers the question, don't call this: say you have no source "
+                "for it. Otherwise call again with the `chunk_id` of each passage you use.",
+            )
+        return ToolResult.ok(Cited(cited=len(set(chunk_ids))))
+
+
+class Cited(BaseModel):
+    """How many distinct passages `cite_sources` took."""
+
+    model_config = ConfigDict(frozen=True)
+
+    cited: int
 
 
 def _search_failed(failure: KnowledgeSearchFailed) -> ToolResult[KnowledgeSearchPage]:

@@ -3,14 +3,17 @@ from datetime import datetime
 from itertools import takewhile
 from uuid import UUID
 
+from pydantic import TypeAdapter
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai_trainer.adapters.orm import ChatMessageOrm
 from ai_trainer.domain.chat import ChatMessage, ChatRole
+from ai_trainer.domain.knowledge_search import CitedSource
 
 # Replies to one message are a handful of parts (ADR-0008); this only bounds the read.
 _MAX_REPLY_PARTS = 20
+_SOURCES = TypeAdapter(tuple[CitedSource, ...])
 
 
 def _to_domain(row: ChatMessageOrm) -> ChatMessage:
@@ -23,6 +26,7 @@ def _to_domain(row: ChatMessageOrm) -> ChatMessage:
         sports=tuple(row.sports or ()),
         template_id=row.template_id,
         template_version=row.template_version,
+        sources=_SOURCES.validate_python(row.sources or ()),
     )
 
 
@@ -43,6 +47,7 @@ class SqlAlchemyChatRepository:
         sports: Sequence[str] = (),
         template_id: str | None = None,
         template_version: int | None = None,
+        sources: Sequence[CitedSource] = (),
     ) -> ChatMessage:
         async with self._session_factory() as session:
             row = ChatMessageOrm(
@@ -54,6 +59,8 @@ class SqlAlchemyChatRepository:
                 sports=list(sports) if role is ChatRole.ASSISTANT else None,
                 template_id=template_id,
                 template_version=template_version,
+                # Null, not an empty list, on a message that cites nothing.
+                sources=_SOURCES.dump_python(tuple(sources), mode="json") if sources else None,
             )
             session.add(row)
             # Flushed, not read after the commit: a committed row's attributes expire.
