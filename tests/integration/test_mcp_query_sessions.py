@@ -19,7 +19,6 @@ from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
     ModelResponse,
-    RetryPromptPart,
     TextPart,
     ToolCallPart,
     ToolReturnPart,
@@ -140,7 +139,8 @@ def _tool_returns(messages: Sequence[ModelMessage]) -> list[ToolReturnPart]:
         for message in messages
         if isinstance(message, ModelRequest)
         for part in message.parts
-        if isinstance(part, ToolReturnPart)
+        # A validation retry is a `ToolReturnPart` with `outcome="retried"` (pydantic-ai 2.64+).
+        if isinstance(part, ToolReturnPart) and part.outcome != "retried"
     ]
 
 
@@ -208,7 +208,9 @@ async def test_schema_invalid_arguments_leave_the_run_recoverable(world: _World)
         assert isinstance(last, ModelRequest)
         if len(messages) == 1:
             return ModelResponse(parts=[ToolCallPart("query_sessions", {"limit": 500})])
-        if any(isinstance(part, RetryPromptPart) for part in last.parts):
+        if any(
+            isinstance(part, ToolReturnPart) and part.outcome == "retried" for part in last.parts
+        ):
             return ModelResponse(parts=[ToolCallPart("query_sessions", {"limit": 5})])
         return ModelResponse(parts=[TextPart("done")])
 

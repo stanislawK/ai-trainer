@@ -683,12 +683,13 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 def _judge_model(model_id: str, *, provider: OpenRouterProvider) -> OpenRouterModel:
-    """The judge at `temperature=0` (ADR-0009), unless its profile says it reasons: Pydantic AI
-    drops sampling parameters from a reasoning model and warns on every request. The profile
+    """The judge at `temperature=0` (ADR-0009), unless its profile has `openai_supports_reasoning`:
+    Pydantic AI drops sampling parameters from such a model and warns on every request. A
+    profile that only says `thinking_always_enabled` keeps `temperature=0`, because that flag
+    means reasoning can't be turned off, not that sampling is refused (#484). The profile
     decides, not a list of IDs; an ID whose profile says nothing keeps `temperature=0`."""
     judge = OpenRouterModel(model_id, provider=provider)
-    profile = judge.profile
-    if profile.get("openai_supports_reasoning") or profile.get("thinking_always_enabled"):
+    if judge.profile.get("openai_supports_reasoning"):
         return judge
     return OpenRouterModel(model_id, provider=provider, settings=ModelSettings(temperature=0))
 
