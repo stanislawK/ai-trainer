@@ -15,6 +15,8 @@ no command beyond listing and staging, which is all a token may do (ADR-0036 inv
 Exit codes: 0 done, 1 failed, 2 unknown command, 3 no token set (the skill skips the check).
 Every message is built from a status code or an exception class, never from a request, a header,
 an upload link or an exception's text, so neither the token nor a link can reach stdout or stderr.
+The one response text it shows is a 422's `detail`: the app's own field-to-error map, which names
+what the template got wrong and carries no input value.
 """
 
 import argparse
@@ -169,6 +171,10 @@ def load_manifest(path: str) -> list[dict[str, Any]]:
         raise ClientError('the manifest must be {"articles": [ ... ]} with at least one article')
     if not all(isinstance(a, dict) and isinstance(a.get("pmcid"), str) for a in articles):
         raise ClientError("every article in the manifest needs a pmcid")
+    # The route refuses a whole request for a blank or repeated ID, so catch both here.
+    ids = [a["pmcid"].strip().upper() for a in articles]
+    if not all(ids) or len(set(ids)) != len(ids):
+        raise ClientError("name each PMC ID once in the manifest, and none blank")
     return articles
 
 
@@ -183,13 +189,20 @@ def post_json(base_url: str, token: str, path: str, body: dict[str, Any]) -> dic
 
 
 def stage_pmc(base_url: str, token: str, articles: list[dict[str, Any]]) -> dict[str, Any]:
+    """Every batch's results. A batch that fails stops the run, but the batches before it are
+    already staged on the server, so their results and the IDs not staged are reported."""
     results: list[Any] = []
     for start in range(0, len(articles), PMC_BATCH):
-        page = post_json(
-            base_url, token, STAGE_PMC_PATH, {"articles": articles[start : start + PMC_BATCH]}
-        )
-        if not isinstance(page.get("results"), list):
-            raise ClientError("the knowledge API answered with an unexpected shape")
+        batch = articles[start : start + PMC_BATCH]
+        try:
+            page = post_json(base_url, token, STAGE_PMC_PATH, {"articles": batch})
+            if not isinstance(page.get("results"), list):
+                raise ClientError("the knowledge API answered with an unexpected shape")
+        except ClientError as error:
+            if not results:
+                raise
+            pending = [a["pmcid"] for a in articles[start:]]
+            return {"results": results, "failed": {"pmcids": pending, "error": str(error)}}
         results.extend(page["results"])
     return {"results": results}
 
@@ -202,7 +215,10 @@ def put_target(put_url: str, base_url: str) -> tuple[str, str | None]:
         return put_url, None
     local = urlsplit(base_url).hostname in LOCAL_HOSTS
     if parts.scheme == "http" and parts.hostname == DEV_STORAGE_HOST and local:
-        port = f":{parts.port}" if parts.port else ""
+        try:
+            port = f":{parts.port}" if parts.port else ""
+        except ValueError:
+            raise ClientError("the upload link must be https") from None
         return urlunsplit(parts._replace(netloc=f"127.0.0.1{port}")), parts.netloc
     raise ClientError("the upload link must be https")
 
@@ -259,7 +275,11 @@ def run(command: str, paths: list[str], base_url: str, token: str) -> int:
         print(json.dumps(list_covered(base_url, token), indent=2))
         return 0
     if command == "stage-pmc":
-        print(json.dumps(stage_pmc(base_url, token, load_manifest(paths[0])), indent=2))
+        staged = stage_pmc(base_url, token, load_manifest(paths[0]))
+        print(json.dumps(staged, indent=2))
+        if "failed" in staged:
+            print(f"knowledge_client: {staged['failed']['error']}", file=sys.stderr)
+            return EXIT_FAILED
         return 0
     report = stage_file(base_url, token, paths[0], paths[1])
     print(json.dumps(report, indent=2))

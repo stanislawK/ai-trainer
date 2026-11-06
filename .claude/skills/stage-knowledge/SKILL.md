@@ -28,6 +28,7 @@ Turns the shortlist the owner approved in chat into `proposed` sources at `/admi
 4. **Run the client**, one command per call:
    - `uv run python scripts/knowledge_client.py stage-pmc <manifest.json>` (staged 20 at a time; prints a JSON report with one result per PMC ID).
    - `uv run python scripts/knowledge_client.py stage-file <template.json> <path-to-file>` per file. The client stages, sends the bytes from disk to the presigned link straight to the bucket, and registers the upload. Exit 1 with outcome `missing` or `expired` means the upload did not complete: report it and offer to run it again.
+   - A `stage-pmc` run that fails part-way still prints the results of the batches already staged, with `failed.pmcids` (the IDs not staged) and `failed.error`. Report the staged ones as staged, and offer to run the rest again; never re-stage the whole manifest.
    - A non-zero exit prints one safe line; report it as the reason. 429 means try again later; 401 or 403 means the token is refused or expired. Do not retry with other credentials.
 5. **Report in chat** in the format below.
 

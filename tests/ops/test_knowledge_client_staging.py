@@ -192,6 +192,61 @@ def test_stage_pmc_refuses_a_bad_manifest_before_any_request(
     assert "manifest" in capsys.readouterr().err
 
 
+def test_stage_pmc_keeps_the_results_of_batches_staged_before_a_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    seen: list[Request],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    ids = [f"PMC{n}" for n in range(1, 26)]
+
+    def answer(request: Request) -> object:
+        if len(seen) > 1:
+            return HTTPError(request.full_url, 429, "x", Message(), BytesIO())
+        return _json({"results": [_result(a["pmcid"]) for a in _body(request)["articles"]]})
+
+    _install(monkeypatch, seen, answer)
+
+    code = knowledge_client.main(
+        ["stage-pmc", str(_manifest(tmp_path, [_article(i) for i in ids]))]
+    )
+
+    assert code == 1
+    out = capsys.readouterr()
+    report = json.loads(out.out)
+    assert [r["pmcid"] for r in report["results"]] == ids[:20]
+    assert report["failed"]["pmcids"] == ids[20:]
+    assert "HTTP 429" in report["failed"]["error"]
+    assert "HTTP 429" in out.err
+
+
+@pytest.mark.parametrize(
+    "articles",
+    [[_article("PMC1"), _article("pmc1")], [_article("  ")]],
+    ids=["duplicate", "blank"],
+)
+def test_stage_pmc_refuses_a_duplicate_or_blank_id_before_any_request(
+    articles: list[dict[str, object]],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    seen: list[Request],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _install(monkeypatch, seen, lambda request: _json({}))
+
+    assert knowledge_client.main(["stage-pmc", str(_manifest(tmp_path, articles))]) == 1
+
+    assert seen == []
+    assert "once" in capsys.readouterr().err
+
+
+def test_a_storage_link_with_a_bad_port_is_one_safe_line() -> None:
+    with pytest.raises(knowledge_client.ClientError, match="must be https") as excinfo:
+        knowledge_client.put_target("http://storage:abc/SECRET", "http://localhost:8000")
+
+    assert "SECRET" not in str(excinfo.value)
+
+
 def test_a_missing_input_file_exits_1(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     assert knowledge_client.main(["stage-pmc", str(tmp_path / "nope.json")]) == 1
     assert "nope.json" in capsys.readouterr().err
