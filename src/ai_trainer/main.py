@@ -53,7 +53,7 @@ from ai_trainer.adapters.log_records import configure_logging
 from ai_trainer.adapters.metrics import OtelMetrics
 from ai_trainer.adapters.object_storage import ObstoreObjectStorage
 from ai_trainer.adapters.onboarding_repository import SqlAlchemyOnboardingRepository
-from ai_trainer.adapters.pmc import PmcCloudMetadata
+from ai_trainer.adapters.pmc import PmcCloudFiles, PmcCloudMetadata
 from ai_trainer.adapters.session_draft_repository import SqlAlchemySessionDraftRepository
 from ai_trainer.adapters.sessions_repository import SqlAlchemySessionsRepository
 from ai_trainer.adapters.telemetry import ScrubbingSpanExporter
@@ -74,6 +74,7 @@ from ai_trainer.application.knowledge_sources import KnowledgeSources
 from ai_trainer.application.knowledge_staging import KnowledgeStaging
 from ai_trainer.application.metered_calls import MeteredLlmCallsRepository
 from ai_trainer.application.model_budget import ModelCallBudget
+from ai_trainer.application.pmc_source_file import PmcSourceFile
 from ai_trainer.application.ports.clock import ClockPort
 from ai_trainer.application.ports.conversation import ConversationModelPort
 from ai_trainer.application.ports.decision_gateway import DecisionGatewayPort
@@ -84,6 +85,7 @@ from ai_trainer.application.ports.metrics import NO_METRICS, MetricsPort
 from ai_trainer.application.ports.object_storage import ObjectStoragePort
 from ai_trainer.application.reply import ReplyServices
 from ai_trainer.application.training_history import ExerciseTrainingHistory, TrainingHistory
+from ai_trainer.domain.pmc import PMC_JATS_MAX_BYTES
 from ai_trainer.domain.sports.registry import SportRegistry, default_sport_registry
 from ai_trainer.knowledge.chunker import Chunker
 from ai_trainer.knowledge.readers import DocumentReaders
@@ -304,10 +306,12 @@ def build_knowledge_ingestion(
     *,
     sleep: Callable[[float], Awaitable[None]],
     embedding_transport: httpx2.AsyncBaseTransport | None = None,
+    pmc_transport: httpx2.AsyncBaseTransport | None = None,
 ) -> KnowledgeIngestion:
     """`ai-trainer ingest-worker`'s worker, outside the web process (ADR-0036). Its embedding
     calls are outside ADR-0029's per-user budget, bounded by its concurrency of 1; each still
-    writes its `llm_calls` row."""
+    writes its `llm_calls` row. An approved PMC article's JATS is fetched from PMC's bucket by
+    its PMC ID (#463)."""
     embeddings = OpenRouterEmbeddingGateway(
         api_key=settings.openrouter_api_key.get_secret_value(),
         model=settings.embedding_model,
@@ -320,9 +324,25 @@ def build_knowledge_ingestion(
         ),
     )
     clock = UtcClock()
+    repository = SqlAlchemyKnowledgeIngestionRepository(session_factory)
     return KnowledgeIngestion(
-        repository=SqlAlchemyKnowledgeIngestionRepository(session_factory),
+        repository=repository,
         storage=storage,
+        pmc=PmcSourceFile(
+            files=PmcCloudFiles(
+                metadata=PmcCloudMetadata(
+                    bucket_url=settings.pmc_bucket_url,
+                    timeout_seconds=settings.pmc_timeout_seconds,
+                    transport=pmc_transport,
+                ),
+                bucket_url=settings.pmc_bucket_url,
+                timeout_seconds=settings.pmc_jats_timeout_seconds,
+                max_bytes=PMC_JATS_MAX_BYTES,
+                transport=pmc_transport,
+            ),
+            storage=storage,
+            repository=repository,
+        ),
         readers=DocumentReaders(),
         chunker=Chunker(
             max_words=settings.knowledge_chunk_max_words,

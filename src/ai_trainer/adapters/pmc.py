@@ -2,16 +2,28 @@
 
 Two anonymous GETs per article, both naming only its PMC ID: ListObjectsV2 on
 `metadata/<PMCID>.` for its versions, then the highest version's JSON. Nothing else in the
-bucket is read here; the article's XML is fetched after approval (#463).
+bucket is read by `PmcCloudMetadata`; the article's XML is fetched after approval, by
+`PmcCloudFiles` (#463).
 """
 
 import asyncio
+import hashlib
 import re
+from urllib.parse import parse_qs, urlsplit
 
 import httpx2
 from pydantic import ValidationError
 
-from ai_trainer.domain.pmc import PmcArticle, PmcFetchProblem, PmcNotFound, PmcUnavailable
+from ai_trainer.application.ports.pmc import PmcMetadataPort
+from ai_trainer.domain.pmc import (
+    PMC_BUCKET_NAME,
+    PmcArticle,
+    PmcFetchProblem,
+    PmcNotFound,
+    PmcUnavailable,
+)
+
+_MD5 = re.compile(r"[0-9a-f]{32}")
 
 
 class PmcCloudMetadata:
@@ -57,6 +69,93 @@ class PmcCloudMetadata:
             # retraction flag can't be trusted for this one.
             return PmcUnavailable(PmcFetchProblem.MALFORMED)
         return article
+
+
+class PmcCloudFiles:
+    """Implements `PmcArticleFilesPort` (#463).
+
+    The article's JSON gives the key of its JATS: `s3://pmc-oa-opendata/<PMCID>.<n>/<PMCID>.<n>.xml
+    ?md5=<hex>`. That link is followed only when it is exactly this article's latest version's
+    own XML, in the bucket, over the bucket's HTTPS URL; anything else in it is refused. The body
+    is read under a size cap and checked against the md5 PMC recorded.
+    """
+
+    def __init__(
+        self,
+        *,
+        metadata: PmcMetadataPort,
+        bucket_url: str,
+        timeout_seconds: float,
+        max_bytes: int,
+        transport: httpx2.AsyncBaseTransport | None = None,
+    ) -> None:
+        self._metadata = metadata
+        self._bucket_url = bucket_url
+        self._timeout = timeout_seconds
+        self._max_bytes = max_bytes
+        self._transport = transport
+
+    async def fetch_jats(self, pmcid: str) -> bytes | PmcNotFound | PmcUnavailable:
+        article = await self._metadata.fetch(pmcid)
+        if not isinstance(article, PmcArticle):
+            return article
+        if article.xml_url is None:
+            return PmcNotFound()
+        located = _locate_xml(article.xml_url, article)
+        if located is None:
+            return PmcUnavailable(PmcFetchProblem.MALFORMED)
+        path, md5 = located
+        try:
+            # One deadline for the whole download, as for the metadata's two GETs.
+            async with (
+                asyncio.timeout(self._timeout),
+                httpx2.AsyncClient(
+                    base_url=self._bucket_url, transport=self._transport, timeout=self._timeout
+                ) as client,
+                client.stream("GET", path) as response,
+            ):
+                if response.status_code == httpx2.codes.NOT_FOUND:
+                    return PmcNotFound()
+                response.raise_for_status()
+                data = await self._read(response)
+        except TimeoutError, httpx2.TimeoutException:
+            return PmcUnavailable(PmcFetchProblem.TIMEOUT)
+        except httpx2.HTTPError:
+            return PmcUnavailable(PmcFetchProblem.FAILED)
+        if data is None or (md5 is not None and _md5(data) != md5):
+            return PmcUnavailable(PmcFetchProblem.MALFORMED)
+        return data
+
+    async def _read(self, response: httpx2.Response) -> bytes | None:
+        """The body, or None as soon as it passes the cap: an oversized file is never held whole."""
+        chunks: list[bytes] = []
+        size = 0
+        async for chunk in response.aiter_bytes():
+            size += len(chunk)
+            if size > self._max_bytes:
+                return None
+            chunks.append(chunk)
+        return b"".join(chunks)
+
+
+def _locate_xml(xml_url: str, article: PmcArticle) -> tuple[str, str | None] | None:
+    """The bucket path and recorded md5 of this article's own XML, or None for any other link."""
+    parts = urlsplit(xml_url)
+    key = f"{article.pmcid}.{article.version}"
+    path = f"/{key}/{key}.xml"
+    if (parts.scheme, parts.netloc, parts.path) != ("s3", PMC_BUCKET_NAME, path):
+        return None
+    wanted = parse_qs(parts.query).get("md5", [])
+    if not wanted:
+        return path, None
+    if len(wanted) != 1 or not _MD5.fullmatch(wanted[0]):
+        return None
+    return path, wanted[0]
+
+
+def _md5(data: bytes) -> str:
+    # PMC records md5 as an integrity check of the download, not for security.
+    return hashlib.md5(data, usedforsecurity=False).hexdigest()
 
 
 def _latest_version(listing: str, pmcid: str) -> int | None:

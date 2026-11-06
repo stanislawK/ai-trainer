@@ -1,12 +1,12 @@
-"""Picks a file's reader by its type (ADR-0036). A type with no reader yet gives `NoReader`, so
-the source fails with a reason instead of being ingested empty. JATS (#463) adds its reader
-here."""
+"""Picks a file's reader by its type (ADR-0036). A type with no reader gives `NoReader`, so the
+source fails with a reason instead of being ingested empty."""
 
 from collections.abc import Callable, Mapping
 
 from ai_trainer.domain.knowledge import KnowledgeFileType
 from ai_trainer.domain.knowledge_document import KnowledgeDocument, NoReader, Unreadable
 from ai_trainer.knowledge.epub import read_epub
+from ai_trainer.knowledge.jats import read_jats
 from ai_trainer.knowledge.markdown import read_markdown
 from ai_trainer.knowledge.pdf import read_pdf
 from ai_trainer.knowledge.plain_text import read_plain_text
@@ -21,6 +21,7 @@ _READERS: Mapping[KnowledgeFileType, Reader] = {
     KnowledgeFileType.EPUB: read_epub,
     KnowledgeFileType.VTT: read_vtt,
     KnowledgeFileType.SRT: read_srt,
+    KnowledgeFileType.JATS: read_jats,
 }
 
 

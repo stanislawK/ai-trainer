@@ -7,6 +7,7 @@ until an admin approves it, and carries a structured licence (ADR-0036).
 """
 
 import hashlib
+import re
 from collections.abc import Mapping
 from datetime import datetime
 from enum import StrEnum
@@ -62,7 +63,7 @@ class KnowledgeFileType(StrEnum):
     TEXT = "text"
     VTT = "vtt"
     SRT = "srt"
-    # A PMC article's XML, fetched by its PMC ID, never uploaded (ADR-0036).
+    # A PMC article's XML: fetched by its PMC ID once approved, or uploaded as `.xml` (ADR-0036).
     JATS = "jats"
 
 
@@ -175,6 +176,7 @@ _EXTENSIONS: Mapping[str, KnowledgeFileType] = {
     ".txt": KnowledgeFileType.TEXT,
     ".vtt": KnowledgeFileType.VTT,
     ".srt": KnowledgeFileType.SRT,
+    ".xml": KnowledgeFileType.JATS,
 }
 CONTENT_TYPES: Mapping[KnowledgeFileType, str] = {
     KnowledgeFileType.PDF: "application/pdf",
@@ -185,6 +187,8 @@ CONTENT_TYPES: Mapping[KnowledgeFileType, str] = {
     KnowledgeFileType.SRT: "application/x-subrip",
     KnowledgeFileType.JATS: "application/xml",
 }
+_JATS_ROOT = re.compile(r"<article[\s>/]")
+_JATS_WINDOW = 16 * 1024
 # EPUB OCF: the archive's first entry is `mimetype`, stored uncompressed with no extra field, so
 # its name and value sit at fixed offsets in the first local file header.
 _EPUB_MIMETYPE = b"PK\x03\x04", b"mimetype", b"application/epub+zip"
@@ -311,8 +315,11 @@ def _content_matches(file_type: KnowledgeFileType, data: bytes) -> bool:
             return text is not None and text.startswith("WEBVTT")
         case KnowledgeFileType.MARKDOWN | KnowledgeFileType.TEXT | KnowledgeFileType.SRT:
             return _text(data) is not None
-        case KnowledgeFileType.JATS:  # pragma: no cover -- no extension maps to it (ADR-0036)
-            return False
+        case KnowledgeFileType.JATS:
+            # A JATS article opens with `<article>` (or an `<article>` inside a set), after at
+            # most an XML declaration and a DOCTYPE; any other XML is not one.
+            text = _text(data)
+            return text is not None and _JATS_ROOT.search(text[:_JATS_WINDOW]) is not None
 
 
 def file_type_for(file_name: str) -> KnowledgeFileType | None:

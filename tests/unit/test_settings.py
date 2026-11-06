@@ -232,6 +232,7 @@ def test_the_pmc_bucket_defaults_to_pmcs_cloud_service(monkeypatch: pytest.Monke
         "https://pmc-oa-opendata.s3.amazonaws.com"
     )
     assert settings.pmc_timeout_seconds == 8.0
+    assert settings.pmc_jats_timeout_seconds == 30.0
 
 
 @pytest.mark.parametrize(
@@ -241,8 +242,10 @@ def test_the_pmc_bucket_defaults_to_pmcs_cloud_service(monkeypatch: pytest.Monke
         ("PMC_BUCKET_URL", "pmc-oa-opendata.s3.amazonaws.com"),
         ("PMC_TIMEOUT_SECONDS", "0"),
         ("PMC_TIMEOUT_SECONDS", "11"),
+        ("PMC_JATS_TIMEOUT_SECONDS", "0"),
+        ("PMC_JATS_TIMEOUT_SECONDS", "121"),
     ],
-    ids=["path", "no-scheme", "zero-timeout", "long-timeout"],
+    ids=["path", "no-scheme", "zero-timeout", "long-timeout", "zero-jats", "long-jats"],
 )
 def test_the_pmc_settings_are_checked(
     monkeypatch: pytest.MonkeyPatch, key: str, value: str

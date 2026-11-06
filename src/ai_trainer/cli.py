@@ -285,9 +285,10 @@ async def run(
     dataset_transport: httpx2.AsyncBaseTransport | None = None,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     embedding_transport: httpx2.AsyncBaseTransport | None = None,
+    pmc_transport: httpx2.AsyncBaseTransport | None = None,
 ) -> int:
-    """Runs one command and returns its exit code. `dataset_transport`, `sleep` and
-    `embedding_transport` are for tests."""
+    """Runs one command and returns its exit code. `dataset_transport`, `sleep`,
+    `embedding_transport` and `pmc_transport` are for tests."""
     args = parse_args(argv)
     settings = Settings()
     if args.command == LLM_DEBUG_REPORT:
@@ -327,6 +328,7 @@ async def run(
                 build_session_factory(engine),
                 sleep=sleep,
                 embedding_transport=embedding_transport,
+                pmc_transport=pmc_transport,
             )
             return await ingest_worker(
                 service,

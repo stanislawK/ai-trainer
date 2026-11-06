@@ -19,6 +19,10 @@ from ai_trainer.domain.knowledge import LicenseId, PmcId, content_hash
 # Users must "acknowledge NLM as the source of the data in a clear and conspicuous manner"
 # (the bucket's README, read 2026-11-04).
 PMC_ATTRIBUTION = "Source: NLM PMC."
+# The Cloud Service bucket, as the `s3://` links in an article's metadata name it.
+PMC_BUCKET_NAME = "pmc-oa-opendata"
+# The largest JATS file fetched; PMC's are a few hundred kilobytes, the longest well under 10 MB.
+PMC_JATS_MAX_BYTES = 25 * 1024 * 1024
 
 _LICENCES: Mapping[str, LicenseId] = {
     "CC0": LicenseId.CC0,
@@ -54,7 +58,7 @@ class PmcUnavailable:
     problem: PmcFetchProblem
 
 
-def _bare_doi(value: object) -> str | None:
+def bare_doi(value: object) -> str | None:
     """A bare, lowercased DOI, or None for anything that isn't one: a bad DOI from PMC costs the
     source its DOI, never the source."""
     if not isinstance(value, str):
@@ -84,11 +88,14 @@ class PmcArticle(BaseModel):
     pmcid: PmcId
     version: int
     pmid: Annotated[str | None, BeforeValidator(_bare_pmid)] = None
-    doi: Annotated[str | None, BeforeValidator(_bare_doi)] = None
+    doi: Annotated[str | None, BeforeValidator(bare_doi)] = None
     title: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
     citation: str | None = None
     is_retracted: bool
     license_code: str | None = None
+    # `s3://pmc-oa-opendata/<PMCID>.<n>/<PMCID>.<n>.xml?md5=<hex>`: the article's JATS, fetched
+    # after approval (#463). Staging never follows it.
+    xml_url: str | None = None
 
 
 def pmc_licence(code: str | None) -> LicenseId | None:

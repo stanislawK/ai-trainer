@@ -10,7 +10,7 @@ from ai_trainer.domain.knowledge_document import NewKnowledgeChunk
 
 
 class IngestFailure(StrEnum):
-    # The file's type has no reader yet (JATS, #463).
+    # The file's type has no reader.
     NO_READER = "no_reader"
     NOT_UTF8 = "not_utf8"
     # Nothing to embed: an empty file, or only headings or references.
@@ -20,6 +20,11 @@ class IngestFailure(StrEnum):
     CORRUPT_FILE = "corrupt_file"
     FILE_MISSING = "file_missing"
     STORAGE_FAILED = "storage_failed"
+    # A PMC article's JATS (#463): the bucket holds none for it, or couldn't deliver it intact.
+    PMC_NOT_FOUND = "pmc_not_found"
+    PMC_FETCH_FAILED = "pmc_fetch_failed"
+    # The JATS fetched is byte for byte another source's file (ADR-0036, the #458 amendment).
+    DUPLICATE_SOURCE = "duplicate_source"
     EMBEDDING_FAILED = "embedding_failed"
     EMBEDDING_TIMEOUT = "embedding_timeout"
     # OpenRouter kept answering 429 past `KNOWLEDGE_EMBEDDING_MAX_ATTEMPTS`.
@@ -32,6 +37,20 @@ class IngestFailure(StrEnum):
     # Anything else that went wrong reading, chunking or embedding the file: a bug or a file no
     # reader expected. The source fails instead of crashing the worker on every retry.
     INGEST_ERROR = "ingest_error"
+
+
+class FileRecord(StrEnum):
+    """What recording a fetched file on its source came to (#463)."""
+
+    RECORDED = "recorded"
+    # Its hash is another source's: the article is a duplicate of that source.
+    DUPLICATE = "duplicate"
+    # The source was deleted, or taken over by another worker.
+    GONE = "gone"
+
+
+class ClaimLostError(Exception):
+    """The source was deleted or taken over while it was read."""
 
 
 @dataclass(frozen=True, slots=True)

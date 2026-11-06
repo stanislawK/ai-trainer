@@ -40,10 +40,12 @@ class _Frozen(BaseModel):
 
 
 class SectionLocator(_Frozen):
-    """Markdown, text and JATS: the nearest section title, if the source has one."""
+    """Markdown, text and JATS: the nearest section title, if the source has one. A JATS article
+    also carries its DOI, since it has no pages to cite (#463)."""
 
     kind: Literal["section"] = "section"
     section: str | None = None
+    doi: str | None = None
 
 
 class PageLocator(_Frozen):
@@ -106,7 +108,7 @@ class Unreadable(_Frozen):
 
 
 class NoReader(_Frozen):
-    """A file type no reader handles yet (JATS, #463)."""
+    """A file type no reader handles."""
 
     file_type: KnowledgeFileType
 

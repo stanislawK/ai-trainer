@@ -46,6 +46,12 @@ NOW = datetime(2026, 11, 2, 9, 30, tzinfo=UTC)
 ADMIN = UUID("00000000-0000-4000-8000-00000000a422")
 SPORTS = ("climbing", "gym", "cycling")
 MAX_BYTES = 1024
+_JATS = (
+    b'<?xml version="1.0" encoding="UTF-8"?>\n'
+    b'<!DOCTYPE article PUBLIC "-//NLM//DTD JATS (Z39.96) Journal Archiving and Interchange '
+    b'DTD v1.4//EN" "JATS-archivearticle1-4.dtd">\n'
+    b'<article article-type="research-article"><body><p>Hi</p></body></article>'
+)
 
 
 class FixedClock:
@@ -160,8 +166,23 @@ def test_identifiers_are_optional() -> None:
         ("talk.txt", "Zażółć gęślą jaźń".encode(), KnowledgeFileType.TEXT),
         ("talk.vtt", b"\xef\xbb\xbfWEBVTT\n\n00:11.000 --> 00:13.000\nHi\n", KnowledgeFileType.VTT),
         ("talk.srt", b"1\n00:00:33,843 --> 00:00:38,097\nHi\n", KnowledgeFileType.SRT),
+        ("paper.xml", _JATS, KnowledgeFileType.JATS),
+        ("PMC1.XML", b"<pmc-articleset><article/></pmc-articleset>", KnowledgeFileType.JATS),
+        ("bom.xml", b"\xef\xbb\xbf" + _JATS, KnowledgeFileType.JATS),
     ],
-    ids=["pdf", "pdf-upper", "epub", "md", "markdown", "txt-polish", "vtt-bom", "srt"],
+    ids=[
+        "pdf",
+        "pdf-upper",
+        "epub",
+        "md",
+        "markdown",
+        "txt-polish",
+        "vtt-bom",
+        "srt",
+        "jats",
+        "jats-in-a-set-upper",
+        "jats-bom",
+    ],
 )
 def test_a_listed_file_type_is_accepted(
     name: str, data: bytes, expected: KnowledgeFileType
@@ -179,6 +200,9 @@ def test_a_listed_file_type_is_accepted(
         ("binary.txt", b"\x00\x01\x02"),
         ("latin1.md", "café".encode("latin-1")),
         ("captions.vtt", b"1\n00:00:01,000 --> 00:00:02,000\nnot webvtt\n"),
+        ("feed.xml", b"<rss><channel><title>Not JATS</title></channel></rss>"),
+        ("meta.xml", b"<article-meta><title-group/></article-meta>"),
+        ("latin1.xml", b"<article>caf\xe9</article>"),
     ],
     ids=[
         "docx",
@@ -188,10 +212,19 @@ def test_a_listed_file_type_is_accepted(
         "nul-bytes",
         "not-utf8",
         "vtt-header",
+        "xml-not-jats",
+        "article-meta-is-not-article",
+        "jats-not-utf8",
     ],
 )
 def test_an_unlisted_or_mislabelled_file_is_refused(name: str, data: bytes) -> None:
     assert check_file(name, data, max_bytes=MAX_BYTES) is UploadProblem.UNLISTED_TYPE
+
+
+def test_an_xml_file_whose_article_starts_past_the_header_window_is_refused() -> None:
+    late = b" " * 20_000 + b"<article/>"
+
+    assert check_file("late.xml", late, max_bytes=100_000) is UploadProblem.UNLISTED_TYPE
 
 
 def test_an_epub_whose_first_entry_is_not_its_mimetype_is_refused() -> None:
@@ -386,6 +419,17 @@ async def test_an_upload_puts_the_file_then_stores_the_source_as_uploaded() -> N
     )
     assert (source.uploaded_by_user_id, source.uploaded_at) == (ADMIN, NOW)
     assert list(sources.rows) == [source.id]
+
+
+async def test_an_xml_upload_is_stored_as_a_jats_source() -> None:
+    sources, storage = MemorySources(), MemoryStorage()
+
+    outcome = await _service(sources, storage).upload(ADMIN, _answers(), File("paper.xml", _JATS))
+
+    assert isinstance(outcome, SourceStored)
+    source = outcome.source
+    assert (source.status, source.file_type) == (SourceStatus.UPLOADED, KnowledgeFileType.JATS)
+    assert storage.content_types[f"sources/{source.id}"] == "application/xml"
 
 
 async def test_a_cc_by_upload_records_its_licence_and_attribution() -> None:

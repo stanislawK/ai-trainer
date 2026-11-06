@@ -34,7 +34,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ai_trainer.adapters.knowledge_repository import to_domain
 from ai_trainer.adapters.orm import KnowledgeChunkOrm, KnowledgeSourceOrm
 from ai_trainer.domain.knowledge import KnowledgeSource, SourceLanguage, SourceStatus
-from ai_trainer.domain.knowledge_ingestion import EmbeddedChunk, IngestFailure
+from ai_trainer.domain.knowledge_ingestion import EmbeddedChunk, FileRecord, IngestFailure
 
 _TEXT_SEARCH_CONFIGS = {SourceLanguage.EN: "english", SourceLanguage.PL: "simple"}
 # Rows per INSERT, so a long book's chunks don't make one enormous statement.
@@ -185,6 +185,39 @@ class SqlAlchemyKnowledgeIngestionRepository:
             ),
             "created_at": at,
         }
+
+    async def record_file(
+        self,
+        source_id: UUID,
+        *,
+        claim_id: UUID,
+        storage_key: str,
+        content_hash: str,
+        size_bytes: int,
+        file_name: str,
+    ) -> FileRecord:
+        statement = (
+            update(_S)
+            .where(held(source_id, claim_id))
+            .values(
+                storage_key=storage_key,
+                content_hash=content_hash,
+                size_bytes=size_bytes,
+                file_name=file_name,
+            )
+            .returning(_S.id)
+        )
+        async with self._session_factory() as session:
+            # The hash is unique (ADR-0011). Checked first so a duplicate is a reason, not an
+            # integrity error; the constraint still guards the race between this and the update.
+            same_hash = await session.scalar(
+                select(_S.id).where(_S.content_hash == content_hash, _S.id != source_id)
+            )
+            if same_hash is not None:
+                return FileRecord.DUPLICATE
+            recorded = await session.scalar(statement)
+            await session.commit()
+            return FileRecord.GONE if recorded is None else FileRecord.RECORDED
 
     async def fail(self, source_id: UUID, *, claim_id: UUID, reason: IngestFailure) -> bool:
         statement = (

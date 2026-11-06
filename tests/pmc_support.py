@@ -2,6 +2,7 @@
 requests the adapter makes, ListObjectsV2 on `metadata/<PMCID>.` and GET of one version's JSON,
 from articles kept in memory, and records every request it was sent."""
 
+import hashlib
 import json
 import re
 from collections.abc import Mapping
@@ -35,23 +36,46 @@ def article(pmcid: str, **overrides: object) -> dict[str, object]:
         "doi": f"10.9999/test.{number}",
         "title": f"Article {pmcid}",
         "citation": f"J Test. 2026;1:{number}.",
+        # The demo's link is to its own file; `FakeBucket.put_with_xml` sets one for this article.
+        "xml_url": None,
     }
     fields.update(overrides)
     return fields
+
+
+def xml_url(pmcid: str, version: int, md5: str) -> str:
+    """The metadata JSON's `xml_url` as the bucket writes it."""
+    key = f"{pmcid}.{version}"
+    return f"s3://pmc-oa-opendata/{key}/{key}.xml?md5={md5}"
 
 
 @dataclass
 class FakeBucket:
     # PMC ID → version → that version's JSON.
     articles: dict[str, dict[int, Mapping[str, object]]] = field(default_factory=dict)
+    # PMC ID → version → that version's JATS XML (#463).
+    xml: dict[str, dict[int, bytes]] = field(default_factory=dict)
     # PMC ID → how a request about it fails.
     failing: dict[str, Failure] = field(default_factory=dict)
+    # PMC ID → how the request for its XML (and only that) fails (#463).
+    xml_failing: dict[str, Failure] = field(default_factory=dict)
     requests: list[httpx2.Request] = field(default_factory=list)
 
     def put(self, data: Mapping[str, object]) -> None:
         version = data["version"]
         assert isinstance(version, int)
         self.articles.setdefault(str(data["pmcid"]), {})[version] = data
+
+    def put_with_xml(
+        self, data: Mapping[str, object], xml: bytes, *, md5: str | None = None
+    ) -> None:
+        """Stores the article's JSON, pointing `xml_url` at `xml`, whose md5 is `md5` unless
+        another is given (to model a corrupted download)."""
+        pmcid, version = str(data["pmcid"]), data["version"]
+        assert isinstance(version, int)
+        digest = md5 or hashlib.md5(xml, usedforsecurity=False).hexdigest()
+        self.put({**data, "xml_url": xml_url(pmcid, version, digest)})
+        self.xml.setdefault(pmcid, {})[version] = xml
 
     def transport(self) -> httpx2.MockTransport:
         return httpx2.MockTransport(self._respond)
@@ -71,9 +95,25 @@ class FakeBucket:
             return httpx2.Response(503, content=b"<Error>SlowDown</Error>")
         if request.url.path == "/":
             return self._list(pmcid)
+        if request.url.path.endswith(".xml"):
+            return self._get_xml(request, pmcid)
         if failure == "gone":
             return httpx2.Response(404, content=b"<Error>NoSuchKey</Error>")
         return self._get(request.url.path, malformed=failure == "malformed")
+
+    def _get_xml(self, request: httpx2.Request, pmcid: str) -> httpx2.Response:
+        failure = self.xml_failing.get(pmcid)
+        if failure == "timeout":
+            raise httpx2.ReadTimeout("too slow", request=request)
+        if failure == "error":
+            raise httpx2.ConnectError("unreachable", request=request)
+        if failure == "server_error":
+            return httpx2.Response(503, content=b"<Error>SlowDown</Error>")
+        found = re.fullmatch(r"/(PMC[0-9]+)\.([0-9]+)/\1\.\2\.xml", request.url.path)
+        data = None if found is None else self.xml.get(found[1], {}).get(int(found[2]))
+        if failure == "gone" or data is None:
+            return httpx2.Response(404, content=b"<Error>NoSuchKey</Error>")
+        return httpx2.Response(200, content=data)
 
     def _list(self, pmcid: str) -> httpx2.Response:
         keys = "".join(
