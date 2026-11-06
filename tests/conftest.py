@@ -1,3 +1,4 @@
+import dataclasses
 import os
 from collections.abc import Iterator
 
@@ -110,7 +111,12 @@ _XDIST_GROUPS = {
         # The catalogue's two sources are shared rows every test here queues and claims (#427).
         "tests/integration/test_catalogue_ingestion.py",
     ),
-    "src_tree": ("tests/unit/test_import_boundaries.py", "tests/unit/test_clock_usage.py"),
+    # `test_xdist_groups` runs this group in a subprocess, so it must not overlap the outer one.
+    "src_tree": (
+        "tests/unit/test_import_boundaries.py",
+        "tests/unit/test_clock_usage.py",
+        "tests/unit/test_xdist_groups.py",
+    ),
 }
 
 
@@ -138,3 +144,28 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
         for group, prefixes in _XDIST_GROUPS.items():
             if path.startswith(prefixes):
                 item.add_marker(pytest.mark.xdist_group(group))
+
+
+class _GroupSuffixOnStructuredIds:
+    """pytest 9.2 reads a node ID from its structured `_id` (pytest #14758), while pytest-xdist
+    3.8.0's worker still writes the `@<group>` suffix to the old `_nodeid`, so `loadgroup` lost
+    every group (#484). Last, after xdist's own hook, this copies that suffixed ID into `_id`.
+    An xdist with #1388 sends groups separately and writes no `_nodeid`, so this then does
+    nothing; remove it once a pytest-xdist release carries #1388 (ADR-0013). `test_xdist_groups`
+    guards the behaviour either way.
+    """
+
+    @pytest.hookimpl(trylast=True)
+    def pytest_collection_modifyitems(self, items: list[pytest.Item]) -> None:
+        for item in items:
+            legacy = item.__dict__.get("_nodeid")
+            if legacy is not None and legacy != item.nodeid:
+                # Keep the structured parts and only cache the suffixed string: `NodeId.parse`
+                # would read `test[p]@group`'s params as `p]@group`.
+                suffixed = dataclasses.replace(item._id)
+                object.__setattr__(suffixed, "_str_cache", legacy)
+                item._id = suffixed
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    config.pluginmanager.register(_GroupSuffixOnStructuredIds(), "group-suffix-on-structured-ids")

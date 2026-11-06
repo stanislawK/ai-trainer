@@ -157,7 +157,8 @@ async def test_an_output_validation_retry_writes_attempts_1_and_2(tmp_path: Path
             part
             for message in line["messages"]
             for part in message["parts"]
-            if part["part_kind"] == "retry-prompt"
+            if part["part_kind"] == "retry-feedback"
+            or (part["part_kind"] == "tool-return" and part.get("outcome") == "retried")
         ]
 
     assert not retry_prompts(first)
