@@ -113,7 +113,7 @@ def test_a_sentence_end_may_be_followed_by_a_closing_quote_or_bracket() -> None:
 
 def test_captions_with_no_punctuation_are_cut_at_a_cue_boundary_past_the_word_cap() -> None:
     cues = "".join(
-        f"00:00:{n:02d}.000 --> 00:00:{n + 1:02d}.000\nsix words in every single cue\n\n"
+        f"00:00:{n:02d}.000 --> 00:00:{n + 1:02d}.000\ncue{n} has exactly six words\n\n"
         for n in range(40)
     )
 
@@ -122,7 +122,7 @@ def test_captions_with_no_punctuation_are_cut_at_a_cue_boundary_past_the_word_ca
     starts = [b.locator.start_seconds for b in blocks if isinstance(b.locator, CueLocator)]
     assert len(blocks) > 1
     assert all(len(b.text.split()) <= 126 for b in blocks)
-    assert sum(len(b.text.split()) for b in blocks) == 40 * 6
+    assert sum(len(b.text.split()) for b in blocks) == 40 * 5
     assert len(starts) == len(blocks)
     assert starts == sorted(starts)
 
@@ -194,3 +194,38 @@ def test_the_readers_hand_vtt_and_srt_to_these_readers() -> None:
 
     assert isinstance(readers.parse(KnowledgeFileType.VTT, _VTT.encode()), KnowledgeDocument)
     assert isinstance(readers.parse(KnowledgeFileType.SRT, _SRT.encode()), KnowledgeDocument)
+
+
+def test_html_entities_in_a_cue_are_unescaped_after_the_tags_are_dropped() -> None:
+    vtt = (
+        "WEBVTT\n\n00:00:01.000 --> 00:00:03.000\n"
+        "<c>Push &amp; pull,</c> RPE &lt; 7&nbsp;and &lt;b&gt;stay&lt;/b&gt;.\n"
+    )
+
+    assert _document(read_vtt(vtt.encode())).blocks[0].text == (
+        "Push & pull, RPE < 7 and <b>stay</b>."
+    )
+
+
+def test_a_rolling_caption_adds_only_the_lines_the_last_cue_did_not_have() -> None:
+    vtt = (
+        "WEBVTT\n\n"
+        "00:00:01.000 --> 00:00:03.000\nfirst line\nsecond line\n\n"
+        "00:00:03.000 --> 00:00:05.000\nsecond line\nthird line.\n\n"
+        "00:00:05.000 --> 00:00:05.010\nthird line.\n"
+    )
+
+    block = _document(read_vtt(vtt.encode())).blocks[0]
+
+    assert block.text == "first line second line third line."
+    assert block.locator == CueLocator(start_seconds=1, end_seconds=5)
+
+
+def test_a_cue_that_starts_with_the_last_cues_whole_text_adds_the_rest() -> None:
+    vtt = (
+        "WEBVTT\n\n"
+        "00:00:01.000 --> 00:00:02.000\nwe squeeze\n\n"
+        "00:00:02.000 --> 00:00:03.000\nwe squeeze the hold now.\n"
+    )
+
+    assert _document(read_vtt(vtt.encode())).blocks[0].text == "we squeeze the hold now."

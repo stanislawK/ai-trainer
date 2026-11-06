@@ -2,10 +2,12 @@
 parser into headings, paragraphs, lists, tables and captions, each with its heading path.
 
 The HTML parser recovers sloppy markup and entities, and never resolves an entity declared in the
-file, so a hostile DOCTYPE can't read the host's files; the network is off. A file with NUL bytes
-is binary, and one lxml can't parse at all is empty: both give no blocks.
+file, so a hostile DOCTYPE can't read the host's files; the network is off. A UTF-16 file is
+re-encoded and a UTF-8 byte-order mark dropped first. A file with NUL bytes after that is binary,
+and one lxml can't parse at all is empty: both give no blocks.
 """
 
+import codecs
 from collections.abc import Iterable
 
 from lxml import etree
@@ -42,6 +44,10 @@ _CONTAINERS = frozenset(
 )
 _BLOCKS = frozenset(_HEADINGS) | _LISTS | _CONTAINERS | {"table", "figcaption"}
 
+# Elements that end a word where they end: lxml's `itertext` joins the text around them with
+# nothing, so `one<br/>two` would read `onetwo`.
+_SEPARATED = frozenset({"br", "td", "th", "li", "dt", "dd", "tr", "p", "div", "caption"})
+
 # A block's kind, its text and its heading path.
 type RawBlock = tuple[BlockKind, str, tuple[str, ...]]
 
@@ -56,8 +62,17 @@ def squash(texts: Iterable[str]) -> str:
     return " ".join("".join(texts).split())
 
 
+def _utf8(data: bytes) -> bytes:
+    """The file as UTF-8: UTF-16 re-encoded (XML, and EPUB 2, allow it), a UTF-8 byte-order mark
+    dropped so it doesn't open the first paragraph."""
+    if data.startswith((codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE)):
+        return data.decode("utf-16", errors="replace").encode("utf-8")
+    return data.removeprefix(codecs.BOM_UTF8)
+
+
 def parse_html(data: bytes) -> etree._Element | None:
     """The document's root, or None for an empty file."""
+    data = _utf8(data)
     parser = etree.HTMLParser(
         encoding="utf-8",
         recover=True,
@@ -128,6 +143,8 @@ class _Walker:
     def _table(self, element: etree._Element) -> None:
         rows = []
         for row in element.iter("tr"):
+            if next(row.iterancestors("table"), None) is not element:
+                continue  # a nested table's row is read inside its cell, not again as a row
             cells = [squash(cell.itertext()) for cell in row if local_name(cell) in _CELLS]
             if any(cells):
                 rows.append(" | ".join(cells))
@@ -139,12 +156,16 @@ class _Walker:
 
 def xhtml_blocks(data: bytes) -> list[RawBlock] | None:
     """The file's blocks, or None when it isn't markup."""
+    data = _utf8(data)
     if b"\x00" in data:
         return None
     try:
         root = parse_html(data)
         if root is None:
             return None
+        for element in root.iter():
+            if local_name(element) in _SEPARATED:
+                element.tail = f" {element.tail or ''}"
         body = root.find("body")
         walker = _Walker()
         walker.visit(root if body is None else body)

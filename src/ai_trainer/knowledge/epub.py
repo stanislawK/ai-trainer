@@ -19,6 +19,7 @@ lxml (BSD-3-Clause) is used instead of ebooklib, which is AGPL (ADR-0036).
 
 import posixpath
 import zlib
+from collections import Counter
 from collections.abc import Mapping
 from dataclasses import dataclass
 from io import BytesIO
@@ -168,26 +169,37 @@ def _package(archive: _Archive) -> _Package:
     return _Package(items=items, spine=tuple(spine), ncx_id=ncx_id)
 
 
-def _nav_titles(data: bytes, path: str) -> dict[str, str]:
-    """Titles from an EPUB 3 navigation document's table of contents, the first one listed for
-    a file winning over the entries that point into it."""
+type _Entries = list[tuple[str, str]]
+
+
+@dataclass(frozen=True, slots=True)
+class _Titles:
+    """Chapter titles by archive path: the first entry listed for a file, and the files the
+    contents list more than once, which hold several chapters in one file."""
+
+    by_file: Mapping[str, str]
+    shared: frozenset[str]
+
+
+def _nav_entries(data: bytes, path: str) -> _Entries:
+    """The links of an EPUB 3 navigation document's table of contents, in order: the archive
+    path each points into, and its title."""
     root = xhtml.parse_html(data)
     if root is None:
-        return {}
+        return []
     navs = list(root.iter("nav"))
     toc = [n for n in navs if "toc" in (n.get("epub:type") or "").split()] or navs[:1]
-    titles: dict[str, str] = {}
-    for nav in toc:
-        for link in nav.iter("a"):
-            title = squash(link.itertext())
-            if title and link.get("href"):
-                titles.setdefault(_resolve(posixpath.dirname(path), link.get("href")), title)
-    return titles
+    return [
+        (_resolve(posixpath.dirname(path), link.get("href")), title)
+        for nav in toc
+        for link in nav.iter("a")
+        if (title := squash(link.itertext())) and link.get("href")
+    ]
 
 
-def _ncx_titles(data: bytes, path: str) -> dict[str, str]:
-    """Titles from an EPUB 2 NCX, in the same way."""
-    titles: dict[str, str] = {}
+def _ncx_entries(data: bytes, path: str) -> _Entries:
+    """The points of an EPUB 2 NCX, in the same way."""
+    entries: _Entries = []
     for point in _xml(data).iter():
         if local_name(point) != "navPoint":
             continue
@@ -195,39 +207,51 @@ def _ncx_titles(data: bytes, path: str) -> dict[str, str]:
         content = next((c for c in point if local_name(c) == "content"), None)
         title = squash(label.itertext()) if label is not None else ""
         if title and content is not None and content.get("src"):
-            titles.setdefault(_resolve(posixpath.dirname(path), content.get("src")), title)
-    return titles
+            entries.append((_resolve(posixpath.dirname(path), content.get("src")), title))
+    return entries
 
 
-def _titles(archive: _Archive, package: _Package) -> dict[str, str]:
-    """The chapter titles by archive path. A contents list that won't read only costs the
-    titles; the book is still read."""
+def _titles(archive: _Archive, package: _Package) -> _Titles:
+    """The chapter titles. A contents list that won't read only costs the titles; the book is
+    still read."""
     nav = next((item for item in package.items.values() if "nav" in item.properties), None)
     ncx = package.items.get(package.ncx_id or "")
-    for item, titles_of in ((nav, _nav_titles), (ncx, _ncx_titles)):
+    for item, entries_of in ((nav, _nav_entries), (ncx, _ncx_entries)):
         data = None if item is None else archive.read(item.path)
         if item is None or data is None:
             continue
         try:
-            titles = titles_of(data, item.path)
+            entries = entries_of(data, item.path)
         except etree.LxmlError, ValueError:
             continue
-        if titles:
-            return titles
-    return {}
+        if entries:
+            by_file: dict[str, str] = {}
+            for entry_path, title in entries:
+                by_file.setdefault(entry_path, title)
+            listed = Counter(entry_path for entry_path, _ in entries)
+            return _Titles(by_file, frozenset(p for p, count in listed.items() if count > 1))
+    return _Titles({}, frozenset())
 
 
-def _item_blocks(data: bytes, path: str, listed_title: str | None) -> list[Block]:
+def _item_blocks(data: bytes, path: str, listed_title: str | None, *, shared: bool) -> list[Block]:
+    """A spine item's blocks. A file the contents list once is one chapter; one it lists more
+    than once holds several, and each block takes its outermost heading as its chapter."""
     raw = xhtml_blocks(data)
     if raw is None:
         return []
     chapter = listed_title or next(
         (text for kind, text, _ in raw if kind is BlockKind.HEADING), None
     )
-    locator = SpineLocator(spine_item=path, chapter=chapter)
     fallback = (chapter,) if chapter else ()
     return [
-        Block(kind=kind, text=text, heading_path=heading_path or fallback, locator=locator)
+        Block(
+            kind=kind,
+            text=text,
+            heading_path=heading_path or fallback,
+            locator=SpineLocator(
+                spine_item=path, chapter=heading_path[0] if shared and heading_path else chapter
+            ),
+        )
         for kind, text, heading_path in raw
     ]
 
@@ -239,14 +263,22 @@ def _read(data: bytes) -> KnowledgeDocument:
             raise _BadBookError(UnreadableReason.ENCRYPTED)
         package = _package(archive)
         titles = _titles(archive, package)
-        spine = (package.items.get(idref) for idref in package.spine)
+        # A spine that lists an item twice (some generators do) reads it once.
+        spine = (package.items.get(idref) for idref in dict.fromkeys(package.spine))
         blocks: list[Block] = []
         found = False
         for item in spine:
             content = archive.read(item.path) if item and item.media_type in _XHTML_TYPES else None
             if content is not None and item is not None:
                 found = True
-                blocks.extend(_item_blocks(content, item.path, titles.get(item.path)))
+                blocks.extend(
+                    _item_blocks(
+                        content,
+                        item.path,
+                        titles.by_file.get(item.path),
+                        shared=item.path in titles.shared,
+                    )
+                )
     if not found:
         raise _BadBookError(UnreadableReason.CORRUPT)
     if not blocks:

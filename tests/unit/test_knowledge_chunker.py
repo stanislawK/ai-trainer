@@ -269,3 +269,15 @@ def test_a_table_that_opens_a_section_has_no_caption_to_take() -> None:
     chunks = _chunk(table)
 
     assert [(c.text, c.section_kind) for c in chunks] == [("Mon | Squat", SectionKind.TABLE)]
+
+
+def test_small_sections_of_different_chapters_in_one_file_are_not_merged() -> None:
+    chunks = _chunk(
+        _in_item("OEBPS/book.xhtml", _words(5), "Book", "One", chapter="Part A"),
+        _in_item("OEBPS/book.xhtml", _words(5), "Book", "Two", chapter="Part B"),
+    )
+
+    assert [(c.heading_path, c.locator) for c in chunks] == [
+        (("Book", "One"), SpineLocator(spine_item="OEBPS/book.xhtml", chapter="Part A")),
+        (("Book", "Two"), SpineLocator(spine_item="OEBPS/book.xhtml", chapter="Part B")),
+    ]

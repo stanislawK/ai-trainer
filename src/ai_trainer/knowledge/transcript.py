@@ -6,11 +6,16 @@ joined into windows that end where a cue ends a sentence.
 - Captions with no punctuation, as auto-generated ones often are, are cut at a cue boundary once
   a window reaches `_MAX_WINDOW_WORDS`, so a window never grows without bound. The chunker then
   packs windows up to its own word budget and splits only a window over it.
-- Cue tags (`<v Coach>`, `<c.yellow>`, `<i>`) are dropped; a cue with no text is skipped.
+- Cue tags (`<v Coach>`, `<c.yellow>`, `<i>`) are dropped and entities (`&amp;`, `&nbsp;`)
+  unescaped; a cue with no text is skipped.
+- Rolling captions, as YouTube writes them, repeat the last cue's text in the next one: a
+  line the last cue already had, or a cue that starts with the last cue's whole text, adds
+  only what is new.
 
 webvtt-py (MIT) reads both formats from memory; pysrt is GPLv3 and isn't used (ADR-0036).
 """
 
+import html
 import re
 from collections.abc import Callable, Iterator, Sequence
 from io import StringIO
@@ -67,14 +72,32 @@ def _window(texts: list[str], start: int, end: int) -> Block:
     )
 
 
+def _lines(caption: _Cue) -> list[str]:
+    plain = html.unescape(_TAG.sub("", caption.raw_text))
+    return [line for line in (" ".join(raw.split()) for raw in plain.splitlines()) if line]
+
+
+def _new_cues(captions: Sequence[_Cue]) -> Iterator[tuple[_Cue, str]]:
+    """Each cue with the text it adds to the one before it."""
+    previous: list[str] = []
+    for caption in captions:
+        lines = _lines(caption)
+        if not lines:
+            continue
+        fresh = " ".join(line for line in lines if line not in previous)
+        shown = " ".join(previous)
+        if shown and fresh.startswith(f"{shown} "):
+            fresh = fresh[len(shown) + 1 :]
+        previous = lines
+        if fresh:
+            yield caption, fresh
+
+
 def _windows(captions: Sequence[_Cue]) -> Iterator[Block]:
     texts: list[str] = []
     words = 0
     start = end = 0
-    for caption in captions:
-        text = " ".join(_TAG.sub("", caption.raw_text).split())
-        if not text:
-            continue
+    for caption, text in _new_cues(captions):
         if not texts:
             start = caption.start_in_seconds
         texts.append(text)

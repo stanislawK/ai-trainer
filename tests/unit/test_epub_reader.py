@@ -1,6 +1,7 @@
 """The EPUB reader (#426, ADR-0036): spine order, chapter titles from the navigation document,
 blocks with heading paths, and a reason for a file it can't read."""
 
+from collections.abc import Callable
 from typing import Literal
 
 import pytest
@@ -17,7 +18,7 @@ from ai_trainer.domain.knowledge_document import (
 )
 from ai_trainer.knowledge import epub as epub_module
 from ai_trainer.knowledge import xhtml as xhtml_module
-from ai_trainer.knowledge.epub import _nav_titles, _ncx_titles, read_epub
+from ai_trainer.knowledge.epub import _nav_entries, _ncx_entries, read_epub
 from ai_trainer.knowledge.readers import DocumentReaders
 from tests.epub_support import (
     ADOBE_FONT_OBFUSCATION,
@@ -358,8 +359,8 @@ def test_navigation_links_without_a_target_or_a_title_are_ignored() -> None:
         b"</ol></nav>"
     )
 
-    assert _nav_titles(nav, "OEBPS/nav.xhtml") == {"OEBPS/c2.xhtml": "Chapter two"}
-    assert _nav_titles(b"", "OEBPS/nav.xhtml") == {}
+    assert _nav_entries(nav, "OEBPS/nav.xhtml") == [("OEBPS/c2.xhtml", "Chapter two")]
+    assert _nav_entries(b"", "OEBPS/nav.xhtml") == []
 
 
 def test_ncx_points_without_a_label_or_a_target_are_ignored() -> None:
@@ -371,7 +372,7 @@ def test_ncx_points_without_a_label_or_a_target_are_ignored() -> None:
         b"</navMap></ncx>"
     )
 
-    assert _ncx_titles(ncx, "OEBPS/toc.ncx") == {"OEBPS/c2.xhtml": "Two"}
+    assert _ncx_entries(ncx, "OEBPS/toc.ncx") == [("OEBPS/c2.xhtml", "Two")]
 
 
 def test_the_readers_hand_an_epub_to_this_reader() -> None:
@@ -385,4 +386,89 @@ def test_a_table_without_a_caption_is_a_table_block_alone() -> None:
 
     assert [(b.kind, b.text) for b in _document(epub([chapter])).blocks] == [
         (BlockKind.TABLE, "Mon | Squat")
+    ]
+
+
+def test_a_line_break_keeps_the_words_either_side_apart() -> None:
+    chapter = Chapter(
+        "ch1.xhtml",
+        "Poems",
+        "<p>Line one<br/>Line two</p><ul><li>Squat<br>deep</li><li>Press</li></ul>"
+        "<table><tr><td>A</td><td>B<br/>C</td></tr></table>",
+    )
+
+    assert [(b.kind, b.text) for b in _document(epub([chapter])).blocks] == [
+        (BlockKind.PARAGRAPH, "Line one Line two"),
+        (BlockKind.LIST, "Squat deep\nPress"),
+        (BlockKind.TABLE, "A | B C"),
+    ]
+
+
+def test_a_nested_table_is_read_once_inside_its_cell() -> None:
+    chapter = Chapter(
+        "ch1.xhtml",
+        "Plan",
+        "<table><tr><td>Outer</td><td><table><tr><td>A</td><td>B</td></tr></table></td></tr></table>",
+    )
+
+    assert [(b.kind, b.text) for b in _document(epub([chapter])).blocks] == [
+        (BlockKind.TABLE, "Outer | A B")
+    ]
+
+
+@pytest.mark.parametrize(
+    "encode",
+    [
+        lambda text: b"\xef\xbb\xbf" + text.encode("utf-8"),
+        lambda text: text.encode("utf-16"),
+        lambda text: b"\xfe\xff" + text.encode("utf-16-be"),
+    ],
+    ids=["utf8-bom", "utf16-le", "utf16-be"],
+)
+def test_a_spine_item_with_a_byte_order_mark_or_in_utf16_is_read(
+    encode: Callable[[str], bytes],
+) -> None:
+    page = "<html><body><p>Zażółć gęślą jaźń.</p></body></html>"
+    data = with_files(epub([_ONE]), {"OEBPS/ch1.xhtml": encode(page)})
+
+    assert [b.text for b in _document(data).blocks] == ["Zażółć gęślą jaźń."]
+
+
+def test_an_item_the_spine_lists_twice_is_read_once() -> None:
+    document = _document(epub([_ONE, _TWO], spine=["c0", "c1", "c0"]))
+
+    assert [b.text for b in _body(document)] == [
+        _PARAGRAPH,
+        "Sleep is where adaptation happens.",
+    ]
+
+
+@pytest.mark.parametrize("kind", ["nav", "ncx"])
+def test_a_file_the_contents_list_more_than_once_gives_each_block_its_own_chapter(
+    kind: Literal["nav", "ncx"],
+) -> None:
+    book = Chapter(
+        "book.xhtml",
+        None,
+        "<p>Preface text.</p><h1>Warm-up</h1><p>Warm up first.</p><h2>Sets</h2><p>Light sets.</p>"
+        "<h1>Recovery</h1><p>Sleep well.</p>",
+    )
+    nav_content = (
+        '<html xmlns:epub="http://www.idpf.org/2007/ops"><body><nav epub:type="toc"><ol>'
+        '<li><a href="book.xhtml#a">Part A</a></li><li><a href="book.xhtml#b">Part B</a></li>'
+        "</ol></nav></body></html>"
+        if kind == "nav"
+        else '<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/"><navMap>'
+        '<navPoint><navLabel><text>Part A</text></navLabel><content src="book.xhtml#a"/></navPoint>'
+        '<navPoint><navLabel><text>Part B</text></navLabel><content src="book.xhtml#b"/></navPoint>'
+        "</navMap></ncx>"
+    )
+
+    document = _document(epub([book], nav=kind, nav_content=nav_content))
+
+    assert [(b.text, getattr(b.locator, "chapter", None)) for b in _body(document)] == [
+        ("Preface text.", "Part A"),
+        ("Warm up first.", "Warm-up"),
+        ("Light sets.", "Warm-up"),
+        ("Sleep well.", "Recovery"),
     ]

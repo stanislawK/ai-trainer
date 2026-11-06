@@ -59,16 +59,18 @@ class _Unit:
     joiner: str | None
 
 
-def _unit(locator: Locator) -> int | str | None:
-    """The page of a PDF or the spine item of an EPUB: what a chunk must not span."""
+def _unit(locator: Locator) -> int | tuple[str, str | None] | None:
+    """The page of a PDF, or the spine item and chapter of an EPUB: what a chunk must not span."""
     if isinstance(locator, PageLocator):
         return locator.page
     if isinstance(locator, SpineLocator):
-        return locator.spine_item
+        return locator.spine_item, locator.chapter
     return None
 
 
-def _section_key(block: Block) -> tuple[tuple[str, ...], int | str | None]:
+def _section_key(
+    block: Block,
+) -> tuple[tuple[str, ...], int | tuple[str, str | None] | None]:
     """A section is a run of blocks under one heading path, and a PDF's also on one page and an
     EPUB's in one spine item, so a chunk never spans two of them and its locator is its own."""
     return block.heading_path, _unit(block.locator)
