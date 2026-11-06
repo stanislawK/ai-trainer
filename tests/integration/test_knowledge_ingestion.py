@@ -7,9 +7,11 @@ source. Each test claims once (`ingest_once`), never until the queue is empty.
 """
 
 import asyncio
+import hashlib
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from uuid import UUID
+from pathlib import Path
+from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy import select, text
@@ -29,16 +31,19 @@ from ai_trainer.domain.knowledge import (
     SourceStatus,
 )
 from ai_trainer.domain.knowledge_document import SectionKind
-from ai_trainer.domain.knowledge_ingestion import IngestReport
+from ai_trainer.domain.knowledge_ingestion import FileRecord, IngestReport
 from ai_trainer.domain.users import NewUser, User, UserStatus
+from ai_trainer.knowledge.chunker import Chunker
 from tests.epub_support import AES_ALGORITHM, Chapter, encryption_xml, epub
 from tests.ingestion_support import (
     DIMENSIONS,
     MODEL,
+    FakePmcFiles,
     FrozenClock,
     ScriptedEmbeddings,
     guide_markdown,
     ingestion,
+    pmc_source,
     uploaded_source,
 )
 from tests.knowledge_support import MemoryStorage
@@ -98,19 +103,58 @@ class _World:
         self.storage.objects[new.storage_key] = guide_markdown(marker) if data is None else data
         return await self.sources.add(new)
 
-    def worker(self, embeddings: ScriptedEmbeddings | None = None) -> KnowledgeIngestion:
+    async def add_pmc(
+        self, *, status: SourceStatus = SourceStatus.UPLOADED, minutes: int = 0
+    ) -> KnowledgeSource:
+        """A PMC article as approval leaves it: no file, the placeholder hash (#458)."""
+        pmcid = f"PMC{uuid4().int % 10**12}"
+        new = pmc_source(admin_id=self.admin.id, pmcid=pmcid, status=status)
+        return await self.sources.add(
+            new.model_copy(update={"uploaded_at": _LONG_AGO + timedelta(minutes=minutes)})
+        )
+
+    async def hold(self, source_id: UUID) -> UUID:
+        """Gives the source a live claim without going through `claim_next`'s queue order."""
+        claim = uuid4()
+        async with self.factory() as session:
+            await session.execute(
+                text(
+                    "UPDATE knowledge_sources SET status = 'ingesting', claim_id = :claim, "
+                    "lease_expires_at = :until WHERE id = :id"
+                ),
+                {"claim": claim, "until": self.clock.now() + _LEASE, "id": source_id},
+            )
+            await session.commit()
+        return claim
+
+    def worker(
+        self,
+        embeddings: ScriptedEmbeddings | None = None,
+        *,
+        pmc_files: FakePmcFiles | None = None,
+        chunker: Chunker | None = None,
+    ) -> KnowledgeIngestion:
         return ingestion(
             repository=self.queue,
             storage=self.storage,
             embeddings=embeddings or ScriptedEmbeddings(),
             clock=self.clock,
             lease=_LEASE,
+            pmc_files=pmc_files,
+            chunker=chunker,
         )
 
-    async def ingest_once(self, embeddings: ScriptedEmbeddings | None = None) -> list[IngestReport]:
+    async def ingest_once(
+        self,
+        embeddings: ScriptedEmbeddings | None = None,
+        *,
+        pmc_files: FakePmcFiles | None = None,
+        chunker: Chunker | None = None,
+    ) -> list[IngestReport]:
         """One claim, as a list of zero or one report. Not `drain()`: that would go on to any
         committed source the database holds, a concurrent test's or the dev data's."""
-        report = await self.worker(embeddings).ingest_next()
+        worker = self.worker(embeddings, pmc_files=pmc_files, chunker=chunker)
+        report = await worker.ingest_next()
         return [] if report is None else [report]
 
     async def chunks(self, source_id: UUID) -> list[KnowledgeChunkOrm]:
@@ -266,15 +310,263 @@ async def test_an_embedding_failure_fails_the_source_and_reingest_recovers_it(
     assert await world.status(source.id) == (SourceStatus.INGESTED, None)
 
 
-async def test_a_type_with_no_reader_fails_with_a_reason(world: _World) -> None:
-    source = await world.add("ac4-jats", data=b"<article/>", file_type=KnowledgeFileType.JATS)
+_FIXTURE = Path(__file__).parent.parent / "fixtures" / "pmc" / "PMC13692514.1.xml"
+# The settings' defaults: the budget a real article's chunks are cut to.
+_PRODUCTION_CHUNKER = Chunker(max_words=300, min_words=80)
 
-    reports = await world.ingest_once()
 
-    assert [(r.result, r.reason) for r in reports if r.source_id == source.id] == [
-        ("failed", "no_reader")
+def _article_xml(marker: str) -> bytes:
+    """The real article, made this test's own: a comment after the root changes the bytes, and so
+    the hash, which the shared database keeps unique."""
+    return _FIXTURE.read_bytes() + f"<!-- {marker} -->".encode()
+
+
+async def test_approved_pmc_article_reaches_ingested_with_named_sections(world: _World) -> None:
+    source = await world.add_pmc()
+    xml = _article_xml("ac1")
+    assert source.pmcid is not None
+    files = FakePmcFiles({source.pmcid: xml})
+
+    reports = await world.ingest_once(pmc_files=files, chunker=_PRODUCTION_CHUNKER)
+
+    chunks = await world.chunks(source.id)
+    assert reports == [IngestReport(source_id=source.id, result="ingested", chunks=len(chunks))]
+    assert files.requests == [source.pmcid]
+    paths = {tuple(c.heading_path) for c in chunks}
+    assert ("Abstract",) in paths
+    assert any(p[:1] == ("2. Materials and Methods",) for p in paths)
+    assert ("2. Materials and Methods", "2.9. Statistical Analysis") in paths
+    assert any(p[:1] == ("3. Results",) for p in paths)
+    assert all(c.locator["kind"] == "section" for c in chunks)
+    assert {c.locator["doi"] for c in chunks} == {"10.3390/jfmk11040434"}
+    stored = await world.sources.get(source.id)
+    assert stored is not None
+    assert stored.status is SourceStatus.INGESTED
+    assert stored.storage_key == f"sources/{source.id}"
+    assert world.storage.objects[stored.storage_key] == xml
+    assert stored.content_hash == hashlib.sha256(xml).hexdigest()
+    assert (stored.file_name, stored.size_bytes) == (f"{source.pmcid}.xml", len(xml))
+
+
+async def test_a_pmc_articles_abstract_is_one_chunk_and_its_references_are_not_embedded(
+    world: _World,
+) -> None:
+    source = await world.add_pmc()
+    assert source.pmcid is not None
+    files = FakePmcFiles({source.pmcid: _article_xml("ac2")})
+
+    await world.ingest_once(pmc_files=files, chunker=_PRODUCTION_CHUNKER)
+
+    chunks = await world.chunks(source.id)
+    assert sum(c.section_kind == SectionKind.ABSTRACT.value for c in chunks) == 1
+    assert not any("References" in c.heading_path for c in chunks)
+    # The article's reference list is the back matter; none of its entries is in any chunk.
+    assert not any("Stephen, W.C." in c.text or "doi.org/10.1016" in c.text for c in chunks)
+
+
+async def test_a_pmc_table_and_its_caption_land_in_one_chunk(world: _World) -> None:
+    source = await world.add_pmc()
+    assert source.pmcid is not None
+    files = FakePmcFiles({source.pmcid: _article_xml("ac3")})
+
+    await world.ingest_once(pmc_files=files, chunker=_PRODUCTION_CHUNKER)
+
+    tables = [c for c in await world.chunks(source.id) if c.section_kind == "table"]
+    assert len(tables) == 3
+    first = next(c for c in tables if "Table 1." in c.text)
+    assert "Representative weekly structure and progression" in first.text
+    assert "Training Variable | Session 1" in first.text
+
+
+async def test_a_pmc_fetch_failure_sets_failed_with_a_reason(world: _World) -> None:
+    source = await world.add_pmc()
+
+    reports = await world.ingest_once(pmc_files=FakePmcFiles())
+
+    assert [(r.source_id, r.result, r.reason) for r in reports] == [
+        (source.id, "failed", "pmc_not_found")
     ]
-    assert await world.status(source.id) == (SourceStatus.FAILED, "no_reader")
+    assert await world.status(source.id) == (SourceStatus.FAILED, "pmc_not_found")
+    stored = await world.sources.get(source.id)
+    assert stored is not None
+    assert stored.storage_key is None
+    assert await world.chunks(source.id) == []
+
+
+async def test_malformed_xml_for_a_pmc_article_sets_failed_with_a_reason(world: _World) -> None:
+    source = await world.add_pmc()
+    assert source.pmcid is not None
+    files = FakePmcFiles({source.pmcid: b"<article><front>" + uuid4().hex.encode()})
+
+    reports = await world.ingest_once(pmc_files=files)
+
+    assert [(r.source_id, r.result, r.reason) for r in reports] == [
+        (source.id, "failed", "corrupt_file")
+    ]
+    assert await world.status(source.id) == (SourceStatus.FAILED, "corrupt_file")
+
+
+async def test_pmc_xml_that_is_another_sources_file_fails_as_a_duplicate(world: _World) -> None:
+    first = await world.add_pmc()
+    second = await world.add_pmc(minutes=1)
+    assert first.pmcid is not None
+    assert second.pmcid is not None
+    xml = _article_xml("ac-duplicate")
+    files = FakePmcFiles({first.pmcid: xml, second.pmcid: xml})
+
+    reports = [
+        *await world.ingest_once(pmc_files=files, chunker=_PRODUCTION_CHUNKER),
+        *await world.ingest_once(pmc_files=files, chunker=_PRODUCTION_CHUNKER),
+    ]
+
+    assert [(r.source_id, r.result, r.reason) for r in reports] == [
+        (first.id, "ingested", None),
+        (second.id, "failed", "duplicate_source"),
+    ]
+    left = await world.sources.get(second.id)
+    assert left is not None
+    assert left.storage_key is None
+    assert left.content_hash == second.content_hash  # the placeholder, not the other's hash
+    assert f"sources/{second.id}" not in world.storage.objects
+
+
+async def test_a_pmc_source_failed_before_this_ticket_recovers_by_reingest(
+    world: _World,
+) -> None:
+    source = await world.add_pmc()
+    assert source.pmcid is not None
+    # How #461's approval left such a source before the worker could fetch: no file to read.
+    async with world.factory() as session:
+        await session.execute(
+            text(
+                "UPDATE knowledge_sources SET status = 'failed', error = 'file_missing' "
+                "WHERE id = :id"
+            ),
+            {"id": source.id},
+        )
+        await session.commit()
+    assert await world.status(source.id) == (SourceStatus.FAILED, "file_missing")
+
+    queued = await world.service.reingest(world.admin.id, source.id)
+    reports = await world.ingest_once(
+        pmc_files=FakePmcFiles({source.pmcid: _article_xml("ac5")}),
+        chunker=_PRODUCTION_CHUNKER,
+    )
+
+    assert isinstance(queued, ReingestQueued)
+    assert [(r.source_id, r.result) for r in reports] == [(source.id, "ingested")]
+    assert await world.status(source.id) == (SourceStatus.INGESTED, None)
+
+
+async def test_reingesting_a_fetched_pmc_article_reads_its_stored_file(world: _World) -> None:
+    source = await world.add_pmc()
+    assert source.pmcid is not None
+    files = FakePmcFiles({source.pmcid: _article_xml("ac-stored")})
+    await world.ingest_once(pmc_files=files, chunker=_PRODUCTION_CHUNKER)
+    assert isinstance(await world.service.reingest(world.admin.id, source.id), ReingestQueued)
+
+    reports = await world.ingest_once(pmc_files=files, chunker=_PRODUCTION_CHUNKER)
+
+    assert [(r.source_id, r.result) for r in reports] == [(source.id, "ingested")]
+    assert files.requests == [source.pmcid]  # fetched once, then read from `uploads`
+
+
+async def test_an_uploaded_jats_file_is_read_by_the_same_reader(world: _World) -> None:
+    source = await world.add(
+        "form-jats", data=_article_xml("form"), file_type=KnowledgeFileType.JATS
+    )
+
+    reports = await world.ingest_once(chunker=_PRODUCTION_CHUNKER)
+
+    assert [(r.source_id, r.result) for r in reports] == [(source.id, "ingested")]
+    chunks = await world.chunks(source.id)
+    assert ("Abstract",) in {tuple(c.heading_path) for c in chunks}
+
+
+async def test_record_file_gives_a_held_source_its_file_and_replaces_the_placeholder(
+    world: _World,
+) -> None:
+    source = await world.add_pmc()
+    claim = await world.hold(source.id)
+
+    recorded = await world.queue.record_file(
+        source.id,
+        claim_id=claim,
+        storage_key=f"sources/{source.id}",
+        content_hash=uuid4().hex * 2,
+        size_bytes=12,
+        file_name="x.xml",
+    )
+
+    assert recorded is FileRecord.RECORDED
+    stored = await world.sources.get(source.id)
+    assert stored is not None
+    assert (stored.storage_key, stored.size_bytes, stored.file_name) == (
+        f"sources/{source.id}",
+        12,
+        "x.xml",
+    )
+    assert stored.content_hash != source.content_hash
+
+
+async def test_record_file_of_another_sources_hash_is_a_duplicate_and_changes_nothing(
+    world: _World,
+) -> None:
+    other = await world.add_pmc()
+    source = await world.add_pmc()
+    claim = await world.hold(source.id)
+
+    recorded = await world.queue.record_file(
+        source.id,
+        claim_id=claim,
+        storage_key=f"sources/{source.id}",
+        content_hash=other.content_hash,
+        size_bytes=12,
+        file_name="x.xml",
+    )
+
+    assert recorded is FileRecord.DUPLICATE
+    unchanged = await world.sources.get(source.id)
+    assert unchanged is not None
+    assert (unchanged.storage_key, unchanged.content_hash) == (None, source.content_hash)
+
+
+async def test_record_file_by_a_lost_claim_is_gone_even_when_the_hash_is_another_sources(
+    world: _World,
+) -> None:
+    other = await world.add_pmc()
+    source = await world.add_pmc()
+    await world.hold(source.id)
+
+    recorded = await world.queue.record_file(
+        source.id,
+        claim_id=uuid4(),
+        storage_key=f"sources/{source.id}",
+        content_hash=other.content_hash,
+        size_bytes=12,
+        file_name="x.xml",
+    )
+
+    assert recorded is FileRecord.GONE
+
+
+async def test_record_file_of_a_source_not_held_by_that_claim_is_gone(world: _World) -> None:
+    source = await world.add_pmc()
+    await world.hold(source.id)
+
+    recorded = await world.queue.record_file(
+        source.id,
+        claim_id=uuid4(),
+        storage_key=f"sources/{source.id}",
+        content_hash=uuid4().hex * 2,
+        size_bytes=12,
+        file_name="x.xml",
+    )
+
+    assert recorded is FileRecord.GONE
+    unchanged = await world.sources.get(source.id)
+    assert unchanged is not None
+    assert unchanged.storage_key is None
 
 
 _PDF_PAGES = [
@@ -518,9 +810,9 @@ async def test_each_chunk_records_its_model_heading_path_and_locator(world: _Wor
 
     chunks = await world.chunks(source.id)
     assert [(c.heading_path, c.locator) for c in chunks] == [
-        (["Deload guide", "Why"], {"kind": "section", "section": "Why"}),
-        (["Deload guide", "Timing"], {"kind": "section", "section": "Timing"}),
-        (["Deload guide", "Volume"], {"kind": "section", "section": "Volume"}),
+        (["Deload guide", "Why"], {"kind": "section", "section": "Why", "doi": None}),
+        (["Deload guide", "Timing"], {"kind": "section", "section": "Timing", "doi": None}),
+        (["Deload guide", "Volume"], {"kind": "section", "section": "Volume", "doi": None}),
     ]
     assert {c.embedding_model for c in chunks} == {MODEL}
     assert {c.section_kind for c in chunks} == {SectionKind.BODY.value}

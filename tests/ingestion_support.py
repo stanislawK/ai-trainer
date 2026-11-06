@@ -2,18 +2,21 @@
 call, a clock that moves only when told, and a recorded sleep."""
 
 import asyncio
-from collections.abc import Awaitable, Callable, Sequence
+import random
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
 from ai_trainer.application.catalogue_ingestion import CatalogueIngestion
 from ai_trainer.application.knowledge_ingestion import KnowledgeIngestion
+from ai_trainer.application.pmc_source_file import PmcSourceFile
 from ai_trainer.application.ports.embeddings import EmbeddingGatewayPort
 from ai_trainer.application.ports.knowledge import (
     CatalogueChunksRepositoryPort,
     KnowledgeIngestionRepositoryPort,
 )
 from ai_trainer.application.ports.object_storage import ObjectStoragePort
+from ai_trainer.application.ports.pmc import PmcArticleFilesPort
 from ai_trainer.domain.catalogue_knowledge import (
     CatalogueChunkState,
     CatalogueText,
@@ -31,7 +34,8 @@ from ai_trainer.domain.knowledge import (
     SourceStatus,
     SourceType,
 )
-from ai_trainer.domain.knowledge_ingestion import EmbeddedChunk, IngestFailure
+from ai_trainer.domain.knowledge_ingestion import EmbeddedChunk, FileRecord, IngestFailure
+from ai_trainer.domain.pmc import PmcNotFound, PmcUnavailable, pmc_placeholder_hash
 from ai_trainer.knowledge.chunker import Chunker
 from ai_trainer.knowledge.readers import DocumentReaders
 
@@ -72,6 +76,17 @@ def guide_markdown(marker: str) -> bytes:
     return GUIDE.format(why=why, timing=timing, volume=volume).encode()
 
 
+def spread_vector(text: str) -> tuple[float, ...]:
+    """A vector of its own for each text, the same every time.
+
+    Hundreds of identical vectors written by ingestion tests, even in transactions that roll
+    back, crowd pgvector's HNSW graph in the shared test database and can leave other tests'
+    rows unreachable for its filtered searches (`test_knowledge_search` failed in CI at #463).
+    """
+    rng = random.Random(text)
+    return tuple(rng.uniform(-1.0, 1.0) for _ in range(DIMENSIONS))
+
+
 class FrozenClock:
     def __init__(self, at: datetime = AT) -> None:
         self.at = at
@@ -104,10 +119,7 @@ class ScriptedEmbeddings:
             await self.during()
         if self.script:
             return self.script.pop(0)
-        return Embedded(
-            vectors=tuple(tuple([0.01 * (i + 1)] * DIMENSIONS) for i in range(len(texts))),
-            model=MODEL,
-        )
+        return Embedded(vectors=tuple(spread_vector(text) for text in texts), model=MODEL)
 
 
 class RecordedSleep:
@@ -165,13 +177,18 @@ def ingestion(
     max_attempts: int = 3,
     lease: timedelta = timedelta(minutes=5),
     catalogue: CatalogueChunksRepositoryPort | None = None,
+    pmc_files: PmcArticleFilesPort | None = None,
+    chunker: Chunker | None = None,
 ) -> KnowledgeIngestion:
     sleep = sleep or RecordedSleep()
     return KnowledgeIngestion(
         repository=repository,
         storage=storage,
+        pmc=PmcSourceFile(
+            files=pmc_files or FakePmcFiles(), storage=storage, repository=repository
+        ),
         readers=DocumentReaders(),
-        chunker=Chunker(max_words=40, min_words=5),
+        chunker=chunker or Chunker(max_words=40, min_words=5),
         embeddings=embeddings,
         clock=clock,
         sleep=sleep,
@@ -258,6 +275,7 @@ class MemoryQueue:
         self.models: dict[UUID, str] = {}
         self.heartbeats = 0
         self.steal_on_heartbeat = False
+        self.steal_on_record = False
 
     async def claim_next(
         self, *, claim_id: UUID, now: datetime, lease_until: datetime
@@ -309,3 +327,81 @@ class MemoryQueue:
             update={"status": SourceStatus.FAILED, "error": reason.value}
         )
         return True
+
+    async def record_file(
+        self,
+        source_id: UUID,
+        *,
+        claim_id: UUID,
+        storage_key: str,
+        content_hash: str,
+        size_bytes: int,
+        file_name: str,
+    ) -> FileRecord:
+        if self.steal_on_record:
+            self.claims[source_id] = uuid4()
+        if not self._holds(source_id, claim_id):
+            return FileRecord.GONE
+        if any(s.content_hash == content_hash for s in self.sources.values() if s.id != source_id):
+            return FileRecord.DUPLICATE
+        self.sources[source_id] = self.sources[source_id].model_copy(
+            update={
+                "storage_key": storage_key,
+                "content_hash": content_hash,
+                "size_bytes": size_bytes,
+                "file_name": file_name,
+            }
+        )
+        return FileRecord.RECORDED
+
+
+class FakePmcFiles:
+    """Implements `PmcArticleFilesPort`: each PMC ID answers with what it was given, and a
+    request for an ID it was not given is not found."""
+
+    def __init__(
+        self,
+        files: Mapping[str, bytes | PmcNotFound | PmcUnavailable] | None = None,
+        *,
+        during: Callable[[], Awaitable[None]] | None = None,
+    ):
+        self.files = dict(files or {})
+        self.during = during
+        self.requests: list[str] = []
+
+    async def fetch_jats(self, pmcid: str) -> bytes | PmcNotFound | PmcUnavailable:
+        self.requests.append(pmcid)
+        if self.during is not None:
+            await self.during()
+        return self.files.get(pmcid, PmcNotFound())
+
+
+def pmc_source(
+    *, admin_id: UUID | None, pmcid: str, status: SourceStatus = SourceStatus.UPLOADED
+) -> NewKnowledgeSource:
+    """A PMC article as staging stores it and approval leaves it: no file yet, the placeholder
+    hash (#458)."""
+    return NewKnowledgeSource(
+        id=uuid4(),
+        title=f"Article {pmcid}",
+        author=None,
+        source_type=SourceType.RESEARCH_PAPER,
+        evidence_tier=EvidenceTier.PEER_REVIEWED,
+        language=SourceLanguage.EN,
+        sports=("gym",),
+        topics=("hypertrophy",),
+        license_note=None,
+        source_url=f"https://pmc.ncbi.nlm.nih.gov/articles/{pmcid}/",
+        pmcid=pmcid,
+        license_id=LicenseId.CC_BY,
+        license_source=LicenseSource.PMC,
+        attribution="Source: NLM PMC.",
+        content_hash=pmc_placeholder_hash(pmcid),
+        file_type=KnowledgeFileType.JATS,
+        file_name=None,
+        size_bytes=None,
+        storage_key=None,
+        status=status,
+        uploaded_by_user_id=admin_id,
+        uploaded_at=AT,
+    )

@@ -116,6 +116,29 @@ def test_the_abstract_is_its_own_chunk_and_never_merged() -> None:
     ]
 
 
+def test_an_abstract_over_the_budget_is_still_one_chunk() -> None:
+    # Budget 30: a 100-word abstract in three paragraphs is one chunk (#463), where a body
+    # section of that size would be split.
+    abstract = [_para(_words(40, w), "Abstract") for w in ("one", "two", "three")][:2]
+    abstract.append(_para(_words(20, "three"), "Abstract"))
+    body = [_para(_words(40, w), "Intro") for w in ("one", "two", "three")]
+
+    abstract_chunks = _chunk(*abstract)
+    body_chunks = _chunk(*body)
+
+    assert [c.section_kind for c in abstract_chunks] == [SectionKind.ABSTRACT]
+    assert word_count(abstract_chunks[0].text) == 100
+    assert len(body_chunks) > 1
+
+
+def test_an_abstract_far_over_the_budget_is_split_after_all() -> None:
+    # A "Streszczenie" heading over a whole chapter is not an abstract; four budgets is the cap.
+    chunks = _chunk(*[_para(_words(40, str(n)), "Abstract") for n in range(5)])
+
+    assert len(chunks) > 1
+    assert all(word_count(c.text) <= 4 * 30 for c in chunks)
+
+
 def test_a_polish_abstract_is_an_abstract() -> None:
     chunks = _chunk(_para(_words(12), "Streszczenie"))
 

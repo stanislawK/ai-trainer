@@ -229,6 +229,10 @@ class Settings(BaseSettings):
     # a request's 20 articles, five at a time, answer well inside Cloudflare's 100 seconds.
     pmc_bucket_url: str = "https://pmc-oa-opendata.s3.amazonaws.com"
     pmc_timeout_seconds: float = Field(default=8.0, gt=0, le=10)
+    # The `ingest` worker's download of an approved article's JATS (#463): one deadline for the
+    # file's GET. Longer than the staging request's, since it is off any request and a file can
+    # be several megabytes; well under the worker's lease.
+    pmc_jats_timeout_seconds: float = Field(default=30.0, gt=0, le=120)
 
     # Google sign-in (ADR-0005). No Google access or refresh token is ever stored.
     # Required and non-blank: a blank value otherwise fails only on Google's own page.

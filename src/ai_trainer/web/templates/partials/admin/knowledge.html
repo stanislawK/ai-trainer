@@ -106,7 +106,7 @@
                   {%- else %}{{ file_types_hint }} · up to {{ max_upload_mb }} MB{% endif -%}
                 </span>
               </span>
-              <input type="file" name="file" class="sr-only" accept=".pdf,.epub,.md,.markdown,.txt,.vtt,.srt" data-file-input />
+              <input type="file" name="file" class="sr-only" accept=".pdf,.epub,.md,.markdown,.txt,.vtt,.srt,.xml" data-file-input />
             </label>
             {{ file_errors(sheet, max_upload_mb) }}
           </div>

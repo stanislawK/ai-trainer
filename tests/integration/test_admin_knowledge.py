@@ -304,7 +304,8 @@ async def test_the_page_lists_the_upload_form_with_its_choices(
     html = page.client.get("/admin/knowledge").text
 
     assert 'hx-encoding="multipart/form-data"' in html
-    assert 'accept=".pdf,.epub,.md,.markdown,.txt,.vtt,.srt"' in html
+    assert 'accept=".pdf,.epub,.md,.markdown,.txt,.vtt,.srt,.xml"' in html
+    assert "PDF, EPUB, Markdown, text, .vtt, .srt or JATS .xml" in html
     assert f'data-max-bytes="{MAX_MB * 1024 * 1024}"' in html
     for value in ("peer_reviewed", "coaching_book", "article_or_transcript"):
         assert f'value="{value}"' in html

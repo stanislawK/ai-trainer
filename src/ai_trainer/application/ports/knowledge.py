@@ -21,7 +21,7 @@ from ai_trainer.domain.knowledge_document import (
     NoReader,
     Unreadable,
 )
-from ai_trainer.domain.knowledge_ingestion import EmbeddedChunk, IngestFailure
+from ai_trainer.domain.knowledge_ingestion import EmbeddedChunk, FileRecord, IngestFailure
 from ai_trainer.domain.knowledge_search import KnowledgeCandidates, KnowledgeFilters
 from ai_trainer.domain.source_template import LicenceTerms
 
@@ -129,6 +129,22 @@ class KnowledgeIngestionRepositoryPort(Protocol):
     async def fail(self, source_id: UUID, *, claim_id: UUID, reason: IngestFailure) -> bool:
         """Sets `failed` with `reason`, keeping any chunks an earlier ingest wrote. False when the
         source is gone or no longer this claim's."""
+        ...
+
+    async def record_file(
+        self,
+        source_id: UUID,
+        *,
+        claim_id: UUID,
+        storage_key: str,
+        content_hash: str,
+        size_bytes: int,
+        file_name: str,
+    ) -> FileRecord:
+        """Gives a PMC source the JATS file the worker fetched for it (#463): its key, name and
+        size, and the file's hash in place of the placeholder staging stored (ADR-0036, the #458
+        amendment). `DUPLICATE`, changing nothing, when another source has that hash; `GONE`,
+        changing nothing, when the source is gone or no longer this claim's."""
         ...
 
 

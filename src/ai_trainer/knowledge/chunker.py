@@ -8,8 +8,8 @@ knowledge-ingestion-at-scale.md recs 9-10, knowledge-base.md rec 5).
 - Small sibling sections merge under their common parent, each keeping its heading as a line,
   but never across pages or spine items.
 - A chunk of transcript windows runs from its first window's start to its last window's end.
-- The abstract is its own chunk, never merged. A table stays whole with the caption after it,
-  whatever its size.
+- The abstract is its own chunk, never merged, and kept whole up to four budgets of words. A
+  table stays whole with the caption after it, whatever its size.
 - A references section is not embedded.
 
 The budget is counted in words, since the app has no tokenizer for the embedding model; about
@@ -41,6 +41,10 @@ _REFERENCES = frozenset(
     {"references", "bibliography", "works cited", "literatura", "bibliografia", "piśmiennictwo"}
 )
 _SENTENCE_END = re.compile(r"(?<=[.!?…])\s+")
+# An abstract is one chunk up to this many budgets of words (#463): a structured abstract of 300
+# words or more is common, and one split across chunks answers worse than one whole. Past it, a
+# section that merely carries an abstract's heading is split like any other.
+_ABSTRACT_BUDGETS = 4
 
 
 @dataclass(frozen=True)
@@ -150,14 +154,15 @@ class Chunker:
     def _pack(
         self, path: tuple[str, ...], kind: SectionKind, blocks: list[Block]
     ) -> Iterator[_Draft]:
+        limit = self._max * _ABSTRACT_BUDGETS if kind is SectionKind.ABSTRACT else self._max
         texts: list[str] = []
         words = 0
         locator: Locator | None = None
         last: Locator | None = None
         for block in blocks:
-            for unit in self._units(block.text):
+            for unit in self._units(block.text, limit):
                 size = word_count(unit.text)
-                if texts and words + size > self._max:
+                if texts and words + size > limit:
                     assert locator is not None
                     assert last is not None
                     yield _Draft("".join(texts), path, kind, _span(locator, last))
@@ -173,24 +178,25 @@ class Chunker:
             assert last is not None
             yield _Draft("".join(texts), path, kind, _span(locator, last))
 
-    def _units(self, text: str) -> Iterator[_Unit]:
-        """A block as one unit, or, over budget, split between its lines (a list's items), then
+    def _units(self, text: str, limit: int) -> Iterator[_Unit]:
+        """A block as one unit, or, over `limit`, split between its lines (a list's items), then
         on sentence ends, then on words."""
-        if word_count(text) <= self._max:
+        if word_count(text) <= limit:
             yield _Unit(text, joiner=None)
             return
         joiner: str | None = None
         for line in text.split("\n"):
-            for piece in self._pieces(line):
+            for piece in self._pieces(line, limit):
                 yield _Unit(piece, joiner=joiner)
                 joiner = " "
             joiner = "\n"
 
-    def _pieces(self, line: str) -> Iterator[str]:
+    @staticmethod
+    def _pieces(line: str, limit: int) -> Iterator[str]:
         for sentence in _SENTENCE_END.split(line):
             words = sentence.split()
-            for start in range(0, len(words), self._max):
-                yield " ".join(words[start : start + self._max])
+            for start in range(0, len(words), limit):
+                yield " ".join(words[start : start + limit])
 
     def _merge_siblings(self, drafts: list[tuple[_Draft, bool]]) -> Iterator[_Draft]:
         group: list[_Draft] = []

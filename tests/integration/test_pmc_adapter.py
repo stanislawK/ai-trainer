@@ -2,13 +2,22 @@
 response comes from the fake bucket's mock transport."""
 
 import asyncio
+import hashlib
 
 import httpx2
 import pytest
 
-from ai_trainer.adapters.pmc import PmcCloudMetadata
+from ai_trainer.adapters.pmc import PmcCloudFiles, PmcCloudMetadata
 from ai_trainer.domain.pmc import PmcArticle, PmcFetchProblem, PmcNotFound, PmcUnavailable
-from tests.pmc_support import BUCKET, Failure, FakeBucket, article, bucket_with, demo_article
+from tests.pmc_support import (
+    BUCKET,
+    DEMO,
+    Failure,
+    FakeBucket,
+    article,
+    bucket_with,
+    demo_article,
+)
 
 
 def _metadata(bucket: FakeBucket) -> PmcCloudMetadata:
@@ -118,3 +127,177 @@ async def test_one_deadline_bounds_both_requests_together() -> None:
     )
 
     assert await metadata.fetch("PMC2") == PmcUnavailable(PmcFetchProblem.TIMEOUT)
+
+
+# --- The JATS file (#463) -------------------------------------------------------------------
+
+_XML = b"<article><body><p>Hello.</p></body></article>"
+
+
+def _files(bucket: FakeBucket, *, timeout: float = 1.0, max_bytes: int = 1024) -> PmcCloudFiles:
+    return PmcCloudFiles(
+        metadata=_metadata(bucket),
+        bucket_url=BUCKET,
+        timeout_seconds=timeout,
+        max_bytes=max_bytes,
+        transport=bucket.transport(),
+    )
+
+
+async def test_the_jats_is_fetched_from_the_articles_own_key() -> None:
+    bucket = FakeBucket()
+    bucket.put_with_xml(article("PMC77"), _XML)
+
+    fetched = await _files(bucket).fetch_jats("PMC77")
+
+    assert fetched == _XML
+    urls = [str(request.url) for request in bucket.requests]
+    assert urls[-1] == f"{BUCKET}/PMC77.1/PMC77.1.xml"
+    # The same two metadata GETs as staging, then the one XML: nothing else in the bucket.
+    assert len(urls) == 3
+    for request in bucket.requests:
+        assert "authorization" not in request.headers
+        assert "cookie" not in request.headers
+
+
+async def test_the_real_articles_xml_matches_its_recorded_md5() -> None:
+    real = (DEMO.parent / "PMC13692514.1.xml").read_bytes()
+    bucket = FakeBucket()
+    bucket.put(demo_article())
+    bucket.xml["PMC13692514"] = {1: real}
+
+    fetched = await _files(bucket, max_bytes=1_000_000).fetch_jats("PMC13692514")
+
+    assert fetched == real
+
+
+async def test_the_latest_versions_xml_is_fetched() -> None:
+    bucket = FakeBucket()
+    bucket.put_with_xml(article("PMC77", version=1), b"<article>one</article>")
+    bucket.put_with_xml(article("PMC77", version=2), _XML)
+
+    assert await _files(bucket).fetch_jats("PMC77") == _XML
+
+
+async def test_an_unknown_id_has_no_xml() -> None:
+    assert isinstance(await _files(FakeBucket()).fetch_jats("PMC404"), PmcNotFound)
+
+
+async def test_an_xml_key_that_is_gone_is_not_found() -> None:
+    bucket = FakeBucket()
+    bucket.put_with_xml(article("PMC77"), _XML)
+    bucket.xml_failing["PMC77"] = "gone"
+
+    assert isinstance(await _files(bucket).fetch_jats("PMC77"), PmcNotFound)
+
+
+async def test_an_article_without_an_xml_url_is_not_found() -> None:
+    bucket = bucket_with(article("PMC77", xml_url=None))
+
+    assert isinstance(await _files(bucket).fetch_jats("PMC77"), PmcNotFound)
+
+
+@pytest.mark.parametrize(
+    ("failure", "problem"),
+    [
+        pytest.param("timeout", PmcFetchProblem.TIMEOUT, id="timeout"),
+        pytest.param("error", PmcFetchProblem.FAILED, id="unreachable"),
+        pytest.param("server_error", PmcFetchProblem.FAILED, id="5xx"),
+    ],
+)
+async def test_an_xml_failure_is_unavailable(failure: Failure, problem: PmcFetchProblem) -> None:
+    bucket = FakeBucket()
+    bucket.put_with_xml(article("PMC77"), _XML)
+    bucket.xml_failing["PMC77"] = failure
+
+    assert await _files(bucket).fetch_jats("PMC77") == PmcUnavailable(problem)
+
+
+async def test_metadata_that_cannot_be_read_is_passed_on() -> None:
+    bucket = FakeBucket()
+    bucket.put_with_xml(article("PMC77"), _XML)
+    bucket.failing["PMC77"] = "error"
+
+    assert await _files(bucket).fetch_jats("PMC77") == PmcUnavailable(PmcFetchProblem.FAILED)
+
+
+async def test_bytes_that_do_not_match_the_recorded_md5_are_malformed() -> None:
+    bucket = FakeBucket()
+    bucket.put_with_xml(article("PMC77"), _XML, md5="0" * 32)
+
+    assert await _files(bucket).fetch_jats("PMC77") == PmcUnavailable(PmcFetchProblem.MALFORMED)
+
+
+async def test_a_file_over_the_cap_is_malformed_not_read_whole() -> None:
+    bucket = FakeBucket()
+    bucket.put_with_xml(article("PMC77"), _XML * 100)
+
+    fetched = await _files(bucket, max_bytes=len(_XML) * 10).fetch_jats("PMC77")
+
+    assert fetched == PmcUnavailable(PmcFetchProblem.MALFORMED)
+
+
+@pytest.mark.parametrize(
+    "xml_url",
+    [
+        pytest.param("s3://other-bucket/PMC77.1/PMC77.1.xml", id="other-bucket"),
+        pytest.param("s3://pmc-oa-opendata/PMC78.1/PMC78.1.xml", id="other-article"),
+        pytest.param("s3://pmc-oa-opendata/PMC77.2/PMC77.2.xml", id="other-version"),
+        pytest.param("s3://pmc-oa-opendata/PMC77.1/PMC77.1.pdf", id="not-xml"),
+        pytest.param("https://evil.example/PMC77.1/PMC77.1.xml", id="not-s3"),
+        pytest.param("s3://pmc-oa-opendata/../PMC77.1/PMC77.1.xml", id="traversal"),
+        pytest.param("s3://pmc-oa-opendata/PMC77.1/PMC77.1.xml?md5=not-hex", id="bad-md5"),
+        pytest.param(
+            f"s3://pmc-oa-opendata/PMC77.1/PMC77.1.xml?md5={'a' * 32}&md5={'b' * 32}", id="two-md5"
+        ),
+    ],
+)
+async def test_an_xml_url_that_is_not_this_articles_is_never_followed(xml_url: str) -> None:
+    bucket = bucket_with(article("PMC77", xml_url=xml_url))
+
+    fetched = await _files(bucket).fetch_jats("PMC77")
+
+    assert fetched == PmcUnavailable(PmcFetchProblem.MALFORMED)
+    assert len(bucket.requests) == 2  # the metadata's two GETs only
+
+
+async def test_a_link_without_an_md5_is_never_followed() -> None:
+    # PMC's metadata always records one; without it a truncated body could not be told apart.
+    bucket = FakeBucket()
+    bucket.put_with_xml(article("PMC77"), _XML)
+    bucket.put(article("PMC77", xml_url="s3://pmc-oa-opendata/PMC77.1/PMC77.1.xml"))
+
+    fetched = await _files(bucket).fetch_jats("PMC77")
+
+    assert fetched == PmcUnavailable(PmcFetchProblem.MALFORMED)
+    assert len(bucket.requests) == 2  # the metadata's two GETs only
+
+
+async def test_an_uppercase_md5_is_checked_like_a_lowercase_one() -> None:
+    bucket = FakeBucket()
+    bucket.put_with_xml(
+        article("PMC77"), _XML, md5=hashlib.md5(_XML, usedforsecurity=False).hexdigest().upper()
+    )
+
+    assert await _files(bucket).fetch_jats("PMC77") == _XML
+
+
+async def test_one_deadline_bounds_the_xml_request() -> None:
+    bucket = bucket_with(article("PMC77"))
+    bucket.put_with_xml(article("PMC77"), _XML)
+    inner = bucket.transport()
+
+    async def slow_xml(request: httpx2.Request) -> httpx2.Response:
+        if request.url.path.endswith(".xml"):
+            await asyncio.sleep(1)
+        return await inner.handle_async_request(request)
+
+    files = PmcCloudFiles(
+        metadata=_metadata(bucket),
+        bucket_url=BUCKET,
+        timeout_seconds=0.1,
+        max_bytes=1024,
+        transport=httpx2.MockTransport(slow_xml),
+    )
+
+    assert await files.fetch_jats("PMC77") == PmcUnavailable(PmcFetchProblem.TIMEOUT)

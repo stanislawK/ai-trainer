@@ -16,6 +16,9 @@ They are outside ADR-0029's per-user budget, bounded by the worker's concurrency
 
 A `catalogue` source has no file: `CatalogueIngestion` embeds only its changed texts and writes
 them batch by batch, under the same claim and heartbeat (ADR-0036's #427 amendment).
+
+A PMC article staged by ID has no file either, until its first claim: `PmcSourceFile` fetches the
+JATS, stores it and records it on the source before the usual read (#463).
 """
 
 import asyncio
@@ -28,6 +31,7 @@ from uuid import UUID, uuid4
 
 from ai_trainer.application.catalogue_ingestion import CatalogueIngestion
 from ai_trainer.application.embedding_batches import embed_batch
+from ai_trainer.application.pmc_source_file import PmcSourceFile, needs_fetch
 from ai_trainer.application.ports.clock import ClockPort
 from ai_trainer.application.ports.embeddings import EmbeddingGatewayPort
 from ai_trainer.application.ports.knowledge import (
@@ -44,7 +48,12 @@ from ai_trainer.domain.knowledge_document import (
     UnreadableReason,
     embedding_input,
 )
-from ai_trainer.domain.knowledge_ingestion import EmbeddedChunk, IngestFailure, IngestReport
+from ai_trainer.domain.knowledge_ingestion import (
+    ClaimLostError,
+    EmbeddedChunk,
+    IngestFailure,
+    IngestReport,
+)
 from ai_trainer.domain.object_storage import ObjectNotFoundError, ObjectStorageError
 
 _UNREADABLE = {
@@ -57,10 +66,6 @@ _UNREADABLE = {
 
 
 logger = logging.getLogger(__name__)
-
-
-class _ClaimLostError(Exception):
-    """The source was deleted or taken over while it was read."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,9 +89,11 @@ class KnowledgeIngestion:
         max_attempts: int,
         lease: timedelta,
         catalogue: CatalogueIngestion,
+        pmc: PmcSourceFile,
     ) -> None:
         self._repository = repository
         self._catalogue = catalogue
+        self._pmc = pmc
         self._storage = storage
         self._readers = readers
         self._chunker = chunker
@@ -181,8 +188,8 @@ class KnowledgeIngestion:
         self, source: KnowledgeSource, claim_id: UUID, lost: asyncio.Event
     ) -> IngestReport:
         try:
-            outcome = await self._read_and_embed(source, lost)
-        except _ClaimLostError:
+            outcome = await self._read_and_embed(source, claim_id, lost)
+        except ClaimLostError:
             return IngestReport(source_id=source.id, result="gone")
         except Exception as exc:
             # Never the file's content: only what kind of failure it was.
@@ -202,23 +209,35 @@ class KnowledgeIngestion:
         return IngestReport(source_id=source.id, result="ingested", chunks=len(outcome.chunks))
 
     async def _read_and_embed(
-        self, source: KnowledgeSource, lost: asyncio.Event
+        self, source: KnowledgeSource, claim_id: UUID, lost: asyncio.Event
     ) -> _Embeddings | IngestFailure:
         acting_user = source.uploaded_by_user_id
         if acting_user is None:
             return IngestFailure.NO_ACTING_ADMIN
-        if source.storage_key is None or source.file_type is None:
+        if source.file_type is None:
             return IngestFailure.FILE_MISSING
-        try:
-            data = await self._storage.get(source.storage_key)
-        except ObjectNotFoundError:
-            return IngestFailure.FILE_MISSING
-        except ObjectStorageError:
-            return IngestFailure.STORAGE_FAILED
+        data = await self._file(source, claim_id, lost)
+        if isinstance(data, IngestFailure):
+            return data
         chunks = await asyncio.to_thread(self._chunks, source.file_type, data)
         if isinstance(chunks, IngestFailure):
             return chunks
         return await self._embed(source, chunks, acting_user, lost)
+
+    async def _file(
+        self, source: KnowledgeSource, claim_id: UUID, lost: asyncio.Event
+    ) -> bytes | IngestFailure:
+        """The source's bytes: from `uploads`, or, for a PMC article not fetched yet, from PMC."""
+        if needs_fetch(source):
+            return await self._pmc.fetch(source, claim_id, lost)
+        if source.storage_key is None:
+            return IngestFailure.FILE_MISSING
+        try:
+            return await self._storage.get(source.storage_key)
+        except ObjectNotFoundError:
+            return IngestFailure.FILE_MISSING
+        except ObjectStorageError:
+            return IngestFailure.STORAGE_FAILED
 
     def _chunks(
         self, file_type: KnowledgeFileType, data: bytes
@@ -242,7 +261,7 @@ class KnowledgeIngestion:
         model = ""
         for start in range(0, len(chunks), self._batch_size):
             if lost.is_set():
-                raise _ClaimLostError
+                raise ClaimLostError
             batch = chunks[start : start + self._batch_size]
             outcome = await embed_batch(
                 self._embeddings,
@@ -259,5 +278,5 @@ class KnowledgeIngestion:
             )
             model = outcome.model
         if lost.is_set():
-            raise _ClaimLostError
+            raise ClaimLostError
         return _Embeddings(chunks=tuple(embedded), model=model)

@@ -3,6 +3,7 @@ a closed reason, a lost claim or a deleted source writing nothing, the heartbeat
 lease. The ACs on the real database are in `tests/integration/test_knowledge_ingestion.py`."""
 
 import asyncio
+import hashlib
 from datetime import datetime, timedelta
 from uuid import UUID, uuid4
 
@@ -14,17 +15,21 @@ from ai_trainer.domain.embeddings import (
     EmbeddingFailure,
     RateLimited,
 )
-from ai_trainer.domain.knowledge import KnowledgeFileType, KnowledgeSource
+from ai_trainer.domain.knowledge import KnowledgeFileType, KnowledgeSource, SourceStatus
 from ai_trainer.domain.knowledge_ingestion import IngestFailure, IngestReport
+from ai_trainer.domain.pmc import PmcFetchProblem, PmcNotFound, PmcUnavailable
+from ai_trainer.knowledge import readers as readers_module
 from tests.ingestion_support import (
     DIMENSIONS,
     MODEL,
+    FakePmcFiles,
     FrozenClock,
     MemoryQueue,
     RecordedSleep,
     ScriptedEmbeddings,
     guide_markdown,
     ingestion,
+    pmc_source,
     uploaded_source,
 )
 from tests.knowledge_support import MemoryStorage
@@ -193,7 +198,7 @@ async def test_a_vector_of_the_wrong_length_fails_the_source() -> None:
 @pytest.mark.parametrize(
     ("data", "file_type", "reason"),
     [
-        (b"<article/>", KnowledgeFileType.JATS, IngestFailure.NO_READER),
+        (b"<article/>", KnowledgeFileType.JATS, IngestFailure.NO_TEXT),
         (b"PK\x03\x04", KnowledgeFileType.EPUB, IngestFailure.CORRUPT_FILE),
         (blank_pdf(), KnowledgeFileType.PDF, IngestFailure.NO_TEXT_LAYER),
         (b"%PDF-1.7 broken", KnowledgeFileType.PDF, IngestFailure.CORRUPT_FILE),
@@ -207,7 +212,7 @@ async def test_a_vector_of_the_wrong_length_fails_the_source() -> None:
         (b"## References\n\nSmith 2020.\n", KnowledgeFileType.MARKDOWN, IngestFailure.NO_TEXT),
     ],
     ids=[
-        "no_reader",
+        "empty_jats",
         "corrupt_epub",
         "scanned_pdf",
         "corrupt_pdf",
@@ -228,6 +233,42 @@ async def test_a_file_that_gives_no_chunks_fails_with_its_reason_and_no_call(
     ).ingest_next()
 
     assert report == IngestReport(source_id=source.id, result="failed", reason=reason)
+    assert embeddings.calls == []
+
+
+async def test_a_file_source_with_no_file_type_fails_as_missing() -> None:
+    source, storage = _stored("no-type")
+    typeless = source.model_copy(update={"file_type": None})
+    embeddings = ScriptedEmbeddings()
+
+    report = await ingestion(
+        repository=MemoryQueue(typeless),
+        storage=storage,
+        embeddings=embeddings,
+        clock=FrozenClock(),
+    ).ingest_next()
+
+    assert report == IngestReport(
+        source_id=source.id, result="failed", reason=IngestFailure.FILE_MISSING
+    )
+    assert embeddings.calls == []
+
+
+async def test_a_file_type_with_no_reader_fails_with_no_reader(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Every type has a reader now; the registry's gap is simulated by emptying it.
+    monkeypatch.setattr(readers_module, "_READERS", {})
+    source, storage = _stored("no-reader", data=b"x", file_type=KnowledgeFileType.PDF)
+    embeddings = ScriptedEmbeddings()
+
+    report = await ingestion(
+        repository=MemoryQueue(source), storage=storage, embeddings=embeddings, clock=FrozenClock()
+    ).ingest_next()
+
+    assert report == IngestReport(
+        source_id=source.id, result="failed", reason=IngestFailure.NO_READER
+    )
     assert embeddings.calls == []
 
 
@@ -483,3 +524,324 @@ async def test_run_polls_until_cancelled() -> None:
 
     assert [r.source_id for r in seen] == [source.id]
     assert sleep.waits[:2] == [2.0, 2.0]
+
+
+# --- PMC articles from JATS (#463) ----------------------------------------------------------
+
+_PMCID = "PMC4242"
+_JATS = b"""<article><front><article-meta>
+<article-id pub-id-type="doi">10.1234/Demo</article-id>
+<abstract><p>Short abstract about training volume.</p></abstract></article-meta></front>
+<body>
+<sec><title>Introduction</title><p>Volume drives hypertrophy in trained lifters over time.</p></sec>
+<sec><title>Methods</title><p>We counted hard sets per muscle group each week.</p></sec>
+</body><back><ref-list><title>References</title>
+<ref><mixed-citation>Ref one.</mixed-citation></ref></ref-list></back>
+</article>"""
+
+
+def _pmc(
+    pmcid: str = _PMCID, *, admin_id: UUID | None = _ADMIN
+) -> tuple[KnowledgeSource, MemoryStorage]:
+    return KnowledgeSource(
+        **pmc_source(admin_id=admin_id, pmcid=pmcid).model_dump()
+    ), MemoryStorage()
+
+
+async def test_pmc_source_is_fetched_recorded_and_ingested() -> None:
+    source, storage = _pmc()
+    queue = MemoryQueue(source)
+    files = FakePmcFiles({_PMCID: _JATS})
+
+    report = await ingestion(
+        repository=queue,
+        storage=storage,
+        embeddings=ScriptedEmbeddings(),
+        clock=FrozenClock(),
+        pmc_files=files,
+    ).ingest_next()
+
+    assert report == IngestReport(source_id=source.id, result="ingested", chunks=3)
+    assert files.requests == [_PMCID]
+    key = f"sources/{source.id}"
+    assert storage.objects == {key: _JATS}
+    assert storage.content_types[key] == "application/xml"
+    recorded = queue.sources[source.id]
+    assert recorded.storage_key == key
+    assert recorded.file_name == f"{_PMCID}.xml"
+    assert recorded.size_bytes == len(_JATS)
+    assert recorded.content_hash == hashlib.sha256(_JATS).hexdigest()
+    paths = [c.chunk.heading_path for c in queue.chunks[source.id]]
+    assert paths == [("Abstract",), ("Introduction",), ("Methods",)]
+    assert not any("Ref one" in c.chunk.text for c in queue.chunks[source.id])
+
+
+@pytest.mark.parametrize(
+    ("answer", "reason"),
+    [
+        pytest.param(PmcNotFound(), IngestFailure.PMC_NOT_FOUND, id="not-found"),
+        pytest.param(
+            PmcUnavailable(PmcFetchProblem.TIMEOUT), IngestFailure.PMC_FETCH_FAILED, id="timeout"
+        ),
+        pytest.param(
+            PmcUnavailable(PmcFetchProblem.MALFORMED), IngestFailure.PMC_FETCH_FAILED, id="bad"
+        ),
+    ],
+)
+async def test_pmc_fetch_failures_set_failed_with_a_reason(
+    answer: PmcNotFound | PmcUnavailable, reason: IngestFailure
+) -> None:
+    source, storage = _pmc()
+    queue = MemoryQueue(source)
+    embeddings = ScriptedEmbeddings()
+
+    report = await ingestion(
+        repository=queue,
+        storage=storage,
+        embeddings=embeddings,
+        clock=FrozenClock(),
+        pmc_files=FakePmcFiles({_PMCID: answer}),
+    ).ingest_next()
+
+    assert report == IngestReport(source_id=source.id, result="failed", reason=reason)
+    assert queue.sources[source.id].status is SourceStatus.FAILED
+    assert queue.sources[source.id].error == reason.value
+    assert queue.sources[source.id].storage_key is None
+    assert storage.objects == {}
+    assert embeddings.calls == []
+
+
+async def test_malformed_jats_sets_corrupt_file() -> None:
+    source, storage = _pmc()
+    queue = MemoryQueue(source)
+    embeddings = ScriptedEmbeddings()
+
+    report = await ingestion(
+        repository=queue,
+        storage=storage,
+        embeddings=embeddings,
+        clock=FrozenClock(),
+        pmc_files=FakePmcFiles({_PMCID: b"<article><front>"}),
+    ).ingest_next()
+
+    assert report == IngestReport(
+        source_id=source.id, result="failed", reason=IngestFailure.CORRUPT_FILE
+    )
+    assert embeddings.calls == []
+
+
+async def test_a_jats_that_is_another_sources_file_fails_as_a_duplicate() -> None:
+    source, storage = _pmc()
+    other = uploaded_source(admin_id=_ADMIN, marker="same-bytes", file_type=KnowledgeFileType.JATS)
+    queue = MemoryQueue(
+        source,
+        KnowledgeSource(
+            **other.model_copy(
+                update={
+                    "content_hash": hashlib.sha256(_JATS).hexdigest(),
+                    "status": SourceStatus.INGESTED,
+                }
+            ).model_dump()
+        ),
+    )
+    embeddings = ScriptedEmbeddings()
+
+    report = await ingestion(
+        repository=queue,
+        storage=storage,
+        embeddings=embeddings,
+        clock=FrozenClock(),
+        pmc_files=FakePmcFiles({_PMCID: _JATS}),
+    ).ingest_next()
+
+    assert report == IngestReport(
+        source_id=source.id, result="failed", reason=IngestFailure.DUPLICATE_SOURCE
+    )
+    # The copy it stored is removed, and the source keeps its placeholder, not the other's hash.
+    assert storage.objects == {}
+    assert queue.sources[source.id].storage_key is None
+    assert queue.sources[source.id].content_hash == source.content_hash
+    assert embeddings.calls == []
+
+
+async def test_a_claim_lost_before_the_file_is_recorded_is_gone_and_keeps_the_shared_object() -> (
+    None
+):
+    # The key is the source's own, shared with whichever worker holds it now, who may have
+    # recorded it: a worker that lost the claim never deletes it (found by /code-review at #463).
+    source, storage = _pmc()
+    queue = MemoryQueue(source)
+    queue.steal_on_record = True
+    embeddings = ScriptedEmbeddings()
+
+    report = await ingestion(
+        repository=queue,
+        storage=storage,
+        embeddings=embeddings,
+        clock=FrozenClock(),
+        pmc_files=FakePmcFiles({_PMCID: _JATS}),
+    ).ingest_next()
+
+    assert report == IngestReport(source_id=source.id, result="gone")
+    assert storage.objects == {f"sources/{source.id}": _JATS}
+    assert embeddings.calls == []
+
+
+async def test_a_claim_lost_during_the_download_stores_nothing() -> None:
+    source, storage = _pmc()
+    queue = MemoryQueue(source)
+    queue.steal_on_heartbeat = True
+    files = FakePmcFiles({_PMCID: _JATS}, during=lambda: asyncio.sleep(0.05))
+
+    report = await ingestion(
+        repository=queue,
+        storage=storage,
+        embeddings=ScriptedEmbeddings(),
+        clock=FrozenClock(),
+        lease=timedelta(milliseconds=30),
+        pmc_files=files,
+    ).ingest_next()
+
+    assert report == IngestReport(source_id=source.id, result="gone")
+    assert storage.objects == {}
+    assert queue.sources[source.id].storage_key is None
+
+
+async def test_a_storage_outage_while_storing_the_jats_fails_the_source() -> None:
+    source, storage = _pmc()
+    storage.failing.add("put")
+    queue = MemoryQueue(source)
+
+    report = await ingestion(
+        repository=queue,
+        storage=storage,
+        embeddings=ScriptedEmbeddings(),
+        clock=FrozenClock(),
+        pmc_files=FakePmcFiles({_PMCID: _JATS}),
+    ).ingest_next()
+
+    assert report == IngestReport(
+        source_id=source.id, result="failed", reason=IngestFailure.STORAGE_FAILED
+    )
+    assert queue.sources[source.id].storage_key is None
+
+
+async def test_a_discard_that_fails_still_reports_the_duplicate() -> None:
+    source, storage = _pmc()
+    other = uploaded_source(admin_id=_ADMIN, marker="dup-delete", file_type=KnowledgeFileType.JATS)
+    queue = MemoryQueue(
+        source,
+        KnowledgeSource(
+            **other.model_copy(
+                update={
+                    "content_hash": hashlib.sha256(_JATS).hexdigest(),
+                    "status": SourceStatus.INGESTED,
+                }
+            ).model_dump()
+        ),
+    )
+    storage.failing.add("delete")
+
+    report = await ingestion(
+        repository=queue,
+        storage=storage,
+        embeddings=ScriptedEmbeddings(),
+        clock=FrozenClock(),
+        pmc_files=FakePmcFiles({_PMCID: _JATS}),
+    ).ingest_next()
+
+    assert report == IngestReport(
+        source_id=source.id, result="failed", reason=IngestFailure.DUPLICATE_SOURCE
+    )
+
+
+async def test_a_pmc_source_whose_uploader_is_gone_is_not_fetched() -> None:
+    source, storage = _pmc(admin_id=None)
+    files = FakePmcFiles({_PMCID: _JATS})
+
+    report = await ingestion(
+        repository=MemoryQueue(source),
+        storage=storage,
+        embeddings=ScriptedEmbeddings(),
+        clock=FrozenClock(),
+        pmc_files=files,
+    ).ingest_next()
+
+    assert report == IngestReport(
+        source_id=source.id, result="failed", reason=IngestFailure.NO_ACTING_ADMIN
+    )
+    assert files.requests == []
+
+
+async def test_an_article_already_stored_is_read_from_storage_not_fetched_again() -> None:
+    source, storage = _pmc()
+    key = f"sources/{source.id}"
+    storage.objects[key] = _JATS
+    stored = source.model_copy(update={"storage_key": key})
+    files = FakePmcFiles()
+
+    report = await ingestion(
+        repository=MemoryQueue(stored),
+        storage=storage,
+        embeddings=ScriptedEmbeddings(),
+        clock=FrozenClock(),
+        pmc_files=files,
+    ).ingest_next()
+
+    assert report == IngestReport(source_id=source.id, result="ingested", chunks=3)
+    assert files.requests == []
+
+
+async def test_a_jats_source_with_neither_file_nor_pmc_id_is_missing_its_file() -> None:
+    source, storage = _pmc()
+    no_id = source.model_copy(update={"pmcid": None})
+    files = FakePmcFiles({_PMCID: _JATS})
+
+    report = await ingestion(
+        repository=MemoryQueue(no_id),
+        storage=storage,
+        embeddings=ScriptedEmbeddings(),
+        clock=FrozenClock(),
+        pmc_files=files,
+    ).ingest_next()
+
+    assert report == IngestReport(
+        source_id=source.id, result="failed", reason=IngestFailure.FILE_MISSING
+    )
+    assert files.requests == []
+
+
+async def test_a_pdf_source_with_no_file_is_still_missing_its_file_not_fetched() -> None:
+    # Only a JATS source with a PMC ID is fetched; no other type gets a file this way.
+    source, storage = _pmc()
+    pdf = source.model_copy(update={"file_type": KnowledgeFileType.PDF})
+    files = FakePmcFiles({_PMCID: _JATS})
+
+    report = await ingestion(
+        repository=MemoryQueue(pdf),
+        storage=storage,
+        embeddings=ScriptedEmbeddings(),
+        clock=FrozenClock(),
+        pmc_files=files,
+    ).ingest_next()
+
+    assert report == IngestReport(
+        source_id=source.id, result="failed", reason=IngestFailure.FILE_MISSING
+    )
+    assert files.requests == []
+
+
+async def test_an_uploaded_jats_file_uses_the_jats_reader() -> None:
+    source, storage = _stored("form-jats", data=_JATS, file_type=KnowledgeFileType.JATS)
+    files = FakePmcFiles()
+
+    report = await ingestion(
+        repository=MemoryQueue(source),
+        storage=storage,
+        embeddings=ScriptedEmbeddings(),
+        clock=FrozenClock(),
+        pmc_files=files,
+    ).ingest_next()
+
+    assert report == IngestReport(source_id=source.id, result="ingested", chunks=3)
+    assert files.requests == []

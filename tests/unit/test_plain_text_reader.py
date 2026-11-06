@@ -51,10 +51,7 @@ def test_the_registry_reads_markdown_and_text(
     assert document.blocks[0].kind is kind
 
 
-@pytest.mark.parametrize(
-    "file_type",
-    [KnowledgeFileType.JATS],
-    ids=["jats"],
-)
-def test_a_type_with_no_reader_yet_says_so(file_type: KnowledgeFileType) -> None:
-    assert DocumentReaders().parse(file_type, b"anything") == NoReader(file_type=file_type)
+@pytest.mark.parametrize("file_type", list(KnowledgeFileType), ids=lambda t: t.value)
+def test_every_file_type_has_a_reader(file_type: KnowledgeFileType) -> None:
+    # JATS was the last without one (#463); a new type must add its reader with the type.
+    assert not isinstance(DocumentReaders().parse(file_type, b"anything"), NoReader)

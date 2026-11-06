@@ -29,12 +29,13 @@ from sqlalchemy import (
     update,
 )
 from sqlalchemy.dialects.postgresql import REGCONFIG, TSVECTOR
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai_trainer.adapters.knowledge_repository import to_domain
 from ai_trainer.adapters.orm import KnowledgeChunkOrm, KnowledgeSourceOrm
 from ai_trainer.domain.knowledge import KnowledgeSource, SourceLanguage, SourceStatus
-from ai_trainer.domain.knowledge_ingestion import EmbeddedChunk, IngestFailure
+from ai_trainer.domain.knowledge_ingestion import EmbeddedChunk, FileRecord, IngestFailure
 
 _TEXT_SEARCH_CONFIGS = {SourceLanguage.EN: "english", SourceLanguage.PL: "simple"}
 # Rows per INSERT, so a long book's chunks don't make one enormous statement.
@@ -185,6 +186,38 @@ class SqlAlchemyKnowledgeIngestionRepository:
             ),
             "created_at": at,
         }
+
+    async def record_file(
+        self,
+        source_id: UUID,
+        *,
+        claim_id: UUID,
+        storage_key: str,
+        content_hash: str,
+        size_bytes: int,
+        file_name: str,
+    ) -> FileRecord:
+        statement = (
+            update(_S)
+            .where(held(source_id, claim_id))
+            .values(
+                storage_key=storage_key,
+                content_hash=content_hash,
+                size_bytes=size_bytes,
+                file_name=file_name,
+            )
+            .returning(_S.id)
+        )
+        async with self._session_factory() as session:
+            try:
+                recorded = await session.scalar(statement)
+                await session.commit()
+            except IntegrityError:
+                # `content_hash` is unique (ADR-0011): the file is another source's. The update
+                # only reaches a row this claim holds, so a lost claim is `GONE`, never this.
+                await session.rollback()
+                return FileRecord.DUPLICATE
+            return FileRecord.GONE if recorded is None else FileRecord.RECORDED
 
     async def fail(self, source_id: UUID, *, claim_id: UUID, reason: IngestFailure) -> bool:
         statement = (

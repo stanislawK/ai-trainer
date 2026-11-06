@@ -24,7 +24,7 @@
   "ingested": {"label": "Ingested", "badge": "badge badge-success", "busy": false},
   "failed": {"label": "Failed", "badge": "badge badge-error", "busy": false},
 } %}
-{% set file_types_hint = "PDF, EPUB, Markdown, text, .vtt or .srt" %}
+{% set file_types_hint = "PDF, EPUB, Markdown, text, .vtt, .srt or JATS .xml" %}
 {#- The licence select (ADR-0036 and its #454 amendment, the Admin Staging mock): each option's
     label, the hint under the select once it is picked, and whether that hint warns, as it does
     for the SA and ND licences the list flags. The list shows the same label: no version is
@@ -72,6 +72,9 @@
   "corrupt_file": "The file is damaged or isn't what its extension says, so it couldn't be read.",
   "file_missing": "The file is missing from storage. Delete this source and upload it again.",
   "storage_failed": "File storage didn't answer. Try Re-ingest.",
+  "pmc_not_found": "PubMed Central has no XML for this article. Check the PMC ID, then delete this source.",
+  "pmc_fetch_failed": "PubMed Central didn't deliver the article's XML intact. Try Re-ingest.",
+  "duplicate_source": "This article's file is already another source's. Delete this one.",
   "embedding_failed": "The embedding call failed. Try Re-ingest.",
   "embedding_timeout": "The embedding call timed out. Try Re-ingest.",
   "rate_limited": "OpenRouter kept answering “too many requests”. Try Re-ingest later.",
