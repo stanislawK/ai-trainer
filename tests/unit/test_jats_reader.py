@@ -91,6 +91,22 @@ def test_structured_abstract_is_one_abstract_chunk() -> None:
     assert "Halving the sets kept strength" in abstract[0].text
 
 
+def test_an_abstract_over_the_chunk_budget_is_still_one_chunk() -> None:
+    # 400 words against the production budget of 300: the skeptic's case at #463.
+    sentence = "Resistance training preserved strength in older adults across the trial. "
+    long_abstract = (
+        "<abstract>"
+        + "".join(f"<sec><title>Part {n}</title><p>{sentence * 6}</p></sec>" for n in range(1, 6))
+        + "</abstract>"
+    )
+
+    chunks = _chunks(_article(abstract=long_abstract))
+
+    abstract = [c for c in chunks if c.section_kind is SectionKind.ABSTRACT]
+    assert len(abstract) == 1
+    assert len(abstract[0].text.split()) > 300
+
+
 def test_a_plain_abstract_is_one_abstract_chunk() -> None:
     plain = "<abstract><p>One paragraph.</p><p>And a second.</p></abstract>"
 

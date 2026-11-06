@@ -311,7 +311,7 @@ async def test_an_embedding_failure_fails_the_source_and_reingest_recovers_it(
 
 
 _FIXTURE = Path(__file__).parent.parent / "fixtures" / "pmc" / "PMC13692514.1.xml"
-# The settings' defaults: the abstract is one chunk only when the budget holds it.
+# The settings' defaults: the budget a real article's chunks are cut to.
 _PRODUCTION_CHUNKER = Chunker(max_words=300, min_words=80)
 
 
