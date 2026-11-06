@@ -657,7 +657,7 @@ def _judge(model_id: str) -> OpenRouterModel:
     return cli_module._judge_model(model_id, provider=OpenRouterProvider(api_key="test-key"))
 
 
-@pytest.mark.parametrize("model_id", ["openai/o3", "openai/gpt-5", "deepseek/deepseek-r1"])
+@pytest.mark.parametrize("model_id", ["openai/o3", "openai/gpt-5"])
 def test_a_reasoning_judge_is_built_without_a_temperature(model_id: str) -> None:
     assert "temperature" not in (_judge(model_id).settings or {})
 
@@ -665,6 +665,16 @@ def test_a_reasoning_judge_is_built_without_a_temperature(model_id: str) -> None
 @pytest.mark.parametrize("model_id", ["openai/gpt-4o", "z-ai/glm-5.3"])
 def test_a_non_reasoning_judge_keeps_temperature_zero(model_id: str) -> None:
     assert (_judge(model_id).settings or {}).get("temperature") == 0
+
+
+def test_a_judge_that_always_reasons_but_accepts_sampling_keeps_temperature_zero() -> None:
+    """`thinking_always_enabled` means reasoning can't be turned off, not that sampling is refused:
+    Pydantic AI drops sampling only on `openai_supports_reasoning` (ADR-0009, #484)."""
+    judge = _judge("deepseek/deepseek-r1")
+
+    assert judge.profile.get("thinking_always_enabled") is True
+    assert not judge.profile.get("openai_supports_reasoning")
+    assert (judge.settings or {}).get("temperature") == 0
 
 
 def test_a_judge_with_no_reasoning_information_keeps_temperature_zero() -> None:

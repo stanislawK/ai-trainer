@@ -10,6 +10,11 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    # ADR-0002 locks Python 3.14: a new minor (3.15) is a stack change through /update-docs,
+    # not a Dependabot bump. Patch and base-image digest updates still come through.
+    ignore:
+      - dependency-name: python
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
   - package-ecosystem: github-actions
     directory: /
     schedule:
