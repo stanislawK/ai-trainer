@@ -6,7 +6,7 @@ argument-hint: "<topic> [covered: <sources the owner already uploaded>]"
 
 # Research knowledge: $ARGUMENTS (ADR-0033, ADR-0036, PRD 0011 B7)
 
-Finds sources worth adding to `/admin/knowledge`. Agents never upload directly: once `/stage-knowledge` exists, the shortlist the owner approves is staged as `proposed` sources that an admin approves in bulk; until then the owner uploads (ADR-0036). This skill itself stages nothing.
+Finds sources worth adding to `/admin/knowledge`. Agents never upload directly: the shortlist the owner approves is staged by `/stage-knowledge` as `proposed` sources that an admin approves in bulk; until then the owner uploads (ADR-0036). This skill itself stages nothing.
 
 ## Inputs
 
