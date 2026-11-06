@@ -239,7 +239,7 @@ async def test_bench_question_answers_from_the_athletes_sets_and_dates(world: _W
     assert isinstance(done, ReplyDone)
     (reply,) = done.messages
     assert (reply.text, reply.sports) == ("45 then 47.5.", ("gym",))
-    assert (reply.template_id, reply.template_version) == ("gym.answer", 1)
+    assert (reply.template_id, reply.template_version) == ("gym.answer", 2)
 
 
 async def test_the_reply_writes_one_llm_call_for_the_whole_tool_loop(world: _World) -> None:

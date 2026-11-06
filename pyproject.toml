@@ -163,6 +163,7 @@ layers = [
 ignore_imports = [
     "ai_trainer.llm.evals.answer_smoke -> ai_trainer.mcp.server",
     "ai_trainer.llm.evals.answer_smoke -> ai_trainer.mcp.toolset",
+    "ai_trainer.llm.evals.answer_smoke -> ai_trainer.mcp.citations",
 ]
 
 [[tool.importlinter.contracts]]

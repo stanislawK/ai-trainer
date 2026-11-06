@@ -21,7 +21,6 @@ from pydantic import PostgresDsn, SecretStr
 from pydantic_ai import Agent, InstrumentationSettings
 from pydantic_ai.mcp import MCPToolset
 from pydantic_ai.models.test import TestModel
-from pydantic_ai.toolsets import FilteredToolset
 from sqlalchemy.ext.asyncio import AsyncEngine
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
@@ -151,9 +150,8 @@ def test_create_app_builds_the_mcp_toolset_and_mounts_no_mcp_route() -> None:
     (ADR-0010 defers HTTP, ticket #378)."""
     app = create_app(_settings())
 
-    # Filtered, so `search_knowledge` stays off the specialists until #428 (#424).
-    assert isinstance(app.state.mcp_toolset, FilteredToolset)
-    assert isinstance(app.state.mcp_toolset.wrapped, MCPToolset)
+    # Unfiltered since #428: `search_knowledge` and `cite_sources` reach the specialists.
+    assert isinstance(app.state.mcp_toolset, MCPToolset)
     assert not [
         path for route in app.routes if "mcp" in (path := getattr(route, "path", "")).lower()
     ]

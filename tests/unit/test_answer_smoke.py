@@ -24,6 +24,10 @@ from ai_trainer.llm.evals.smoke import SmokeError, read_smoke_set
 _REPO = Path(__file__).parents[2]
 _PROMPTS = _REPO / "src" / "ai_trainer" / "llm" / "prompts"
 _REGISTRY = build_prompt_registry(_PROMPTS, default_sport_registry())
+# The version the app serves, so the harness's tests follow `/tune-prompt` bumps.
+_GYM_ANSWERS = default_sport_registry().get("gym").answers
+assert _GYM_ANSWERS is not None
+_VERSION = _GYM_ANSWERS.version
 _DEPS = {
     "message": "How is my bench going?",
     "history": [],
@@ -90,7 +94,7 @@ def _case(metadata: dict[str, Any], name: str = "a case") -> dict[str, Any]:
 async def _run(root: Path, model: FunctionModel, max_requests: int = 6) -> list[Any]:
     smoke_set = read_smoke_set("gym.answer", smoke_root=root)
     return await run_answer_smoke(
-        smoke_set, model, registry=_REGISTRY, version=1, max_requests=max_requests
+        smoke_set, model, registry=_REGISTRY, version=_VERSION, max_requests=max_requests
     )
 
 
@@ -229,7 +233,7 @@ async def test_a_set_for_a_template_no_sport_names_is_refused(tmp_path: Path) ->
             replace(smoke_set, template_id="rowing.answer"),
             _reading(lambda _: "Fine."),
             registry=_REGISTRY,
-            version=1,
+            version=_VERSION,
             max_requests=6,
         )
 
@@ -346,7 +350,7 @@ def test_main_runs_the_answer_set_on_the_tools_and_never_reaches_a_real_model(
     assert main(["smoke", "gym.answer"]) == 1
 
     out = capsys.readouterr().out
-    assert "gym.answer v1 (z-ai/glm-5.3-flash)" in out
+    assert f"gym.answer v{_VERSION} (z-ai/glm-5.3-flash)" in out
     assert "FAIL a case: the call failed" in out
 
 
@@ -359,3 +363,97 @@ def test_the_committed_set_reads_and_every_case_names_its_source() -> None:
     raw = yaml.safe_load((_REPO / "evals" / "smoke" / "gym.answer.yaml").read_text())
     for case in raw["cases"]:
         assert {"field", "prd", "safety"} & set(case["metadata"]), case["name"]
+
+
+# Cited answers (#428): a case may carry knowledge passages, and `cites` grades which sources
+# the reply showed, read from the run as the app reads it (`mcp/citations.py`).
+
+_DELOAD_PASSAGE: dict[str, Any] = {
+    "title": "Periodization",
+    "author": "Tudor Bompa",
+    "evidence_tier": "coaching_book",
+    "source_type": "book",
+    "locator": {"kind": "page", "page": 12},
+    "text": "Plan a lighter week every fourth to sixth week.",
+}
+
+
+def _searching(cite: bool, say: str = "Bompa suggests a lighter week every 4–6 weeks.") -> FunctionModel:
+    """Searches, then cites every passage it got when `cite`, then says `say`."""
+
+    def respond(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        returns = _returns(messages)
+        if not returns:
+            return ModelResponse(parts=[ToolCallPart("search_knowledge", {"query": "deload"})])
+        if cite and len(returns) == 1:
+            found = json.loads(returns[0])
+            ids = [hit["chunk_id"] for hit in (found["data"] or {"hits": []})["hits"]]
+            return ModelResponse(parts=[ToolCallPart("cite_sources", {"chunk_ids": ids})])
+        return ModelResponse(parts=[TextPart(say)])
+
+    return FunctionModel(respond)
+
+
+async def test_a_reply_citing_the_expected_source_passes(tmp_path: Path) -> None:
+    root = _set_with(
+        tmp_path,
+        _case(
+            {
+                "knowledge": [_DELOAD_PASSAGE],
+                "expect": {
+                    "called": ["search_knowledge", "cite_sources"],
+                    "cites": ["Periodization"],
+                },
+            }
+        ),
+    )
+
+    (result,) = await _run(root, _searching(cite=True))
+
+    assert result.passed, result.detail
+
+
+async def test_a_reply_that_cites_nothing_fails_a_case_expecting_a_source(tmp_path: Path) -> None:
+    root = _set_with(
+        tmp_path, _case({"knowledge": [_DELOAD_PASSAGE], "expect": {"cites": ["Periodization"]}})
+    )
+
+    (result,) = await _run(root, _searching(cite=False))
+
+    assert not result.passed
+    assert "cites []" in result.detail
+
+
+async def test_a_reply_citing_a_source_fails_a_case_expecting_none(tmp_path: Path) -> None:
+    root = _set_with(tmp_path, _case({"knowledge": [_DELOAD_PASSAGE], "expect": {"cites": []}}))
+
+    (result,) = await _run(root, _searching(cite=True))
+
+    assert not result.passed
+    assert "Periodization" in result.detail
+
+
+async def test_a_case_with_no_passages_searches_an_empty_knowledge_base(tmp_path: Path) -> None:
+    seen: list[str] = []
+
+    def respond(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        returns = _returns(messages)
+        if not returns:
+            return ModelResponse(parts=[ToolCallPart("search_knowledge", {"query": "deload"})])
+        seen.extend(returns)
+        return ModelResponse(parts=[TextPart("I have no source for that yet.")])
+
+    root = _set_with(tmp_path, _case({"expect": {"cites": []}}))
+
+    (result,) = await _run(root, FunctionModel(respond))
+
+    assert result.passed, result.detail
+    assert '"success": false' in seen[0]
+
+
+async def test_a_case_that_does_not_grade_cites_ignores_them(tmp_path: Path) -> None:
+    root = _set_with(tmp_path, _case({"knowledge": [_DELOAD_PASSAGE], "expect": {}}))
+
+    (result,) = await _run(root, _searching(cite=True))
+
+    assert result.passed, result.detail

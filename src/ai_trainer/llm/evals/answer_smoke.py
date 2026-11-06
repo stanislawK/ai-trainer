@@ -2,7 +2,12 @@
 A case gives what the athlete logged, the question and what the reply must and must not say. It
 runs on the real MCP server and identity hook, so the model reads the descriptions the app
 publishes, over an in-memory history built from the case. Graded in code, once, with no judge. No
-`llm_calls` row: no user is acting, and a case holds no real athlete's identity."""
+`llm_calls` row: no user is acting, and a case holds no real athlete's identity.
+
+A case may carry `knowledge` passages, which `search_knowledge` returns whatever the query, as the
+app's search does with no relevance floor yet (ADR-0036 #424). `cites` grades the titles the reply
+showed, read from the run as the app reads them (ADR-0036 #428). With no passages the knowledge
+base is empty, so a search finds nothing."""
 
 import re
 from collections.abc import Mapping, Sequence
@@ -17,6 +22,7 @@ from pydantic_ai.models import Model
 
 from ai_trainer.application.exercise_lookup import ExerciseFinder
 from ai_trainer.application.exercise_resolution import ResolutionLimits
+from ai_trainer.application.knowledge_search import KnowledgeSearch
 from ai_trainer.application.training_history import ExerciseTrainingHistory, TrainingHistory
 from ai_trainer.domain.exercises import (
     CatalogueExercise,
@@ -31,16 +37,27 @@ from ai_trainer.domain.exercises import (
     LoggedName,
     LoggedSet,
 )
+from ai_trainer.domain.embeddings import Embedded, EmbeddingOutcome
+from ai_trainer.domain.knowledge import EvidenceTier, SourceLanguage, SourceType
+from ai_trainer.domain.knowledge_document import Locator, SectionLocator
+from ai_trainer.domain.knowledge_search import (
+    KnowledgeCandidates,
+    KnowledgeFilters,
+    KnowledgeHit,
+)
 from ai_trainer.domain.sports.registry import default_sport_registry
 from ai_trainer.domain.training import SessionSummary
 from ai_trainer.llm.evals.inputs import EvalCaseInputs
 from ai_trainer.llm.evals.smoke import SmokeCaseResult, SmokeError, SmokeSet
 from ai_trainer.llm.prompts.registry import PromptRegistry
 from ai_trainer.llm.tool_loop import REQUEST_BREAK
+from ai_trainer.mcp.citations import cited_sources
 from ai_trainer.mcp.server import build_mcp_server
 from ai_trainer.mcp.toolset import build_toolset
 
 _LIMITS = ResolutionLimits(near_match=0.75, candidate_floor=0.25, shortlist_size=4)
+# The fixture's own: no chunk is filtered by it, and no embedding call is made.
+_EMBEDDING_MODEL = "smoke"
 
 
 class _Set(BaseModel):
@@ -69,11 +86,26 @@ class _Expect(BaseModel):
     forbids: list[str] = []
     no_digits: bool = False
     called: list[str] = []
+    # The titles the reply must cite, in any order; `[]` cites nothing, absent isn't graded.
+    cites: list[str] | None = None
+
+
+class _Passage(BaseModel):
+    """One passage of a case's knowledge base."""
+
+    title: str
+    author: str | None = None
+    evidence_tier: EvidenceTier
+    source_type: SourceType
+    locator: Locator = SectionLocator()
+    language: SourceLanguage = SourceLanguage.EN
+    text: str
 
 
 class _Metadata(BaseModel):
     logged: list[_Logged] = []
     catalogue: list[str] = []
+    knowledge: list[_Passage] = []
     expect: _Expect
 
 
@@ -263,6 +295,39 @@ class _CaseHistory:
         raise NotImplementedError  # pragma: no cover -- no tool reads every alias
 
 
+class _CaseKnowledge:
+    """Implements the search's ports over one case's passages: every passage comes back by
+    meaning, in the case's order, under any filter."""
+
+    def __init__(self, passages: Sequence[_Passage]) -> None:
+        self._hits = tuple(
+            KnowledgeHit(
+                chunk_id=_id(f"{passage.title}/{number}"),
+                text=passage.text,
+                heading_path=(),
+                language=passage.language,
+                source_id=_id(passage.title),
+                title=passage.title,
+                author=passage.author,
+                evidence_tier=passage.evidence_tier,
+                source_type=passage.source_type,
+                source_url=None,
+                attribution=None,
+                locator=passage.locator,
+                exercise_id=None,
+            )
+            for number, passage in enumerate(passages)
+        )
+
+    async def embed_query(self, text: str, *, acting_user_id: UUID) -> EmbeddingOutcome:
+        return Embedded(vectors=((1.0,),), model=_EMBEDDING_MODEL)
+
+    async def candidates(
+        self, *, vector: Sequence[float], query: str, filters: KnowledgeFilters, depth: int
+    ) -> KnowledgeCandidates:
+        return KnowledgeCandidates(by_meaning=self._hits[:depth], by_words=())
+
+
 def _read_cases(smoke_set: SmokeSet) -> list[_Case]:
     """Every case checked before any call, so a typo in a fixture costs nothing."""
     raw_cases = smoke_set.dataset["cases"]
@@ -310,7 +375,7 @@ def _sport_of(template_id: str) -> str:
     raise SmokeError(f"no sport names {template_id!r} as its answer template")
 
 
-def _misses(reply: str, called: set[str], expect: _Expect) -> list[str]:
+def _misses(reply: str, called: set[str], cited: list[str], expect: _Expect) -> list[str]:
     """What the reply got wrong, in words for the run's output."""
     misses = [
         f"no mention of /{pattern}/"
@@ -325,6 +390,8 @@ def _misses(reply: str, called: set[str], expect: _Expect) -> list[str]:
     if expect.no_digits and re.search(r"\d", reply):
         misses.append("gives a number")
     misses += [f"never called {tool}" for tool in expect.called if tool not in called]
+    if expect.cites is not None and sorted(set(cited)) != sorted(expect.cites):
+        misses.append(f"cites {sorted(set(cited))}, not {sorted(expect.cites)}")
     return misses
 
 
@@ -342,10 +409,18 @@ async def run_answer_smoke(
     results: list[SmokeCaseResult] = []
     for case in _read_cases(smoke_set):
         fake = _CaseHistory(sport_id, case.metadata.logged, case.metadata.catalogue)
+        knowledge = _CaseKnowledge(case.metadata.knowledge)
         server = build_mcp_server(
             TrainingHistory(fake, default_sport_registry()),
             ExerciseFinder(fake, _LIMITS, fake),
             ExerciseTrainingHistory(fake, fake),
+            knowledge=KnowledgeSearch(
+                embeddings=knowledge,
+                repository=knowledge,
+                sports=default_sport_registry(),
+                embedding_model=_EMBEDDING_MODEL,
+                depth=20,
+            ),
         )
         agent: Agent[_Deps, str] = Agent(model, deps_type=_Deps, toolsets=[build_toolset(server)])
         deps = template.deps_type.model_validate(case.inputs.deps)
@@ -359,8 +434,10 @@ async def run_answer_smoke(
         except Exception as error:
             results.append(_result(smoke_set, case.name, f"the call failed: {error}"))
             continue
-        reply = _shown(result.all_messages())
-        misses = _misses(reply, _called(result.all_messages()), case.metadata.expect)
+        messages = result.all_messages()
+        reply = _shown(messages)
+        cited = [source.title for source in cited_sources(messages)]
+        misses = _misses(reply, _called(messages), cited, case.metadata.expect)
         detail = f"{'; '.join(misses)}; got {reply!r}" if misses else ""
         results.append(_result(smoke_set, case.name, detail))
     return results

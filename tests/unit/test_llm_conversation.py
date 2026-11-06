@@ -282,7 +282,7 @@ async def test_stream_answer_reads_the_sports_template_with_its_settings_and_too
     assert isinstance(chunks[-1], StreamEnd)
     (call,) = gateway.streams
     assert call["user_id"] == context.user_id
-    assert (call["template_id"], call["template_version"]) == ("gym.answer", 1)
+    assert (call["template_id"], call["template_version"]) == ("gym.answer", 2)
     assert call["model_id"] == "test/answer-model"
     assert call["tool_loop"] == ToolLoop(max_requests=5)
     assert call["provider"] == _ANSWER_PREFERENCES
@@ -310,7 +310,7 @@ async def test_stream_answer_renders_persona_time_and_turns_but_no_identity() ->
 
 def test_answer_template_names_the_sports_template() -> None:
     assert _conversation(RecordingGateway()).answer_template("gym") == TemplateRef(
-        id="gym.answer", version=1
+        id="gym.answer", version=2
     )
 
 

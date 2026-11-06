@@ -78,10 +78,26 @@ def _seed_user(cur: psycopg.Cursor[Any]) -> dict[str, UUID]:
     return {"user": user, "conversation": conversation, "message": message}
 
 
-def _snapshot(cur: psycopg.Cursor[Any]) -> dict[str, list[tuple[Any, ...]]]:
+def _columns(cur: psycopg.Cursor[Any]) -> dict[str, list[str]]:
+    """Each existing table's columns now, so a later migration that adds one (#428's
+    `chat_messages.sources`) doesn't change what the upgrade is compared on."""
+    columns = {}
+    for table in _EXISTING:
+        cur.execute(
+            "SELECT column_name FROM information_schema.columns"
+            " WHERE table_schema = 'public' AND table_name = %s ORDER BY ordinal_position",
+            (table,),
+        )
+        columns[table] = [row[0] for row in cur.fetchall()]
+    return columns
+
+
+def _snapshot(
+    cur: psycopg.Cursor[Any], columns: dict[str, list[str]]
+) -> dict[str, list[tuple[Any, ...]]]:
     snapshot = {}
     for table, key in _EXISTING.items():
-        cur.execute(f"SELECT * FROM {table} ORDER BY {key}")
+        cur.execute(f"SELECT {', '.join(columns[table])} FROM {table} ORDER BY {key}")
         snapshot[table] = cur.fetchall()
     return snapshot
 
@@ -104,12 +120,13 @@ def test_upgrading_with_data_in_every_table_keeps_every_row_and_value(
     at_previous_revision: None,
 ) -> None:
     with _connect() as conn, conn.cursor() as cur:
-        before = _snapshot(cur)
+        columns = _columns(cur)
+        before = _snapshot(cur, columns)
 
     command.upgrade(Config("alembic.ini"), "head")
 
     with _connect() as conn, conn.cursor() as cur:
-        assert _snapshot(cur) == before
+        assert _snapshot(cur, columns) == before
     assert all(before[table] for table in _EXISTING)
 
 
