@@ -76,8 +76,9 @@ class PmcCloudFiles:
 
     The article's JSON gives the key of its JATS: `s3://pmc-oa-opendata/<PMCID>.<n>/<PMCID>.<n>.xml
     ?md5=<hex>`. That link is followed only when it is exactly this article's latest version's
-    own XML, in the bucket, over the bucket's HTTPS URL; anything else in it is refused. The body
-    is read under a size cap and checked against the md5 PMC recorded.
+    own XML, in the bucket, over the bucket's HTTPS URL; anything else in it is refused, and so is
+    a link without the md5 PMC records. The body is read under a size cap and checked against
+    that md5.
     """
 
     def __init__(
@@ -122,7 +123,7 @@ class PmcCloudFiles:
             return PmcUnavailable(PmcFetchProblem.TIMEOUT)
         except httpx2.HTTPError:
             return PmcUnavailable(PmcFetchProblem.FAILED)
-        if data is None or (md5 is not None and _md5(data) != md5):
+        if data is None or _md5(data) != md5:
             return PmcUnavailable(PmcFetchProblem.MALFORMED)
         return data
 
@@ -138,19 +139,19 @@ class PmcCloudFiles:
         return b"".join(chunks)
 
 
-def _locate_xml(xml_url: str, article: PmcArticle) -> tuple[str, str | None] | None:
+def _locate_xml(xml_url: str, article: PmcArticle) -> tuple[str, str] | None:
     """The bucket path and recorded md5 of this article's own XML, or None for any other link."""
     parts = urlsplit(xml_url)
     key = f"{article.pmcid}.{article.version}"
     path = f"/{key}/{key}.xml"
     if (parts.scheme, parts.netloc, parts.path) != ("s3", PMC_BUCKET_NAME, path):
         return None
+    # PMC's metadata always records the md5; a link without one is not followed, since a
+    # truncated body could not be told from the whole file.
     wanted = parse_qs(parts.query).get("md5", [])
-    if not wanted:
-        return path, None
-    if len(wanted) != 1 or not _MD5.fullmatch(wanted[0]):
+    if len(wanted) != 1 or not _MD5.fullmatch(wanted[0].lower()):
         return None
-    return path, wanted[0]
+    return path, wanted[0].lower()
 
 
 def _md5(data: bytes) -> str:

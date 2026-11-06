@@ -2,6 +2,7 @@
 response comes from the fake bucket's mock transport."""
 
 import asyncio
+import hashlib
 
 import httpx2
 import pytest
@@ -260,10 +261,23 @@ async def test_an_xml_url_that_is_not_this_articles_is_never_followed(xml_url: s
     assert len(bucket.requests) == 2  # the metadata's two GETs only
 
 
-async def test_a_missing_md5_is_read_without_the_check() -> None:
+async def test_a_link_without_an_md5_is_never_followed() -> None:
+    # PMC's metadata always records one; without it a truncated body could not be told apart.
     bucket = FakeBucket()
     bucket.put_with_xml(article("PMC77"), _XML)
     bucket.put(article("PMC77", xml_url="s3://pmc-oa-opendata/PMC77.1/PMC77.1.xml"))
+
+    fetched = await _files(bucket).fetch_jats("PMC77")
+
+    assert fetched == PmcUnavailable(PmcFetchProblem.MALFORMED)
+    assert len(bucket.requests) == 2  # the metadata's two GETs only
+
+
+async def test_an_uppercase_md5_is_checked_like_a_lowercase_one() -> None:
+    bucket = FakeBucket()
+    bucket.put_with_xml(
+        article("PMC77"), _XML, md5=hashlib.md5(_XML, usedforsecurity=False).hexdigest().upper()
+    )
 
     assert await _files(bucket).fetch_jats("PMC77") == _XML
 

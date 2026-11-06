@@ -664,7 +664,11 @@ async def test_a_jats_that_is_another_sources_file_fails_as_a_duplicate() -> Non
     assert embeddings.calls == []
 
 
-async def test_a_claim_lost_before_the_file_is_recorded_is_gone_and_leaves_no_object() -> None:
+async def test_a_claim_lost_before_the_file_is_recorded_is_gone_and_keeps_the_shared_object() -> (
+    None
+):
+    # The key is the source's own, shared with whichever worker holds it now, who may have
+    # recorded it: a worker that lost the claim never deletes it (found by /code-review at #463).
     source, storage = _pmc()
     queue = MemoryQueue(source)
     queue.steal_on_record = True
@@ -679,8 +683,28 @@ async def test_a_claim_lost_before_the_file_is_recorded_is_gone_and_leaves_no_ob
     ).ingest_next()
 
     assert report == IngestReport(source_id=source.id, result="gone")
-    assert storage.objects == {}
+    assert storage.objects == {f"sources/{source.id}": _JATS}
     assert embeddings.calls == []
+
+
+async def test_a_claim_lost_during_the_download_stores_nothing() -> None:
+    source, storage = _pmc()
+    queue = MemoryQueue(source)
+    queue.steal_on_heartbeat = True
+    files = FakePmcFiles({_PMCID: _JATS}, during=lambda: asyncio.sleep(0.05))
+
+    report = await ingestion(
+        repository=queue,
+        storage=storage,
+        embeddings=ScriptedEmbeddings(),
+        clock=FrozenClock(),
+        lease=timedelta(milliseconds=30),
+        pmc_files=files,
+    ).ingest_next()
+
+    assert report == IngestReport(source_id=source.id, result="gone")
+    assert storage.objects == {}
+    assert queue.sources[source.id].storage_key is None
 
 
 async def test_a_storage_outage_while_storing_the_jats_fails_the_source() -> None:

@@ -29,6 +29,7 @@ from sqlalchemy import (
     update,
 )
 from sqlalchemy.dialects.postgresql import REGCONFIG, TSVECTOR
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai_trainer.adapters.knowledge_repository import to_domain
@@ -208,15 +209,14 @@ class SqlAlchemyKnowledgeIngestionRepository:
             .returning(_S.id)
         )
         async with self._session_factory() as session:
-            # The hash is unique (ADR-0011). Checked first so a duplicate is a reason, not an
-            # integrity error; the constraint still guards the race between this and the update.
-            same_hash = await session.scalar(
-                select(_S.id).where(_S.content_hash == content_hash, _S.id != source_id)
-            )
-            if same_hash is not None:
+            try:
+                recorded = await session.scalar(statement)
+                await session.commit()
+            except IntegrityError:
+                # `content_hash` is unique (ADR-0011): the file is another source's. The update
+                # only reaches a row this claim holds, so a lost claim is `GONE`, never this.
+                await session.rollback()
                 return FileRecord.DUPLICATE
-            recorded = await session.scalar(statement)
-            await session.commit()
             return FileRecord.GONE if recorded is None else FileRecord.RECORDED
 
     async def fail(self, source_id: UUID, *, claim_id: UUID, reason: IngestFailure) -> bool:

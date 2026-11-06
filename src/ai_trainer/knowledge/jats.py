@@ -61,6 +61,7 @@ _SKIPPED = _NO_TEXT | frozenset(
 _SEPARATED = frozenset({"p", "title", "label", "list-item", "td", "th", "tr", "break", "caption"})
 # Blocks a paragraph may hold; they are read after its text.
 _NESTED_BLOCKS = frozenset({"table-wrap", "fig"})
+_XML_LANG = "{http://www.w3.org/XML/1998/namespace}lang"
 # Abstract types that are the article's main abstract.
 _MAIN_ABSTRACTS = frozenset({None, "structured"})
 
@@ -112,11 +113,15 @@ def _main_abstract(article: etree._Element) -> etree._Element | None:
     meta = next((e for e in article.iter() if local_name(e) == "article-meta"), None)
     if meta is None:
         return None
+    language = article.get(_XML_LANG)
     return next(
         (
             e
             for e in meta
-            if local_name(e) == "abstract" and e.get("abstract-type") in _MAIN_ABSTRACTS
+            if local_name(e) == "abstract"
+            and e.get("abstract-type") in _MAIN_ABSTRACTS
+            # One in another language than the article's own is a translation.
+            and e.get(_XML_LANG) in (None, language)
         ),
         None,
     )
@@ -171,7 +176,8 @@ class _Walker:
     def collect_floats(self, group: etree._Element) -> None:
         """PMC keeps an article's tables and figures in `<floats-group>`, after the body, and the
         body only cites them with an `<xref>`. They are read where first cited."""
-        for element in group:
+        # `iter`, not the children: a `<table-wrap-group>` or `<fig-group>` wraps its members.
+        for element in group.iter():
             if local_name(element) in _NESTED_BLOCKS:
                 self._floats[element.get("id") or f"float-{len(self._floats)}"] = element
 

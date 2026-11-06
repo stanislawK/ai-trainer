@@ -350,12 +350,20 @@ class FakePmcFiles:
     """Implements `PmcArticleFilesPort`: each PMC ID answers with what it was given, and a
     request for an ID it was not given is not found."""
 
-    def __init__(self, files: Mapping[str, bytes | PmcNotFound | PmcUnavailable] | None = None):
+    def __init__(
+        self,
+        files: Mapping[str, bytes | PmcNotFound | PmcUnavailable] | None = None,
+        *,
+        during: Callable[[], Awaitable[None]] | None = None,
+    ):
         self.files = dict(files or {})
+        self.during = during
         self.requests: list[str] = []
 
     async def fetch_jats(self, pmcid: str) -> bytes | PmcNotFound | PmcUnavailable:
         self.requests.append(pmcid)
+        if self.during is not None:
+            await self.during()
         return self.files.get(pmcid, PmcNotFound())
 
 

@@ -216,7 +216,7 @@ class KnowledgeIngestion:
             return IngestFailure.NO_ACTING_ADMIN
         if source.file_type is None:
             return IngestFailure.FILE_MISSING
-        data = await self._file(source, claim_id)
+        data = await self._file(source, claim_id, lost)
         if isinstance(data, IngestFailure):
             return data
         chunks = await asyncio.to_thread(self._chunks, source.file_type, data)
@@ -224,10 +224,12 @@ class KnowledgeIngestion:
             return chunks
         return await self._embed(source, chunks, acting_user, lost)
 
-    async def _file(self, source: KnowledgeSource, claim_id: UUID) -> bytes | IngestFailure:
+    async def _file(
+        self, source: KnowledgeSource, claim_id: UUID, lost: asyncio.Event
+    ) -> bytes | IngestFailure:
         """The source's bytes: from `uploads`, or, for a PMC article not fetched yet, from PMC."""
         if needs_fetch(source):
-            return await self._pmc.fetch(source, claim_id)
+            return await self._pmc.fetch(source, claim_id, lost)
         if source.storage_key is None:
             return IngestFailure.FILE_MISSING
         try:

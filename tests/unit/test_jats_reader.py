@@ -130,6 +130,27 @@ def test_graphical_and_translated_abstracts_are_not_the_abstract() -> None:
     assert "Streszczenie po polsku." not in text
 
 
+def test_an_abstract_in_another_language_than_the_article_is_not_the_abstract() -> None:
+    abstracts = (
+        '<abstract xml:lang="pl"><p>Streszczenie po polsku.</p></abstract>'
+        '<abstract xml:lang="en"><p>The English abstract.</p></abstract>'
+    )
+    data = _article(abstract=abstracts).replace(b"<article ", b'<article xml:lang="en" ', 1)
+
+    text = " ".join(c.text for c in _chunks(data))
+
+    assert "The English abstract." in text
+    assert "Streszczenie po polsku." not in text
+
+
+def test_an_abstract_without_a_language_is_the_abstract_whatever_the_article_says() -> None:
+    data = _article(abstract="<abstract><p>Plain.</p></abstract>").replace(
+        b"<article ", b'<article xml:lang="en" ', 1
+    )
+
+    assert any(c.text == "Plain." for c in _chunks(data))
+
+
 def test_reference_list_is_never_a_chunk() -> None:
     chunks = _chunks(_article())
 
@@ -178,6 +199,33 @@ def test_a_floating_table_lands_in_the_section_that_cites_it() -> None:
     assert cited.heading_path == ("Results",)
     assert cited.text == "a | 1\n\nTable 9. Cited in Results."
     assert sum("Cited in Results." in c.text for c in _chunks(data)) == 1
+
+
+def test_tables_in_a_group_wrapper_in_floats_are_read_too() -> None:
+    floats = (
+        "<floats-group><table-wrap-group id='g1'><label>Table 5</label>"
+        "<table-wrap id='t5'><label>Table 5a</label><caption><p>First.</p></caption>"
+        "<table><tbody><tr><td>p</td><td>1</td></tr></tbody></table></table-wrap>"
+        "<table-wrap id='t6'><label>Table 5b</label><caption><p>Second.</p></caption>"
+        "<table><tbody><tr><td>q</td><td>2</td></tr></tbody></table></table-wrap>"
+        "</table-wrap-group>"
+        "<fig-group id='fg'><fig id='f5'><label>Figure 5</label><caption><p>Grouped.</p>"
+        "</caption></fig></fig-group></floats-group>"
+    )
+    body = (
+        "<sec><title>Results</title><p><xref ref-type='table' rid='t5'>5a</xref> and "
+        "<xref ref-type='fig' rid='f5'>5</xref>.</p></sec>"
+    )
+    data = _article(body=body).replace(b"</article>", floats.encode() + b"</article>")
+
+    chunks = _chunks(data)
+
+    text = "\n".join(c.text for c in chunks)
+    for wanted in ("Table 5a. First.", "Table 5b. Second.", "Figure 5. Grouped."):
+        assert wanted in text
+    cited = next(c for c in chunks if "Table 5a. First." in c.text)
+    assert cited.heading_path == ("Results",)
+    assert next(c for c in chunks if "Table 5b." in c.text).heading_path == ()
 
 
 def test_a_floating_figure_caption_lands_in_the_citing_section() -> None:

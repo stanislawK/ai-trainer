@@ -531,6 +531,25 @@ async def test_record_file_of_another_sources_hash_is_a_duplicate_and_changes_no
     assert (unchanged.storage_key, unchanged.content_hash) == (None, source.content_hash)
 
 
+async def test_record_file_by_a_lost_claim_is_gone_even_when_the_hash_is_another_sources(
+    world: _World,
+) -> None:
+    other = await world.add_pmc()
+    source = await world.add_pmc()
+    await world.hold(source.id)
+
+    recorded = await world.queue.record_file(
+        source.id,
+        claim_id=uuid4(),
+        storage_key=f"sources/{source.id}",
+        content_hash=other.content_hash,
+        size_bytes=12,
+        file_name="x.xml",
+    )
+
+    assert recorded is FileRecord.GONE
+
+
 async def test_record_file_of_a_source_not_held_by_that_claim_is_gone(world: _World) -> None:
     source = await world.add_pmc()
     await world.hold(source.id)

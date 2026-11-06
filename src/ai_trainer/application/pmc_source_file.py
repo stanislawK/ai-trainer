@@ -11,13 +11,16 @@ uploaded file's.
 - A hash that is another source's means the article is a duplicate of that source (the #458
   amendment): the object just stored is removed and the source fails `duplicate_source`. It is
   never silently merged.
-- A claim lost before the record removes the object too, then stops the work.
+- A claim lost during the download stores nothing. One lost before the record stops the work and
+  leaves the object: its key is shared with the worker that holds the claim now, which may have
+  recorded it.
 - A source that has its file already (an ingested article being re-ingested) is not fetched
   again.
 
 Only the PMC ID leaves the app, and the file never passes through a model (invariants 3 and 7).
 """
 
+import asyncio
 import contextlib
 from uuid import UUID
 
@@ -56,12 +59,16 @@ class PmcSourceFile:
         self._storage = storage
         self._repository = repository
 
-    async def fetch(self, source: KnowledgeSource, claim_id: UUID) -> bytes | IngestFailure:
+    async def fetch(
+        self, source: KnowledgeSource, claim_id: UUID, lost: asyncio.Event
+    ) -> bytes | IngestFailure:
         """The source's JATS, now stored and recorded; or why it could not be. Raises
         `ClaimLostError` when the source was deleted or taken over meanwhile."""
         pmcid = source.pmcid
         assert pmcid is not None, "needs_fetch() was checked"
         fetched = await self._files.fetch_jats(pmcid)
+        if lost.is_set():
+            raise ClaimLostError  # the heartbeat lost the claim during the download: store nothing
         if isinstance(fetched, PmcNotFound):
             return IngestFailure.PMC_NOT_FOUND
         if not isinstance(fetched, bytes):
@@ -83,9 +90,11 @@ class PmcSourceFile:
         )
         if recorded is FileRecord.RECORDED:
             return fetched
-        # Nothing refers to the object: it is not the source's file.
+        if recorded is FileRecord.GONE:
+            # The key is the source's own, shared with whichever worker holds the claim now, who
+            # may have recorded it: a worker that lost the claim leaves the object alone.
+            raise ClaimLostError
+        # A duplicate under a claim this worker holds: nothing refers to the object.
         with contextlib.suppress(ObjectStorageError):
             await self._storage.delete(key)
-        if recorded is FileRecord.DUPLICATE:
-            return IngestFailure.DUPLICATE_SOURCE
-        raise ClaimLostError
+        return IngestFailure.DUPLICATE_SOURCE
