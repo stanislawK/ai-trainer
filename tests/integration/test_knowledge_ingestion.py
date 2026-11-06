@@ -415,8 +415,8 @@ async def test_pmc_xml_that_is_another_sources_file_fails_as_a_duplicate(world: 
     files = FakePmcFiles({first.pmcid: xml, second.pmcid: xml})
 
     reports = [
-        *await world.ingest_once(pmc_files=files),
-        *await world.ingest_once(pmc_files=files),
+        *await world.ingest_once(pmc_files=files, chunker=_PRODUCTION_CHUNKER),
+        *await world.ingest_once(pmc_files=files, chunker=_PRODUCTION_CHUNKER),
     ]
 
     assert [(r.source_id, r.result, r.reason) for r in reports] == [
@@ -462,10 +462,10 @@ async def test_reingesting_a_fetched_pmc_article_reads_its_stored_file(world: _W
     source = await world.add_pmc()
     assert source.pmcid is not None
     files = FakePmcFiles({source.pmcid: _article_xml("ac-stored")})
-    await world.ingest_once(pmc_files=files)
+    await world.ingest_once(pmc_files=files, chunker=_PRODUCTION_CHUNKER)
     assert isinstance(await world.service.reingest(world.admin.id, source.id), ReingestQueued)
 
-    reports = await world.ingest_once(pmc_files=files)
+    reports = await world.ingest_once(pmc_files=files, chunker=_PRODUCTION_CHUNKER)
 
     assert [(r.source_id, r.result) for r in reports] == [(source.id, "ingested")]
     assert files.requests == [source.pmcid]  # fetched once, then read from `uploads`

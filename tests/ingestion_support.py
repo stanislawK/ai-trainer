@@ -2,6 +2,7 @@
 call, a clock that moves only when told, and a recorded sleep."""
 
 import asyncio
+import random
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
@@ -75,6 +76,17 @@ def guide_markdown(marker: str) -> bytes:
     return GUIDE.format(why=why, timing=timing, volume=volume).encode()
 
 
+def spread_vector(text: str) -> tuple[float, ...]:
+    """A vector of its own for each text, the same every time.
+
+    Hundreds of identical vectors written by ingestion tests, even in transactions that roll
+    back, crowd pgvector's HNSW graph in the shared test database and can leave other tests'
+    rows unreachable for its filtered searches (`test_knowledge_search` failed in CI at #463).
+    """
+    rng = random.Random(text)
+    return tuple(rng.uniform(-1.0, 1.0) for _ in range(DIMENSIONS))
+
+
 class FrozenClock:
     def __init__(self, at: datetime = AT) -> None:
         self.at = at
@@ -107,10 +119,7 @@ class ScriptedEmbeddings:
             await self.during()
         if self.script:
             return self.script.pop(0)
-        return Embedded(
-            vectors=tuple(tuple([0.01 * (i + 1)] * DIMENSIONS) for i in range(len(texts))),
-            model=MODEL,
-        )
+        return Embedded(vectors=tuple(spread_vector(text) for text in texts), model=MODEL)
 
 
 class RecordedSleep:

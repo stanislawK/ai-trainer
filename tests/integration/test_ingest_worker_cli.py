@@ -21,7 +21,7 @@ from ai_trainer.adapters.knowledge_repository import SqlAlchemyKnowledgeSourcesR
 from ai_trainer.adapters.users_repository import SqlAlchemyUsersRepository
 from ai_trainer.domain.users import NewUser, UserStatus
 from ai_trainer.settings import Settings
-from tests.ingestion_support import DIMENSIONS, guide_markdown, pmc_source, uploaded_source
+from tests.ingestion_support import guide_markdown, pmc_source, spread_vector, uploaded_source
 from tests.object_storage_support import (
     ACCESS_KEY_ID,
     BUCKET,
@@ -88,8 +88,8 @@ def _openrouter(seen: list[dict[str, object]]) -> httpx2.MockTransport:
                 "object": "list",
                 "model": body["model"],
                 "data": [
-                    {"object": "embedding", "index": i, "embedding": [0.5] * DIMENSIONS}
-                    for i in range(len(inputs))
+                    {"object": "embedding", "index": i, "embedding": list(spread_vector(text))}
+                    for i, text in enumerate(inputs)
                 ],
                 "usage": {"prompt_tokens": 40, "total_tokens": 40, "cost": 0.0000004},
             },
