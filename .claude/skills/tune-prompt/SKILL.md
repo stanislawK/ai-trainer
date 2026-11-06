@@ -18,7 +18,8 @@ The same loop covers a **Jev decision set** (`src/ai_trainer/llm/decisions/<id>/
 
 1. **Cases from real chats.** Update `evals/smoke/<template-id>.yaml`, about 5–10 cases.
    - Cut them from `evals/field/` transcripts first, keep the athlete's wording as typed, and set `metadata.field` to the transcript.
-   - Add a synthetic case only for a reported bug or a safety rule.
+   - Add a synthetic case only for a reported bug or a safety rule. A new specialist's case may use a question worded by the Approved PRD's acceptance criteria (`metadata.prd`, ADR-0034 #421 amendment).
+   - An answer case may carry knowledge passages, written for it until a field chat cites the knowledge base (`metadata.knowledge_source: synthetic`), and grade the cited titles with `expect.cites` (ADR-0034 #428 amendment).
    - Imperial units and V/YDS grades are best effort (G15): don't add cases for them.
    - Cases can come with the change; they don't have to come first.
 2. **Change.** Write the new version as `src/ai_trainer/llm/prompts/<template-id>/v<N+1>.en.md`, or change the model ID, provider routing or reasoning effort in `Settings`.
