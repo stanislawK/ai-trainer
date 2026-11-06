@@ -468,6 +468,31 @@ async def test_a_gateway_with_no_citation_reader_cites_nothing() -> None:
     assert end.sources == ()
 
 
+async def test_a_citation_reader_that_breaks_keeps_the_answer(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Sources are shown beside an answer the athlete already read: a reader that raises costs
+    the sources, never the answer (#428 review)."""
+
+    def broken(messages: object) -> tuple[CitedSource, ...]:
+        raise AssertionError("an unexpected message shape")
+
+    gateway = OpenRouterGateway(
+        _settings(),
+        FakeLlmCallsRepository(),
+        toolset=build_toolset(knowledge_server([_PASSAGE])),
+        citations=broken,
+    )
+
+    with gateway.tool_agent.override(model=FunctionModel(stream_function=_search_cite_answer)):
+        _, end = await _collect(_stream(gateway))
+
+    assert end.result.outcome is LlmCallOutcome.SUCCESS
+    assert end.result.output == "A lighter week every 4-6 weeks."
+    assert end.sources == ()
+    assert "citations could not be read" in caplog.text
+
+
 async def test_a_failed_loop_cites_nothing() -> None:
     async def cites_then_breaks(messages: list[ModelMessage], info: AgentInfo) -> _Stream:
         if len(_returned(messages)) < 2:

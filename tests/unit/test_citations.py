@@ -159,6 +159,30 @@ def test_malformed_cite_arguments_cite_nothing() -> None:
     assert cited_sources(messages) == ()
 
 
+def test_only_a_cite_call_that_succeeded_counts() -> None:
+    """A refused call (returned `retried`) or a failed one (the empty-list hint, a masked
+    error) leaves its IDs out; the call the model made after it counts (#428 review)."""
+    withdrawn, kept, failed = _hit(page=1), _hit(page=2), _hit(page=3)
+    refused_args = {"chunk_ids": [str(withdrawn.chunk_id)]}
+    failed_result = {"success": False, "error": "No passage named.", "recovery_hint": "Say so."}
+    messages: list[ModelMessage] = [
+        *_searched(withdrawn, kept, failed),
+        ModelResponse(parts=[ToolCallPart(CITE_SOURCES_TOOL, refused_args, tool_call_id="c1")]),
+        ModelRequest(
+            parts=[
+                ToolReturnPart(
+                    CITE_SOURCES_TOOL, {"success": True}, tool_call_id="c1", outcome="retried"
+                )
+            ]
+        ),
+        *_returned(CITE_SOURCES_TOOL, {"chunk_ids": [str(failed.chunk_id)]}, failed_result, "c2"),
+        *_returned(CITE_SOURCES_TOOL, {"chunk_ids": [str(failed.chunk_id)]}, "Error", "c3"),
+        *_cited(kept.chunk_id, call_id="c4"),
+    ]
+
+    assert [source.locator for source in cited_sources(messages)] == [PageLocator(page=2)]
+
+
 def test_a_return_that_is_not_a_search_result_is_ignored() -> None:
     found = _hit()
     messages: list[ModelMessage] = [

@@ -479,7 +479,7 @@ def test_answer_settings_default_and_blank_to_their_defaults(
     assert settings.answer_provider_preferences.sort == "latency"
     assert settings.answer_reasoning_effort == "low"
     assert settings.answer_call_timeout_seconds is None
-    assert settings.answer_max_requests == 6
+    assert settings.answer_max_requests == 8
     assert settings.question_sport_threshold == 0.7
 
 

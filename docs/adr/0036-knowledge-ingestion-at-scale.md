@@ -304,4 +304,6 @@ PMC sources carry "Source: NLM PMC" in their attribution.
     - every tool the specialist has only reads (`query_sessions`, `find_exercise`, `exercise_history`, `search_knowledge`, `cite_sources`), so a passage has nothing to act through. Data changes stay drafts the athlete confirms.
 
     The smoke set's "a passage that gives orders" case checks this.
+  - **Request cap.** `answer_max_requests` goes from 6 to 8: a mixed question ("I benched 80 kg, how often should I deload?") reads history in three requests, and search and cite add two (found by `/code-review` at #428).
+  - **What isn't counted.** A `cite_sources` call counts only when its return succeeded: a call the schema refused (`retried`), or one that failed, leaves its IDs out. A reader that raises costs the sources, never the delivered answer. A stored source that no longer validates drops out of its reply, with a warning, rather than failing the conversation (all found by `/code-review` at #428).
   - **Pain.** Safety still goes first in its own part (ADR-0008 invariant 4). The answer part may cite, and v2 suggests nothing for the pain, "not even from a source".

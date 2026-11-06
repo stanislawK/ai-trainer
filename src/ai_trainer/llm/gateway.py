@@ -1,6 +1,6 @@
 import asyncio
 import time
-from collections.abc import AsyncGenerator, Callable, Sequence
+from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 from typing import Any, cast
 from uuid import UUID
@@ -9,7 +9,6 @@ import httpx2
 from pydantic import BaseModel
 from pydantic_ai import Agent, AgentRetries, AgentRun, UsageLimits
 from pydantic_ai.exceptions import UnexpectedModelBehavior
-from pydantic_ai.messages import ModelMessage
 from pydantic_ai.models.openrouter import (
     OpenRouterModel,
     OpenRouterModelSettings,
@@ -34,7 +33,7 @@ from ai_trainer.domain.llm_calls import LlmCallOutcome, ProviderPreferences, Rea
 from ai_trainer.llm.call_accounting import CallAccountant, CallKey, CallUsage, sum_cost
 from ai_trainer.llm.debug_log import CallRecorder, LlmDebugLog
 from ai_trainer.llm.prompts.registry import output_types
-from ai_trainer.llm.tool_loop import stream_run_text
+from ai_trainer.llm.tool_loop import CitationReader, read_citations, stream_run_text
 from ai_trainer.settings import Settings
 
 TIMEOUT_MESSAGE = "The AI assistant is taking too long to respond. Please try again in a moment."
@@ -51,10 +50,6 @@ class _Done:
 
 
 _DONE = _Done()
-
-# Reads which knowledge passages a finished tool loop's reply cited (`mcp/citations.py`, ADR-0036
-# #428 amendment). `main.py` hands it over with the toolset, since `llm` doesn't import `mcp`.
-type CitationReader = Callable[[Sequence[ModelMessage]], tuple[CitedSource, ...]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -328,7 +323,7 @@ class OpenRouterGateway:
         if not answered:
             raise UnexpectedModelBehavior("the tool loop ended with no answer")
         if self._citations is not None and run.result is not None:
-            state.sources = self._citations(run.result.all_messages())
+            state.sources = read_citations(self._citations, run.result.all_messages())
 
     def _recorder(
         self, template_id: str, template_version: int, model_id: str

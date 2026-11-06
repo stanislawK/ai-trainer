@@ -23,19 +23,18 @@
 </div>
 {%- elif failed_sport -%}
 {% include "partials/chat/draft_failed.html" %}
-{%- elif message.sources -%}
-{#- A cited reply, as the Reply Sources mock lays it out: the text, then its sources (#428). -#}
+{%- else -%}
+{#- A cited reply stacks its sources under the text, as the Reply Sources mock lays it out (#428). -#}
 <div class="chat-message flex gap-2.5">
   {{ avatar(reply_glyph(message.sports)) }}
+  {%- if message.sources %}
   <div class="flex flex-col gap-3 min-w-0 flex-1">
-    <p class="max-w-[65ch] text-[16px] leading-6 whitespace-pre-wrap break-words">{{ message.text }}</p>
+  {%- endif %}
+  <p class="min-w-0 max-w-[65ch] text-[16px] leading-6 whitespace-pre-wrap break-words">{{ message.text }}</p>
+  {%- if message.sources %}
     {{ reply_sources(message.sources) }}
   </div>
-</div>
-{%- else -%}
-<div class="chat-message flex gap-2.5">
-  {{ avatar(reply_glyph(message.sports)) }}
-  <p class="min-w-0 max-w-[65ch] text-[16px] leading-6 whitespace-pre-wrap break-words">{{ message.text }}</p>
+  {%- endif %}
 </div>
 {%- endif -%}
 {%- else -%}

@@ -1,9 +1,10 @@
+import logging
 from collections.abc import Callable, Sequence
 from datetime import datetime
 from itertools import takewhile
 from uuid import UUID
 
-from pydantic import TypeAdapter
+from pydantic import TypeAdapter, ValidationError
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,6 +15,21 @@ from ai_trainer.domain.knowledge_search import CitedSource
 # Replies to one message are a handful of parts (ADR-0008); this only bounds the read.
 _MAX_REPLY_PARTS = 20
 _SOURCES = TypeAdapter(tuple[CitedSource, ...])
+
+logger = logging.getLogger(__name__)
+
+
+def _sources(stored: Sequence[object] | None) -> tuple[CitedSource, ...]:
+    """A cited reply's sources, read row by row. The snapshot outlives the source, so a later
+    change to the tiers or locators can leave an old row unreadable: that row drops out, never
+    the conversation (#428 review)."""
+    sources: list[CitedSource] = []
+    for row in stored or ():
+        try:
+            sources.append(CitedSource.model_validate(row))
+        except ValidationError:
+            logger.warning("a stored source no longer reads; it is left out of the reply")
+    return tuple(sources)
 
 
 def _to_domain(row: ChatMessageOrm) -> ChatMessage:
@@ -26,7 +42,7 @@ def _to_domain(row: ChatMessageOrm) -> ChatMessage:
         sports=tuple(row.sports or ()),
         template_id=row.template_id,
         template_version=row.template_version,
-        sources=_SOURCES.validate_python(row.sources or ()),
+        sources=_sources(row.sources),
     )
 
 

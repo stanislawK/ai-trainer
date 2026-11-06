@@ -126,6 +126,7 @@ async def test_each_locator_kind_reads_as_the_mock_writes_it() -> None:
         _source("E", locator=SectionLocator(section="Discussion", doi="10.1/x")),
         _source("F", locator=SectionLocator()),
         _source("G", locator=SpineLocator(spine_item="ch05.xhtml")),
+        _source("H", locator=SectionLocator(doi="10.1186/s40798-024-00700-1")),
     )
 
     assert [row[1] for row in _rows(page)] == [
@@ -136,6 +137,7 @@ async def test_each_locator_kind_reads_as_the_mock_writes_it() -> None:
         "Tudor Bompa · Coaching book · Discussion",
         "Tudor Bompa · Coaching book",
         "Tudor Bompa · Coaching book",
+        "Tudor Bompa · Coaching book · doi:10.1186/s40798-024-00700-1",
     ]
 
 

@@ -19,8 +19,11 @@ p. {{ locator.page_label or locator.page }}
 {%- else -%}
 {{ "%d:%02d" | format(seconds // 60, seconds % 60) }}
 {%- endif -%}
-{%- else -%}
-{{ locator.section or "" }}
+{%- elif locator.section -%}
+{{ locator.section }}
+{%- elif locator.doi -%}
+{#- A JATS article has no pages: its DOI is the way to find the passage (#463). -#}
+doi:{{ locator.doi }}
 {%- endif -%}
 {%- endmacro %}
 

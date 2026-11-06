@@ -133,8 +133,9 @@ class Settings(BaseSettings):
     answer_reasoning_effort: ReasoningEffort | None = DEFAULT_ANSWER_REASONING_EFFORT
     # The most model requests one answer's tool loop may make. It counts once against
     # `llm_calls_per_user_per_hour` however many it makes (ADR-0010 amendment at #421's plan
-    # gate), so this bounds what one budgeted call can cost.
-    answer_max_requests: int = Field(default=6, ge=2, le=20)
+    # gate), so this bounds what one budgeted call can cost. 8 since #428: a cited answer adds
+    # `search_knowledge` and `cite_sources` rounds to a history read's three.
+    answer_max_requests: int = Field(default=8, ge=2, le=20)
     # Evals (ADR-0009): pinned, distinct from the model under test, set explicitly on every
     # eval run with `set_default_judge_model`. No default here — a stable/GA OpenRouter model
     # id is an operator choice, not a code default (`.claude/rules/llm.md`).

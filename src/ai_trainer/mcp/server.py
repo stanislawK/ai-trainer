@@ -148,10 +148,11 @@ def _add_search_knowledge(server: FastMCP, knowledge: KnowledgeSearch) -> None:
     ) -> ToolResult[KnowledgeSearchPage]:
         """Find passages in the shared knowledge base (research papers, coaching books,
         articles and talks an admin added) that answer a training question, by meaning and by
-        exact words, best first. Use it before giving training advice that needs a source, and
-        cite each passage you use by its `title`, `author`, `evidence_tier` and `locator` (a
-        section, a page, an EPUB chapter or a transcript's cue times); don't use it for the
-        athlete's own training, which `query_sessions` and `exercise_history` read. `query` is
+        exact words, best first. Use it before giving training advice that needs a source, then
+        pass the `chunk_id` of each passage you use to `cite_sources`, which shows the athlete
+        its `title`, `author`, `evidence_tier` and `locator` under the reply, so name a source
+        in words only; don't use it for the athlete's own training, which `query_sessions` and
+        `exercise_history` read. `query` is
         the question in the athlete's words, in English or Polish; a passage in the other
         language is still found. `sport` is a sport ID such as `climbing`, `gym` or `cycling`
         and leaves other sports' passages out; `topics` keeps passages tagged with any of them;

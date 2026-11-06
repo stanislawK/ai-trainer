@@ -433,6 +433,34 @@ _SOURCES = (
 )
 
 
+async def test_a_stored_source_that_no_longer_reads_is_left_out_not_the_conversation(
+    db_session_factory: Callable[[], AsyncSession],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The snapshot outlives the source, so a later change to the tiers or locators can leave an
+    old row unreadable: that row drops out, with a warning, and the reply still loads (#428
+    review)."""
+    repository = SqlAlchemyChatRepository(db_session_factory)
+    user_id, chat = await _user(db_session_factory, "chat-old-sources")
+    reply = await repository.add(
+        user_id, chat, ChatRole.ASSISTANT, "Cited.", _START, sources=_SOURCES[:1]
+    )
+    async with db_session_factory() as session:
+        await session.execute(
+            text(
+                "UPDATE chat_messages SET sources = sources || "
+                """'[{"title": "Old", "evidence_tier": "retired_tier"}]'::jsonb WHERE id = :id"""
+            ),
+            {"id": reply.id},
+        )
+        await session.commit()
+
+    (loaded,) = await repository.list_recent(user_id, chat, 50)
+
+    assert loaded.sources == _SOURCES[:1]
+    assert "a stored source no longer reads" in caplog.text
+
+
 async def test_message_sources_round_trip(
     db_session_factory: Callable[[], AsyncSession],
 ) -> None:
