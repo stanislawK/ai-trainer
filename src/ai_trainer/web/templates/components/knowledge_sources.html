@@ -1,12 +1,9 @@
 {% from "components/icon.html" import icon %}
 {#- The knowledge page's copy and pieces (B7, ADR-0033, the Knowledge mock from #419). Values are
     the domain's closed sets; every word the admin reads is here (G5). -#}
-{% set tier_labels = {
-  "peer_reviewed": "Peer-reviewed",
-  "coaching_book": "Coaching book",
-  "article_or_transcript": "Article or transcript",
-  "catalogue": "Exercise catalogue",
-} %}
+{% import "components/knowledge_copy.html" as knowledge_copy %}
+{#- A `set`, not a `from … import`, so the admin page can import it from here too. -#}
+{% set tier_labels = knowledge_copy.tier_labels %}
 {% set type_labels = {
   "research_paper": "Research paper",
   "book": "Book",

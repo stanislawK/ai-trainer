@@ -2,11 +2,16 @@
 every model request in turn. `run_stream` would take the first text as the final output, so a tool
 call after "Let me check." would never run (Pydantic AI, `docs/agent.md`); `iter` runs it all."""
 
-from collections.abc import Awaitable, Callable
+import logging
+from collections.abc import Awaitable, Callable, Sequence
 from typing import Any
 
 from pydantic_ai import Agent, AgentRun, PartDeltaEvent, PartStartEvent, TextPart, TextPartDelta
-from pydantic_ai.messages import AgentStreamEvent
+from pydantic_ai.messages import AgentStreamEvent, ModelMessage
+
+from ai_trainer.domain.knowledge_search import CitedSource
+
+logger = logging.getLogger(__name__)
 
 # Between the text of two model requests, so "Let me check." and the answer don't run together.
 REQUEST_BREAK = "\n\n"
@@ -40,3 +45,21 @@ async def stream_run_text(run: AgentRun[Any, str], put: Callable[[str], Awaitabl
                 said = request_said = True
                 await put(text)
     return request_said
+
+
+# Reads which knowledge passages a finished tool loop's reply cited (`mcp/citations.py`, ADR-0036
+# #428 amendment). `main.py` hands it over with the toolset, since `llm` doesn't import `mcp`.
+type CitationReader = Callable[[Sequence[ModelMessage]], tuple[CitedSource, ...]]
+
+
+def read_citations(
+    reader: CitationReader, messages: Sequence[ModelMessage]
+) -> tuple[CitedSource, ...]:
+    """The sources sit beside an answer the athlete already read, so a reader that breaks costs
+    the sources, never the answer (#428 review)."""
+    try:
+        return reader(messages)
+    except Exception:
+        # No exception text or trace: either could quote a passage or the reply (ADR-0030).
+        logger.warning("citations could not be read; the reply is kept without sources")
+        return ()

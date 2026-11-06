@@ -1,0 +1,48 @@
+{#- The sources under a cited reply (B8, ADR-0036 #428), the Reply Sources mock from #419,
+    layout 3b: one source shows in full as a `mat-content` row; several collapse behind an
+    `lg-clear lg-chip` count, a native disclosure, that opens the list. A row is the title above
+    "author · tier · locator", a missing part left out with its separator, then the licence's
+    attribution when there is one (the admin sheet's "Shown with every answer that cites it",
+    which the mock doesn't draw). Rows aren't links: source files are private. -#}
+{%- from "components/icon.html" import icon -%}
+{%- from "components/knowledge_copy.html" import tier_labels -%}
+
+{% macro locator_text(locator) -%}
+{%- if locator.kind == "page" -%}
+p. {{ locator.page_label or locator.page }}
+{%- elif locator.kind == "spine" -%}
+{{ locator.chapter or "" }}
+{%- elif locator.kind == "cue" -%}
+{%- set seconds = locator.start_seconds | int -%}
+{%- if seconds >= 3600 -%}
+{{ "%d:%02d:%02d" | format(seconds // 3600, seconds % 3600 // 60, seconds % 60) }}
+{%- else -%}
+{{ "%d:%02d" | format(seconds // 60, seconds % 60) }}
+{%- endif -%}
+{%- elif locator.section -%}
+{{ locator.section }}
+{%- elif locator.doi -%}
+{#- A JATS article has no pages: its DOI is the way to find the passage (#463). -#}
+doi:{{ locator.doi }}
+{%- endif -%}
+{%- endmacro %}
+
+{% macro source_list(sources) -%}
+<ul class="mat-content rounded-2xl p-1 flex flex-col" aria-label="Sources">
+  {%- for source in sources %}
+  {%- set parts = [source.author, tier_labels[source.evidence_tier], locator_text(source.locator)] | select | list %}
+  <li class="px-2.5 py-2 flex flex-col border-b border-base-content/10 last:border-0"><span class="text-[14px] font-medium">{{ source.title }}</span><span class="text-[13px] lbl-2">{{ parts | join(" · ") }}</span>{% if source.attribution %}<span class="text-[12px] lbl-3">{{ source.attribution }}</span>{% endif %}</li>
+  {%- endfor %}
+</ul>
+{%- endmacro %}
+
+{% macro reply_sources(sources) -%}
+{%- if sources | length == 1 -%}
+{{ source_list(sources) }}
+{%- elif sources -%}
+<details class="group flex flex-col" data-reply-sources>
+  <summary class="lg lg-clear lg-chip w-fit list-none [&::-webkit-details-marker]:hidden"><span class="absolute inset-x-0 -inset-y-1.5" aria-hidden="true"></span>{{ icon("book-open", "size-3.5") }}{{ sources | length }} sources{{ icon("chevron-down", "size-3.5 group-open:rotate-180") }}</summary>
+  <div class="mt-3">{{ source_list(sources) }}</div>
+</details>
+{%- endif -%}
+{%- endmacro %}

@@ -4,6 +4,7 @@ from typing import Protocol
 from uuid import UUID
 
 from ai_trainer.domain.chat import ChatMessage, ChatRole, Conversation
+from ai_trainer.domain.knowledge_search import CitedSource
 
 
 class ChatRepositoryPort(Protocol):
@@ -22,9 +23,10 @@ class ChatRepositoryPort(Protocol):
         sports: Sequence[str] = (),
         template_id: str | None = None,
         template_version: int | None = None,
+        sources: Sequence[CitedSource] = (),
     ) -> ChatMessage:
         """Stores a message in the user's conversation `conversation_id`, which the caller has
-        already looked up with the same `user_id`."""
+        already looked up with the same `user_id`. `sources` are a cited reply's (#428)."""
         ...
 
     async def get(self, user_id: UUID, message_id: UUID) -> ChatMessage | None:

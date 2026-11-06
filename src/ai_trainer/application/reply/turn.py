@@ -283,7 +283,7 @@ async def _streamed(
             elif event.result.output is None:
                 yield ReplyFailed(outcome=event.result.outcome)
             else:
-                yield Answer(event.result.output, template, part.sports)
+                yield Answer(event.result.output, template, part.sports, sources=event.sources)
 
 
 async def _replayed(

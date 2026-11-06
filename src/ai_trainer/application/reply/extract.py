@@ -154,6 +154,7 @@ async def save(
                 sports=answer.sports,
                 template_id=answer.template.id,
                 template_version=answer.template.version,
+                sources=answer.sources,
             )
         )
         if answer.draft is not None:

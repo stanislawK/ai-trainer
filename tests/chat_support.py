@@ -42,6 +42,7 @@ from ai_trainer.domain.clarification import (
 )
 from ai_trainer.domain.conversation import Intent, IntentKind
 from ai_trainer.domain.goals import Goal
+from ai_trainer.domain.knowledge_search import CitedSource
 from ai_trainer.domain.llm_calls import LlmCallOutcome
 from ai_trainer.domain.sports.base import ExtractionQuestion, SessionExtraction, SportPlugin
 from ai_trainer.domain.sports.climbing.extraction import ClimbingExtraction, ExtractedClimb
@@ -166,6 +167,7 @@ class InMemoryChatRepository:
         sports: Sequence[str] = (),
         template_id: str | None = None,
         template_version: int | None = None,
+        sources: Sequence[CitedSource] = (),
     ) -> ChatMessage:
         assert await self.conversations.get(user_id, conversation_id) is not None
         message = ChatMessage(
@@ -177,6 +179,7 @@ class InMemoryChatRepository:
             sports=tuple(sports),
             template_id=template_id,
             template_version=template_version,
+            sources=tuple(sources),
         )
         self.rows.append((user_id, message))
         return message
@@ -756,6 +759,8 @@ class ScriptedConversation:
     answer_chunks: list[str] = field(default_factory=lambda: ["Your bench ", "is 45 kg."])
     answer_outcomes: list[LlmCallOutcome] = field(default_factory=lambda: [LlmCallOutcome.SUCCESS])
     answered: list[tuple[ReplyContext, str]] = field(default_factory=list)
+    # The sources a successful answer cited (#428).
+    answer_sources: tuple[CitedSource, ...] = ()
 
     @property
     def chitchat_template(self) -> TemplateRef:
@@ -778,7 +783,8 @@ class ScriptedConversation:
                 output=output,
                 friendly_error=None if output is not None else "failed",
                 outcome=outcome,
-            )
+            ),
+            sources=self.answer_sources if output is not None else (),
         )
 
     async def route(self, context: ReplyContext) -> Routing:

@@ -12,7 +12,7 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.dialects.postgresql import ARRAY
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ai_trainer.adapters.orm.base import Base
@@ -78,6 +78,9 @@ class ChatMessageOrm(Base):
     sports: Mapped[list[str] | None] = mapped_column(ARRAY(String), nullable=True)
     template_id: Mapped[str | None] = mapped_column(nullable=True)
     template_version: Mapped[int | None] = mapped_column(nullable=True)
+    # A cited reply's sources, each a `CitedSource` snapshot with no passage text (PRD B8,
+    # ADR-0036 #428); null on every other message.
+    sources: Mapped[list[dict[str, object]] | None] = mapped_column(JSONB, nullable=True)
     # timestamptz, UTC (ADR-0004 invariant 5).
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now()

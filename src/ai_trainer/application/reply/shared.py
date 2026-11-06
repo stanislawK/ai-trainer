@@ -28,6 +28,7 @@ from ai_trainer.application.ports.training import TrainingSessionRepositoryPort
 from ai_trainer.domain.chat import ChatMessage, ChatRole
 from ai_trainer.domain.clarification import Clarification, StoredClarification
 from ai_trainer.domain.conversation import IntentKind
+from ai_trainer.domain.knowledge_search import CitedSource
 from ai_trainer.domain.llm_calls import LlmCallOutcome
 from ai_trainer.domain.sports.registry import SportRegistry
 from ai_trainer.domain.training import SessionDraft, StoredDraft
@@ -128,6 +129,8 @@ class Answer:
     draft: tuple[str, SessionDraft, int] | None = None
     # The question an extraction part asked instead of a draft (ticket #164).
     question: Clarification | None = None
+    # The knowledge sources an answer part cited (PRD B8, ADR-0036 #428).
+    sources: tuple[CitedSource, ...] = ()
 
 
 def extractable(sports: SportRegistry) -> frozenset[str]:
