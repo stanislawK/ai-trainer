@@ -1,3 +1,4 @@
+import dataclasses
 import os
 from collections.abc import Iterator
 
@@ -156,12 +157,14 @@ class _GroupSuffixOnStructuredIds:
 
     @pytest.hookimpl(trylast=True)
     def pytest_collection_modifyitems(self, items: list[pytest.Item]) -> None:
-        from _pytest.nodeid import NodeId
-
         for item in items:
             legacy = item.__dict__.get("_nodeid")
             if legacy is not None and legacy != item.nodeid:
-                item._id = NodeId.parse(legacy)
+                # Keep the structured parts and only cache the suffixed string: `NodeId.parse`
+                # would read `test[p]@group`'s params as `p]@group`.
+                suffixed = dataclasses.replace(item._id)
+                object.__setattr__(suffixed, "_str_cache", legacy)
+                item._id = suffixed
 
 
 def pytest_configure(config: pytest.Config) -> None:

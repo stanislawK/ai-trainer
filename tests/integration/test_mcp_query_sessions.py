@@ -140,7 +140,7 @@ def _tool_returns(messages: Sequence[ModelMessage]) -> list[ToolReturnPart]:
         if isinstance(message, ModelRequest)
         for part in message.parts
         # A validation retry is a `ToolReturnPart` with `outcome="retried"` (pydantic-ai 2.64+).
-        if isinstance(part, ToolReturnPart) and part.outcome == "success"
+        if isinstance(part, ToolReturnPart) and part.outcome != "retried"
     ]
 
 

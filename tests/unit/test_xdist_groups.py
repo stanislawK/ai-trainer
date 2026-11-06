@@ -6,21 +6,30 @@ the `src_tree` group on two workers in a subprocess and fails if its tests are s
 itself is in `src_tree`, so its inner run never writes into `src/` beside the outer one.
 """
 
+import importlib.util
 import re
 import subprocess
 import sys
-from importlib.metadata import version
 from pathlib import Path
 
+from tests.conftest import _XDIST_GROUPS
+
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-SRC_TREE_FILES = ("tests/unit/test_import_boundaries.py", "tests/unit/test_clock_usage.py")
-_RESULT_LINE = re.compile(r"^\[(gw\d+)\] \[ *\d+%\] (?:PASSED|FAILED) (\S+)", re.MULTILINE)
+# The rest of the group as configured; this module would run itself again.
+SRC_TREE_FILES = tuple(
+    path for path in _XDIST_GROUPS["src_tree"] if path != "tests/unit/test_xdist_groups.py"
+)
+_RESULT_LINE = re.compile(
+    r"^\[(gw\d+)\] \[ *\d+%\] (?:PASSED|FAILED|ERROR|SKIPPED|XFAIL|XPASS) (\S+)", re.MULTILINE
+)
 
 
 def _xdist_writes_the_suffix() -> bool:
-    """pytest-xdist up to 3.8.0 marks a grouped node ID with `@<group>`; its #1388 drops that."""
-    major, minor = (int(part) for part in version("pytest-xdist").split(".")[:2])
-    return (major, minor) <= (3, 8)
+    """pytest-xdist 3.8.0 writes `@<group>` into `item._nodeid`; its #1388 sends groups apart."""
+    spec = importlib.util.find_spec("xdist.remote")
+    assert spec is not None
+    assert spec.origin is not None
+    return "item._nodeid" in Path(spec.origin).read_text()
 
 
 def test_a_group_runs_on_one_worker() -> None:
