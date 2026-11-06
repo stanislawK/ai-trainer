@@ -1,5 +1,6 @@
 {%- from "components/avatar.html" import avatar -%}
 {%- from "components/choice_card.html" import choice_card, exercise_answer -%}
+{%- from "components/reply_sources.html" import reply_sources -%}
 {%- if message.role == "assistant" -%}
 {%- set cards = draft_cards.get(message.id, []) -%}
 {%- set choice = (choice_cards or {}).get(message.id) -%}
@@ -22,6 +23,15 @@
 </div>
 {%- elif failed_sport -%}
 {% include "partials/chat/draft_failed.html" %}
+{%- elif message.sources -%}
+{#- A cited reply, as the Reply Sources mock lays it out: the text, then its sources (#428). -#}
+<div class="chat-message flex gap-2.5">
+  {{ avatar(reply_glyph(message.sports)) }}
+  <div class="flex flex-col gap-3 min-w-0 flex-1">
+    <p class="max-w-[65ch] text-[16px] leading-6 whitespace-pre-wrap break-words">{{ message.text }}</p>
+    {{ reply_sources(message.sources) }}
+  </div>
+</div>
 {%- else -%}
 <div class="chat-message flex gap-2.5">
   {{ avatar(reply_glyph(message.sports)) }}

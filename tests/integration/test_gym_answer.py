@@ -24,16 +24,21 @@ from ai_trainer.adapters.training_session_repository import SqlAlchemyTrainingSe
 from ai_trainer.application.exercise_catalogue import import_catalogue
 from ai_trainer.application.exercise_lookup import ExerciseFinder
 from ai_trainer.application.exercise_resolution import ResolutionLimits
+from ai_trainer.application.knowledge_search import KnowledgeSearch
 from ai_trainer.application.ports.exercises import ExerciseHistoryPort
 from ai_trainer.application.reply import ReplyDone, ReplyEvent, ReplyFailed, start_reply
 from ai_trainer.application.training_history import ExerciseTrainingHistory, TrainingHistory
 from ai_trainer.domain.chat import ChatRole
 from ai_trainer.domain.conversation import Intent
 from ai_trainer.domain.exercises import ExerciseEntry, ExerciseMeasure, LoggedName
+from ai_trainer.domain.knowledge import EvidenceTier, SourceLanguage, SourceType
+from ai_trainer.domain.knowledge_document import PageLocator
+from ai_trainer.domain.knowledge_search import CitedSource, KnowledgeHit
 from ai_trainer.domain.llm_calls import LlmCallOutcome
 from ai_trainer.domain.sports.registry import default_sport_registry
 from ai_trainer.llm.conversation import LlmConversation, build_prompt_registry
 from ai_trainer.llm.gateway import OpenRouterGateway
+from ai_trainer.mcp.citations import cited_sources
 from ai_trainer.mcp.server import build_mcp_server
 from ai_trainer.mcp.toolset import build_toolset
 from tests.activity_support import STORES
@@ -46,6 +51,7 @@ from tests.chat_support import (
     reply_services,
 )
 from tests.exercise_support import sample_source
+from tests.mcp_support import EMBEDDING_MODEL, FixedPassages, QueryEmbeddings
 from tests.integration.test_mcp_exercise import _entry, _typed_only
 from tests.integration.test_mcp_query_sessions import _session, _user
 from tests.unit.test_llm_gateway import FakeLlmCallsRepository, _settings
@@ -137,6 +143,8 @@ async def _ask(
     say: str = "Here is what you logged.",
     keep_calling: bool = False,
     max_requests: int = 6,
+    passages: Sequence[KnowledgeHit] = (),
+    question: str = "How is my bench going?",
 ) -> _Turn:
     """One whole reply on the real stack. The scripted model makes `tool_calls` in order, then
     reads each `logged` row `find_exercise` returned, then says `say`."""
@@ -149,9 +157,18 @@ async def _ask(
         ),
         ExerciseFinder(exercises, _LIMITS, logged),
         ExerciseTrainingHistory(exercises, logged),
+        knowledge=KnowledgeSearch(
+            embeddings=QueryEmbeddings(),
+            repository=FixedPassages(passages),
+            sports=default_sport_registry(),
+            embedding_model=EMBEDDING_MODEL,
+            depth=20,
+        ),
     )
     calls = FakeLlmCallsRepository()
-    gateway = OpenRouterGateway(_settings(), calls, toolset=build_toolset(server))
+    gateway = OpenRouterGateway(
+        _settings(), calls, toolset=build_toolset(server), citations=cited_sources
+    )
     registry = build_prompt_registry(_PROMPTS, default_sport_registry())
     conversation = LlmConversation(
         registry=registry,
@@ -198,7 +215,7 @@ async def _ask(
         user_id,
         await chat.conversation_of(user_id),
         ChatRole.USER,
-        "How is my bench going?",
+        question,
         FROZEN_NOW,
     )
     services = replace(
@@ -336,3 +353,77 @@ async def test_the_request_cap_ends_in_the_retry_row(world: _World) -> None:
     assert turn.requests == 3
     assert turn.events[-1] == ReplyFailed(outcome=LlmCallOutcome.ERROR)
     assert [row.outcome for row in turn.calls.recorded] == [LlmCallOutcome.ERROR]
+
+
+# Cited answers (PRD B8, ADR-0036 #428): the same stack, with `search_knowledge` over fixed
+# passages and the app's citation reader on the gateway.
+
+_DELOAD = KnowledgeHit(
+    chunk_id=uuid4(),
+    text="Plan a deload week every fourth to sixth week.",
+    heading_path=("Deload",),
+    language=SourceLanguage.EN,
+    source_id=uuid4(),
+    title="Periodization Training for Sports",
+    author="Tudor Bompa",
+    evidence_tier=EvidenceTier.COACHING_BOOK,
+    source_type=SourceType.BOOK,
+    source_url=None,
+    attribution="Bompa, CC BY 4.0",
+    locator=PageLocator(page=212),
+    exercise_id=None,
+)
+_UNRELATED = _DELOAD.model_copy(
+    update={"chunk_id": uuid4(), "source_id": uuid4(), "title": "Bench Press Technique"}
+)
+_SEARCH = ("search_knowledge", {"query": "How often should I deload?", "sport": "gym"})
+
+
+async def test_a_deload_question_answers_from_a_matching_source_and_saves_it(
+    world: _World,
+) -> None:
+    turn = await _ask(
+        world,
+        world.alice,
+        question="How often should I deload?",
+        passages=[_DELOAD, _UNRELATED],
+        tool_calls=[_SEARCH, ("cite_sources", {"chunk_ids": [str(_DELOAD.chunk_id)]})],
+        say="Bompa suggests a deload week every 4–6 weeks.",
+    )
+
+    done = turn.events[-1]
+    assert isinstance(done, ReplyDone)
+    (reply,) = done.messages
+    assert reply.text == "Bompa suggests a deload week every 4–6 weeks."
+    assert reply.sources == (CitedSource.of(_DELOAD),)
+    assert [row.outcome for row in turn.calls.recorded] == [LlmCallOutcome.SUCCESS]
+
+
+async def test_a_reply_that_cites_no_passage_saves_no_sources(world: _World) -> None:
+    turn = await _ask(
+        world,
+        world.alice,
+        question="How often should I deload?",
+        passages=[_UNRELATED],
+        tool_calls=[_SEARCH],
+        say="I have no source for that yet.",
+    )
+
+    done = turn.events[-1]
+    assert isinstance(done, ReplyDone)
+    assert done.messages[0].sources == ()
+
+
+async def test_a_cited_id_no_search_returned_is_not_shown(world: _World) -> None:
+    turn = await _ask(
+        world,
+        world.alice,
+        question="How often should I deload?",
+        passages=[_DELOAD],
+        tool_calls=[_SEARCH, ("cite_sources", {"chunk_ids": [str(uuid4())]})],
+        say="Bompa suggests a deload week every 4–6 weeks.",
+    )
+
+    done = turn.events[-1]
+    assert isinstance(done, ReplyDone)
+    assert done.messages[0].sources == ()
