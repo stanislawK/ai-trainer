@@ -120,7 +120,7 @@ def _same_text(state: CatalogueChunkState | None, wanted: CatalogueChunk) -> boo
 
 
 def _matches(state: CatalogueChunkState | None, wanted: CatalogueChunk, model: str) -> bool:
-    return _same_text(state, wanted) and state is not None and state.embedding_model == model
+    return state is not None and state.embedding_model == model and _same_text(state, wanted)
 
 
 def kept_exercises(texts: Sequence[CatalogueText]) -> frozenset[UUID]:
