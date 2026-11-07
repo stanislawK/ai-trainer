@@ -3,10 +3,12 @@
 | | |
 |---|---|
 | Ticket | #416 |
-| Read on | 2026-11-02 |
+| Read on | 2026-11-02; finding 7 added 2026-11-07 |
 | Feeds | ADR-0031 (media links); the M2m "Show me" milestone and its licensed-media-source ticket (PRD 0010 F24) |
 
 This document decides nothing. It compares where exercise pictures could come from, so the owner can pick one and M2m can be ticketed. Reads were free: no paid model call was made and no athlete data left the project.
+
+> Added 2026-11-07: [PRD 0012](../prd/0012-ai-training-companion.md) G16 and ADR-0031's amendment of that date now admit embedding media whose owner published it freely without stating a licence. Finding 7 records the case law that rests on. Findings 1–6 are unchanged, and where they call a source unusable to copy, that still holds.
 
 ## Questions
 
@@ -16,6 +18,7 @@ This document decides nothing. It compares where exercise pictures could come fr
 4. What are the rights and cost of an image model's output?
 5. How many of the exercises in the first gym session does each option cover?
 6. What is the form-accuracy risk of each option, as the owner sees it?
+7. Under EU law, when may the app link to or embed media it holds no licence for? (added 2026-11-07)
 
 ## Findings
 
@@ -93,7 +96,20 @@ Five samples are in one Claude Design page, [Exercise media samples](https://cla
 | Image model | Not generated, so unknown. No source read measures it. See Open questions. |
 | Gym visual | Not shown because their terms are unread, so unknown. Its dataset links one picture and one animation to each exercise, and each match still needs a name check, as for any option. |
 
-## Comparison
+### 7. Linking and embedding under EU law
+
+Read on EUR-Lex, 2026-11-07. The operative parts were read verbatim; *BestWater* has no English text on EUR-Lex and was read in French.
+
+- **Links.** *Svensson* (C-466/12, 13 February 2014): "the provision on a website of clickable links to works freely available on another website" "does not constitute an 'act of communication to the public'". The reasoning is that there is no new public (paras 24–28). Para 31 makes an exception: a link that gets around a restriction confining access to the first site's subscribers needs authorisation.
+- **Framing.** *BestWater* (C-348/13, order of 21 October 2014): a freely available work embedded on another site by framing is not a communication to the public, as long as it reaches no new public and uses no different technical means. The operative part does not mention consent; the reasoning assumes the work was published with the right holder's authorisation (paras 16, 18).
+- **Knowledge.** *GS Media* (C-160/15, 8 September 2016): for links to a work published without consent, it matters whether they were "provided without the pursuit of financial gain by a person who did not know or could not reasonably have known the illegal nature of the publication". For a profit-making linker, that knowledge "must be presumed" (para 51). For a non-profit linker, lack of knowledge is a factor to take into account, not a presumption (para 47). A linker who knew or ought to have known, for example after a notice from the right holder, communicates to the public (para 49).
+- **Measures against framing.** *VG Bild-Kunst* (C-392/19, Grand Chamber, 9 March 2021): framing a freely accessible work "where that embedding circumvents measures adopted or imposed by that copyright holder to provide protection from framing, constitutes a communication to the public".
+
+What this means for the options above:
+- Embedding is safest for media its owner published, such as a creator's own channel or site.
+- It does not help for `free-exercise-db`'s images (finding 1): we have reason to think they are copies, and *GS Media* para 49 puts that knowledge against us.
+- None of the four cases addresses a person's right to their own image.
+
 
 | Option | Licence | Attribution needed | Catalogue coverage (first session) | Cost |
 |---|---|---|---|---|
@@ -143,4 +159,8 @@ These are inputs for the owner and for the M2m ticket. None of them decides anyt
 | [Gemini API additional terms](https://ai.google.dev/gemini-api/terms) | Provider's own terms | effective 2026-03-23, read 2026-11-02 |
 | OpenRouter `list-models` (image-output models and listed prices) | OpenRouter MCP | 2026-11-02 |
 | [Exercise media samples](https://claude.ai/design/p/f96f5229-4162-4b6c-a704-641a8024066a?file=Exercise+media+samples.html) | Claude Design project, this ticket | 2026-11-02 |
+| [CJEU C-466/12 *Svensson*](https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:62012CJ0466) | Court ruling | judgment 2014-02-13, read 2026-11-07 |
+| [CJEU C-348/13 *BestWater*](https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:62013CO0348) | Court ruling (French text) | order 2014-10-21, read 2026-11-07 |
+| [CJEU C-160/15 *GS Media*](https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:62015CJ0160) | Court ruling | judgment 2016-09-08, read 2026-11-07 |
+| [CJEU C-392/19 *VG Bild-Kunst*](https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:62019CJ0392) | Court ruling | judgment 2021-03-09, read 2026-11-07 |
 | [First gym session transcript](../../evals/field/gym/2026-10-28-first-gym-session.md) | Project data | 2026-10-28 |

@@ -17,5 +17,6 @@ Only one PRD may be Approved at a time. Older PRDs stay in this folder as histor
 | 0009 | [AI training companion v1.0](0009-ai-training-companion.md) | Superseded by 0010 | 0008 |
 | 0010 | [AI training companion v1.1](0010-ai-training-companion.md) | Superseded by 0011 | 0009 |
 | 0011 | [AI training companion v1.2](0011-ai-training-companion.md) | Approved | 0010 |
+| 0012 | [AI training companion v1.3](0012-ai-training-companion.md) | In review | 0011 |
 
 How to add a revision: [docs/templates/README.md](../templates/README.md).

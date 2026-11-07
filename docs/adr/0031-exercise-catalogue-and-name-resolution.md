@@ -4,7 +4,7 @@
 |---|---|
 | Status | Accepted |
 | Date | 2026-10-30 |
-| Related | PRD-0010 (B37, B38, F23, F24, G5, G10, G14), ADR-0006, ADR-0010, ADR-0015, ADR-0016, ADR-0020, ADR-0032, ADR-0033 |
+| Related | PRD-0010 (B37, B38, F23, F24, G5, G10, G14), PRD-0012 (F24, G16, G17), ADR-0006, ADR-0010, ADR-0015, ADR-0016, ADR-0020, ADR-0032, ADR-0033 |
 
 ## Context
 
@@ -87,10 +87,11 @@ The draft carries `exercise_id` per activity. The typed name always stays as `na
 ### Media links (F24)
 
 - **`media_assets`**
-  - `id`, `storage_key`, `kind` (`gif`, `image`, `drawing`), `source`, `source_ref`, `license`, `attribution`, `sha256`, `width`, `height`
-  - Unique `sha256`.
+  - `id`, `kind` (`gif`, `image`, `drawing`, `video`), `rights` (`licensed`, `unstated`), `delivery` (`stored`, `embedded`), `storage_key`, `embed_url`, `source`, `source_ref`, `license`, `attribution`, `sha256`, `width`, `height`
+  - CHECK: `stored` has `storage_key` and `sha256` and no `embed_url`; `embedded` has `embed_url` and no `storage_key`; `licensed` has `license` and `attribution`; `unstated` is always `embedded`.
+  - Unique `sha256` where set, unique `embed_url` where set.
 - **`exercise_media`**
-  - `exercise_id`, `asset_id`, `position`, `status` (`suggested`, `approved`)
+  - `exercise_id`, `asset_id`, `position`, `status` (`suggested`, `approved`, `removed`)
   - Unique `(exercise_id, asset_id)`.
 
 Media is linked to the catalogue exercise, never to a name. Every alias, history entry and custom exercise mapped to that exercise gets it for free.
@@ -99,7 +100,12 @@ Media is linked to the catalogue exercise, never to a name. Every alias, history
 - **Other sources:** get candidate exercises from trigram similarity, and from embeddings once ADR-0033's model is chosen. Jev confirms or abstains, and links are written as `suggested`. An admin approves them in bulk at `/admin/exercises`.
 - **Storage:** the media bucket behind `ObjectStoragePort` (ADR-0033). It holds no user data, so it is served publicly through an R2 custom domain with Cloudflare caching, never `r2.dev`, which Cloudflare reserves for non-production traffic ([R2 public buckets](https://developers.cloudflare.com/r2/buckets/public-buckets/)). The attribution is shown next to the media.
 
-No media is imported until a source with a license we hold is chosen. That is a ticket, not this ADR.
+No media is imported until a source is chosen under PRD 0012 G16. That is a ticket, not this ADR.
+
+- **`licensed`** (our own drawings, an open licence, or permission we hold) may be `stored` in the media bucket, or `embedded`.
+- **`unstated`** (published freely by its owner, no licence stated) is only `embedded`: the card uses the source's own embed, such as YouTube's player, or a link to its page. Nothing is downloaded or re-hosted, and the source's own measures against framing or hotlinking are respected; where they apply, the card links out instead. The card shows "rights not confirmed" in place of a licence.
+- Media G16 puts *out* is not imported, as either kind, without permission.
+- **`removed`** is the takedown path. It hides the link at once. For `stored` media it also moves the object out of the public bucket to a private quarantine key and purges its Cloudflare cache entry, so the public URL stops serving it. The row is kept, so a removal can be audited and undone, and an importer skips a `sha256` or `embed_url` that is `removed`.
 
 ### Invariants
 
@@ -107,7 +113,7 @@ No media is imported until a source with a license we hold is chosen. That is a 
 2. History is checked before the catalogue. A name the athlete already confirmed is never asked about again.
 3. User aliases and custom exercises are the athlete's own data: user-scoped, deleted with the account (G1, G7). Catalogue queries read rows where `owner_user_id IS NULL OR owner_user_id = :user_id`.
 4. The typed name is always kept next to the resolved exercise.
-5. Imported text and media keep their source, license and attribution, and only `approved` media is shown (G10, ADR-0016).
+5. Imported text and media keep their source, license and attribution, and only `approved` media is shown (G10, ADR-0016). `unstated` media is only ever `embedded`, and is shown only while the app is non-commercial (PRD 0012 G16, G17); hiding it is one query on `rights`.
 6. No exercise name, alias or description is written by a model at request time. Descriptions come from `exercise_texts`.
 
 ## Alternatives considered
@@ -126,6 +132,10 @@ No media is imported until a source with a license we hold is chosen. That is a 
 - ADR-0020's catalogue candidate is delivered here. The set starts at a conservative threshold and is tuned from feedback (ADR-0034).
 - The F23 card needs a Claude Design mock with a media slot before its web ticket (ADR-0019).
 - ⚠ The media source (a Gym visual license, an openly licensed set, or drawings) is a spike ticket. Until it lands, cards show text only.
+- Owner-directed amendment, 2026-11-07, with [PRD 0012](../prd/0012-ai-training-companion.md) (F24, G16, G17). It is proposed for the owner's review with this branch's PR and holds once PRD 0012 is Approved. The app is a non-commercial side project, so media its owner published freely without stating a licence may be embedded after an admin approves it. This adds `rights`, `delivery`, `embed_url` and `removed` above, relaxes "a license we hold" and invariant 5, and leaves the admin gate and the attribution rule for licensed media as they were.
+  - **Why embed, not copy.** Under EU case law, linking to or framing a work its owner made freely available is not a communication to the public, unless it gets around a measure against framing. The cases are *Svensson*, *BestWater* and *VG Bild-Kunst*. A non-profit linker's lack of knowledge that a source infringes counts in its favour, but is not presumed, and a linker who knew or ought to have known is liable (*GS Media*). See [exercise-media.md](../research/exercise-media.md), finding 7.
+  - **Sources under this rule.** `wger`'s CC BY-SA images are `licensed`. Gym visual's GIFs stay out: the dataset's [NOTICE.md](https://github.com/hasaneyldrm/exercises-dataset/blob/main/NOTICE.md) excludes them from its MIT licence (read 2026-10-29). `free-exercise-db`'s images stay out as well, even as links, since its maintainer does not know their origin ([issue #2](https://github.com/yuhonas/free-exercise-db/issues/2), read 2026-11-02) and finding 1 calls them likely infringing. Either can become `licensed` with written permission.
+  - ⚠ This is a policy choice, not legal advice. Photos of real people also touch their right to their own image (art. 81 of the Polish copyright act), which a link does not settle; a request is honoured through `removed`.
 - When M3's search improves the shortlist, whether to offer a catalogue match for an athlete's existing custom exercises is decided then. The custom row and its entries stay valid either way.
 - A `cycling` or `climbing` catalogue can reuse these tables through `sport_id` when a PRD asks for one.
 - Owner-approved 2026-10-31, at #397's plan gate. Resolution without Jev (#399 adds it):

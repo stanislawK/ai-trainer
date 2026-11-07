@@ -23,6 +23,7 @@ Cite only these, primary sources first:
 3. **Engineering writing by the makers** of the technology, such as Anthropic on MCP and tool design, or pgvector's README on hybrid search.
 4. **Peer-reviewed papers**, naming the venue, such as the reciprocal rank fusion paper.
 5. **OpenRouter facts** from its MCP server, with the tool and the date (`.claude/rules/openrouter-mcp.md`).
+6. **Law and court rulings** from their official publisher, such as EUR-Lex for EU legislation and CJEU judgments, citing the case number and the paragraph.
 
 Never cite SEO or tutorial blogs, vendor marketing, forum answers, unattributed benchmarks or an AI-written summary. They can point to a primary source, and the primary source is what gets cited.
 
