@@ -22,7 +22,12 @@ Implements the delivery loop of ADR-0001 as amended by ADR-0035. With `--review`
      4. If the tab's model doesn't match the ticket's `model:` label, say so in one line and carry on. A running tab can't switch its own model.
    - **Anywhere else:** stop and say where you are.
    - **Inside the worktree, keep shell commands plain and separate.** The session refuses compound commands it can't verify stay in the worktree (a heredoc chained with `gh` was refused at #366). Write files with the Write tool, then run the command on its own.
-3. **Ground.** Read the current PRD and the requirement IDs the ticket cites, every referenced ADR and research document, the matching `.claude/rules/`, and the area branch below. If the ticket contradicts an Accepted ADR or the Approved PRD, or needs an undocumented decision, put a doc proposal into the plan — never code around it.
+3. **Ground.** Read the current PRD's requirements the ticket cites, every referenced ADR and research document, the matching `.claude/rules/`, and the area branch below. Read by section, and read once. Everything you read is re-read on every later request of this session.
+   - **PRD:** `grep -n '<ID>' docs/prd/<current>.md` for each cited requirement ID, then read only those ranges, not the whole PRD.
+   - **ADR:** `grep -n '^## ' docs/adr/<file>` and read *Decision* and *Consequences* by line range. Read the whole ADR only when the ticket amends it.
+   - Batch independent reads and read-only commands in one turn. Copy the binding lines into the plan with their file and line range, and quote from there instead of reading a document again. Use `Explore`, not `general-purpose`, for a broad search.
+
+   If the ticket contradicts an Accepted ADR or the Approved PRD, or needs an undocumented decision, put a doc proposal into the plan — never code around it.
 4. **Plan.** Write `.acceptance/<n>/plan.md`:
    - effort S / M / L;
    - the AC → test mapping, one named test per AC;
@@ -144,7 +149,7 @@ Run in a fresh Claude tab after the owner left review comments on the PR. Enter 
 ## Area branches
 
 - **backend** — layering (ADR-0003), user scoping (ADR-0004), migrations; use `/add-endpoint` for HTTP routes.
-- **web** — htmx 4 + daisyUI (ADR-0012, ADR-0019); build designed screens from their Claude Design mock with `/implement-design`, whose Playwright parity screenshots (390×844 and 1440×900, dark and light) are saved under `.acceptance/<n>/parity/` and confirmed by a human at the acceptance gate, not by the agent's own read of them. Verify other behavior ad hoc with the Playwright MCP tools against the running app; add a pytest-playwright spec under `tests/e2e/` only for a flow critical enough to guard against regression forever, not by default (ADR-0013).
+- **web** — htmx 4 + daisyUI (ADR-0012, ADR-0019); build designed screens from their Claude Design mock with `/implement-design`, whose Playwright parity screenshots (390×844 and 1440×900, dark and light) are saved under `.acceptance/<n>/parity/` and confirmed by a human at the acceptance gate, not by the agent's own read of them. Don't `Read` those PNGs into context. Check with the computed-style probes, and look only at a downscaled pair the probes can't explain (`/implement-design` step 5). Verify other behavior ad hoc with the Playwright MCP tools against the running app, preferring `browser_snapshot` (text) to screenshots; add a pytest-playwright spec under `tests/e2e/` only for a flow critical enough to guard against regression forever, not by default (ADR-0013).
 - **llm** — templates and evals (ADR-0008, ADR-0034); `TestModel` in tests; the smoke run is evidence.
 - **knowledge** — ADR-0011; ingestion details wait for the M3 ADR.
 - **e2e** — committed specs against the running compose stack; external services mocked at the API boundary; signed-in pages through the seeded session from `scripts/dev_session.py`; behavior, not pixels.
