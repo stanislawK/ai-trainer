@@ -6,6 +6,12 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    ignore:
+      # Hold SQLAlchemy 2.1: opentelemetry-instrumentation-sqlalchemy 0.66b2 pins
+      # sqlalchemy<2.1.0, and 2.1 also fails mypy. 2.0.x patches are still proposed.
+      # Remove this ignore when the migration ticket (#501) lands.
+      - dependency-name: sqlalchemy
+        versions: [">=2.1.0"]
   - package-ecosystem: docker
     directory: /
     schedule:
