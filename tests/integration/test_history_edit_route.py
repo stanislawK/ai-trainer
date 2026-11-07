@@ -194,6 +194,26 @@ async def test_rejected_value_is_marked_and_nothing_saved(
     assert await _stored_session(db_session_factory, session_id) == stored
 
 
+async def test_cleared_value_is_saved_blank_never_zero(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    """B38, ADR-0032 invariant 4: a load the athlete clears is stored as nothing, never 0."""
+    user = await _user(db_session_factory)
+    session_id = await _session(db_session_factory, user, _DAY, _AT, {"bench": _BENCH})
+
+    response = _client(db_session_factory, user).post(
+        f"/history/{session_id}/edit",
+        data=_set_fields(0, 0, 0, reps="10", load="") | _set_fields(0, 1, 1, reps="8", load="70"),
+    )
+
+    assert response.status_code == 200
+    after = await _rows(db_session_factory, session_id)
+    assert [(row[5], row[6], row[7], row[8]) for row in after] == [
+        (1, 10, None, None),
+        (2, 8, Decimal("70.00"), "70 kg"),
+    ]
+
+
 # --- AC: another user's session id returns 404 and changes nothing -------------------------
 
 
