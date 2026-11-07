@@ -14,11 +14,17 @@ from ai_trainer.domain.llm_calls import ProviderPreferences, ReasoningEffort
 
 class ExerciseSearchSettings(BaseModel):
     """The catalogue's search by meaning as the exercise shortlist's third input (ADR-0031,
-    #429): one embedding call per name history doesn't know. Off until the latency scenario has
-    measured it; the search is cut off after the timeout and today's shortlist stands."""
+    #429): one embedding call per name history doesn't know. On since #508, owner-directed after
+    the smoke set and the latency scenario measured it; the search is cut off after the timeout,
+    and with no catalogue chunks it finds nothing, so today's shortlist stands."""
 
-    exercise_search_enabled: bool = False
+    exercise_search_enabled: bool = True
     exercise_search_timeout_seconds: float = Field(default=2.5, gt=0)
+    # When no trigram candidate scores this high, the typed name matches no catalogue name and is
+    # read as a paraphrase: the search's order leads and the trigram list follows (#508). Measured
+    # 2026-11-07: paraphrases top out at 0.32 to 0.34, real names start at 0.59 ("Triceps
+    # pushdown"); fitted to those few names (ADR-0031's #508 amendment).
+    exercise_name_match_floor: float = Field(default=0.5, ge=0, le=1)
 
 
 def split_comma_separated(value: Any) -> Any:  # noqa: ANN401 -- raw env input of any type

@@ -31,6 +31,10 @@ os.environ["LLM_DEBUG_LOG"] = "false"
 os.environ["ROUTER_MODEL"] = "test/router-model"
 os.environ["CHITCHAT_MODEL"] = "test/chitchat-model"
 os.environ["EXTRACT_MODEL"] = "test/extract-model"
+# The catalogue search is on by default since #508, and its embedding call goes over plain
+# HTTP, which `ALLOW_MODEL_REQUESTS` doesn't guard. Off here, so no test can make a real call;
+# a test that wants it sets it with `monkeypatch` and fakes the transport.
+os.environ["EXERCISE_SEARCH_ENABLED"] = "false"
 
 
 @pytest.fixture(autouse=True)

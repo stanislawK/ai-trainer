@@ -7,12 +7,11 @@ free number. A catalogue chunk's `tsvector` weights the exercise name A and the 
 `english` or `simple` (ADR-0033); the source title, the same in every chunk, would add nothing.
 """
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from datetime import datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import and_, delete, func, insert, or_, select
-from sqlalchemy.dialects.postgresql import array
+from sqlalchemy import Select, delete, func, insert, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -31,6 +30,7 @@ from ai_trainer.domain.catalogue_knowledge import (
     CatalogueText,
     EmbeddedCatalogueChunk,
     catalogue_content_hash,
+    has_changed_text,
 )
 from ai_trainer.domain.knowledge import (
     EvidenceTier,
@@ -51,8 +51,6 @@ _REQUEUEABLE = (
     SourceStatus.INGESTED.value,
     SourceStatus.FAILED.value,
 )
-# Python's `str.strip()`, as `catalogue_chunk` trims a text, so a stored chunk compares equal.
-_WHITESPACE = r"^\s+|\s+$"
 
 
 class SqlAlchemyCatalogueSources:
@@ -92,30 +90,59 @@ class SqlAlchemyCatalogueSources:
 
 
 async def _stale(session: AsyncSession, language: SourceLanguage, source_id: UUID) -> bool:
-    """Whether any catalogue text in `language` has no chunk, or one whose text or name
-    differs. It reads the database, not what this import wrote, so an import that committed its
-    rows but failed before queueing is caught by the next one. A model change is a re-embed job
+    """Whether any catalogue text in `language` has no chunk, or one whose text or name differs
+    from what the worker would embed now, by the worker's own rule (`has_changed_text`). It
+    reads the database, not what this import wrote, so an import that committed its rows but
+    failed before queueing is caught by the next one. A model change is a re-embed job
     (ADR-0033 invariant 4), started by Re-ingest."""
-    instructions = func.regexp_replace(ExerciseTextOrm.instructions, _WHITESPACE, "", "g")
-    statement = (
-        select(ExerciseTextOrm.exercise_id)
+    texts = await session.execute(_texts_statement(language))
+    states = await session.execute(_chunk_states_statement(source_id))
+    return has_changed_text(_texts(texts.tuples()), _chunk_states(states.tuples()))
+
+
+def _texts_statement(
+    language: SourceLanguage,
+) -> Select[tuple[UUID, str, str, str | None, str | None]]:
+    return (
+        select(
+            ExerciseTextOrm.exercise_id,
+            ExerciseOrm.name,
+            ExerciseTextOrm.instructions,
+            ExerciseOrm.target,
+            ExerciseOrm.equipment,
+        )
         .join(ExerciseOrm, ExerciseOrm.id == ExerciseTextOrm.exercise_id)
-        .outerjoin(
-            _C, and_(_C.source_id == source_id, _C.exercise_id == ExerciseTextOrm.exercise_id)
-        )
-        .where(
-            ExerciseOrm.owner_user_id.is_(None),
-            ExerciseTextOrm.lang == language.value,
-            instructions != "",
-            or_(
-                _C.id.is_(None),
-                _C.text.is_distinct_from(instructions),
-                _C.heading_path.is_distinct_from(array([ExerciseOrm.name])),
-            ),
-        )
-        .limit(1)
+        # Shared catalogue rows only: an athlete's custom exercise is never knowledge.
+        .where(ExerciseOrm.owner_user_id.is_(None), ExerciseTextOrm.lang == language.value)
+        .order_by(ExerciseOrm.name, ExerciseOrm.id)
     )
-    return await session.scalar(statement) is not None
+
+
+def _texts(
+    rows: Iterable[tuple[UUID, str, str, str | None, str | None]],
+) -> list[CatalogueText]:
+    return [
+        CatalogueText(id_, name, instructions, target=target, equipment=equipment)
+        for id_, name, instructions, target, equipment in rows
+    ]
+
+
+def _chunk_states_statement(
+    source_id: UUID,
+) -> Select[tuple[UUID | None, str, list[str], str]]:
+    return select(_C.exercise_id, _C.text, _C.heading_path, _C.embedding_model).where(
+        _C.source_id == source_id, _C.exercise_id.is_not(None)
+    )
+
+
+def _chunk_states(
+    rows: Iterable[tuple[UUID | None, str, list[str], str]],
+) -> list[CatalogueChunkState]:
+    return [
+        CatalogueChunkState(exercise_id, text, tuple(heading), model)
+        for exercise_id, text, heading, model in rows
+        if exercise_id is not None
+    ]
 
 
 async def _acting_admin(session: AsyncSession, admin_emails: Sequence[str]) -> UUID | None:
@@ -189,28 +216,14 @@ class SqlAlchemyCatalogueChunks:
         self._session_factory = session_factory
 
     async def texts(self, language: SourceLanguage) -> Sequence[CatalogueText]:
-        statement = (
-            select(ExerciseTextOrm.exercise_id, ExerciseOrm.name, ExerciseTextOrm.instructions)
-            .join(ExerciseOrm, ExerciseOrm.id == ExerciseTextOrm.exercise_id)
-            # Shared catalogue rows only: an athlete's custom exercise is never knowledge.
-            .where(ExerciseOrm.owner_user_id.is_(None), ExerciseTextOrm.lang == language.value)
-            .order_by(ExerciseOrm.name, ExerciseOrm.id)
-        )
         async with self._session_factory() as session:
-            rows = await session.execute(statement)
-            return [CatalogueText(row[0], row[1], row[2]) for row in rows]
+            rows = await session.execute(_texts_statement(language))
+            return _texts(rows.tuples())
 
     async def chunk_states(self, source_id: UUID) -> Sequence[CatalogueChunkState]:
-        statement = select(_C.exercise_id, _C.text, _C.heading_path, _C.embedding_model).where(
-            _C.source_id == source_id, _C.exercise_id.is_not(None)
-        )
         async with self._session_factory() as session:
-            rows = await session.execute(statement)
-            return [
-                CatalogueChunkState(row[0], row[1], tuple(row[2]), row[3])
-                for row in rows
-                if row[0] is not None
-            ]
+            rows = await session.execute(_chunk_states_statement(source_id))
+            return _chunk_states(rows.tuples())
 
     async def write_batch(
         self,

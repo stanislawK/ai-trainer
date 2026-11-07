@@ -28,6 +28,7 @@ from ai_trainer.adapters.exercise_history import SqlAlchemyExerciseHistory
 from ai_trainer.adapters.exercise_repository import SqlAlchemyExerciseRepository
 from ai_trainer.adapters.orm import ExerciseOrm, ExerciseTextOrm, GymExerciseEntryOrm, GymSetOrm
 from ai_trainer.adapters.training_session_repository import SqlAlchemyTrainingSessionRepository
+from ai_trainer.application.exercise_candidates import SearchedExerciseNames
 from ai_trainer.application.exercise_catalogue import import_catalogue
 from ai_trainer.application.exercise_lookup import ExerciseFinder
 from ai_trainer.application.exercise_resolution import ResolutionLimits
@@ -40,6 +41,7 @@ from ai_trainer.mcp.server import build_mcp_server
 from ai_trainer.mcp.toolset import build_toolset
 from tests.activity_support import STORES
 from tests.exercise_support import sample_source
+from tests.ingestion_support import FrozenClock
 from tests.integration.test_mcp_query_sessions import _session, _user
 
 SessionFactory = Callable[[], AsyncSession]
@@ -186,6 +188,63 @@ async def test_mcp_exercise_find_returns_settled_exercise_first(world: _World) -
     assert only["id"] == str(world.bench)
     assert only["name"] == "Barbell Bench Press"
     assert only["equipment"] == "barbell"
+
+
+class _SearchFinds:
+    """The catalogue search, scripted: it ranks one exercise for any name."""
+
+    def __init__(self, exercise_id: UUID) -> None:
+        self.exercise_id = exercise_id
+        self.asked: list[tuple[UUID, str]] = []
+
+    async def similar(self, user_id: UUID, name: str) -> Sequence[UUID]:
+        self.asked.append((user_id, name))
+        return [self.exercise_id]
+
+
+async def test_mcp_exercise_find_shortlists_through_the_search(
+    world: _World, db_session_factory: SessionFactory
+) -> None:
+    # #508: `find_exercise` shortlists a paraphrase through the same search as a log does.
+    exercises = SqlAlchemyExerciseRepository(db_session_factory)
+    async with db_session_factory() as session:
+        press = await session.scalar(
+            select(ExerciseOrm.id).where(ExerciseOrm.name == "Lever Chest Press")
+        )
+    assert press is not None
+    search = _SearchFinds(press)
+    logged = SqlAlchemyExerciseHistory(db_session_factory)
+    server = build_mcp_server(
+        TrainingHistory(
+            SqlAlchemyTrainingSessionRepository(db_session_factory, stores=STORES),
+            default_sport_registry(),
+        ),
+        ExerciseFinder(
+            exercises,
+            _LIMITS,
+            logged,
+            names=SearchedExerciseNames(
+                exercises,
+                search,
+                exercises,
+                timeout_seconds=1.0,
+                name_match=0.5,
+                clock=FrozenClock(),
+            ),
+        ),
+        ExerciseTrainingHistory(exercises, logged),
+    )
+
+    async with Client(server) as client:
+        result = await client.call_tool(
+            "find_exercise", {"name": "pushing two handles away"}, meta=_meta(world.bob)
+        )
+
+    content = result.structured_content
+    assert content is not None
+    assert content["data"]["source"] == "catalogue"
+    assert [exercise["name"] for exercise in content["data"]["exercises"]] == ["Lever Chest Press"]
+    assert search.asked == [(world.bob, "pushing two handles away")]
 
 
 async def test_mcp_exercise_find_shortlists_up_to_four_with_descriptions(world: _World) -> None:

@@ -19,6 +19,7 @@ from uuid import UUID
 
 from fastmcp import Client, FastMCP
 
+from ai_trainer.adapters.clock import UtcClock
 from ai_trainer.adapters.db import build_engine, build_session_factory
 from ai_trainer.adapters.llm_calls_repository import SqlAlchemyLlmCallsRepository
 from ai_trainer.adapters.training_session_repository import SqlAlchemyTrainingSessionRepository
@@ -80,6 +81,7 @@ async def run(  # pragma: no cover -- real database and OpenRouter; the PR's Acc
             ),
             calls_repository=SqlAlchemyLlmCallsRepository(factory),
             http_client=http_client,
+            clock=UtcClock(),
         )
         result = await call_search(server, user.id, args)
     finally:

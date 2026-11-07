@@ -8,16 +8,17 @@
 # The last four cases are `live` (#429): no candidates and no Jev call. They ask the app's own
 # shortlist, on the imported catalogue, for the typed name and the entry's `measure` (default
 # `load_reps`) and pass when `listed` is among its candidates, so they score the shortlist's
-# recall. Run the set twice, with EXERCISE_SEARCH_ENABLED false and true, for the before and the
-# after; they need `uv run ai-trainer import-exercises`, for the search also an ingest
+# recall. The search is on by default since #508; run the set with EXERCISE_SEARCH_ENABLED false
+# too to compare. They need `uv run ai-trainer import-exercises`, for the search also an ingest
 # (`make ingest-once`), and an active admin in ADMIN_EMAILS.
 name: exercise_shortlist
-# Measured at #429 (2026-11-07), search off then on: 2 of 4 live cases pass both ways (pull ups
-# and face pull, by trigram matching alone). The two paraphrases fail either way; with the search
-# on, "rising straight arms" gets the lateral-raise family instead of a crunch, but not the
-# lateral raise itself. Raising recall is #508.
+# Measured at #508 (2026-11-07): 3 of 4 live cases pass with the search on, 2 of 4 with it off
+# (at #429: 2 of 4 both ways). "Rising straight arms" lists Dumbbell Lateral Raise 3rd, as the
+# search leads for a name no catalogue name matches and each chunk carries its target and
+# equipment. The triceps paraphrase still misses: the rope pushdown isn't in the search's top 60,
+# below every triceps extension (ADR-0031's #508 amendment). With the search off, "rising straight
+# arms" misses too.
 known_gaps:
-  live rising straight arms: "#508"
   live triceps arm bent to 90: "#508"
 cases:
 - name: pull ups
@@ -90,12 +91,12 @@ cases:
 - name: live triceps arm bent to 90
   metadata:
     source: evals/field/gym/2026-10-28-first-gym-session.md
-    note: the label is the agent's reading of "straightening arm bent to 90" (a kickback); the owner may correct it
+    note: the owner's rope pushdown ("Rope Tricep Extension", "Cable Rope Triceps Pushdown"), confirmed at #508's plan gate; #429 had read it as a kickback
   inputs:
     prompt: Triceps - straightening arm bent to 90 degr
     deps: {live: true}
   expected_output:
-    listed: Dumbbell Kickback
+    listed: Cable Pushdown (With Rope Attachment)
 - name: live pull ups
   metadata:
     source: evals/field/gym/2026-10-28-first-gym-session.md

@@ -104,6 +104,9 @@ class ExerciseCandidate(BaseModel):
     equipment: str | None = None
     target: str | None = None
     how: str | None = None
+    # How well the typed name fits this exercise's names, from the trigram shortlist (#508);
+    # `None` where no name was scored. Neither Jev nor the card reads it.
+    name_score: float | None = None
 
 
 class ExerciseLabel(BaseModel):

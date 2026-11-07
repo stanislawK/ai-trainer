@@ -578,6 +578,31 @@ async def test_the_shortlist_finds_a_name_by_its_words_and_stays_within_its_limi
     assert await _search(logger, "xyzzy qwerty") == []
 
 
+async def test_shortlist_reports_name_scores(db_session_factory: SessionFactory) -> None:
+    # #508: the score tells a matched name from a paraphrase's loose look-alikes. An exact name
+    # scores 1; an exercise holding every typed word scores at least the floor.
+    logger = await _logger(db_session_factory, "shortlist-scores")
+
+    found = await logger.exercises.shortlist(
+        logger.user_id,
+        sport_id="gym",
+        name="Barbell Bench Press",
+        measure="load_reps",
+        floor=_LIMITS.candidate_floor,
+        limit=4,
+    )
+
+    assert found[0].name == "Barbell Bench Press"
+    assert found[0].name_score == pytest.approx(1.0)
+    assert all(
+        candidate.name_score is not None and candidate.name_score >= _LIMITS.candidate_floor
+        for candidate in found
+    )
+    assert [candidate.name_score for candidate in found] == sorted(
+        (candidate.name_score or 0.0 for candidate in found), reverse=True
+    )
+
+
 async def test_the_shortlist_finds_an_exercise_by_a_global_alias_in_any_language(
     db_session_factory: SessionFactory,
 ) -> None:

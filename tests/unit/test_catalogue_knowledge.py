@@ -7,6 +7,7 @@ from ai_trainer.domain.catalogue_knowledge import (
     CatalogueText,
     catalogue_chunk,
     catalogue_content_hash,
+    has_changed_text,
     kept_exercises,
     stale_chunks,
 )
@@ -30,6 +31,63 @@ def test_a_chunk_is_the_instructions_under_the_exercise_name() -> None:
     assert made.chunk.heading_path == ("Dumbbell Curl",)
     assert made.chunk.section_kind is SectionKind.BODY
     assert made.chunk.locator == SectionLocator(section="Dumbbell Curl")
+
+
+def test_catalogue_chunk_carries_target_and_equipment() -> None:
+    # #508: a paraphrase names the movement, so what it works and with what is embedded too.
+    made = catalogue_chunk(
+        CatalogueText(
+            UUID(int=1),
+            "Dumbbell Lateral Raise",
+            " Raise your arms to the sides.\n",
+            target="delts",
+            equipment="dumbbell",
+        )
+    )
+
+    assert made.chunk.text == "Raise your arms to the sides.\n\nTarget: delts. Equipment: dumbbell."
+    assert made.chunk.heading_path == ("Dumbbell Lateral Raise",)
+
+
+def test_a_chunk_names_only_the_metadata_it_has() -> None:
+    target_only = CatalogueText(UUID(int=1), "Plank", "Hold it.", target="abs")
+    equipment_only = CatalogueText(UUID(int=2), "Band Pull Apart", "Pull.", equipment="band")
+
+    assert catalogue_chunk(target_only).chunk.text == "Hold it.\n\nTarget: abs."
+    assert catalogue_chunk(equipment_only).chunk.text == "Pull.\n\nEquipment: band."
+
+
+def test_changed_metadata_makes_the_chunk_stale() -> None:
+    before = CatalogueText(UUID(int=1), "Dumbbell Curl", "Curl up.", target="biceps")
+    after = CatalogueText(UUID(int=1), "Dumbbell Curl", "Curl up.", target="forearms")
+    stored = CatalogueChunkState(
+        before.exercise_id, catalogue_chunk(before).chunk.text, (before.name,), _MODEL
+    )
+
+    assert stale_chunks([before], [stored], model=_MODEL) == []
+    assert stale_chunks([after], [stored], model=_MODEL) == [catalogue_chunk(after)]
+
+
+def test_the_import_sees_a_text_change_as_the_worker_does() -> None:
+    # One rule for "stale": the import queues a source only when the worker would embed in it.
+    # A model change is not a text change: it is a re-embed job (ADR-0033 invariant 4).
+    raise_ = CatalogueText(UUID(int=1), "Dumbbell Lateral Raise", "Raise.", target="delts")
+    stored = CatalogueChunkState(
+        raise_.exercise_id, catalogue_chunk(raise_).chunk.text, (raise_.name,), "old/model"
+    )
+    moved = CatalogueText(raise_.exercise_id, raise_.name, raise_.instructions, target="traps")
+    blank = CatalogueText(UUID(int=9), "Plank", " ")
+
+    assert not has_changed_text([raise_, blank], [stored])
+    assert has_changed_text([moved], [stored])
+    assert has_changed_text([raise_, _CURL], [stored])
+
+
+def test_metadata_alone_is_nothing_to_embed() -> None:
+    blank = CatalogueText(UUID(int=9), "Plank", "  ", target="abs", equipment="body weight")
+
+    assert stale_chunks([blank], [], model=_MODEL) == []
+    assert kept_exercises([blank]) == frozenset()
 
 
 def test_unchanged_texts_embed_nothing() -> None:
