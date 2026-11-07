@@ -316,7 +316,7 @@ class SqlAlchemyExerciseRepository:
             ]
 
     async def candidates(
-        self, user_id: UUID, exercise_ids: Sequence[UUID]
+        self, user_id: UUID, exercise_ids: Sequence[UUID], *, measure: str
     ) -> Sequence[ExerciseCandidate]:
         async with self._session_factory() as session:
             rows = await session.execute(
@@ -326,6 +326,7 @@ class SqlAlchemyExerciseRepository:
                     ExerciseOrm.equipment,
                     ExerciseOrm.target,
                     ExerciseTextOrm.instructions,
+                    ExerciseOrm.default_measure,
                 )
                 .outerjoin(
                     ExerciseTextOrm,
@@ -337,12 +338,18 @@ class SqlAlchemyExerciseRepository:
                 .where(ExerciseOrm.id.in_(exercise_ids), visible_to(user_id))
             )
             found = {
-                id_: ExerciseCandidate(
-                    id=id_, name=name, equipment=equipment, target=target, how=_short(how)
+                id_: (
+                    default == measure,
+                    ExerciseCandidate(
+                        id=id_, name=name, equipment=equipment, target=target, how=_short(how)
+                    ),
                 )
-                for id_, name, equipment, target, how in rows.tuples()
+                for id_, name, equipment, target, how, default in rows.tuples()
             }
-        return [found[exercise_id] for exercise_id in exercise_ids if exercise_id in found]
+        # The entry's own measure first, as the trigram shortlist orders it; the given order
+        # otherwise (a stable sort over the order given).
+        ordered = [found[exercise_id] for exercise_id in exercise_ids if exercise_id in found]
+        return [candidate for _, candidate in sorted(ordered, key=lambda pair: not pair[0])]
 
     async def labels(
         self, user_id: UUID, *, named: Mapping[str, UUID], near: float

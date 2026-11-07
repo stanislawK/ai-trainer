@@ -16,7 +16,7 @@ from pydantic import BaseModel, ValidationError
 from pydantic_ai import Agent
 from pydantic_ai.models import Model
 
-from ai_trainer.domain.exercises import ExerciseCandidate
+from ai_trainer.domain.exercises import ExerciseCandidate, ExerciseMeasure
 from ai_trainer.llm.decisions.loader import DecisionSetLoader
 from ai_trainer.llm.evals.inputs import EvalCaseInputs
 from ai_trainer.llm.evals.smoke import SmokeCaseResult, SmokeError, SmokeSet
@@ -32,6 +32,9 @@ class _Candidate(BaseModel):
 class _Deps(BaseModel):
     candidates: list[_Candidate] = []
     live: bool = False
+    # What the entry is measured in, which orders the shortlist: "8 pull ups 3x" is `reps`, a
+    # load in kg is `load_reps` (the default, as `find_exercise` assumes).
+    measure: ExerciseMeasure = ExerciseMeasure.LOAD_REPS
 
 
 class _Expected(BaseModel):
@@ -51,15 +54,26 @@ class _Case(BaseModel):
 
 # The app's shortlist for a typed name, on the imported catalogue, and the entry point's way of
 # opening it (the database is wired in the composition root, not here).
-type Shortlister = Callable[[str], Awaitable[Sequence[ExerciseCandidate]]]
+type Shortlister = Callable[[str, str], Awaitable[Sequence[ExerciseCandidate]]]
 type LiveShortlister = Callable[[], AbstractAsyncContextManager[Shortlister]]
 
 
 def _check_live(smoke_set: SmokeSet, case: _Case, deps: _Deps) -> None:
-    if deps.candidates or case.expected_output.pick is not None:
-        raise SmokeError(f"{smoke_set.id}: live case {case.name!r} has no candidate and no pick")
+    if deps.candidates:
+        raise SmokeError(
+            f"{smoke_set.id}: live case {case.name!r} lists `candidates`, but a live case takes "
+            "them from the app's shortlist"
+        )
+    if case.expected_output.pick is not None:
+        raise SmokeError(
+            f"{smoke_set.id}: live case {case.name!r} has a `pick`, but Jev isn't asked; "
+            "a live case takes `listed`"
+        )
     if not case.expected_output.listed:
-        raise SmokeError(f"{smoke_set.id}: live case {case.name!r} needs `listed`")
+        raise SmokeError(
+            f"{smoke_set.id}: live case {case.name!r} needs `listed`, "
+            "the exercise the shortlist must hold"
+        )
 
 
 def _read(smoke_set: SmokeSet) -> list[tuple[_Case, list[ExerciseCandidate]]]:
@@ -133,7 +147,8 @@ async def _listed(
     if shortlist is None:
         return _result(smoke_set, case.name, False, "a live case needs the database; none given")
     try:
-        found = [candidate.name for candidate in await shortlist(case.inputs.prompt)]
+        measure = _Deps.model_validate(case.inputs.deps).measure.value
+        found = [candidate.name for candidate in await shortlist(case.inputs.prompt, measure)]
     except Exception as error:
         return _result(smoke_set, case.name, False, f"the shortlist failed: {error}")
     wanted = case.expected_output.listed

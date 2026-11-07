@@ -87,6 +87,8 @@ class KnowledgeSearchQuery:
     limit: int = DEFAULT_HITS
     # What the text is, which picks the instruction its embedding carries (#429).
     task: QueryTask = QueryTask.QUESTION
+    # Only the catalogue's exercise texts, so a paper never takes a slot (#429).
+    exercises_only: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,6 +100,7 @@ class KnowledgeFilters:
     sport_id: str | None = None
     topics: tuple[str, ...] = ()
     exercise_id: UUID | None = None
+    exercises_only: bool = False
 
 
 @dataclass(frozen=True, slots=True)

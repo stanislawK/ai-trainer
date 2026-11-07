@@ -63,6 +63,7 @@ class KnowledgeSearch:
                 sport_id=query.sport_id,
                 topics=tuple(t for topic in query.topics if (t := topic.strip().lower())),
                 exercise_id=query.exercise_id,
+                exercises_only=query.exercises_only,
             ),
             depth=self._depth,
         )

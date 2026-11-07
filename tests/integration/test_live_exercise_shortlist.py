@@ -42,7 +42,7 @@ async def test_the_shortlist_is_the_apps_for_the_imported_catalogue(
     await _user(db_session_factory, "live-admin@example.com", UserStatus.ACTIVE)
 
     async with live_shortlister(Settings(), factory=db_session_factory) as shortlist:
-        found = await shortlist("Bench Press")
+        found = await shortlist("Bench Press", "load_reps")
 
     assert found  # the sample catalogue holds a bench press
     assert len(found) <= Settings().exercise_shortlist_size
@@ -73,7 +73,7 @@ async def test_the_search_is_tried_when_enabled_and_the_shortlist_falls_back_whe
     async with live_shortlister(
         Settings(), factory=db_session_factory, transport=upstream.transport
     ) as shortlist:
-        found = await shortlist("Bench Press")
+        found = await shortlist("Bench Press", "load_reps")
 
     assert upstream.requests  # the embedding call was attempted
     assert found  # and today's shortlist stood
@@ -86,7 +86,7 @@ async def test_the_search_is_not_tried_when_disabled(db_session_factory: Session
     async with live_shortlister(
         Settings(), factory=db_session_factory, transport=upstream.transport
     ) as shortlist:
-        await shortlist("Bench Press")
+        await shortlist("Bench Press", "load_reps")
 
     assert upstream.requests == []
 

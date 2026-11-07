@@ -131,6 +131,16 @@ async def test_hits_are_fused_from_both_legs_best_first() -> None:
     assert page.truncated is False
 
 
+async def test_exercises_only_reaches_both_legs_as_a_filter() -> None:
+    repository = _Repository(by_words=[_hit("x")])
+    search = _search(repository)
+
+    await search.search(_ATHLETE, KnowledgeSearchQuery(text="deload"))
+    await search.search(_ATHLETE, KnowledgeSearchQuery(text="deload", exercises_only=True))
+
+    assert [f.exercises_only for _, _, f, _ in repository.asked] == [False, True]
+
+
 async def test_a_question_is_embedded_as_a_question_unless_the_query_says_otherwise() -> None:
     embeddings = _Embeddings()
     search = _search(_Repository(by_words=[_hit("x")]), embeddings)

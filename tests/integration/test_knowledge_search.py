@@ -11,13 +11,15 @@ from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import insert
+from sqlalchemy import insert, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ai_trainer.adapters.exercise_repository import SqlAlchemyExerciseRepository
 from ai_trainer.adapters.knowledge_chunk_repository import search_vector
 from ai_trainer.adapters.knowledge_repository import SqlAlchemyKnowledgeSourcesRepository
 from ai_trainer.adapters.knowledge_search_repository import SqlAlchemyKnowledgeSearch
 from ai_trainer.adapters.orm import KnowledgeChunkOrm
+from ai_trainer.application.exercise_catalogue import import_catalogue
 from ai_trainer.application.knowledge_search import KnowledgeSearch
 from ai_trainer.domain.embeddings import Embedded, EmbeddingOutcome, QueryTask
 from ai_trainer.domain.knowledge import (
@@ -39,6 +41,7 @@ from ai_trainer.domain.knowledge_search import (
     KnowledgeSearchQuery,
 )
 from ai_trainer.domain.sports.registry import default_sport_registry
+from tests.exercise_support import sample_source
 from tests.ingestion_support import DIMENSIONS, uploaded_source
 
 type Factory = Callable[[], AsyncSession]
@@ -87,6 +90,7 @@ class _World:
         topics: Sequence[str] = ("deload",),
         polish: bool = False,
         locator: Locator | None = None,
+        exercise_id: UUID | None = None,
     ) -> UUID:
         source = self.polish if polish else self.source
         chunk_id = uuid4()
@@ -106,6 +110,7 @@ class _World:
                     heading_path=["Recovery"],
                     section_kind="body",
                     locator=(locator or SectionLocator(section="Recovery")).model_dump(mode="json"),
+                    exercise_id=exercise_id,
                     search_vector=search_vector(
                         language=source.language,
                         title=source.title,
@@ -244,6 +249,24 @@ async def test_an_exercise_filter_keeps_only_that_exercises_chunks(world: _World
     outcome = await world.search(KnowledgeSearchQuery(text="deload", exercise_id=uuid4()))
 
     assert outcome == KnowledgeSearchFailed(reason="no_match")
+
+
+async def test_exercises_only_leaves_papers_out_so_they_take_no_slot(world: _World) -> None:
+    await import_catalogue(
+        source=sample_source(), exercises=SqlAlchemyExerciseRepository(world.factory)
+    )
+    async with world.factory() as session:
+        wanted = (
+            await session.execute(text("SELECT id FROM exercises WHERE source_ref = 'zz-test-01'"))
+        ).scalar_one()
+    paper = await world.chunk("Deload the bench press.", _axis(0))  # nearest, but no exercise
+    exercise = await world.chunk("Bench press how-to.", _axis(0, lean=1), exercise_id=wanted)
+
+    everything = await world.found(KnowledgeSearchQuery(text="bench"), depth=2)
+    only = await world.found(KnowledgeSearchQuery(text="bench", exercises_only=True), depth=1)
+
+    assert paper in everything
+    assert only == [exercise]
 
 
 async def test_no_match_is_a_failure(world: _World) -> None:

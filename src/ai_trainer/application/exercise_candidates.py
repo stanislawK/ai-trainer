@@ -10,9 +10,11 @@ import contextlib
 import logging
 from collections import OrderedDict
 from collections.abc import Mapping, Sequence
+from datetime import datetime, timedelta
 from uuid import UUID
 
 from ai_trainer.application.knowledge_search import KnowledgeSearch
+from ai_trainer.application.ports.clock import ClockPort
 from ai_trainer.application.ports.exercises import (
     ExerciseCandidatesPort,
     ExerciseNamesPort,
@@ -21,7 +23,6 @@ from ai_trainer.application.ports.exercises import (
 from ai_trainer.domain.embeddings import QueryTask
 from ai_trainer.domain.exercises import ExerciseCandidate, ExerciseLabel
 from ai_trainer.domain.knowledge_search import (
-    MAX_HITS,
     KnowledgeSearchFailed,
     KnowledgeSearchQuery,
     rrf_fuse,
@@ -33,8 +34,16 @@ logger = logging.getLogger(__name__)
 # How deep the trigram list is read before fusion, as the search's own legs are (`Settings`
 # `knowledge_search_depth`). Fusion needs ranks past the cap to tell a double hit from a single.
 TRIGRAM_DEPTH = 20
+# How many exercises of the fused ranking are read before the cut, so the entry's own measure can
+# put its exercises ahead of another measure's wherever they ranked.
+FUSED_DEPTH = 2 * TRIGRAM_DEPTH
 # How many athletes' latest searches the shortlist keeps. IDs only, no text but the typed name.
 REMEMBERED_SEARCHES = 256
+# A name Jev wasn't sure of is shortlisted twice, once to pick and once for the card, seconds
+# apart, and one embedding serves both. An answer is kept for a while, so a catalogue re-ingest is
+# seen within minutes; a failure only for the turn, so it can't keep a name off the search.
+ANSWER_MEMORY = timedelta(minutes=10)
+FAILURE_MEMORY = timedelta(seconds=30)
 
 
 class SearchedExerciseNames:
@@ -47,17 +56,17 @@ class SearchedExerciseNames:
         candidates: ExerciseCandidatesPort,
         *,
         timeout_seconds: float,
+        clock: ClockPort,
         remembered: int = REMEMBERED_SEARCHES,
     ) -> None:
         self._inner = inner
         self._search = search
         self._candidates = candidates
         self._timeout = timeout_seconds
+        self._clock = clock
         self._remembered = remembered
-        # The latest searches by athlete and typed name. A name Jev wasn't sure of is shortlisted
-        # twice, once to pick and once for the card, and one embedding serves both. An answer
-        # stays until evicted; a failed or empty one serves the card once and is then forgotten.
-        self._recent: OrderedDict[tuple[UUID, str], Sequence[UUID]] = OrderedDict()
+        # The latest searches by athlete and typed name, each with the time it stops being served.
+        self._recent: OrderedDict[tuple[UUID, str], tuple[datetime, Sequence[UUID]]] = OrderedDict()
 
     async def match_user_aliases(
         self, user_id: UUID, *, sport_id: str, names: Sequence[str], near: float
@@ -100,39 +109,41 @@ class SearchedExerciseNames:
         found = await searching
         if not found:
             return list(trigram)[:limit]
-        by_id = {candidate.id: candidate for candidate in trigram}
-        fused = rrf_fuse([[candidate.id for candidate in trigram], found])[:limit]
-        missing = [exercise_id for exercise_id in fused if exercise_id not in by_id]
-        if missing:
-            try:
-                by_id |= {c.id: c for c in await self._candidates.candidates(user_id, missing)}
-            except Exception:  # the extra input never fails the log: today's list stands
-                logger.warning("exercise search candidates unreadable, using the trigram shortlist")
-                return list(trigram)[:limit]
-        # An exercise the athlete can't see has no candidate and is dropped.
-        return [by_id[exercise_id] for exercise_id in fused if exercise_id in by_id]
+        fused = rrf_fuse([[candidate.id for candidate in trigram], found])[:FUSED_DEPTH]
+        try:
+            # Read in one go with the entry's own measure first, as the trigram list orders it, so
+            # another measure's exercise (a plank for a sets-and-reps entry) can't take a slot from
+            # one that fits. An exercise the athlete can't see comes back missing and is dropped.
+            read = await self._candidates.candidates(user_id, fused, measure=measure)
+        except Exception:  # the extra input never fails the log: today's list stands
+            logger.warning("exercise search candidates unreadable, using the trigram shortlist")
+            return list(trigram)[:limit]
+        return list(read)[:limit]
 
     async def _similar(self, user_id: UUID, name: str) -> Sequence[UUID]:
         """The search's IDs, or none when it is slow or fails: the log still drafts. A failure is
-        remembered once, so the card shows the shortlist Jev was shown and does not wait out a
-        second timeout, and a later log of the name searches afresh."""
+        remembered for the turn, so the card shows the shortlist Jev was shown and does not wait
+        out a second timeout."""
         key = (user_id, name)
-        if key in self._recent:
-            found = self._recent[key]
-            if found:
+        now = self._clock.now()
+        remembered = self._recent.get(key)
+        if remembered is not None:
+            expires_at, found = remembered
+            if now < expires_at:
                 self._recent.move_to_end(key)
-            else:
-                del self._recent[key]
-            return found
+                return found
+            del self._recent[key]
         try:
             async with asyncio.timeout(self._timeout):
                 found = await self._search.similar(user_id, name)
+            memory = ANSWER_MEMORY
         except Exception as error:  # any failure of the extra input falls back to today's list
             logger.warning(
                 "exercise search unavailable (%s), using the trigram shortlist", _reason(error)
             )
             found = ()
-        self._recent[key] = found
+            memory = FAILURE_MEMORY
+        self._recent[key] = (now + memory, found)
         while len(self._recent) > self._remembered:
             self._recent.popitem(last=False)
         return found
@@ -140,7 +151,8 @@ class SearchedExerciseNames:
 
 class ExerciseSearchError(Exception):
     """The search could not be used. Its message is the failure reason (`no_match`,
-    `embedding_unavailable`, `unknown_sport`), safe to log: it holds no typed text."""
+    `embedding_unavailable`, `unknown_sport`, `no_exercise`), safe to log: it holds no typed
+    text."""
 
 
 def _reason(error: Exception) -> str:
@@ -151,18 +163,30 @@ def _reason(error: Exception) -> str:
 
 class KnowledgeExerciseSearch:
     """Implements `ExerciseSearchPort` over `search_knowledge`: the gym's catalogue chunks, each
-    exercise once at its best passage. The embedding call is the athlete's, as in any search."""
+    exercise once at its best passage. The embedding call is the athlete's, as in any search.
 
-    def __init__(self, knowledge: KnowledgeSearch) -> None:
+    `chunks` is how many fused passages to read before grouping them by exercise: every chunk of
+    both legs (twice `knowledge_search_depth`), since an exercise has an English and a Polish one
+    and a cut at the tool's 10 would leave five exercises or fewer."""
+
+    def __init__(self, knowledge: KnowledgeSearch, *, chunks: int) -> None:
         self._knowledge = knowledge
+        self._chunks = chunks
 
     async def similar(self, user_id: UUID, name: str) -> Sequence[UUID]:
         found = await self._knowledge.search(
             user_id,
             KnowledgeSearchQuery(
-                text=name, sport_id=GYM_SPORT_ID, limit=MAX_HITS, task=QueryTask.EXERCISE
+                text=name,
+                sport_id=GYM_SPORT_ID,
+                limit=self._chunks,
+                task=QueryTask.EXERCISE,
+                exercises_only=True,
             ),
         )
         if isinstance(found, KnowledgeSearchFailed):
             raise ExerciseSearchError(found.reason)
-        return list(dict.fromkeys(hit.exercise_id for hit in found.hits if hit.exercise_id))
+        exercises = list(dict.fromkeys(hit.exercise_id for hit in found.hits if hit.exercise_id))
+        if not exercises:
+            raise ExerciseSearchError("no_exercise")
+        return exercises

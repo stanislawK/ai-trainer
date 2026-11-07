@@ -62,7 +62,11 @@ from ai_trainer.adapters.user_status_changer import SqlAlchemyUserStatusChanger
 from ai_trainer.adapters.users_repository import SqlAlchemyUsersRepository
 from ai_trainer.application.admin_tokens import AdminTokens, TokenAuthenticator
 from ai_trainer.application.background_reads import BackgroundReads
-from ai_trainer.application.budgeted_gateways import BudgetedDecisionGateway, BudgetedLlmGateway
+from ai_trainer.application.budgeted_gateways import (
+    BudgetedDecisionGateway,
+    BudgetedLlmGateway,
+    BudgetedQueryEmbeddings,
+)
 from ai_trainer.application.catalogue_ingestion import CatalogueIngestion
 from ai_trainer.application.exercise_candidates import (
     KnowledgeExerciseSearch,
@@ -83,6 +87,7 @@ from ai_trainer.application.ports.clock import ClockPort
 from ai_trainer.application.ports.conversation import ConversationModelPort
 from ai_trainer.application.ports.decision_gateway import DecisionGatewayPort
 from ai_trainer.application.ports.draft_settling import DraftSettlerPort
+from ai_trainer.application.ports.embeddings import QueryEmbeddingPort
 from ai_trainer.application.ports.exercises import ExerciseNamesPort
 from ai_trainer.application.ports.llm_calls import LlmCallsRepositoryPort
 from ai_trainer.application.ports.llm_gateway import LlmGatewayPort
@@ -186,30 +191,22 @@ def build_draft_settlers(
     sports: SportRegistry,
     calls_repository: LlmCallsRepositoryPort,
     http_client: httpx2.AsyncClient,
+    clock: ClockPort,
+    budget: ModelCallBudget | None,
 ) -> Mapping[str, DraftSettlerPort]:
     """What each sport settles on its drafts: the gym's exercise names (ADR-0031, tickets #397
     and #399). "Keep my name" takes one of the card's `max_clarification_options`."""
-    exercises = SqlAlchemyExerciseRepository(session_factory)
-    names: ExerciseNamesPort = exercises
-    if settings.exercise_search_enabled:
-        # The catalogue's search as the shortlist's third input (ADR-0031, #429).
-        names = SearchedExerciseNames(
-            exercises,
-            KnowledgeExerciseSearch(
-                build_knowledge_search(
-                    settings,
-                    session_factory,
-                    sports,
-                    calls_repository=calls_repository,
-                    http_client=http_client,
-                )
-            ),
-            exercises,
-            timeout_seconds=settings.exercise_search_timeout_seconds,
-        )
     return {
         "gym": ResolveExercises(
-            names,
+            build_exercise_names(
+                settings,
+                session_factory,
+                sports,
+                calls_repository=calls_repository,
+                http_client=http_client,
+                clock=clock,
+                budget=budget,
+            ),
             JevExercisePicker(decisions, threshold=settings.exercise_pick_threshold),
             question=conversation.exercise_question,
             limits=ResolutionLimits(
@@ -221,6 +218,50 @@ def build_draft_settlers(
             ),
         )
     }
+
+
+def build_exercise_names(
+    settings: Settings,
+    session_factory: Callable[[], AsyncSession],
+    sports: SportRegistry,
+    *,
+    calls_repository: LlmCallsRepositoryPort,
+    http_client: httpx2.AsyncClient,
+    clock: ClockPort,
+    budget: ModelCallBudget | None,
+) -> ExerciseNamesPort:
+    """The names the gym resolves against: the catalogue and the athlete's own exercises, with
+    the catalogue's search as the shortlist's third input when `EXERCISE_SEARCH_ENABLED` is on
+    (ADR-0031, #429). The app and the smoke set's live cases build it here, so they can't drift.
+
+    The search's embedding call runs on the log path, outside any tool loop's slot, so the app
+    passes its `budget` and the call is charged like a text or decision call (ADR-0029); evals
+    pass none, as their gateways are not capped."""
+    exercises = SqlAlchemyExerciseRepository(session_factory)
+    if not settings.exercise_search_enabled:
+        return exercises
+    embeddings: QueryEmbeddingPort = build_query_embeddings(
+        settings, calls_repository=calls_repository, http_client=http_client
+    )
+    if budget is not None:
+        embeddings = BudgetedQueryEmbeddings(embeddings, budget)
+    return SearchedExerciseNames(
+        exercises,
+        KnowledgeExerciseSearch(
+            build_knowledge_search(
+                settings,
+                session_factory,
+                sports,
+                calls_repository=calls_repository,
+                http_client=http_client,
+                embeddings=embeddings,
+            ),
+            chunks=2 * settings.knowledge_search_depth,
+        ),
+        exercises,
+        timeout_seconds=settings.exercise_search_timeout_seconds,
+        clock=clock,
+    )
 
 
 def build_onboarding_reader(
@@ -257,6 +298,25 @@ def build_uploads_storage(settings: Settings) -> ObstoreObjectStorage | None:
     )
 
 
+def build_query_embeddings(
+    settings: Settings,
+    *,
+    calls_repository: LlmCallsRepositoryPort,
+    http_client: httpx2.AsyncClient,
+) -> OpenRouterEmbeddingGateway:
+    """The embedding gateway a search query goes through, at `KNOWLEDGE_QUERY_TIMEOUT_SECONDS`
+    (shorter than ingestion's)."""
+    return OpenRouterEmbeddingGateway(
+        api_key=settings.openrouter_api_key.get_secret_value(),
+        model=settings.embedding_model,
+        dimensions=settings.embedding_dim,
+        provider=settings.embedding_provider_preferences,
+        timeout_seconds=settings.knowledge_query_timeout_seconds,
+        calls_repository=calls_repository,
+        http_client=http_client,
+    )
+
+
 def build_knowledge_search(
     settings: Settings,
     session_factory: Callable[[], AsyncSession],
@@ -264,20 +324,17 @@ def build_knowledge_search(
     *,
     calls_repository: LlmCallsRepositoryPort,
     http_client: httpx2.AsyncClient,
+    embeddings: QueryEmbeddingPort | None = None,
 ) -> KnowledgeSearch:
-    """`search_knowledge`'s use case (ADR-0036, #424 amendment). Its query embedding has its
-    own, shorter timeout than ingestion's, and isn't charged to ADR-0029's budget separately: it
-    runs inside a specialist's tool loop, which already holds one slot. The caller owns
-    `http_client` and closes it (`query_http_client`)."""
+    """`search_knowledge`'s use case (ADR-0036, #424 amendment). Its query embedding isn't
+    charged to ADR-0029's budget separately by default: it runs inside a specialist's tool loop,
+    which already holds one slot. A caller outside a loop passes `embeddings` already wrapped in
+    the budget (`build_exercise_names`). The caller owns `http_client` and closes it
+    (`query_http_client`)."""
     return KnowledgeSearch(
-        embeddings=OpenRouterEmbeddingGateway(
-            api_key=settings.openrouter_api_key.get_secret_value(),
-            model=settings.embedding_model,
-            dimensions=settings.embedding_dim,
-            provider=settings.embedding_provider_preferences,
-            timeout_seconds=settings.knowledge_query_timeout_seconds,
-            calls_repository=calls_repository,
-            http_client=http_client,
+        embeddings=embeddings
+        or build_query_embeddings(
+            settings, calls_repository=calls_repository, http_client=http_client
         ),
         repository=SqlAlchemyKnowledgeSearch(session_factory),
         sports=sports,
@@ -575,6 +632,8 @@ def create_app(  # noqa: PLR0915 -- composition root: objects are built only her
             sports=app.state.sport_registry,
             calls_repository=llm_calls,
             http_client=search_http,
+            clock=clock,
+            budget=budget,
         ),
         band_orders={"gym": SqlAlchemyBandOrder(session_factory)},
     )

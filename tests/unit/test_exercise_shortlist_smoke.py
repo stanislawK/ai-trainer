@@ -350,13 +350,12 @@ def test_the_default_threshold_starts_conservative() -> None:
 # --- live recall cases (ticket #429) -----------------------------------------------------------
 
 
-def _live(name: str, listed: str | None = "Dumbbell Lateral Raise") -> dict[str, object]:
+def _live(
+    name: str, listed: str | None = "Dumbbell Lateral Raise", measure: str | None = None
+) -> dict[str, object]:
     expected: dict[str, object] = {} if listed is None else {"listed": listed}
-    return {
-        "name": name,
-        "inputs": {"prompt": name, "deps": {"live": True}},
-        "expected_output": expected,
-    }
+    deps: dict[str, object] = {"live": True} | ({} if measure is None else {"measure": measure})
+    return {"name": name, "inputs": {"prompt": name, "deps": deps}, "expected_output": expected}
 
 
 class _Shortlist:
@@ -366,9 +365,11 @@ class _Shortlist:
         self.found = found
         self.error = error
         self.asked: list[str] = []
+        self.measures: list[str] = []
 
-    async def __call__(self, name: str) -> list[ExerciseCandidate]:
+    async def __call__(self, name: str, measure: str) -> list[ExerciseCandidate]:
         self.asked.append(name)
+        self.measures.append(measure)
         if self.error is not None:
             raise self.error
         return [ExerciseCandidate(id=uuid4(), name=n) for n in self.found.get(name, [])]
@@ -439,7 +440,31 @@ async def test_a_live_case_that_also_lists_candidates_is_refused(tmp_path: Path)
     case = _live("one")
     case["inputs"] = {"prompt": "one", "deps": {"live": True, "candidates": [{"name": "A"}]}}
 
-    with pytest.raises(SmokeError, match="live case"):
+    with pytest.raises(SmokeError, match="lists `candidates`"):
+        await _run_live(_set(tmp_path, case), _Shortlist({}))
+
+
+async def test_a_live_case_asks_for_the_measure_the_entry_has_and_defaults_to_load_reps(
+    tmp_path: Path,
+) -> None:
+    root = _set(tmp_path, _live("one"), _live("two", measure="reps"))
+    shortlist = _Shortlist({})
+
+    await _run_live(root, shortlist)
+
+    assert shortlist.measures == ["load_reps", "reps"]
+
+
+async def test_a_live_case_with_an_unknown_measure_is_refused(tmp_path: Path) -> None:
+    with pytest.raises(SmokeError, match="measure"):
+        await _run_live(_set(tmp_path, _live("one", measure="furlongs")), _Shortlist({}))
+
+
+async def test_a_live_case_with_a_pick_is_refused_and_says_why(tmp_path: Path) -> None:
+    case = _live("one")
+    case["expected_output"] = {"listed": "Face Pull", "pick": "none"}
+
+    with pytest.raises(SmokeError, match="Jev isn't asked"):
         await _run_live(_set(tmp_path, case), _Shortlist({}))
 
 

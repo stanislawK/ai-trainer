@@ -4,15 +4,22 @@ search leaves today's shortlist, and a name history knows never reaches the sear
 
 import asyncio
 from collections.abc import Mapping, Sequence
+from datetime import timedelta
 from uuid import UUID, uuid4
 
 import pytest
 
-from ai_trainer.application.exercise_candidates import ExerciseSearchError, SearchedExerciseNames
+from ai_trainer.application.exercise_candidates import (
+    ANSWER_MEMORY,
+    FAILURE_MEMORY,
+    ExerciseSearchError,
+    SearchedExerciseNames,
+)
 from ai_trainer.application.exercise_resolution import ResolutionLimits, ResolveExercises
 from ai_trainer.application.ports.conversation import FixedReply
 from ai_trainer.domain.exercises import ExerciseCandidate, ExerciseLabel
 from ai_trainer.domain.sports.gym.payload import GymPayload
+from tests.ingestion_support import FrozenClock
 from tests.picker_support import ScriptedPicker
 
 _USER = uuid4()
@@ -86,15 +93,24 @@ class _Search:
 
 
 class _Reader:
-    """The user-scoped read of the fused IDs; an unknown ID is one the athlete can't see."""
+    """The user-scoped read of the fused IDs; an unknown ID is one the athlete can't see. As the
+    port promises, the entry's own measure comes first and the given order otherwise."""
 
-    def __init__(self, visible: Mapping[UUID, ExerciseCandidate] = _CATALOGUE) -> None:
+    def __init__(
+        self,
+        visible: Mapping[UUID, ExerciseCandidate] = _CATALOGUE,
+        measures: Mapping[UUID, str] | None = None,
+    ) -> None:
         self.visible = visible
+        self.measures = measures or {}
+        self.asked: list[tuple[list[UUID], str]] = []
 
     async def candidates(
-        self, user_id: UUID, exercise_ids: Sequence[UUID]
+        self, user_id: UUID, exercise_ids: Sequence[UUID], *, measure: str
     ) -> Sequence[ExerciseCandidate]:
-        return [self.visible[i] for i in exercise_ids if i in self.visible]
+        self.asked.append((list(exercise_ids), measure))
+        found = [self.visible[i] for i in exercise_ids if i in self.visible]
+        return sorted(found, key=lambda c: self.measures.get(c.id, "load_reps") != measure)
 
 
 def _names(
@@ -104,12 +120,16 @@ def _names(
     inner: _Names | None = None,
     timeout: float = 1.0,
     reader: _Reader | None = None,
+    clock: FrozenClock | None = None,
+    remembered: int = 256,
 ) -> SearchedExerciseNames:
     return SearchedExerciseNames(
         inner or _Names(trigram),
         search,
         reader or _Reader(),
         timeout_seconds=timeout,
+        clock=clock or FrozenClock(),
+        remembered=remembered,
     )
 
 
@@ -241,18 +261,71 @@ async def test_a_failed_search_is_remembered_so_the_card_does_not_wait_it_out_ag
     assert shown_on_the_card == [_STABILITY]
 
 
-async def test_a_failure_covers_the_card_once_and_is_then_forgotten() -> None:
-    # A transient failure must not keep a name off the search for good.
+async def test_a_failure_is_forgotten_after_the_turn_so_it_cannot_stick_to_a_name() -> None:
+    clock = FrozenClock()
     search = _Search([_LATERAL], fail=True)
-    names = _names([_STABILITY], search)
+    names = _names([_STABILITY], search, clock=clock)
 
     await _ask(names, _USER, _TYPED)  # Jev's shortlist: fails
-    await _ask(names, _USER, _TYPED)  # the card's: served from memory
+    clock.advance(FAILURE_MEMORY - timedelta(seconds=1))
+    await _ask(names, _USER, _TYPED)  # the card's, in the same turn: served from memory
+    clock.advance(timedelta(seconds=2))
     search.fail = False
-    later = await _shortlist(names)  # a later log of the name: searched again
+    later = await _shortlist(names)  # a later log of the name, even with no card: searched again
 
     assert len(search.asked) == 2
     assert _LATERAL in later
+
+
+async def test_an_answer_is_remembered_for_a_while_and_then_searched_afresh() -> None:
+    # After a catalogue re-ingest an old answer must not be served for days.
+    clock = FrozenClock()
+    search = _Search([_LATERAL])
+    names = _names([], search, clock=clock)
+
+    await _ask(names, _USER, _TYPED)
+    clock.advance(ANSWER_MEMORY - timedelta(seconds=1))
+    await _ask(names, _USER, _TYPED)
+    assert len(search.asked) == 1
+    clock.advance(timedelta(seconds=2))
+    await _ask(names, _USER, _TYPED)
+
+    assert len(search.asked) == 2
+
+
+async def test_an_exercise_of_another_measure_does_not_take_a_slot_from_the_entrys_own() -> None:
+    plank = _exercise("Plank")
+    catalogue = {**_CATALOGUE, plank.id: plank}
+    reader = _Reader(catalogue, measures={plank.id: "time"})
+    # The search ranks the timed plank first; the entry is sets and reps (load_reps).
+    names = _names(
+        [_STABILITY, _FRONT, _REAR],
+        _Search([plank, _LATERAL]),
+        reader=reader,
+    )
+
+    shortlist = await _shortlist(names, limit=4)
+
+    # Fused: crunch, plank (tied with it), front raise, lateral raise (tied), rear raise. The
+    # plank would have been second; behind the entry's own measure it falls out of the four.
+    assert [c.name for c in shortlist] == [
+        "Stability Ball Crunch",
+        "Dumbbell Front Raise",
+        "Dumbbell Lateral Raise",
+        "Dumbbell Rear Delt Raise",
+    ]
+    assert plank not in shortlist
+
+
+async def test_every_fused_exercise_is_read_with_the_entrys_measure_before_the_cut() -> None:
+    reader = _Reader()
+    names = _names([_STABILITY, _FRONT], _Search([_LATERAL, _REAR, _PRESS]), reader=reader)
+
+    await _shortlist(names, limit=2)
+
+    [(asked, measure)] = reader.asked
+    assert measure == "load_reps"
+    assert set(asked) == {_STABILITY.id, _FRONT.id, _LATERAL.id, _REAR.id, _PRESS.id}
 
 
 async def test_the_reason_a_search_was_unavailable_is_logged_without_the_name(
@@ -283,7 +356,7 @@ async def test_a_timed_out_search_is_not_waited_for_twice() -> None:
 async def test_a_failing_read_of_the_fused_exercises_falls_back_to_the_trigram_shortlist() -> None:
     class _Broken(_Reader):
         async def candidates(
-            self, user_id: UUID, exercise_ids: Sequence[UUID]
+            self, user_id: UUID, exercise_ids: Sequence[UUID], *, measure: str
         ) -> Sequence[ExerciseCandidate]:
             raise RuntimeError("db is down")
 
@@ -294,7 +367,7 @@ async def test_a_failing_read_of_the_fused_exercises_falls_back_to_the_trigram_s
 
 async def test_only_the_most_recent_searches_are_remembered() -> None:
     search = _Search([_LATERAL])
-    names = SearchedExerciseNames(_Names([]), search, _Reader(), timeout_seconds=1.0, remembered=2)
+    names = _names([], search, remembered=2)
 
     for typed in ("one", "two", "three", "one"):
         await _ask(names, _USER, typed)
@@ -304,7 +377,7 @@ async def test_only_the_most_recent_searches_are_remembered() -> None:
 
 async def test_a_recently_used_search_stays_remembered() -> None:
     search = _Search([_LATERAL])
-    names = SearchedExerciseNames(_Names([]), search, _Reader(), timeout_seconds=1.0, remembered=2)
+    names = _names([], search, remembered=2)
 
     for typed in ("one", "two", "one", "three", "one"):
         await _ask(names, _USER, typed)

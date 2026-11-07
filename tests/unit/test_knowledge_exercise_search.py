@@ -79,7 +79,7 @@ class _Repository:
 
 
 def _search(
-    repository: _Repository, embeddings: _Embeddings | None = None
+    repository: _Repository, embeddings: _Embeddings | None = None, *, chunks: int = 40
 ) -> KnowledgeExerciseSearch:
     return KnowledgeExerciseSearch(
         KnowledgeSearch(
@@ -88,8 +88,33 @@ def _search(
             sports=default_sport_registry(),
             embedding_model=_MODEL,
             depth=20,
-        )
+        ),
+        chunks=chunks,
     )
+
+
+async def test_it_reads_the_whole_fused_pool_so_grouping_keeps_every_exercise() -> None:
+    # Twelve exercises, each with an English and a Polish chunk: 24 chunks, 12 exercises. A cut of
+    # 10 chunks before grouping would have left 5 (the live path measured 20 deep, ADR-0031 #429).
+    exercises = [uuid4() for _ in range(12)]
+    hits = [
+        _hit(e, language) for e in exercises for language in (SourceLanguage.EN, SourceLanguage.PL)
+    ]
+
+    assert await _search(_Repository(hits)).similar(_ATHLETE, "x") == exercises
+
+
+async def test_it_asks_for_catalogue_chunks_only() -> None:
+    repository = _Repository([_hit(uuid4())])
+
+    await _search(repository).similar(_ATHLETE, "x")
+
+    assert [f.exercises_only for f in repository.filters] == [True]
+
+
+async def test_hits_that_name_no_exercise_at_all_raise_so_the_fallback_is_logged() -> None:
+    with pytest.raises(ExerciseSearchError, match="no_exercise"):
+        await _search(_Repository([_hit(None)])).similar(_ATHLETE, "x")
 
 
 async def test_each_exercise_comes_once_at_its_best_passage() -> None:
