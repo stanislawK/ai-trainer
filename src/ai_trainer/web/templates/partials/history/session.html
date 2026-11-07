@@ -1,0 +1,45 @@
+{#- One saved session: a `mat-content` sheet from the bottom over a scrim on a phone, a 460 px panel beside the list from `lg` (History v4 mock, ticket #515). The scrim and Close go back to the list. No Edit, Delete or progress yet (#516 to #518). -#}
+{% from "components/icon.html" import icon %}
+{% from "components/gym_copy.html" import done, exercise_name %}
+<a
+  href="/history"
+  hx-get="/history"
+  hx-target="#history-content"
+  hx-swap="outerHTML"
+  hx-push-url="true"
+  class="fixed inset-0 z-30 bg-base-300/60 lg:hidden"
+  aria-label="Close session"
+  tabindex="-1"
+></a>
+<section
+  id="history-session"
+  class="mat-content fixed inset-x-0 bottom-0 z-40 max-h-[85dvh] overflow-y-auto rounded-t-[32px] px-4 pt-2 pb-8 flex flex-col gap-3 lg:sticky lg:top-8 lg:inset-x-auto lg:bottom-auto lg:z-auto lg:w-[460px] lg:shrink-0 lg:max-h-none lg:rounded-box lg:p-5"
+  aria-label="Saved session"
+>
+  <span class="self-center w-9 h-1.5 rounded-full bg-base-content/25 lg:hidden" aria-hidden="true"></span>
+  <div class="flex items-start justify-between gap-3">
+    <div class="flex flex-col min-w-0">
+      <h2 class="text-[24px]/[30px] font-semibold tracking-tight">{{ open.day.strftime("%a") }} {{ open.day.day }} {{ open.day.strftime("%b") }}</h2>
+      <span class="text-[14px] lbl-2 tabular-nums">{{ open.time.strftime("%H:%M") }} · Gym · {{ open.exercises | length }} exercise{{ "" if open.exercises | length == 1 else "s" }}</span>
+    </div>
+    <a
+      href="/history"
+      hx-get="/history"
+      hx-target="#history-content"
+      hx-swap="outerHTML"
+      hx-push-url="true"
+      class="lg lg-ghost lg-icon shrink-0"
+      aria-label="Close"
+    >{{ icon("x", "size-5") }}</a>
+  </div>
+  <ul class="flex flex-col" aria-label="Exercises">
+    {% for exercise in open.exercises %}
+    {%- set label = open.labels.get(exercise.name_as_typed) %}
+    {%- set line = done(exercise) | trim %}
+    <li class="border-t border-base-content/10 first:border-t-0 flex flex-col py-2.5 min-h-11">
+      <span class="text-[15px] font-medium">{{ label.name if label else exercise_name(exercise.name_as_typed) }}</span>
+      {% if line %}<span class="text-[14px] tabular-nums lbl-2">{{ line }}</span>{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+</section>

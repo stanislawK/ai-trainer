@@ -1,0 +1,29 @@
+{% from "components/gym_copy.html" import done, exercise_name %}
+<div class="gap-2 {% if open %}flex flex-col{% else %}flex flex-col lg:grid lg:grid-cols-2 lg:items-start{% endif %}">
+  {% for session in sessions %}
+  {%- set selected = open and open.id == session.id %}
+  <a
+    href="/history/{{ session.id }}"
+    hx-get="/history/{{ session.id }}"
+    hx-target="#history-content"
+    hx-swap="outerHTML"
+    hx-push-url="true"
+    class="mat-content rounded-box p-3 flex gap-3 min-h-11 self-start w-full{% if selected %} ring-2 ring-primary/60{% endif %}"
+    aria-current="{{ 'true' if selected else 'false' }}"
+  >
+    <span class="flex flex-col items-center w-11 shrink-0">
+      <span class="text-[11px] font-semibold uppercase lbl-2">{{ session.day.strftime("%a") }}</span>
+      <span class="text-[24px]/[28px] font-semibold tabular-nums">{{ session.day.day }}</span>
+      <span class="text-[11px] lbl-2">{{ session.day.strftime("%b") }}</span>
+    </span>
+    <span class="flex flex-col flex-1 min-w-0 gap-1 border-l border-base-content/10 pl-3">
+      <span class="text-[12px] lbl-2 tabular-nums">{{ session.time.strftime("%H:%M") }} · {{ session.exercises | length }} exercise{{ "" if session.exercises | length == 1 else "s" }}</span>
+      {% for exercise in session.exercises %}
+      {%- set label = session.labels.get(exercise.name_as_typed) %}
+      {%- set line = done(exercise) | trim %}
+      <span class="text-[13px] leading-[18px]"><span class="font-medium">{{ label.name if label else exercise_name(exercise.name_as_typed) }}</span>{% if line %}<span class="lbl-2"> · </span><span class="lbl-2 tabular-nums">{{ line }}</span>{% endif %}</span>
+      {% endfor %}
+    </span>
+  </a>
+  {% endfor %}
+</div>

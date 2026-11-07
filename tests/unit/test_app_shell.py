@@ -235,7 +235,7 @@ def test_sidebar_rows_are_lg_nav_with_the_active_one_tinted() -> None:
     sidebar = _nav_block(html, 'aria-label="Primary"', "</ul>")
 
     links = _links(sidebar)
-    assert len(links) == 3
+    assert len(links) == 4
     for link in links:
         assert {"lg", "lg-nav"} <= _classes(link)
         assert 'class="size-5"' in link
@@ -273,7 +273,7 @@ def test_chat_menu_is_a_thick_surface_of_lg_nav_rows() -> None:
 
     assert {"lgs", "lgs-thick"} <= _classes(menu_tag)
     links = _links(menu)
-    assert len(links) == 3
+    assert len(links) == 4
     for link in links:
         assert {"lg", "lg-nav"} <= _classes(link)
         assert 'class="size-5"' in link
@@ -302,7 +302,7 @@ def test_dock_is_an_lgs_capsule_with_the_active_item_a_tinted_tab() -> None:
     assert {"lgs", "h-16", "rounded-full"} <= _classes(dock_tag)
     assert "lg:hidden" in _classes(dock_tag)
     links = _links(dock)
-    assert len(links) == 3
+    assert len(links) == 4
     for link in links:
         assert 'class="size-5"' in link
     (active,) = [link for link in links if 'aria-current="page"' in link]
@@ -318,7 +318,7 @@ def test_admin_is_an_extra_dock_item_for_admins() -> None:
     admin rights, so a member's chat page (no dock) shows no Admin link anywhere."""
     admin = _nav_block(_client(admin_emails=[USER_EMAIL]).get("/admin").text, "data-dock", "</nav>")
 
-    assert len(_links(admin)) == 3
+    assert len(_links(admin)) == 4
     assert 'href="/admin"' in admin
 
 
@@ -356,3 +356,12 @@ def test_chat_section_stays_current_on_a_conversation_url() -> None:
     (active,) = [link for link in sidebar.split("<a")[1:] if 'aria-current="page"' in link]
     assert 'href="/"' in active
     assert "lg-tinted" in _classes(active)
+
+
+def test_history_in_sidebar_and_dock_between_chat_and_settings() -> None:
+    html = _client(admin_emails=[USER_EMAIL]).get("/admin").text
+
+    assert html.count('href="/history"') == 2
+    sidebar, dock = html.split("data-dock")
+    for part in (sidebar, dock):
+        assert part.index('href="/history"') < part.index('href="/settings"')

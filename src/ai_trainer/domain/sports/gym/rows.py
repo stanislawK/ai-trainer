@@ -10,7 +10,14 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict
 
 from ai_trainer.domain.sports.gym.normalize import to_kg
-from ai_trainer.domain.sports.gym.payload import Exercise, GymPayload, GymSet, LoadUnit, Measure
+from ai_trainer.domain.sports.gym.payload import (
+    Exercise,
+    GymPayload,
+    GymSet,
+    Load,
+    LoadUnit,
+    Measure,
+)
 
 # The first number in a load as typed: "45kg", "22,5 kg", "225 lb".
 _NUMBER = re.compile(r"\d+(?:[.,]\d+)?")
@@ -88,6 +95,17 @@ def unit_of(load_original: str, load_kg: Decimal) -> LoadUnit | None:
     if to_kg(value, "lb") == kg:
         return "lb"
     return None
+
+
+def load_of(original: str | None, load_kg: Decimal) -> Load:
+    """A stored load read back as a `Load` for display (ticket #515): the text as typed, its kg,
+    and the unit and number read from that text. Not validated: the row was valid when written,
+    and a tiny load can sit at 0 kg."""
+    text = original if original is not None else f"{load_kg:g} kg"
+    unit = unit_of(text, load_kg) or "kg"
+    number = _NUMBER.search(text)
+    value = float(number.group().replace(",", ".")) if number else float(load_kg)
+    return Load.model_construct(original=text, value=value, unit=unit, kg=float(load_kg))
 
 
 class RecentExercise(BaseModel):

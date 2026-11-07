@@ -8,7 +8,7 @@ from typing import Any
 import pytest
 
 from ai_trainer.domain.sports.gym.payload import GymPayload
-from ai_trainer.domain.sports.gym.rows import GymEntryRow, GymSetRow, entries_of, unit_of
+from ai_trainer.domain.sports.gym.rows import GymEntryRow, GymSetRow, entries_of, load_of, unit_of
 
 
 def _payload(*activities: dict[str, Any]) -> GymPayload:
@@ -149,3 +149,12 @@ def test_a_v2_entry_carries_its_side_implements_band_and_distance() -> None:
     assert (entry.per_side, entry.implements) == (True, 2)
     assert entry.sets[0].distance_m == Decimal("40.5")
     assert entry.sets[0].band_label == "red"
+
+
+def test_load_of_reads_the_unit_and_number_back_from_the_typed_text() -> None:
+    pounds = load_of("225 lb", Decimal("102.06"))
+    bare = load_of(None, Decimal("0.5"))
+
+    assert (pounds.unit, pounds.value, pounds.original) == ("lb", 225.0, "225 lb")
+    assert (bare.unit, bare.value, bare.original) == ("kg", 0.5, "0.5 kg")
+    assert load_of("heavy", Decimal("20")).value == 20.0

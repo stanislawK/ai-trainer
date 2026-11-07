@@ -44,6 +44,7 @@ from ai_trainer.adapters.feedback_repository import SqlAlchemyFeedbackEventsRepo
 from ai_trainer.adapters.google_oauth import AuthlibGoogleOAuthClient
 from ai_trainer.adapters.gym_activity_store import GymActivityStore
 from ai_trainer.adapters.gym_band_order import SqlAlchemyBandOrder
+from ai_trainer.adapters.gym_session_reader import SqlAlchemyGymSessionReader
 from ai_trainer.adapters.health import PsycopgDatabaseHealth
 from ai_trainer.adapters.knowledge_chunk_repository import SqlAlchemyKnowledgeIngestionRepository
 from ai_trainer.adapters.knowledge_repository import SqlAlchemyKnowledgeSourcesRepository
@@ -94,6 +95,7 @@ from ai_trainer.application.ports.llm_gateway import LlmGatewayPort
 from ai_trainer.application.ports.metrics import NO_METRICS, MetricsPort
 from ai_trainer.application.ports.object_storage import ObjectStoragePort
 from ai_trainer.application.reply import ReplyServices
+from ai_trainer.application.session_history import GymSessionHistory
 from ai_trainer.application.training_history import ExerciseTrainingHistory, TrainingHistory
 from ai_trainer.domain.pmc import PMC_JATS_MAX_BYTES
 from ai_trainer.domain.sports.registry import SportRegistry, default_sport_registry
@@ -122,6 +124,7 @@ from ai_trainer.web.chat import build_chat_router
 from ai_trainer.web.csrf import CsrfMiddleware
 from ai_trainer.web.errors import register_error_handlers
 from ai_trainer.web.health import build_health_router
+from ai_trainer.web.history import build_history_router
 from ai_trainer.web.rate_limit import RateLimitMiddleware
 from ai_trainer.web.request_log import log_every_request
 from ai_trainer.web.settings import build_settings_router
@@ -721,6 +724,11 @@ def create_app(  # noqa: PLR0915 -- composition root: objects are built only her
                 max_upload_bytes=settings.knowledge_max_upload_mb * 1024 * 1024,
                 sports=[sport.id for sport in sport_registry.all()],
             ),
+        )
+    )
+    app.include_router(
+        build_history_router(
+            templates, history=GymSessionHistory(SqlAlchemyGymSessionReader(session_factory))
         )
     )
     app.include_router(build_settings_router(templates, users=users))
