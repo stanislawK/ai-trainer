@@ -9,6 +9,11 @@ disable-model-invocation: true
 
 Implements the delivery loop of ADR-0001 as amended by ADR-0035. With `--review` in the arguments, skip to **Review mode** below.
 
+**Phases (ADR-0035, amended 2026-11-07).** **A** is steps 1–7, in this tab. **B** is steps 8–9, run as one subagent. **C** is steps 10–13, back in this tab. Every request re-reads the whole session, so B runs in a fresh context and its file reads never reach this tab.
+- **`.acceptance/<n>/state.md`** is the ticket's memory across `/clear`. Write it with the Write tool. Append a line per finished phase, `phase=<A|B|C> done <UTC time from date -u +%Y-%m-%dT%H:%M:%SZ>`, and a `decision:` line for every owner answer (plan gate, choice card, "don't touch X") and every gotcha the next phase needs.
+- **Resume.** After step 2, if `state.md` exists, read it with `plan.md` and go straight to the phase after the last `done` line. Never re-plan a ticket whose plan passed.
+- The owner can `/clear` at any point (the status line warns at 200k) and run `/apply-ticket <n>` again.
+
 1. **Fetch.** `gh issue view <n> --json number,title,body,labels,state`. Stop if it is closed, if any `Blocked by #N` issue is still open (`gh issue view N --json state`), or if it names a non-issue blocker that still holds (an ADR still Proposed).
 2. **Worktree.** The ticket runs in `../ai-trainer-<n>` on `<area>/<n>-<slug>`, with its own database `ai_trainer_wt<n>`. One Claude tab per ticket, all in the main VS Code window (ADR-0035, #366).
    - **Already in that worktree** (`git branch --show-current` is the ticket's branch): continue.
@@ -19,10 +24,15 @@ Implements the delivery loop of ADR-0001 as amended by ADR-0035. With `--review`
         - if `make worktree` reports Postgres unreachable, run `docker compose up -d --wait db` and retry once;
         - run `make worktree issue=<n>`;
         - enter the printed path with `EnterWorktree`.
-     4. If the tab's model doesn't match the ticket's `model:` label, say so in one line and carry on. A running tab can't switch its own model.
+     4. If the ticket is `model:opus` or `risk:high` and the tab isn't on Opus, stop and ask the owner to run `/model opus`, then `/apply-ticket <n>` again. New tabs start on Sonnet, the default for every other ticket. For any other mismatch, say so in one line and carry on. A running tab can't switch its own model.
    - **Anywhere else:** stop and say where you are.
    - **Inside the worktree, keep shell commands plain and separate.** The session refuses compound commands it can't verify stay in the worktree (a heredoc chained with `gh` was refused at #366). Write files with the Write tool, then run the command on its own.
-3. **Ground.** Read the current PRD and the requirement IDs the ticket cites, every referenced ADR and research document, the matching `.claude/rules/`, and the area branch below. If the ticket contradicts an Accepted ADR or the Approved PRD, or needs an undocumented decision, put a doc proposal into the plan — never code around it.
+3. **Ground.** Read the current PRD's requirements the ticket cites, every referenced ADR and research document, the matching `.claude/rules/`, and the area branch below. Read by section, and read once. Everything you read is re-read on every later request of this session.
+   - **PRD:** `grep -n '<ID>' docs/prd/<current>.md` for each cited requirement ID, then read only those ranges, not the whole PRD.
+   - **ADR:** `grep -n '^## ' docs/adr/<file>` and read *Decision* and *Consequences* by line range. Read the whole ADR only when the ticket amends it.
+   - Batch independent reads and read-only commands in one turn. Copy the binding lines into the plan with their file and line range, and quote from there instead of reading a document again. Use `Explore`, not `general-purpose`, for a broad search.
+
+   If the ticket contradicts an Accepted ADR or the Approved PRD, or needs an undocumented decision, put a doc proposal into the plan — never code around it.
 4. **Plan.** Write `.acceptance/<n>/plan.md`:
    - effort S / M / L;
    - the AC → test mapping, one named test per AC;
@@ -43,9 +53,14 @@ Implements the delivery loop of ADR-0001 as amended by ADR-0035. With `--review`
    - the size is L.
 
    Use `AskUserQuestion`: Approve / Split / Request changes / Cancel, with the critic's verdict alongside. No product code before Approve. On L or Split, stop and ask the user to run `/create-tickets` for the pieces.
-7. **Start.** `gh issue edit <n> --add-label status:in-progress --remove-label status:todo`.
-8. **Tests first.** One failing test per AC (`/run-tdd`).
-9. **Implement against the docs only.** `/run-tdd` → `/coverage` → ruff → mypy. Regenerate the OpenAPI snapshot if HTTP changed. Run `/tune-prompt` if a prompt, model ID or the router changed. Commits on the ticket branch are fine from here on; never on `main`.
+7. **Start.** `gh issue edit <n> --add-label status:in-progress --remove-label status:todo`. Write `phase=A done` and every `decision:` line to `state.md`. This ends phase A.
+8. **Phase B: build, one subagent.** Spawn one `general-purpose` Agent, with `description: "Phase B build #<n>"` and `model` set to the ticket's `model:` label (`sonnet` or `opus`). Wait for it; never run a second one alongside (ADR-0035 invariant 7). Its prompt gives only paths and rules, not file contents:
+   - the worktree's absolute path and branch, to be checked with `git branch --show-current` before anything else;
+   - `.acceptance/<n>/plan.md` and `state.md`, plus the issue number for `gh issue view <n> --json body`;
+   - "Read `.claude/skills/run-tdd/SKILL.md` and `.claude/skills/coverage/SKILL.md` and follow them: one failing test per AC first, then implement against the docs only, then `/coverage`, ruff and mypy. Regenerate the OpenAPI snapshot if HTTP changed. For a designed screen, also follow `.claude/skills/implement-design/SKILL.md` steps 1–3; the parity check stays in phase C. Read the plan's cited ADR and PRD lines by range, never whole documents. Commit on the ticket branch, never on `main`; never push";
+   - "If the plan contradicts a doc, needs a decision no doc records, or needs a prompt, model or router change (`/tune-prompt`), stop and return the question with the options. Don't guess";
+   - "Finish by appending `phase=B done <UTC time>` to `state.md`, then return at most 300 words: the commits, the test that covers each AC, the coverage, ruff and mypy results, and anything left open."
+9. **Back in the tab.** Read the summary, not the diff. An open question from B becomes an `AskUserQuestion` card or an `/update-docs` proposal. Record the answer as a `decision:` line, then spawn B again with the same prompt plus the answer; it continues from its commits. `/tune-prompt` runs here in the tab. Phase C starts at step 10.
 10. **Verify** every AC with evidence: test names, command output, a browser check for web tickets, the smoke run for llm tickets.
     - A visual/design check (`/implement-design`'s parity screenshots, or any other Playwright screenshot comparison) is never self-certified. Its screenshots are saved under `.acceptance/<n>/` and a human confirms the match at the acceptance gate (ADR-0019).
     - Then commit, write the diff with `git diff origin/main...HEAD > .acceptance/<n>/diff.patch` and the AC list to `.acceptance/<n>/acs.md`, and spawn **one** `ac-skeptic` agent with both paths. It tries to disprove each "this AC is done" claim from the diff and the AC text alone.
@@ -73,7 +88,7 @@ Implements the delivery loop of ADR-0001 as amended by ADR-0035. With `--review`
     - **Ask.** Make one `AskUserQuestion` call with:
       - the click-through question: Pass / Fail / Blocked;
       - when screenshots exist, "Screenshots match the mock": Approve / Request changes.
-    - **Loop.** On Fail, Blocked or Request changes, ask what went wrong if the answer doesn't say. Fix it (step 9), re-verify (step 10) and run this gate again with an updated script. Record every round.
+    - **Loop.** On Fail, Blocked or Request changes, ask what went wrong if the answer doesn't say. Fix it in the tab when it's a few lines. For anything larger, spawn phase B again with the failure as its task (step 8). Then re-verify (step 10) and run this gate again with an updated script. Record every round.
     - Keep `.acceptance/<n>/` after the gate, and never commit it.
 
     **Non-UI tickets** skip this gate. They instead write an **Acceptance** section for the PR: each command a human can run, with its captured output.
@@ -111,6 +126,7 @@ Implements the delivery loop of ADR-0001 as amended by ADR-0035. With `--review`
          - the line to paste: open a new Claude tab → pick <model> → `/apply-ticket <n>`.
 
       When nothing is ready, say so, list what blocks each ticket, and name what the human can do (accept an ADR, merge a PR). Never start one.
+    - Append `phase=C done` to `state.md`.
     - Stop. Never merge the PR yourself, and never commit to, push to or merge into `main`.
 
 ## Cleanup (the owner replies "merged")
@@ -144,7 +160,7 @@ Run in a fresh Claude tab after the owner left review comments on the PR. Enter 
 ## Area branches
 
 - **backend** — layering (ADR-0003), user scoping (ADR-0004), migrations; use `/add-endpoint` for HTTP routes.
-- **web** — htmx 4 + daisyUI (ADR-0012, ADR-0019); build designed screens from their Claude Design mock with `/implement-design`, whose Playwright parity screenshots (390×844 and 1440×900, dark and light) are saved under `.acceptance/<n>/parity/` and confirmed by a human at the acceptance gate, not by the agent's own read of them. Verify other behavior ad hoc with the Playwright MCP tools against the running app; add a pytest-playwright spec under `tests/e2e/` only for a flow critical enough to guard against regression forever, not by default (ADR-0013).
+- **web** — htmx 4 + daisyUI (ADR-0012, ADR-0019); build designed screens from their Claude Design mock with `/implement-design`, whose Playwright parity screenshots (390×844 and 1440×900, dark and light) are saved under `.acceptance/<n>/parity/` and confirmed by a human at the acceptance gate, not by the agent's own read of them. Don't `Read` those PNGs into context. Check with the computed-style probes, and look only at a downscaled pair the probes can't explain (`/implement-design` step 5). Verify other behavior ad hoc with the Playwright MCP tools against the running app, preferring `browser_snapshot` (text) to screenshots; add a pytest-playwright spec under `tests/e2e/` only for a flow critical enough to guard against regression forever, not by default (ADR-0013).
 - **llm** — templates and evals (ADR-0008, ADR-0034); `TestModel` in tests; the smoke run is evidence.
 - **knowledge** — ADR-0011; ingestion details wait for the M3 ADR.
 - **e2e** — committed specs against the running compose stack; external services mocked at the API boundary; signed-in pages through the seeded session from `scripts/dev_session.py`; behavior, not pixels.

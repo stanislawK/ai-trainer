@@ -59,6 +59,13 @@ The owner works in the Claude Code VS Code extension. A tab can move its session
    - a doc conflict;
    - any migration contract step (ADR-0024).
 
+**Phases (amended 2026-11-07, see Consequences).** `/apply-ticket` runs a ticket in three phases. `.acceptance/<n>/state.md` records each finished phase, plus every answer the owner gave and every decision made in chat, so a `/clear` or a closed tab loses nothing and `/apply-ticket <n>` resumes from the next phase.
+- **A, plan:** fetch, worktree, ground, plan, critic and plan gate, in the ticket's tab. Grounding reads by section: the PRD requirements the ticket cites, and the cited ADRs' Decision and Consequences. A whole ADR is read only when the ticket amends it.
+- **B, build:** tests first, implementation, coverage, lint, type check, commit. It runs as one subagent on the ticket's `model:` label while the tab waits, starting from `plan.md` and `state.md` alone. When it needs a decision, it returns the question to the tab instead of guessing.
+- **C, verify and PR:** evidence, skeptic, the acceptance gate, `/code-review` and the draft PR, back in the tab.
+
+New tabs start on Sonnet, and a `model:opus` ticket stops until its tab runs on Opus. Agents don't read parity screenshots into context. They check with computed-style probes, and look only at a downscaled pair the probes can't explain. The human still confirms parity (ADR-0019).
+
 **Acceptance step.**
 - **Tickets that change what a person sees** (templates, static files, a rendered route, `/implement-design`) keep ADR-0001's acceptance gate unchanged, including ADR-0019's parity screenshots.
 - **Every other ticket** skips the gate. The PR's Acceptance section gives each command with its captured output.
@@ -87,7 +94,7 @@ After the first push:
 4. A ticket that changes what a person sees never reaches its PR without the human acceptance gate (ADR-0001 invariant 10, ADR-0019).
 5. At most one ticket that adds a migration is in flight at a time. ADR and PRD numbers are taken only on `docs/*` branches.
 6. A worktree's tests and its `make start` use that worktree's own database, never another checkout's.
-7. One ticket is never split across concurrent agents; parallelism is between tickets.
+7. One ticket is never split across concurrent agents; parallelism is between tickets. Its build phase may run as one subagent while the ticket's tab waits (amended 2026-11-07).
 
 ## Alternatives considered
 
@@ -124,3 +131,26 @@ After the first push:
 - **Gotcha.** A session inside a worktree refuses compound shell commands it can't prove stay inside it, so `apply-ticket` runs plain commands and writes files with the Write tool.
 
 **Measuring.** After step 5, compare tickets with the table above, using the same transcript sums plus time from `status:in-progress` to the PR opening.
+
+**Amended 2026-11-07 at the owner's direction: phased tickets, to cut agent usage.**
+- **Why.** The owner's Claude usage limit ran out before a week's tickets were done. The transcripts of 2026-10-31 to 2026-11-07 (69 ticket and main tabs, 137 subagent runs, summed with `~/.claude/scripts/claude_usage.py`) show the cost is session length times context size:
+  - a ticket tab ran 150–356 requests, and its context grew from 56k to 400–600k tokens, because the 1M window never compacted;
+  - cache re-reads were about 95% of tokens, and still about 70% when weighted at API prices (cache read 0.1× input, output 5×). How the subscription limit weights them isn't published;
+  - the worst tabs (#423, #429, #462) used 86–102M tokens each;
+  - context grew from 187 parity PNGs read into it, from whole-ADR re-reads (ADR-0036 was read 7 times in one tab), and from long test output;
+  - the user-level default model was Opus, so `model:sonnet` tickets often ran on Opus, and so did `/code-review`'s reviewers.
+- **What changed.** The **Phases** paragraph and invariant 7 above.
+  - `.claude/settings.json` compacts at 250k (`CLAUDE_CODE_AUTO_COMPACT_WINDOW`) and gives subagents without a model of their own Sonnet (`CLAUDE_CODE_SUBAGENT_MODEL`). An explicit `model` and an agent's frontmatter still win, so the risk:high critic keeps Opus.
+  - `run-tdd` and `coverage` print short output and never pipe it through `tail`, which would hide the exit code.
+  - `create-tickets` splits a ticket with more than 5 AC or more than 5 modules on its Touches line, since a long session costs more per request.
+- **Every gate stays.** These are unchanged: the plan critic, the human plan gate, tests first with 100% coverage on touched modules, the skeptic, `/code-review medium`, the acceptance gate with parity, and the draft PR.
+- **Claude Code facts this rests on**, read 2026-11-07:
+  - [env vars](https://code.claude.com/docs/en/env-vars.md): `CLAUDE_CODE_AUTO_COMPACT_WINDOW` (100000–1000000 tokens), `CLAUDE_CODE_SUBAGENT_MODEL`;
+  - [subagents](https://code.claude.com/docs/en/sub-agents.md#choose-a-model): model resolution order, Agent `model` parameter, then frontmatter, then the variable, then the main model;
+  - [settings](https://code.claude.com/docs/en/settings.md): `model` is the initial choice for a new session.
+- **Flagged.**
+  - The docs don't say whether `/code-review` sets its reviewers' model itself. The next tickets' transcripts show it.
+  - Compaction summaries lose detail. If a phase compacts often, raise the window before anything else.
+- **Measuring.** Compare the next 2–3 tickets with #455–#463, on two sets of numbers. If quality drops, move the build back to Opus first, then raise the compaction window.
+  - **Usage:** `python3 -I ~/.claude/scripts/claude_usage.py --since <date>`. Context per phase should stay under ~200k, and weighted tokens per ticket should fall by at least 35%.
+  - **Quality:** the critic's first-pass rate, the skeptic's and `/code-review`'s findings, the owner's review comments per PR, and re-opened ACs.
