@@ -102,6 +102,16 @@ async def test_it_opens_and_closes_its_own_connection_when_given_none(
             pass
 
 
+async def test_with_no_admin_emails_set_nothing_is_run(
+    db_session_factory: SessionFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("ADMIN_EMAILS", "")
+
+    with pytest.raises(SmokeError, match="ADMIN_EMAILS"):
+        async with live_shortlister(Settings(), factory=db_session_factory):
+            pass
+
+
 async def test_without_an_active_admin_nothing_is_run(db_session_factory: SessionFactory) -> None:
     await _user(db_session_factory, "live-admin@example.com", UserStatus.PENDING)
 

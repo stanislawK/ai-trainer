@@ -97,7 +97,7 @@ def _read(smoke_set: SmokeSet) -> list[tuple[_Case, list[ExerciseCandidate]]]:
 
 
 def has_live_cases(smoke_set: SmokeSet) -> bool:
-    """Whether a run needs the database. Unreadable cases are left to the run to refuse."""
+    """Whether a run needs the database. A malformed set raises the `SmokeError` the run would."""
     return any(case.live for case, _ in _read(smoke_set))
 
 

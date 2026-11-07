@@ -6,6 +6,7 @@ meaning is the new one, and the two exercise rankings are fused by reciprocal ra
 settled never reaches this class. A slow, failed or empty search leaves today's list."""
 
 import asyncio
+import contextlib
 import logging
 from collections import OrderedDict
 from collections.abc import Mapping, Sequence
@@ -53,8 +54,9 @@ class SearchedExerciseNames:
         self._candidates = candidates
         self._timeout = timeout_seconds
         self._remembered = remembered
-        # The latest successful searches by athlete and typed name. A name Jev wasn't sure of is
-        # shortlisted twice, once to pick and once for the card, and one embedding serves both.
+        # The latest searches by athlete and typed name. A name Jev wasn't sure of is shortlisted
+        # twice, once to pick and once for the card, and one embedding serves both. An answer
+        # stays until evicted; a failed or empty one serves the card once and is then forgotten.
         self._recent: OrderedDict[tuple[UUID, str], Sequence[UUID]] = OrderedDict()
 
     async def match_user_aliases(
@@ -92,6 +94,8 @@ class SearchedExerciseNames:
             )
         except BaseException:
             searching.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await searching
             raise
         found = await searching
         if not found:
@@ -110,18 +114,23 @@ class SearchedExerciseNames:
 
     async def _similar(self, user_id: UUID, name: str) -> Sequence[UUID]:
         """The search's IDs, or none when it is slow or fails: the log still drafts. A failure is
-        remembered like an answer, so the card shows the shortlist Jev was shown and does not
-        wait out a second timeout."""
+        remembered once, so the card shows the shortlist Jev was shown and does not wait out a
+        second timeout, and a later log of the name searches afresh."""
         key = (user_id, name)
         if key in self._recent:
-            self._recent.move_to_end(key)
-            return self._recent[key]
-        found: Sequence[UUID]
+            found = self._recent[key]
+            if found:
+                self._recent.move_to_end(key)
+            else:
+                del self._recent[key]
+            return found
         try:
             async with asyncio.timeout(self._timeout):
                 found = await self._search.similar(user_id, name)
-        except Exception:  # any failure of the extra input falls back to today's list
-            logger.warning("exercise search unavailable, using the trigram shortlist")
+        except Exception as error:  # any failure of the extra input falls back to today's list
+            logger.warning(
+                "exercise search unavailable (%s), using the trigram shortlist", _reason(error)
+            )
             found = ()
         self._recent[key] = found
         while len(self._recent) > self._remembered:
@@ -130,7 +139,14 @@ class SearchedExerciseNames:
 
 
 class ExerciseSearchError(Exception):
-    """The search found nothing to use: its failure reason."""
+    """The search could not be used. Its message is the failure reason (`no_match`,
+    `embedding_unavailable`, `unknown_sport`), safe to log: it holds no typed text."""
+
+
+def _reason(error: Exception) -> str:
+    """What to log of a failed search: the reason of one we raised, else the kind of error. Never
+    the error's own text, which could carry the typed name."""
+    return str(error) if isinstance(error, ExerciseSearchError) else type(error).__name__
 
 
 class KnowledgeExerciseSearch:

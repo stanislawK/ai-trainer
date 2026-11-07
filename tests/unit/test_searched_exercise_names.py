@@ -8,7 +8,7 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from ai_trainer.application.exercise_candidates import SearchedExerciseNames
+from ai_trainer.application.exercise_candidates import ExerciseSearchError, SearchedExerciseNames
 from ai_trainer.application.exercise_resolution import ResolutionLimits, ResolveExercises
 from ai_trainer.application.ports.conversation import FixedReply
 from ai_trainer.domain.exercises import ExerciseCandidate, ExerciseLabel
@@ -239,6 +239,35 @@ async def test_a_failed_search_is_remembered_so_the_card_does_not_wait_it_out_ag
 
     assert len(search.asked) == 1
     assert shown_on_the_card == [_STABILITY]
+
+
+async def test_a_failure_covers_the_card_once_and_is_then_forgotten() -> None:
+    # A transient failure must not keep a name off the search for good.
+    search = _Search([_LATERAL], fail=True)
+    names = _names([_STABILITY], search)
+
+    await _ask(names, _USER, _TYPED)  # Jev's shortlist: fails
+    await _ask(names, _USER, _TYPED)  # the card's: served from memory
+    search.fail = False
+    later = await _shortlist(names)  # a later log of the name: searched again
+
+    assert len(search.asked) == 2
+    assert _LATERAL in later
+
+
+async def test_the_reason_a_search_was_unavailable_is_logged_without_the_name(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    class _Unusable(_Search):
+        async def similar(self, user_id: UUID, name: str) -> Sequence[UUID]:
+            raise ExerciseSearchError("embedding_unavailable")
+
+    with caplog.at_level("WARNING"):
+        await _shortlist(_names([_STABILITY], _Unusable()))
+
+    [record] = caplog.records
+    assert "embedding_unavailable" in record.getMessage()
+    assert _TYPED not in record.getMessage()
 
 
 async def test_a_timed_out_search_is_not_waited_for_twice() -> None:
