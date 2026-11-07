@@ -4,7 +4,7 @@
 |---|---|
 | Product | ai-trainer |
 | Version | 1.3 |
-| Status | In review |
+| Status | Approved |
 | Date | 2026-11-07 |
 | Related | ADR-0001 … ADR-0036 ([index](../adr/README.md)); supersedes [PRD 0011](0011-ai-training-companion.md) v1.2. v1.3, owner-directed 2026-11-07: the app is a non-commercial side project (G17, as ADR-0036 asked), and exercise media gains a second tier: media its owner published freely without stating a licence may be embedded from where it is published, never copied, after an admin approves it, marked as such (F24, G16). Keeps v1.2, which superseded [PRD 0010](0010-ai-training-companion.md) v1.1. Gym is finished before other sports, owner-directed 2026-11-01: gym answers from the athlete's own history (B40) and the knowledge base come next, then gym history, then My gyms and the rest of M2. Keeps v1.1's gym exercises. v1.1 came after the owner's first real gym session ([field transcript](../../evals/field/gym/2026-10-28-first-gym-session.md)): each gym exercise keeps one canonical name, the athlete's history checked first (B37); time, sides, implements and bands are logged and never invented (B38, B39); exercise cards and media (F23, F24); a sport owns its tables (G4); lighter evals built on real chats (G6); admins upload knowledge in the app (B7). Owner-directed 2026-10-29 and 2026-10-30. Naming a new exercise is best effort until the knowledge base lands, owner-directed 2026-10-31. Keeps v1.0's install card (F22), v0.9's Europe first (G15) and v0.8's AI onboarding |
 
