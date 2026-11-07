@@ -10,7 +10,7 @@ dependencies = [
     "alembic>=1.20.0",
     "authlib>=1.9.1",
     "fastapi>=0.162.0",
-    "fastmcp>=4.1,<5",
+    "fastmcp>=4.1.6,<5",
     "itsdangerous>=2.2.0",
     "jinja2>=3.1.6",
     "joserfc>=1.7.6",
@@ -23,7 +23,7 @@ dependencies = [
     "opentelemetry-instrumentation-sqlalchemy>=0.66b1",
     "opentelemetry-sdk>=1.44.0",
     "pgvector>=0.5.1",
-    "psycopg[binary]>=3.3.6",
+    "psycopg[binary]>=3.3.8",
     "pydantic>=2.12",
     "pydantic-ai-slim[mcp,openai,spec,typesafe]>=2.66.0",
     "pydantic-evals>=2.66.0",
@@ -56,9 +56,9 @@ dev = [
     "pytest-cov>=7.1.0",
     "pytest-playwright>=0.9.0",
     "pytest-xdist>=3.8.0",
-    "ruff>=0.16.8",
+    "ruff>=0.17.3",
     "squawk-cli==2.70.0",
-    "types-pyyaml>=6.0.12.20261030",
+    "types-pyyaml>=6.0.12.20261103",
 ]
 
 [tool.ruff]
