@@ -1,0 +1,19 @@
+{#- The History page (History v4 mock, ticket #515): the day cards, and a saved session open beside them on desktop or as a sheet from the bottom on a phone. A card, the sheet's scrim and its Close all swap this whole block, so the list's layout follows whether a session is open. Read only here: Edit, Delete and an exercise's progress are #516 to #518. -#}
+<div id="history-content" class="flex flex-col gap-4 px-4 pt-14 lg:pt-8 w-full lg:max-w-[1100px] lg:mx-auto">
+  <div class="flex gap-6 items-start">
+    <div class="flex flex-col gap-4 flex-1 min-w-0">
+      {#- The heading row is 44 px and the column gap 16 px: the desktop panel's `lg:mt-[60px]` in session.html lines its top edge up with the first card. -#}
+      <div class="flex items-center min-h-11">
+        <h1 class="text-[34px]/[40px] lg:text-[28px]/[34px] font-semibold tracking-tight">History</h1>
+      </div>
+      {% if sessions %}
+        {% include "partials/history/list.html" %}
+      {% else %}
+        {% include "partials/history/empty.html" %}
+      {% endif %}
+    </div>
+    {% if open %}
+      {% include "partials/history/session.html" %}
+    {% endif %}
+  </div>
+</div>

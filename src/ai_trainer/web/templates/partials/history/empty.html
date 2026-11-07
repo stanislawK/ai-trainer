@@ -1,0 +1,7 @@
+{% from "components/icon.html" import icon %}
+<div class="mat-content rounded-box p-6 flex flex-col items-center text-center gap-2">
+  {{ icon("calendar", "size-8 lbl-2") }}
+  <span class="text-[17px] font-semibold">No sessions yet</span>
+  <span class="text-[15px] lbl-2 max-w-[30ch]">Each day you train gets a card here.</span>
+  <a href="/" class="lg lg-clear mt-2">{{ icon("message-circle", "size-4") }}Log a session in the chat</a>
+</div>
