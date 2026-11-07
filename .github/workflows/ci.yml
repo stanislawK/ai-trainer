@@ -61,7 +61,7 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
-          version: "0.13.6"
+          version: "0.13.7"
           enable-cache: true
 
       # --no-project: the stdlib-only script needs .python-version's Python, not the project.
@@ -92,7 +92,7 @@ jobs:
           # uv itself isn't a locked project dependency (uv.lock has no [[package]]
           # name = "uv" entry), so version-file: uv.lock can't resolve a version —
           # pin explicitly instead; scripts/check_uv_pins.py keeps every pin equal (ADR-0002).
-          version: "0.13.6"
+          version: "0.13.7"
           enable-cache: true
 
       - name: Install dependencies
@@ -157,7 +157,7 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
-          version: "0.13.6"
+          version: "0.13.7"
           enable-cache: true
 
       - name: Install dependencies
@@ -181,7 +181,7 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
-          version: "0.13.6"
+          version: "0.13.7"
           enable-cache: true
 
       - name: Install dependencies
@@ -212,7 +212,7 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
-          version: "0.13.6"
+          version: "0.13.7"
           enable-cache: true
 
       - name: Install dependencies
