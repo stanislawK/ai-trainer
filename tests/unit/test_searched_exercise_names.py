@@ -113,6 +113,9 @@ class _Reader:
         return sorted(found, key=lambda c: self.measures.get(c.id, "load_reps") != measure)
 
 
+_NAME_MATCH = 0.5
+
+
 def _names(
     trigram: Sequence[ExerciseCandidate],
     search: _Search,
@@ -128,9 +131,14 @@ def _names(
         search,
         reader or _Reader(),
         timeout_seconds=timeout,
+        name_match=_NAME_MATCH,
         clock=clock or FrozenClock(),
         remembered=remembered,
     )
+
+
+def _scored(candidate: ExerciseCandidate, score: float) -> ExerciseCandidate:
+    return candidate.model_copy(update={"name_score": score})
 
 
 async def _shortlist(names: SearchedExerciseNames, *, limit: int = 4) -> list[ExerciseCandidate]:
@@ -152,6 +160,54 @@ async def test_an_exercise_only_the_search_finds_joins_the_shortlist() -> None:
     names = _names([_STABILITY], _Search([_LATERAL, _FRONT]))
 
     assert _LATERAL in await _shortlist(names)
+
+
+async def test_search_leads_when_no_name_matches() -> None:
+    # #508: a paraphrase's best trigram match is a loose one (0.34 for the crunch), so the
+    # search's order leads and the trigram list follows. Fused evenly, the lateral raise would be
+    # fifth, behind the crunch, and cut.
+    crunch = _scored(_STABILITY, 0.34)
+    names = _names([crunch], _Search([_FRONT, _REAR, _PRESS, _LATERAL]))
+
+    shortlist = await _shortlist(names)
+
+    assert [c.id for c in shortlist] == [_FRONT.id, _REAR.id, _PRESS.id, _LATERAL.id]
+
+
+async def test_rrf_kept_when_a_name_matches() -> None:
+    # A typed name that matches a catalogue name (Pull-Up at 0.70) keeps the even fusion, so the
+    # match stays near the top.
+    matched = _scored(_STABILITY, 0.7)
+    names = _names([matched], _Search([_FRONT, _REAR, _PRESS, _LATERAL]))
+
+    shortlist = await _shortlist(names)
+
+    assert shortlist[0].id == _STABILITY.id
+    assert _LATERAL.id not in {c.id for c in shortlist}
+
+
+async def test_one_matching_name_among_loose_ones_keeps_the_fusion() -> None:
+    names = _names(
+        [_scored(_STABILITY, 0.3), _scored(_FRONT, 0.5)], _Search([_REAR, _PRESS, _LATERAL])
+    )
+
+    shortlist = await _shortlist(names)
+
+    assert [c.id for c in shortlist][:2] == [_STABILITY.id, _REAR.id]
+
+
+async def test_when_the_search_leads_the_entrys_own_measure_still_comes_first() -> None:
+    plank = _exercise("Plank")
+    reader = _Reader({**_CATALOGUE, plank.id: plank}, measures={plank.id: "time"})
+    names = _names(
+        [_scored(_STABILITY, 0.34)],
+        _Search([plank, _FRONT, _REAR, _LATERAL]),
+        reader=reader,
+    )
+
+    shortlist = await _shortlist(names)
+
+    assert [c.id for c in shortlist] == [_FRONT.id, _REAR.id, _LATERAL.id, _STABILITY.id]
 
 
 async def test_an_exercise_in_both_lists_beats_one_in_a_single_list() -> None:

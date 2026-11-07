@@ -272,6 +272,9 @@ PMC sources carry "Source: NLM PMC" in their attribution.
     - its chunk was embedded by a model other than the configured `EMBEDDING_MODEL`.
 
     A run with nothing changed makes no call.
+  - **The chunk's text, amended at #508 (owner-directed, 2026-11-07).** A catalogue chunk is the instructions, then a line `Target: <target>. Equipment: <equipment>.` from the catalogue row, in both languages, naming only what the row holds. It is data, not model-made enrichment. It raised a paraphrase's catalogue search rank (ADR-0031's #508 amendment). The line is in the chunk's `tsvector` too, weighted D like the text. Its two labels are in every catalogue chunk, so they tell no exercise apart.
+    - The import and the worker decide "stale" by one rule, `has_changed_text` in `domain/catalogue_knowledge.py`: a text with no chunk, or one whose text or heading differs from what `catalogue_chunk` makes of it now. The import's own SQL comparison with the raw instructions is gone.
+    - ⚠ Deploying it re-embeds the catalogue once: every stored chunk lacks the line. The owner's next `import-exercises` queues both sources and the `ingest` container embeds 2,629 chunks, about $0.004. Until then the search reads the old chunks.
   - **The chunk:**
     - its text is the exercise's `instructions`;
     - its heading path is the exercise name, with a `section` locator of the name and `section_kind = body`;

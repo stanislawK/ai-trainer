@@ -260,6 +260,7 @@ def build_exercise_names(
         ),
         exercises,
         timeout_seconds=settings.exercise_search_timeout_seconds,
+        name_match=settings.exercise_name_match_floor,
         clock=clock,
     )
 
@@ -351,6 +352,7 @@ def build_app_mcp_server(
     training_sessions: SqlAlchemyTrainingSessionRepository,
     calls_repository: LlmCallsRepositoryPort,
     http_client: httpx2.AsyncClient,
+    clock: ClockPort,
 ) -> FastMCP:
     """The app's MCP server with every tool (ADR-0010), for the specialists' toolset and for
     `scripts/search_knowledge.py`. `http_client` carries the search's embedding calls, from
@@ -359,14 +361,13 @@ def build_app_mcp_server(
     exercise_history = SqlAlchemyExerciseHistory(session_factory)
     return build_mcp_server(
         TrainingHistory(training_sessions, sports),
-        ExerciseFinder(
-            exercise_repository,
-            ResolutionLimits(
-                near_match=settings.exercise_near_match_threshold,
-                candidate_floor=settings.exercise_candidate_floor,
-                shortlist_size=settings.exercise_shortlist_size,
-            ),
-            exercise_history,
+        build_exercise_finder(
+            settings,
+            session_factory,
+            sports,
+            calls_repository=calls_repository,
+            http_client=http_client,
+            clock=clock,
         ),
         ExerciseTrainingHistory(exercise_repository, exercise_history),
         knowledge=build_knowledge_search(
@@ -375,6 +376,39 @@ def build_app_mcp_server(
             sports,
             calls_repository=calls_repository,
             http_client=http_client,
+        ),
+    )
+
+
+def build_exercise_finder(
+    settings: Settings,
+    session_factory: Callable[[], AsyncSession],
+    sports: SportRegistry,
+    *,
+    calls_repository: LlmCallsRepositoryPort,
+    http_client: httpx2.AsyncClient,
+    clock: ClockPort,
+) -> ExerciseFinder:
+    """`find_exercise`'s use case, shortlisting through the same names a log does, the catalogue
+    search included while `EXERCISE_SEARCH_ENABLED` is on (#508). No budget: the tool runs inside
+    a specialist's tool loop, which holds one slot (ADR-0031's #429 amendment)."""
+    exercise_repository = SqlAlchemyExerciseRepository(session_factory)
+    return ExerciseFinder(
+        exercise_repository,
+        ResolutionLimits(
+            near_match=settings.exercise_near_match_threshold,
+            candidate_floor=settings.exercise_candidate_floor,
+            shortlist_size=settings.exercise_shortlist_size,
+        ),
+        SqlAlchemyExerciseHistory(session_factory),
+        names=build_exercise_names(
+            settings,
+            session_factory,
+            sports,
+            calls_repository=calls_repository,
+            http_client=http_client,
+            clock=clock,
+            budget=None,
         ),
     )
 
@@ -569,6 +603,7 @@ def create_app(  # noqa: PLR0915 -- composition root: objects are built only her
             training_sessions=training_sessions,
             calls_repository=llm_calls,
             http_client=search_http,
+            clock=clock,
         )
     )
     gateway = BudgetedLlmGateway(

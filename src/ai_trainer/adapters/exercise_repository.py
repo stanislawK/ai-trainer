@@ -292,6 +292,7 @@ class SqlAlchemyExerciseRepository:
                     ExerciseOrm.equipment,
                     ExerciseOrm.target,
                     ExerciseTextOrm.instructions,
+                    score,
                 )
                 .outerjoin(
                     ExerciseTextOrm,
@@ -310,9 +311,14 @@ class SqlAlchemyExerciseRepository:
             )
             return [
                 ExerciseCandidate(
-                    id=id_, name=found, equipment=equipment, target=target, how=_short(how)
+                    id=id_,
+                    name=found,
+                    equipment=equipment,
+                    target=target,
+                    how=_short(how),
+                    name_score=float(fit),
                 )
-                for id_, found, equipment, target, how in rows.tuples()
+                for id_, found, equipment, target, how, fit in rows.tuples()
             ]
 
     async def candidates(

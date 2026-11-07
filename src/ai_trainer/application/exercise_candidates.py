@@ -56,6 +56,7 @@ class SearchedExerciseNames:
         candidates: ExerciseCandidatesPort,
         *,
         timeout_seconds: float,
+        name_match: float,
         clock: ClockPort,
         remembered: int = REMEMBERED_SEARCHES,
     ) -> None:
@@ -63,6 +64,7 @@ class SearchedExerciseNames:
         self._search = search
         self._candidates = candidates
         self._timeout = timeout_seconds
+        self._name_match = name_match
         self._clock = clock
         self._remembered = remembered
         # The latest searches by athlete and typed name, each with the time it stops being served.
@@ -109,7 +111,7 @@ class SearchedExerciseNames:
         found = await searching
         if not found:
             return list(trigram)[:limit]
-        fused = rrf_fuse([[candidate.id for candidate in trigram], found])[:FUSED_DEPTH]
+        fused = self._ranked(trigram, found)[:FUSED_DEPTH]
         try:
             # Read in one go with the entry's own measure first, as the trigram list orders it, so
             # another measure's exercise (a plank for a sets-and-reps entry) can't take a slot from
@@ -119,6 +121,19 @@ class SearchedExerciseNames:
             logger.warning("exercise search candidates unreadable, using the trigram shortlist")
             return list(trigram)[:limit]
         return list(read)[:limit]
+
+    def _ranked(self, trigram: Sequence[ExerciseCandidate], found: Sequence[UUID]) -> list[UUID]:
+        """Both rankings fused evenly while the typed name matches a catalogue name. When none of
+        the trigram list does, the name is a paraphrase, its trigram hits are loose look-alikes,
+        and the search's order leads with the trigram list after it (#508). An unscored
+        candidate counts as a match, which keeps the even fusion."""
+        trigram_ids = [candidate.id for candidate in trigram]
+        if any(
+            candidate.name_score is None or candidate.name_score >= self._name_match
+            for candidate in trigram
+        ):
+            return rrf_fuse([trigram_ids, found])
+        return list(dict.fromkeys([*found, *trigram_ids]))
 
     async def _similar(self, user_id: UUID, name: str) -> Sequence[UUID]:
         """The search's IDs, or none when it is slow or fails: the log still drafts. A failure is

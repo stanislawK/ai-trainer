@@ -10,7 +10,11 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict
 
 from ai_trainer.application.exercise_resolution import ResolutionLimits
-from ai_trainer.application.ports.exercises import ExerciseHistoryPort, ExerciseLookupPort
+from ai_trainer.application.ports.exercises import (
+    ExerciseHistoryPort,
+    ExerciseLookupPort,
+    ExerciseNamesPort,
+)
 from ai_trainer.domain.exercises import ExerciseDetail, LoggedName
 from ai_trainer.domain.sports.gym.names import GYM_SPORT_ID
 
@@ -39,15 +43,21 @@ class ExerciseLookupFailed(BaseModel):
 
 
 class ExerciseFinder:
+    """`names` shortlists a name history doesn't know; the composition root passes the same one a
+    log uses, the catalogue search included (#508). It defaults to `exercises`."""
+
     def __init__(
         self,
         exercises: ExerciseLookupPort,
         limits: ResolutionLimits,
         history: ExerciseHistoryPort,
+        *,
+        names: ExerciseNamesPort | None = None,
     ) -> None:
         self._exercises = exercises
         self._limits = limits
         self._history = history
+        self._names = names or exercises
 
     async def find(self, user_id: UUID, name: str) -> ExerciseLookup | ExerciseLookupFailed:
         typed = name.strip()
@@ -66,7 +76,7 @@ class ExerciseFinder:
             found = await self._exercises.describe(user_id, [settled[typed]], lang=_LANG)
             if found:
                 return ExerciseLookup(source="history", exercises=list(found), logged=logged)
-        candidates = await self._exercises.shortlist(
+        candidates = await self._names.shortlist(
             user_id,
             sport_id=GYM_SPORT_ID,
             name=typed,

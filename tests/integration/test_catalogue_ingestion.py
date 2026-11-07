@@ -256,7 +256,7 @@ async def test_an_english_question_finds_a_polish_catalogue_passage(world: _Worl
         if hit.exercise_id == pull_apart and hit.language is SourceLanguage.PL
     ]
     assert len(polish) == 1
-    assert polish[0].text == "Rozciągnij gumę."
+    assert polish[0].text == "Rozciągnij gumę.\n\nTarget: delts. Equipment: band."
     assert (polish[0].title, polish[0].evidence_tier, polish[0].source_type) == (
         "Exercise catalogue",
         EvidenceTier.CATALOGUE,
@@ -312,10 +312,11 @@ async def test_a_changed_text_replaces_its_own_chunk_and_no_other(world: _World)
     changed = _ByName()
     await world.ingest_catalogue(changed)
 
-    assert changed.embedded == ["Exercise catalogue — Band Pull Apart\n\nRozciągnij gumę na boki."]
+    new_text = "Rozciągnij gumę na boki.\n\nTarget: delts. Equipment: band."
+    assert changed.embedded == [f"Exercise catalogue — Band Pull Apart\n\n{new_text}"]
     after = {chunk.exercise_id: chunk for chunk in await world.chunks(SourceLanguage.PL)}
     assert after.keys() == before.keys()
-    assert after[pull_apart].text == "Rozciągnij gumę na boki."
+    assert after[pull_apart].text == new_text
     assert after[pull_apart].ordinal == before[pull_apart].ordinal
     for exercise_id, chunk in after.items():
         if exercise_id != pull_apart:
@@ -324,6 +325,30 @@ async def test_a_changed_text_replaces_its_own_chunk_and_no_other(world: _World)
                 before[exercise_id].created_at,
             )
     assert {chunk.id for chunk in await world.chunks(SourceLanguage.EN)} == english_before
+
+
+async def test_a_changed_target_requeues_and_reembeds_only_its_exercise(world: _World) -> None:
+    # #508: the chunk carries the exercise's target and equipment, so a change to either is a
+    # changed text in both languages, and an import with nothing changed queues nothing.
+    await world.import_sample()
+    await world.ingest_catalogue(_ByName())
+    assert await world.import_sample() == 0
+
+    sample = json.loads(SAMPLE.read_text())
+    for row in sample:
+        if row["id"] == _PULL_APART:
+            row["target"] = "rear delts"
+    assert await world.import_sample(json.dumps(sample).encode()) == 2
+    changed = _ByName()
+    await world.ingest_catalogue(changed)
+
+    assert sorted(changed.embedded) == [
+        "Exercise catalogue — Band Pull Apart\n\n"
+        "Pull the band apart.\n\nTarget: rear delts. Equipment: band.",
+        "Exercise catalogue — Band Pull Apart\n\n"
+        "Rozciągnij gumę.\n\nTarget: rear delts. Equipment: band.",
+    ]
+    assert await world.import_sample(json.dumps(sample).encode()) == 0
 
 
 async def test_a_failed_batch_keeps_earlier_chunks_and_a_rerun_finishes(world: _World) -> None:
@@ -382,8 +407,14 @@ async def test_english_chunks_use_english_full_text_and_polish_ones_simple(world
     polish = next(c for c in await world.chunks(SourceLanguage.PL) if c.exercise_id == pull_apart)
 
     # `english` stems and drops stop words; `simple` only lowercases (ADR-0033). The name is A.
-    assert str(english.search_vector) == "'apart':3A,7 'band':1A,6 'pull':2A,4"
-    assert str(polish.search_vector) == "'apart':3A 'band':1A 'gumę':5 'pull':2A 'rozciągnij':4"
+    # The text is weighted D, and since #508 it ends with the target and equipment line.
+    assert str(english.search_vector) == (
+        "'apart':3A,7 'band':1A,6,11 'delt':9 'equip':10 'pull':2A,4 'target':8"
+    )
+    assert str(polish.search_vector) == (
+        "'apart':3A 'band':1A,9 'delts':7 'equipment':8 'gumę':5 'pull':2A 'rozciągnij':4"
+        " 'target':6"
+    )
 
 
 async def test_a_requeue_mid_ingest_leaves_the_running_worker_writing_nothing(
@@ -462,7 +493,7 @@ async def test_an_import_after_one_that_never_queued_still_queues_the_stale_text
     fixed = _ByName()
     await world.ingest({SourceLanguage.EN: fixed})
     assert len(fixed.embedded) == 1
-    assert fixed.embedded[0].endswith("Jump your feet apart and back together.")
+    assert "\n\nJump your feet apart and back together.\n\nTarget: " in fixed.embedded[0]
 
 
 async def test_a_failed_source_is_queued_again_by_a_plain_rerun(world: _World) -> None:
