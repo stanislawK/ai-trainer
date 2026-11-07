@@ -123,7 +123,7 @@ What this means for the options above:
 
 > Decision, 2026-11-07 (#514): the owner picked `wger` and rejected Gym visual on cost. See "Decision" below and ADR-0031. The inputs that follow are kept as written.
 
-These are inputs for the owner and for the M2m ticket. None of them decides anything, and none contradicts ADR-0031: it already says no media is imported "until a source with a license we hold is chosen".
+These are inputs for the owner and for the M2m ticket. None of them decides anything, and none contradicts ADR-0031: it said when this was written that no media is imported "until a source with a license we hold is chosen". The choice, made 2026-11-07, is in the Decision section below.
 
 - Treat `free-exercise-db` images as unusable. Its text and JSON may still be useful as data, which is outside this ticket.
 - Before choosing, read Gym visual's terms in a browser and ask them for a quote. It has the largest catalogue (1,324 exercises) and 3 clear hits plus 2 families on the first session, with no face pull. It is the dataset ADR-0031 already imports ([ADR-0031](../adr/0031-exercise-catalogue-and-name-resolution.md), read 2026-11-02), so its media needs no matching between datasets. Its media is 180×180 only ([NOTICE.md](https://github.com/hasaneyldrm/exercises-dataset/blob/main/NOTICE.md)), which the owner should check against the F23 card's media slot. If the price, the size or the app-use rule rules it out, the answer is already in hand.
@@ -142,8 +142,8 @@ Resolved at #514 (2026-11-07) for the `wger` pick:
 
 - **Gym visual terms, price and app use.** Answered: ruled out by the owner on cost. The terms were read in a browser by the owner, who recorded no price. Not pursued further.
 - **CC BY-SA and in-app use.** Answered as a rule, not as law: serve the file unaltered, scaled by CSS only, with credit and licence link beside it. The remaining adaptation risk is accepted by the owner (side project, G17), and a rights holder's removal request is honoured at once (G16).
-- **`wger` images with no author.** Answered: skipped at admin review (F24), not shown.
-- **AI-flagged `wger` images.** Answered: skipped likewise; the flag is stored in `source_ref` at import. This rule is the agent's, offered with the recommended option, and the owner confirms it in the PR review.
+- **`wger` images with no author.** Answered by the owner: skipped at import, since a `licensed` row needs an attribution.
+- **AI-flagged `wger` images.** Answered by the owner: kept eligible, labelled "AI generated" beside the credit, and judged in admin review.
 - **Whether the catalogue's `wger` matches are the right variants.** Answered: an admin looks at each picture, which F24 already requires.
 
 Not needed for the pick (they concern options not chosen):

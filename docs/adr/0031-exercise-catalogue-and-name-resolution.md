@@ -100,7 +100,7 @@ Media is linked to the catalogue exercise, never to a name. Every alias, history
 - **Other sources:** get candidate exercises from trigram similarity, and from embeddings once ADR-0033's model is chosen. Jev confirms or abstains, and links are written as `suggested`. An admin approves them in bulk at `/admin/exercises`.
 - **Storage:** the media bucket behind `ObjectStoragePort` (ADR-0033). It holds no user data, so it is served publicly through an R2 custom domain with Cloudflare caching, never `r2.dev`, which Cloudflare reserves for non-production traffic ([R2 public buckets](https://developers.cloudflare.com/r2/buckets/public-buckets/)). The attribution is shown next to the media.
 
-No media is imported from a source other than the one chosen below, and none from a source PRD 0012 G16 puts *out*, without permission.
+No media is imported from a source PRD 0012 G16 puts *out*, without permission. The first source chosen under G16 is below; later sources follow the bullets here.
 
 - **`licensed`** (our own drawings, an open licence, or permission we hold) may be `stored` in the media bucket, or `embedded`.
 - **`unstated`** (published freely by its owner, no licence stated) is only `embedded`: the card uses the source's own embed, such as YouTube's player, or a link to its page. Nothing is downloaded or re-hosted, and the source's own measures against framing or hotlinking are respected; where they apply, the card links out instead. The card shows "rights not confirmed" in place of a licence.
@@ -112,9 +112,10 @@ No media is imported from a source other than the one chosen below, and none fro
 Owner-directed 2026-11-07, at #514. Evidence: [exercise-media.md](../research/exercise-media.md).
 
 - **Source:** `wger` images ([API](https://wger.de/api/v2/exerciseimage/)). **Tier:** `licensed` (G16). **Delivery:** `stored` in the media bucket. `license` is each image's own: CC BY-SA 4 or CC BY-SA 3 (every image read on 2026-11-02 was one of the two).
-- **Attribution**, shown beside the image: `<author> · <licence name> (<licence URL>) — via wger.de`. Author, licence name and URL come from that image's own record into `attribution` and `license`.
-- **Use rule:** the file is served unaltered, scaled by CSS only, with the credit and licence link beside it. Whether that avoids ShareAlike is not settled by any source read. The owner accepts the remaining risk as a non-commercial side project (G17), and a rights holder's removal request is honoured at once through `removed` (G16).
-- **Skipped at admin review (F24):** an image with no author, and one wger flags as AI-generated (kept in `source_ref` at import). This rule is the agent's, offered with the recommended option; the owner confirms it in the PR review.
+- **Attribution**, shown beside the image: `<author> · <licence name> (<licence URL>) — via wger.de`, where "wger.de" links to the image's own page (its `source_ref` URL). Author, licence name and URL come from that image's own record into `attribution` and `license`.
+- **Use rule:** the file is stored and served byte for byte (no re-encoding or resizing at import, so `sha256` is of wger's file) and scaled by CSS only, with the credit and licence link beside it. Whether that avoids ShareAlike is not settled by any source read. The owner accepts the remaining risk as a non-commercial side project (G17), and a rights holder's removal request is honoured at once through `removed` (G16).
+- **Skipped at import:** an image with no author, because a `licensed` row needs an `attribution` the CHECK accepts and the credit has no author to name. Owner-decided 2026-11-07.
+- **AI-flagged images stay eligible:** an image wger flags as AI-generated is imported with the flag kept in `source_ref`, and the card adds "AI generated" beside the credit. The admin judges it in F24 review like any other picture. Owner-decided 2026-11-07.
 - **Rejected:** Gym visual, because the owner will not pay for content in a side project, so G16 *Out* holds until permission is held. `free-exercise-db`'s images, because G16 puts them *Out*: its maintainer does not know their origin ([issue #2](https://github.com/yuhonas/free-exercise-db/issues/2)) and finding 1 of the research calls them likely infringing.
 
 ### Invariants
