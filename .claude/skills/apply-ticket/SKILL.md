@@ -19,7 +19,7 @@ Implements the delivery loop of ADR-0001 as amended by ADR-0035. With `--review`
         - if `make worktree` reports Postgres unreachable, run `docker compose up -d --wait db` and retry once;
         - run `make worktree issue=<n>`;
         - enter the printed path with `EnterWorktree`.
-     4. If the tab's model doesn't match the ticket's `model:` label, say so in one line and carry on. A running tab can't switch its own model.
+     4. If the ticket is `model:opus` or `risk:high` and the tab isn't on Opus, stop and ask the owner to run `/model opus`, then `/apply-ticket <n>` again. New tabs start on Sonnet, the default for every other ticket. For any other mismatch, say so in one line and carry on. A running tab can't switch its own model.
    - **Anywhere else:** stop and say where you are.
    - **Inside the worktree, keep shell commands plain and separate.** The session refuses compound commands it can't verify stay in the worktree (a heredoc chained with `gh` was refused at #366). Write files with the Write tool, then run the command on its own.
 3. **Ground.** Read the current PRD's requirements the ticket cites, every referenced ADR and research document, the matching `.claude/rules/`, and the area branch below. Read by section, and read once. Everything you read is re-read on every later request of this session.
