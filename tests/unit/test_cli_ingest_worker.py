@@ -2,11 +2,13 @@
 
 import asyncio
 import io
+import os
+import signal
 from uuid import uuid4
 
 import pytest
 
-from ai_trainer import cli
+from ai_trainer import cli, cli_knowledge
 from ai_trainer.domain.embeddings import Embedded, EmbeddingFailed, EmbeddingFailure
 from ai_trainer.domain.knowledge import KnowledgeSource
 from tests.ingestion_support import (
@@ -35,8 +37,8 @@ def _queue(*markers: str) -> tuple[MemoryQueue, MemoryStorage]:
 
 
 def test_the_command_parses_with_and_without_once() -> None:
-    assert cli.parse_args([cli.INGEST_WORKER]).once is False
-    assert cli.parse_args([cli.INGEST_WORKER, "--once"]).once is True
+    assert cli.parse_args([cli_knowledge.INGEST_WORKER]).once is False
+    assert cli.parse_args([cli_knowledge.INGEST_WORKER, "--once"]).once is True
 
 
 async def test_once_prints_a_line_per_source_and_a_summary() -> None:
@@ -53,7 +55,7 @@ async def test_once_prints_a_line_per_source_and_a_summary() -> None:
     )
     output = io.StringIO()
 
-    code = await cli.ingest_worker(service, once=True, poll_seconds=1.0, output=output)
+    code = await cli_knowledge.ingest_worker(service, once=True, poll_seconds=1.0, output=output)
 
     assert code == 0
     assert output.getvalue().splitlines() == [
@@ -78,7 +80,7 @@ async def test_a_gone_source_is_reported_as_gone() -> None:
         clock=FrozenClock(),
     )
 
-    await cli.ingest_worker(service, once=True, poll_seconds=1.0, output=output)
+    await cli_knowledge.ingest_worker(service, once=True, poll_seconds=1.0, output=output)
 
     assert output.getvalue().splitlines()[0] == f"ingest-worker: source={source_id} result=gone"
 
@@ -96,7 +98,7 @@ async def test_without_once_it_keeps_polling() -> None:
     )
 
     task = asyncio.create_task(
-        cli.ingest_worker(service, once=False, poll_seconds=3.0, output=output)
+        cli_knowledge.ingest_worker(service, once=False, poll_seconds=3.0, output=output)
     )
     while not sleep.waits:
         await asyncio.sleep(0)
@@ -108,3 +110,34 @@ async def test_without_once_it_keeps_polling() -> None:
         f"ingest-worker: source={next(iter(queue.sources))} result=ingested chunks=3"
     ]
     assert sleep.waits[0] == 3.0
+
+
+async def test_a_stop_signal_ends_the_polling_worker_cleanly() -> None:
+    """`docker stop` sends SIGTERM to the container's PID 1, which the worker is: without a
+    handler the kernel ignores it, and Docker SIGKILLs after its grace period (#462 review). With
+    one, the worker cancels its loop, hands back its source and exits 0. SIGUSR1 stands in for
+    SIGTERM here, so a failure can't stop the test process."""
+    queue, storage = _queue("cli-signal")
+    sleep = RecordedSleep()
+    output = io.StringIO()
+    service = ingestion(
+        repository=queue,
+        storage=storage,
+        embeddings=ScriptedEmbeddings(),
+        clock=FrozenClock(),
+        sleep=sleep,
+    )
+
+    task = asyncio.create_task(
+        cli_knowledge.ingest_worker(
+            service, once=False, poll_seconds=3.0, output=output, stop_signals=(signal.SIGUSR1,)
+        )
+    )
+    while not sleep.waits:
+        await asyncio.sleep(0)
+    os.kill(os.getpid(), signal.SIGUSR1)
+
+    assert await task == 0
+    assert output.getvalue().splitlines()[-1] == "ingest-worker: result=stopped"
+    # The handler is removed again, so the next SIGUSR1 isn't swallowed by a finished worker.
+    assert signal.getsignal(signal.SIGUSR1) in (signal.SIG_DFL, signal.default_int_handler)

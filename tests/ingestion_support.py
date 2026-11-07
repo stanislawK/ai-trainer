@@ -176,6 +176,7 @@ def ingestion(
     batch_size: int = 2,
     max_attempts: int = 3,
     lease: timedelta = timedelta(minutes=5),
+    max_takeovers: int = 2,
     catalogue: CatalogueChunksRepositoryPort | None = None,
     pmc_files: PmcArticleFilesPort | None = None,
     chunker: Chunker | None = None,
@@ -195,6 +196,7 @@ def ingestion(
         batch_size=batch_size,
         max_attempts=max_attempts,
         lease=lease,
+        max_takeovers=max_takeovers,
         catalogue=CatalogueIngestion(
             repository=catalogue or MemoryCatalogueChunks(),
             embeddings=embeddings,
@@ -276,6 +278,22 @@ class MemoryQueue:
         self.heartbeats = 0
         self.steal_on_heartbeat = False
         self.steal_on_record = False
+        # Raised by the next `finish` calls, one each, as a database blip would (#462 review).
+        self.finish_errors: list[Exception] = []
+        self.release_error: Exception | None = None
+        self.released: list[UUID] = []
+
+    async def release(self, source_id: UUID, *, claim_id: UUID) -> bool:
+        if self.release_error is not None:
+            raise self.release_error
+        if not self._holds(source_id, claim_id):
+            return False
+        self.released.append(source_id)
+        self.sources[source_id] = self.sources[source_id].model_copy(
+            update={"status": SourceStatus.UPLOADED}
+        )
+        del self.claims[source_id]
+        return True
 
     async def claim_next(
         self, *, claim_id: UUID, now: datetime, lease_until: datetime
@@ -311,6 +329,8 @@ class MemoryQueue:
         model: str,
         ingested_at: datetime,
     ) -> bool:
+        if self.finish_errors:
+            raise self.finish_errors.pop(0)
         if not self._holds(source_id, claim_id):
             return False
         self.chunks[source_id] = list(chunks)

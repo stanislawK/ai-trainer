@@ -285,6 +285,9 @@ class KnowledgeSource(NewKnowledgeSource):
     # What the source's chunks hold, for the admin list (#423): 0 and None until ingested.
     chunk_count: int = 0
     embedding_model: str | None = None
+    # How many times a worker took the source over after the one before it stopped (#462): 0 on a
+    # claim from `uploaded`, one more on each takeover of a lapsed lease.
+    ingest_takeovers: int = Field(default=0, ge=0)
 
     @property
     def licence_flag(self) -> LicenceFlag | None:

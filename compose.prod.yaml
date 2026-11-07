@@ -133,6 +133,54 @@ services:
         limits:
           memory: 1g
 
+  # The knowledge ingestion worker (ADR-0036 invariant 6, #462): the app's image with its own
+  # command, so parsing never stalls chat and a document too large for it OOM-kills this
+  # container, not the app. One replica, and the worker takes one source at a time: concurrency
+  # 1. A killed worker's source is taken over once its lease lapses (KNOWLEDGE_INGEST_LEASE_SECONDS),
+  # and one taken over more than KNOWLEDGE_INGEST_MAX_TAKEOVERS times fails as `worker_crashed`.
+  # deploy.sh starts it after the app is healthy, and nothing waits for it. `unless-stopped`
+  # restarts it on failure and after a reboot, which `on-failure` wouldn't.
+  ingest:
+    <<: *hardening
+    image: ${APP_IMAGE:?set APP_IMAGE to ghcr.io/stanislawk/ai-trainer@sha256:<digest>}
+    restart: unless-stopped
+    env_file:
+      - ${CONFIG_DIR:-.}/.env
+    environment:
+      # JSON log lines for Alloy, as the app's (ADR-0030); the worker configures the app's
+      # logging when it polls.
+      LOG_FORMAT: json
+      # As for `migrate`: the CLI sends no OTLP, and a Grafana credential left in .env never
+      # reaches the process.
+      OTEL_EXPORTER_OTLP_HEADERS: ""
+      OTEL_EXPORTER_OTLP_TRACES_HEADERS: ""
+      OTEL_EXPORTER_OTLP_METRICS_HEADERS: ""
+      OTEL_EXPORTER_OTLP_LOGS_HEADERS: ""
+    command:
+      - ai-trainer
+      - ingest-worker
+    # The image's HEALTHCHECK probes the app's :8000, which the worker doesn't serve.
+    healthcheck:
+      disable: true
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    # `backend` for Postgres, and a way out of its own for OpenRouter and R2. Never `edge`, whose
+    # subnet the app trusts for X-Forwarded-*.
+    networks:
+      - backend
+      - ingest_egress
+    # Measured 2026-11-06 (ADR-0036's #462 amendment): reading and chunking a 50 MB text PDF
+    # peaks near 400 MiB, and a file's vectors are held until its one write, about 32 KiB per
+    # chunk, so about 10,000 chunks fit. One CPU of the CX23's two.
+    deploy:
+      resources:
+        limits:
+          memory: 768m
+          cpus: "1.0"
+
   caddy:
     <<: *hardening
     image: caddy:2.11.7-alpine@sha256:eb4d35b7452d1ab6171fbdbe8d9275b2301dad6dad92115d91e19fb9b24d510f
@@ -238,6 +286,9 @@ networks:
         - subnet: 10.222.0.0/24
   # Alloy's own way out, to Grafana Cloud.
   egress:
+    driver: bridge
+  # The ingest worker's own way out, to OpenRouter and R2 (#462).
+  ingest_egress:
     driver: bridge
 
 volumes:

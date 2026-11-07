@@ -355,6 +355,7 @@ def build_knowledge_ingestion(
         batch_size=settings.knowledge_embedding_batch_size,
         max_attempts=settings.knowledge_embedding_max_attempts,
         lease=timedelta(seconds=settings.knowledge_ingest_lease_seconds),
+        max_takeovers=settings.knowledge_ingest_max_takeovers,
         catalogue=CatalogueIngestion(
             repository=SqlAlchemyCatalogueChunks(session_factory),
             embeddings=embeddings,

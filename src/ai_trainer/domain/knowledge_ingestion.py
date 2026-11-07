@@ -34,6 +34,10 @@ class IngestFailure(StrEnum):
     # The uploading admin's account is gone, so no one can be the calls' acting user (ADR-0018);
     # a re-ingest names an admin again.
     NO_ACTING_ADMIN = "no_acting_admin"
+    # Taken over more than `KNOWLEDGE_INGEST_MAX_TAKEOVERS` times: each worker before stopped
+    # mid-source, most likely killed past the `ingest` container's memory limit (#462). It
+    # fails unread, so the file can't hold the queue; Re-ingest starts the count again.
+    WORKER_CRASHED = "worker_crashed"
     # Anything else that went wrong reading, chunking or embedding the file: a bug or a file no
     # reader expected. The source fails instead of crashing the worker on every retry.
     INGEST_ERROR = "ingest_error"

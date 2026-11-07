@@ -845,3 +845,117 @@ async def test_an_uploaded_jats_file_uses_the_jats_reader() -> None:
 
     assert report == IngestReport(source_id=source.id, result="ingested", chunks=3)
     assert files.requests == []
+
+
+async def test_worker_crashed_is_reported() -> None:
+    """A source taken over more often than allowed has killed its workers before (#462): it fails
+    without being read again, so one file can't hold the queue."""
+    source, storage = _stored("crashed")
+    source = source.model_copy(update={"ingest_takeovers": 3})
+    embeddings = ScriptedEmbeddings()
+
+    report = await ingestion(
+        repository=MemoryQueue(source),
+        storage=storage,
+        embeddings=embeddings,
+        clock=FrozenClock(),
+        max_takeovers=2,
+    ).ingest_next()
+
+    assert report == IngestReport(
+        source_id=source.id, result="failed", reason=IngestFailure.WORKER_CRASHED
+    )
+    assert embeddings.calls == []
+
+
+async def test_a_cancelled_ingest_releases_its_claim() -> None:
+    """SIGTERM cancels the worker (a deploy, `docker compose stop`, a dev save): the source goes
+    back to `uploaded` at once instead of waiting out its lease as a takeover (#462 review)."""
+    source, storage = _stored("stopped")
+    queue = MemoryQueue(source)
+    inside = asyncio.Event()
+
+    async def _hang() -> None:
+        inside.set()
+        await asyncio.Event().wait()
+
+    service = ingestion(
+        repository=queue,
+        storage=storage,
+        embeddings=ScriptedEmbeddings(during=_hang),
+        clock=FrozenClock(),
+    )
+    task = asyncio.create_task(service.ingest_next())
+    await inside.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert queue.released == [source.id]
+    assert queue.sources[source.id].status is SourceStatus.UPLOADED
+
+
+async def test_a_queue_error_while_polling_is_logged_and_polling_goes_on(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A database blip mid-source no longer ends the `ingest` container's process (#462 review):
+    the claim is handed back if it can be, and the loop sleeps and tries again."""
+    source, storage = _stored("blip")
+    queue = MemoryQueue(source)
+    queue.finish_errors = [OSError("connection reset")]
+    sleep = RecordedSleep()
+    service = ingestion(
+        repository=queue,
+        storage=storage,
+        embeddings=ScriptedEmbeddings(),
+        clock=FrozenClock(),
+        sleep=sleep,
+    )
+    seen: list[IngestReport] = []
+
+    async def _report(report: IngestReport) -> None:
+        seen.append(report)
+
+    task = asyncio.create_task(service.run(poll_seconds=2.0, on_report=_report))
+    while not seen and not task.done():
+        await asyncio.sleep(0)
+    assert not task.done(), "the polling loop ended on the error"
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert queue.released == [source.id]
+    assert sleep.waits[0] == 2.0
+    assert [(r.source_id, r.result) for r in seen] == [(source.id, "ingested")]
+    assert "ingest poll failed: OSError" in caplog.text
+
+
+async def test_a_release_that_fails_never_hides_the_first_error() -> None:
+    source, storage = _stored("double-blip")
+    queue = MemoryQueue(source)
+    queue.finish_errors = [OSError("connection reset")]
+    queue.release_error = OSError("still down")
+
+    with pytest.raises(OSError, match="connection reset"):
+        await ingestion(
+            repository=queue,
+            storage=storage,
+            embeddings=ScriptedEmbeddings(),
+            clock=FrozenClock(),
+        ).ingest_next()
+
+
+async def test_a_source_at_the_takeover_limit_is_still_ingested() -> None:
+    source, storage = _stored("taken-over")
+    source = source.model_copy(update={"ingest_takeovers": 2})
+
+    report = await ingestion(
+        repository=MemoryQueue(source),
+        storage=storage,
+        embeddings=ScriptedEmbeddings(),
+        clock=FrozenClock(),
+        max_takeovers=2,
+    ).ingest_next()
+
+    assert report is not None
+    assert report.result == "ingested"

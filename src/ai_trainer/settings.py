@@ -207,8 +207,8 @@ class Settings(BaseSettings):
     )
     embedding_provider_preferences: ProviderPreferencesSetting = DEFAULT_EMBEDDING_PROVIDER
     embedding_call_timeout_seconds: float = Field(default=60.0, gt=0)
-    # Ingestion (ADR-0036, #423). Inputs per embedding call, provisional until #462 reads the
-    # upstream's limits; a 429 is retried with backoff up to this many attempts in all.
+    # Ingestion (ADR-0036). Inputs per embedding call, about 13,000 tokens: DeepInfra lists no
+    # array cap (`list-model-endpoints`, 2026-11-07, #462). Attempts per batch on 429.
     knowledge_embedding_batch_size: int = Field(default=32, ge=1, le=256)
     knowledge_embedding_max_attempts: int = Field(default=5, ge=1)
     # The chunk budget in words, and the size under which a section merges with a sibling;
@@ -220,11 +220,14 @@ class Settings(BaseSettings):
     # (pgvector's `rrf.py` reads 20). Both provisional until the retrieval checks.
     knowledge_query_timeout_seconds: float = Field(default=10.0, gt=0)
     knowledge_search_depth: int = Field(default=20, ge=1, le=100)
-    # The worker's lease on a source, renewed by a heartbeat every third of it; a lapsed lease
-    # lets the next worker take the source over. The poll interval is how long an idle worker
-    # waits before looking again.
-    knowledge_ingest_lease_seconds: float = Field(default=300.0, ge=30)
+    # The worker's lease, renewed every third of it; a lapsed one is taken over, so a killed
+    # worker's source restarts within about a minute (#462). The idle poll interval. A source
+    # taken over more than `max_takeovers` times fails as `worker_crashed`.
+    knowledge_ingest_lease_seconds: float = Field(default=60.0, ge=30)
     knowledge_ingest_poll_seconds: float = Field(default=5.0, gt=0)
+    knowledge_ingest_max_takeovers: int = Field(default=2, ge=0)
+    # `rebuild-knowledge-index`'s maintenance_work_mem, at most the db's 256 MiB shm (#462).
+    knowledge_index_build_memory_mb: int = Field(default=256, ge=64, le=256)
     # PMC's Cloud Service bucket, public and anonymous, read by PMC ID when an admin token stages
     # papers (ADR-0036, #458). The timeout bounds one article's two GETs together; at most 10, so
     # a request's 20 articles, five at a time, answer well inside Cloudflare's 100 seconds.

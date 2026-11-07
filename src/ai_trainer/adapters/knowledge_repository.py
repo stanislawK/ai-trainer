@@ -61,6 +61,7 @@ def to_domain(row: KnowledgeSourceOrm) -> KnowledgeSource:
         ingested_at=row.ingested_at,
         chunk_count=row.chunk_count or 0,
         embedding_model=row.embedding_model,
+        ingest_takeovers=row.ingest_takeovers or 0,
     )
 
 

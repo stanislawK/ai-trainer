@@ -31,7 +31,7 @@ from ai_trainer.domain.knowledge import (
     SourceStatus,
 )
 from ai_trainer.domain.knowledge_document import SectionKind
-from ai_trainer.domain.knowledge_ingestion import FileRecord, IngestReport
+from ai_trainer.domain.knowledge_ingestion import FileRecord, IngestFailure, IngestReport
 from ai_trainer.domain.users import NewUser, User, UserStatus
 from ai_trainer.knowledge.chunker import Chunker
 from tests.epub_support import AES_ALGORITHM, Chapter, encryption_xml, epub
@@ -201,18 +201,10 @@ async def test_uploaded_markdown_reaches_ingested_with_its_chunk_count(world: _W
 async def test_a_worker_killed_mid_ingest_finishes_on_restart_without_duplicates(
     world: _World,
 ) -> None:
+    """A hard kill (SIGKILL, an OOM kill) runs no code: the dead worker's claim just stays."""
     source = await world.add("ac2-killed")
-    inside = asyncio.Event()
-
-    async def _hang() -> None:
-        inside.set()
-        await asyncio.Event().wait()
-
-    killed = asyncio.create_task(world.worker(ScriptedEmbeddings(during=_hang)).ingest_next())
-    await inside.wait()
-    killed.cancel()
-    with pytest.raises(asyncio.CancelledError):
-        await killed
+    now = world.clock.now()
+    await world.queue.claim_next(claim_id=UUID(int=41), now=now, lease_until=now + _LEASE)
     assert await world.status(source.id) == (SourceStatus.INGESTING, None)
 
     world.clock.advance(_LEASE + timedelta(seconds=1))
@@ -221,6 +213,90 @@ async def test_a_worker_killed_mid_ingest_finishes_on_restart_without_duplicates
     assert reports == [IngestReport(source_id=source.id, result="ingested", chunks=3)]
     ordinals = [chunk.ordinal for chunk in await world.chunks(source.id)]
     assert ordinals == [0, 1, 2]
+
+
+async def test_a_worker_stopped_mid_ingest_hands_the_source_back_at_once(
+    world: _World,
+) -> None:
+    """SIGTERM cancels the worker (a deploy, `docker compose stop`): the source is `uploaded`
+    again straight away, so the restart finishes it with no lease to wait out (#462)."""
+    source = await world.add("ac2-stopped")
+    inside = asyncio.Event()
+
+    async def _hang() -> None:
+        inside.set()
+        await asyncio.Event().wait()
+
+    stopped = asyncio.create_task(world.worker(ScriptedEmbeddings(during=_hang)).ingest_next())
+    await inside.wait()
+    stopped.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await stopped
+    assert await world.status(source.id) == (SourceStatus.UPLOADED, None)
+
+    reports = await world.ingest_once()
+
+    assert reports == [IngestReport(source_id=source.id, result="ingested", chunks=3)]
+    assert len(await world.chunks(source.id)) == 3
+
+
+async def test_claim_fails_a_source_after_repeated_takeovers(world: _World) -> None:
+    """A file that kills its worker (an OOM kill, #462) is taken over each time its lease lapses.
+    Past `max_takeovers` it fails as `worker_crashed` unread, and the queue moves on."""
+    source = await world.add("ac3-crash-loop")
+    behind = await world.add("ac3-behind", minutes=1)
+    for expected, killed in enumerate((UUID(int=11), UUID(int=12), UUID(int=13))):
+        now = world.clock.now()
+        claimed = await world.queue.claim_next(claim_id=killed, now=now, lease_until=now + _LEASE)
+        assert claimed is not None
+        assert (claimed.id, claimed.ingest_takeovers) == (source.id, expected)
+        world.clock.advance(_LEASE + timedelta(seconds=1))
+
+    crashed = await world.worker().ingest_next()
+    unread = list(world.storage.reads)
+    after = await world.ingest_once()
+
+    assert crashed == IngestReport(
+        source_id=source.id, result="failed", reason=IngestFailure.WORKER_CRASHED
+    )
+    assert unread == []
+    assert await world.status(source.id) == (SourceStatus.FAILED, "worker_crashed")
+    assert after == [IngestReport(source_id=behind.id, result="ingested", chunks=3)]
+
+
+async def test_a_released_claim_goes_back_to_uploaded_and_is_not_a_takeover(
+    world: _World,
+) -> None:
+    """A worker stopped on purpose (a deploy, a dev save, #462 review) hands its source back, so
+    only a worker that died without a word counts towards `worker_crashed`."""
+    source = await world.add("released")
+    now = world.clock.now()
+    mine = UUID(int=31)
+    await world.queue.claim_next(claim_id=mine, now=now, lease_until=now + _LEASE)
+
+    assert await world.queue.release(source.id, claim_id=UUID(int=32)) is False
+    assert await world.queue.release(source.id, claim_id=mine) is True
+
+    assert await world.status(source.id) == (SourceStatus.UPLOADED, None)
+    claimed = await world.queue.claim_next(claim_id=UUID(int=33), now=now, lease_until=now + _LEASE)
+    assert claimed is not None
+    assert (claimed.id, claimed.ingest_takeovers) == (source.id, 0)
+
+
+async def test_a_reingest_after_a_crash_loop_starts_the_count_again(world: _World) -> None:
+    source = await world.add("crash-reingest")
+    for killed in (UUID(int=21), UUID(int=22), UUID(int=23)):
+        now = world.clock.now()
+        await world.queue.claim_next(claim_id=killed, now=now, lease_until=now + _LEASE)
+        world.clock.advance(_LEASE + timedelta(seconds=1))
+    await world.ingest_once()
+    assert isinstance(await world.service.reingest(world.admin.id, source.id), ReingestQueued)
+
+    now = world.clock.now()
+    claimed = await world.queue.claim_next(claim_id=UUID(int=24), now=now, lease_until=now + _LEASE)
+
+    assert claimed is not None
+    assert (claimed.id, claimed.ingest_takeovers) == (source.id, 0)
 
 
 async def test_a_live_lease_is_not_claimed_twice(world: _World) -> None:

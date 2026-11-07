@@ -7,6 +7,7 @@
     uv run ai-trainer feedback-report [--since <ISO time>]
     uv run ai-trainer storage-check
     uv run ai-trainer ingest-worker [--once]
+    uv run ai-trainer rebuild-knowledge-index [--memory-mb N]
 
 `purge-conversations` hard-deletes every conversation last active more than
 `CONVERSATION_RETENTION_DAYS` ago, across users, with its messages by cascade. It prints the
@@ -53,8 +54,18 @@ claims each `uploaded` source, reads, chunks and embeds it, and stores its chunk
 line per source, `ingest-worker: source=<id> result=ingested chunks=<n>`,
 `result=failed reason=<reason>` or `result=gone` (deleted while it was read), never its content.
 With `--once` it ingests what is waiting, prints `ingest-worker: result=ok sources=<n>` and exits
-0; without, it polls every `KNOWLEDGE_INGEST_POLL_SECONDS` until stopped. With no storage
-settings it prints `ingest-worker: result=failed reason=not_configured` and exits 1.
+0; without, it polls every `KNOWLEDGE_INGEST_POLL_SECONDS` until stopped, which is what the
+`ingest` container runs (#462). With no storage settings, `--once` prints
+`ingest-worker: result=failed reason=not_configured` and exits 1, while the polling worker prints
+`ingest-worker: result=idle reason=not_configured` and waits until stopped, so its container's
+restart policy never spins.
+
+`rebuild-knowledge-index` rebuilds the chunks' HNSW index online (`REINDEX INDEX CONCURRENTLY`)
+after a bulk load, with `maintenance_work_mem` raised to `--memory-mb` or
+`KNOWLEDGE_INDEX_BUILD_MEMORY_MB` (64 to 256) for its one connection and reset afterwards, even on
+failure (ADR-0036's #462 amendment). It prints
+`rebuild-knowledge-index: result=ok index=<name> maintenance_work_mem=<n>MB`, or
+`result=failed reason=<error class>` with exit code 1.
 """
 
 import argparse
@@ -66,6 +77,7 @@ from typing import TextIO
 from uuid import uuid4
 
 import httpx2
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai_trainer.adapters.catalogue_knowledge_repository import SqlAlchemyCatalogueSources
 from ai_trainer.adapters.clock import UtcClock
@@ -75,11 +87,12 @@ from ai_trainer.adapters.exercise_repository import SqlAlchemyExerciseRepository
 from ai_trainer.adapters.exercises_dataset import PinnedDatasetCatalogueSource
 from ai_trainer.adapters.feedback_repository import SqlAlchemyFeedbackEventsRepository
 from ai_trainer.adapters.gym_backfill import SqlAlchemyGymBackfillStore
+from ai_trainer.adapters.knowledge_index import PostgresKnowledgeIndex
+from ai_trainer.adapters.log_records import configure_logging
 from ai_trainer.adapters.object_storage import UrllibPresignedLinks
 from ai_trainer.application.exercise_catalogue import CatalogueQueueing, import_catalogue
 from ai_trainer.application.feedback import count_signals
 from ai_trainer.application.gym_backfill import backfill_gym_sessions as run_gym_backfill
-from ai_trainer.application.knowledge_ingestion import KnowledgeIngestion
 from ai_trainer.application.ports.chat import ConversationRepositoryPort
 from ai_trainer.application.ports.clock import ClockPort
 from ai_trainer.application.ports.exercises import (
@@ -90,8 +103,15 @@ from ai_trainer.application.ports.feedback import FeedbackEventsPort
 from ai_trainer.application.ports.gym_backfill import GymBackfillPort
 from ai_trainer.application.retention import purge_expired_conversations
 from ai_trainer.application.storage_check import STEPS, check_storage
+from ai_trainer.cli_knowledge import (
+    INGEST_WORKER,
+    REBUILD_KNOWLEDGE_INDEX,
+    build_memory_mb,
+    idle_unconfigured,
+    ingest_worker,
+    rebuild_knowledge_index,
+)
 from ai_trainer.domain.exercises import ExerciseCatalogueError, ExerciseDatasetError
-from ai_trainer.domain.knowledge_ingestion import IngestReport
 from ai_trainer.llm.debug_report import report
 from ai_trainer.main import build_knowledge_ingestion, build_uploads_storage
 from ai_trainer.settings import Settings
@@ -102,7 +122,6 @@ IMPORT_EXERCISES = "import-exercises"
 BACKFILL_GYM_SESSIONS = "backfill-gym-sessions"
 FEEDBACK_REPORT = "feedback-report"
 STORAGE_CHECK = "storage-check"
-INGEST_WORKER = "ingest-worker"
 
 
 def _aware_time(value: str) -> datetime:
@@ -155,6 +174,16 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     )
     worker.add_argument(
         "--once", action="store_true", help="Ingest what is waiting now, then exit."
+    )
+    rebuild = commands.add_parser(
+        REBUILD_KNOWLEDGE_INDEX,
+        help="Rebuild the chunks' HNSW index online after a bulk load, then restore the setting.",
+    )
+    rebuild.add_argument(
+        "--memory-mb",
+        type=build_memory_mb,
+        default=None,
+        help="maintenance_work_mem for the build (default KNOWLEDGE_INDEX_BUILD_MEMORY_MB).",
     )
     return parser.parse_args(argv)
 
@@ -245,31 +274,37 @@ async def storage_check(
     return 0
 
 
-def _print_report(report: IngestReport, output: TextIO) -> None:
-    line = f"{INGEST_WORKER}: source={report.source_id} result={report.result}"
-    if report.result == "ingested":
-        line += f" chunks={report.chunks}"
-    elif report.reason is not None:
-        line += f" reason={report.reason.value}"
-    output.write(line + "\n")
-    output.flush()
-
-
-async def ingest_worker(
-    service: KnowledgeIngestion, *, once: bool, poll_seconds: float, output: TextIO
+async def _run_ingest_worker(
+    settings: Settings,
+    session_factory: Callable[[], AsyncSession],
+    *,
+    once: bool,
+    output: TextIO,
+    sleep: Callable[[float], Awaitable[None]],
+    embedding_transport: httpx2.AsyncBaseTransport | None,
+    pmc_transport: httpx2.AsyncBaseTransport | None,
 ) -> int:
-    if once:
-        reports = await service.drain()
-        for report in reports:
-            _print_report(report, output)
-        output.write(f"{INGEST_WORKER}: result=ok sources={len(reports)}\n")
-        return 0
-
-    async def _report(report: IngestReport) -> None:
-        _print_report(report, output)
-
-    await service.run(poll_seconds=poll_seconds, on_report=_report)
-    return 0  # pragma: no cover -- `run` returns only by cancellation
+    storage = build_uploads_storage(settings)
+    if storage is None:
+        if once:
+            output.write(f"{INGEST_WORKER}: result=failed reason=not_configured\n")
+            return 1
+        return await idle_unconfigured(output)
+    if not once:
+        # A long-running service (the `ingest` container, #462): its warnings go out through
+        # the app's handler, JSON with LOG_FORMAT=json (ADR-0030).
+        configure_logging(settings)
+    service = build_knowledge_ingestion(
+        settings,
+        storage,
+        session_factory,
+        sleep=sleep,
+        embedding_transport=embedding_transport,
+        pmc_transport=pmc_transport,
+    )
+    return await ingest_worker(
+        service, once=once, poll_seconds=settings.knowledge_ingest_poll_seconds, output=output
+    )
 
 
 def _import_failed(reason: str, error: Exception, output: TextIO) -> int:
@@ -318,22 +353,19 @@ async def run(
                 store=SqlAlchemyGymBackfillStore(build_session_factory(engine)), output=output
             )
         if args.command == INGEST_WORKER:
-            storage = build_uploads_storage(settings)
-            if storage is None:
-                output.write(f"{INGEST_WORKER}: result=failed reason=not_configured\n")
-                return 1
-            service = build_knowledge_ingestion(
+            return await _run_ingest_worker(
                 settings,
-                storage,
                 build_session_factory(engine),
+                once=args.once,
+                output=output,
                 sleep=sleep,
                 embedding_transport=embedding_transport,
                 pmc_transport=pmc_transport,
             )
-            return await ingest_worker(
-                service,
-                once=args.once,
-                poll_seconds=settings.knowledge_ingest_poll_seconds,
+        if args.command == REBUILD_KNOWLEDGE_INDEX:
+            return await rebuild_knowledge_index(
+                PostgresKnowledgeIndex(engine),
+                memory_mb=args.memory_mb or settings.knowledge_index_build_memory_mb,
                 output=output,
             )
         if args.command == FEEDBACK_REPORT:

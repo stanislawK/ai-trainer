@@ -11,8 +11,9 @@
 #   4. run `migrate`, set the monitor role's password, then start the app and Caddy on the new
 #      image;
 #   5. poll the app's /health from the Caddy container, never through Cloudflare;
-#   6. report `success` and record the image in app-image and its tag in app-version, or restore
-#      the previous app image with its tag and report `failure`.
+#   6. record the image in app-image and its tag in app-version, start the ingest worker on it
+#      (#462) and report `success`; or restore the previous app image with its tag, leaving the
+#      ingest worker on the previous image, and report `failure`.
 # Compose gives the app the release tag (RELEASE_TAG) as APP_VERSION, its spans'
 # `service.version` (#293).
 # The database is never rolled back: migrations are expand-only (ADR-0024 invariant 4), so the
@@ -216,6 +217,12 @@ if APP_IMAGE=$image compose up -d --wait --wait-timeout "$WAIT_TIMEOUT" --no-dep
   echo "$image" >"$root/app-image"
   echo "$ref" >"$root/app-version"
   finished=1
+  # The ingest worker (ADR-0036 invariant 6, #462) switches only now that the release is final,
+  # so a failed or stopped release never needs it rolled back: the previous one keeps reading
+  # the expand-only schema. Like Alloy, it never holds up chat: no --wait, a failure only warns,
+  # and `unless-stopped` keeps trying.
+  APP_IMAGE=$image compose up -d --no-deps ingest ||
+    echo "deploy: ingest did not start; uploads wait as uploaded until it does" >&2
   # The release is live either way: say so, even if GitHub can't be told.
   report success "deployed $short" || echo "deploy: could not report the success to GitHub" >&2
   echo "deploy: deployment $id succeeded: $image"

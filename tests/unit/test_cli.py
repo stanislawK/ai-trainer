@@ -9,7 +9,7 @@ from uuid import uuid4
 
 import pytest
 
-from ai_trainer import cli
+from ai_trainer import cli, cli_knowledge
 from tests.chat_support import FROZEN_NOW, FixedClock, InMemoryChatRepository
 
 
@@ -116,3 +116,58 @@ async def test_the_report_reads_the_settings_folder_and_returns_its_exit_code(
 
     assert await cli.run(["llm-debug-report"], output=output) == 1
     assert output.getvalue() == f"no debug log at {missing}\n"
+
+
+class _Index:
+    index = "ix_knowledge_chunks_embedding"
+
+    def __init__(self, error: Exception | None = None) -> None:
+        self.error = error
+        self.asked: list[int] = []
+
+    async def rebuild(self, *, memory_mb: int) -> str:
+        self.asked.append(memory_mb)
+        if self.error is not None:
+            raise self.error
+        return f"{memory_mb}MB"
+
+
+async def test_rebuild_knowledge_index_prints_one_line() -> None:
+    index = _Index()
+    output = io.StringIO()
+
+    code = await cli_knowledge.rebuild_knowledge_index(index, memory_mb=200, output=output)
+
+    assert code == 0
+    assert index.asked == [200]
+    assert output.getvalue() == (
+        "rebuild-knowledge-index: result=ok index=ix_knowledge_chunks_embedding"
+        " maintenance_work_mem=200MB\n"
+    )
+
+
+async def test_a_failed_rebuild_prints_only_the_error_class() -> None:
+    output = io.StringIO()
+
+    code = await cli_knowledge.rebuild_knowledge_index(
+        _Index(RuntimeError("could not resize shared memory segment on db:5432")),
+        memory_mb=256,
+        output=output,
+    )
+
+    assert code == 1
+    assert output.getvalue() == "rebuild-knowledge-index: result=failed reason=RuntimeError\n"
+
+
+def test_the_rebuild_memory_defaults_to_the_setting_and_is_bounded(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert cli.parse_args([cli_knowledge.REBUILD_KNOWLEDGE_INDEX]).memory_mb is None
+    assert (
+        cli.parse_args([cli_knowledge.REBUILD_KNOWLEDGE_INDEX, "--memory-mb", "256"]).memory_mb
+        == 256
+    )
+    for value in ("63", "257"):
+        with pytest.raises(SystemExit):
+            cli.parse_args([cli_knowledge.REBUILD_KNOWLEDGE_INDEX, "--memory-mb", value])
+    assert "shm_size" in capsys.readouterr().err

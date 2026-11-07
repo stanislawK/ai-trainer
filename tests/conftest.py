@@ -110,6 +110,9 @@ _XDIST_GROUPS = {
         "tests/integration/test_admin_knowledge_proposals.py",
         # The catalogue's two sources are shared rows every test here queues and claims (#427).
         "tests/integration/test_catalogue_ingestion.py",
+        # `REINDEX INDEX CONCURRENTLY` waits for every open transaction that touched the chunks,
+        # such as an ingestion test's, which holds its transaction until teardown (#462).
+        "tests/integration/test_rebuild_knowledge_index_cli.py",
     ),
     # `test_xdist_groups` runs this group in a subprocess, so it must not overlap the outer one.
     "src_tree": (

@@ -175,6 +175,31 @@ def test_the_knowledge_upload_limit_defaults_to_50_mb(monkeypatch: pytest.Monkey
     assert Settings(_env_file=None).knowledge_max_upload_mb == 50
 
 
+def test_ingest_lease_defaults_to_a_minute(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A restarted `ingest` container takes a killed worker's source over within about a minute
+    (#462), and gives up on a file after two takeovers."""
+    _set_required_keys(monkeypatch)
+    for key in ("KNOWLEDGE_INGEST_LEASE_SECONDS", "KNOWLEDGE_INGEST_MAX_TAKEOVERS"):
+        monkeypatch.delenv(key, raising=False)
+
+    settings = Settings(_env_file=None)
+
+    assert settings.knowledge_ingest_lease_seconds == 60.0
+    assert settings.knowledge_ingest_max_takeovers == 2
+
+
+@pytest.mark.parametrize("value", ["63", "257"])
+def test_an_index_build_memory_outside_the_db_shm_refuses_to_start(
+    monkeypatch: pytest.MonkeyPatch, value: str
+) -> None:
+    """A parallel HNSW build allocates `maintenance_work_mem` from the db's 256 MiB shm (#462)."""
+    _set_required_keys(monkeypatch)
+    monkeypatch.setenv("KNOWLEDGE_INDEX_BUILD_MEMORY_MB", value)
+
+    with pytest.raises(ValidationError, match="knowledge_index_build_memory_mb"):
+        Settings(_env_file=None)
+
+
 @pytest.mark.parametrize("value", ["0", "-1", "91"])
 def test_a_knowledge_upload_limit_outside_1_to_90_mb_refuses_to_start(
     monkeypatch: pytest.MonkeyPatch, value: str

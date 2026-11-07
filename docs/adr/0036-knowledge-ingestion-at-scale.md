@@ -307,3 +307,47 @@ PMC sources carry "Source: NLM PMC" in their attribution.
   - **Request cap.** `answer_max_requests` goes from 6 to 8: a mixed question ("I benched 80 kg, how often should I deload?") reads history in three requests, and search and cite add two (found by `/code-review` at #428).
   - **What isn't counted.** A `cite_sources` call counts only when its return succeeded: a call the schema refused (`retried`), or one that failed, leaves its IDs out. A reader that raises costs the sources, never the delivered answer. A stored source that no longer validates drops out of its reply, with a warning, rather than failing the conversation (all found by `/code-review` at #428).
   - **Pain.** Safety still goes first in its own part (ADR-0008 invariant 4). The answer part may cite, and v2 suggests nothing for the pain, "not even from a source".
+- **Amended at #462 (the `ingest` container), owner-approved at its plan gate, 2026-11-06.** It settles the Consequences' two items "Open from the research". The Decision and the invariants stand.
+  - **The service.** `ingest` runs `ai-trainer ingest-worker` from the app's image, as one replica. The worker takes one source at a time, which is the concurrency of 1.
+    - **`compose.yaml`:** `restart: on-failure`, with limits of `${INGEST_MEMORY_LIMIT:-768m}` and one CPU. The variable isn't a Settings key; it lets a developer force an OOM kill.
+    - **`compose.dev.yaml`:** it gets the same local bucket as the app, and a `sync+restart` watch, since the worker has no reload.
+    - **`compose.prod.yaml`:** the hardening anchor, `restart: unless-stopped` (Docker restarts no `on-failure` container after a daemon or host restart), 768 MiB and one CPU.
+    - **Networks:** `backend`, plus a bridge network of its own, `ingest_egress`, for OpenRouter and R2. Never `edge`, whose subnet the app trusts for X-Forwarded-*. Never `telemetry` either: the CLI sends no OTLP, and Alloy ships its stdout through Docker discovery as `{service="ingest"}`.
+    - **Healthcheck:** off (`disable: true`), since the image's HEALTHCHECK probes the app's :8000.
+    - **Nothing waits for it.** `deploy.sh` switches it to the new image only once the release is healthy and recorded, with no `--wait`, and a failure only warns. A failed or stopped release then never has to roll it back: the previous image keeps reading the expand-only schema (ADR-0024).
+    - **Shipping it.** `compose.prod.yaml` and `deploy.sh` reach the host through the owner's `install.sh`, before the release that needs them (ADR-0023).
+  - **A crash loop can't hold the queue.** An OOM-killed worker leaves its source `ingesting`, and the next claim takes it over once the lease lapses.
+    - `knowledge_sources.ingest_takeovers bigint NOT NULL DEFAULT 0` (expand only; bigint for squawk's prefer-bigint-over-smallint) counts it. A claim from `uploaded` sets 0, and a takeover adds 1.
+    - A claimed source past `KNOWLEDGE_INGEST_MAX_TAKEOVERS` (default 2) fails as `IngestFailure.WORKER_CRASHED` without being read again. Re-ingest sets `uploaded`, so it starts the count again.
+    - No CHECK: the code writes only 0 or one more, and a CHECK would need its own VALIDATE revision.
+    - **Only a silent death counts** (found by `/code-review` at #462). The worker is the container's PID 1, which the kernel spares from any signal it has no handler for. So the polling worker handles SIGTERM and SIGINT by cancelling its loop, and a cancelled or failed `ingest_next` hands its source back as `uploaded` (the port's `release`). A deploy, a `docker stop` or a dev `sync+restart` then neither waits out the lease nor counts a takeover, and only SIGKILL or an OOM kill does.
+    - **A queue error** (a database blip) while polling is logged as `ingest poll failed: <class>`, and polling goes on rather than ending the process.
+    - **Logging:** the polling worker sets up the app's logging, so with `LOG_FORMAT=json` in `compose.prod.yaml` its warnings reach Alloy as JSON lines (ADR-0030).
+    - **`make ingest-once`** runs in the `ingest` container, never in `app`.
+  - **The lease** defaults to 60 seconds instead of 300, so a restarted container finishes a killed worker's source within about a minute. The heartbeat beats every 20 seconds while parsing runs in a thread.
+  - **No storage settings** (`make up`, CI's e2e job, the smoke stack): the polling worker prints `ingest-worker: result=idle reason=not_configured` once and waits, so a restart policy never spins. `--once` still fails with exit 1.
+  - **Database memory, measured** on 2026-11-06, Docker Desktop, pgvector `pg18-trixie`. The load was 100,000 synthetic chunks in the worker's shape: random 1,024-dimension vectors, 300 random words each, and the same weighted `tsvector`. It was inserted with `generate_series`, measured after `VACUUM FULL`, in a throwaway database that was then dropped.
+
+    | Per 100,000 chunks | Size |
+    |---|---|
+    | HNSW index (m = 16, ef_construction = 64) | 781 MB |
+    | GIN index (random words, so an upper bound) | 67 MB |
+    | Heap with TOAST (4,100 bytes a vector) | 1.43 GB |
+
+    - **The decision:** search needs the two indexes in memory, and Postgres needs its own share beside them. The db container stays at 1 GiB, which holds about **80,000 chunks**, against about 2,600 today, the catalogue (owner, 2026-11-06). That leaves the host's limits at about 3.3 GiB of the CX23's 4 GB.
+    - **Past 80,000 chunks**, one of these comes first, each through `/update-docs`: a 1.5 GiB db (about 3.8 GiB of limits), `halfvec` indexing, or a bigger host. RUNBOOK section 15.4 gives the count query.
+  - **The ingest container's memory, measured** the same day.
+    - Reading and chunking a 50 MB text PDF of 9,149 pages, which gives 27,447 chunks, peaked at 396 MiB RSS in 19 seconds.
+    - A file's vectors are held as Python floats until its single write, about 32 KiB a chunk. That 27,447-chunk file would need about 1.3 GB, so it fails as `worker_crashed`. About 10,000 chunks fit in 768 MiB; an ordinary book is a few hundred.
+    - Holding vectors compactly is a follow-up ticket (owner, 2026-11-06).
+  - **The rebuild command.** `ai-trainer rebuild-knowledge-index [--memory-mb N]` runs `REINDEX INDEX CONCURRENTLY ix_knowledge_chunks_embedding` on one autocommit connection, so search keeps answering. Before it, `set_config('maintenance_work_mem', …)` raises the setting, and `RESET` in a `finally` puts it back.
+    - **`KNOWLEDGE_INDEX_BUILD_MEMORY_MB`** defaults to 256, within 64 to 256.
+    - **Measured** on the same 100,000 chunks: 224 s at 64 MB and 161 s at 256 MB. At 256 MB the graph stopped fitting after 55,303 tuples. 512 MB failed with `could not resize shared memory segment`: a parallel build allocates the setting from the db container's 256 MiB `shm_size` (ADR-0004), which caps it.
+    - **A failed concurrent rebuild** leaves an invalid `_ccnew` index, which RUNBOOK section 15.3 drops.
+  - **The embedding batch size stays 32** (`KNOWLEDGE_EMBEDDING_BATCH_SIZE`, no longer provisional).
+    - `list-model-endpoints` for `qwen/qwen3-embedding-8b` (OpenRouter MCP, 2026-11-07) gives DeepInfra, the pinned upstream, a context of 32,768 tokens per input and `max_prompt_tokens: null`. Its embeddings latency over the last 30 minutes was p50 432 ms, p90 3.9 s and p99 14.4 s.
+    - Neither that nor OpenRouter's embeddings docs (`search-docs`, the same day) names an array limit; they say only that an input past the model's length is truncated or rejected.
+    - At 300-word chunks of about 400 tokens, 32 inputs are about 13,000 tokens a call. Each input sits far under its 32,768 tokens, and even the p99 call fits inside `EMBEDDING_CALL_TIMEOUT_SECONDS` (60).
+    - A larger batch saves little, since a book is a few hundred chunks, and a 429 is still retried with backoff.
+  - **Gotcha: an explicit kill is a manual stop.** `docker compose kill ingest` leaves the container `exited (137)` with no restart: Docker applies no restart policy to a container it was told to stop. An OOM kill does restart, `on-failure` or `unless-stopped`. A probe container over a 64 MiB limit showed `oom=true` with its restart count climbing (2026-11-06). A killed worker comes back with `docker compose start ingest`.
+  - **Licence detection moves to its own ticket** (owner, 2026-11-06). The #454 amendment gave it to "the `ingest` service ticket", but #462 left it out. Until that ticket lands, a `detecting` upload waits as it does now.

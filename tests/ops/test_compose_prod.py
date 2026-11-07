@@ -10,8 +10,8 @@ import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
-SERVICES = ("db", "migrate", "app", "caddy", "alloy")
-LONG_RUNNING = ("db", "app", "caddy", "alloy")
+SERVICES = ("db", "migrate", "app", "ingest", "caddy", "alloy")
+LONG_RUNNING = ("db", "app", "ingest", "caddy", "alloy")
 
 
 @pytest.fixture(scope="module")
@@ -32,7 +32,7 @@ def test_has_its_own_project_name(compose: dict[str, Any]) -> None:
     assert compose["name"] == "ai-trainer-prod"
 
 
-def test_runs_exactly_the_five_services(services: dict[str, Any]) -> None:
+def test_runs_exactly_the_six_services(services: dict[str, Any]) -> None:
     assert sorted(services) == sorted(SERVICES)
 
 
@@ -74,7 +74,7 @@ def test_no_service_shares_the_hosts_namespaces_or_runs_privileged(
         assert key not in svc, key
 
 
-@pytest.mark.parametrize("name", ["migrate", "app"])
+@pytest.mark.parametrize("name", ["migrate", "app", "ingest"])
 def test_app_image_comes_from_the_environment(services: dict[str, Any], name: str) -> None:
     assert services[name]["image"].startswith("${APP_IMAGE:?")
 
@@ -110,7 +110,7 @@ def test_every_service_is_hardened(services: dict[str, Any], name: str) -> None:
 def test_only_caddy_may_bind_a_privileged_port(services: dict[str, Any]) -> None:
     assert services["caddy"]["cap_add"] == ["NET_BIND_SERVICE"]
     assert "NET_BIND_SERVICE" not in services["db"].get("cap_add", [])
-    assert all("cap_add" not in services[name] for name in ("migrate", "app", "alloy"))
+    assert all("cap_add" not in services[name] for name in ("migrate", "app", "ingest", "alloy"))
 
 
 def test_database_password_comes_from_its_own_env_file(services: dict[str, Any]) -> None:
@@ -278,7 +278,7 @@ def test_the_release_tag_is_never_a_settings_key() -> None:
         "OTEL_EXPORTER_OTLP_LOGS_HEADERS",
     ],
 )
-@pytest.mark.parametrize("name", ["migrate", "app"])
+@pytest.mark.parametrize("name", ["migrate", "app", "ingest"])
 def test_no_otlp_header_from_env_reaches_the_app(
     services: dict[str, Any], name: str, key: str
 ) -> None:
@@ -378,3 +378,38 @@ def test_alloy_mounts_the_host_read_only_for_its_metrics(services: dict[str, Any
     assert len(host) == 3
     for volume in host:
         assert volume.split(":")[2].split(",")[0] == "ro", volume
+
+
+# ADR-0036 invariant 6 (#462): ingestion runs in its own container, so a crash or a memory
+# spike there never stops chat.
+
+
+def test_ingest_service_runs_the_worker_hardened_off_edge(compose: dict[str, Any]) -> None:
+    """Off `edge`, whose subnet Uvicorn trusts for X-Forwarded-*, and off `telemetry`: the CLI
+    sends no OTLP, and Alloy collects its stdout through Docker discovery."""
+    ingest = compose["services"]["ingest"]
+    assert ingest["command"] == ["ai-trainer", "ingest-worker"]
+    assert ingest["env_file"] == ["${CONFIG_DIR:-.}/.env"]
+    assert ingest["environment"]["LOG_FORMAT"] == "json"
+    assert sorted(ingest["networks"]) == ["backend", "ingest_egress"]
+    assert "ports" not in ingest
+    assert "expose" not in ingest
+    # The image's HEALTHCHECK probes the app's :8000, which the worker doesn't serve.
+    assert ingest["healthcheck"] == {"disable": True}
+    assert ingest["depends_on"] == {
+        "db": {"condition": "service_healthy"},
+        "migrate": {"condition": "service_completed_successfully"},
+    }
+    assert "internal" not in compose["networks"]["ingest_egress"]
+    members = [n for n, s in compose["services"].items() if "ingest_egress" in s["networks"]]
+    assert members == ["ingest"]
+
+
+def test_ingest_has_its_own_memory_and_cpu_limits(services: dict[str, Any]) -> None:
+    """A document past 768 MiB OOM-kills only this container (2026-11-06: about 32 KiB per chunk
+    held, ADR-0036's #462 amendment), and one CPU leaves the other to the app and Postgres."""
+    limits = services["ingest"]["deploy"]["resources"]["limits"]
+    assert limits == {"memory": "768m", "cpus": "1.0"}
+    assert "replicas" not in services["ingest"]["deploy"]
+    for name, svc in services.items():
+        assert "ingest" not in svc.get("depends_on", {}), name

@@ -18,6 +18,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import (
     ColumnElement,
     and_,
+    case,
     cast,
     delete,
     func,
@@ -103,6 +104,12 @@ class SqlAlchemyKnowledgeIngestionRepository:
                 status=SourceStatus.INGESTING.value,
                 claim_id=claim_id,
                 lease_expires_at=lease_until,
+                # A fresh claim starts the count; taking over a lapsed lease means the worker
+                # before stopped mid-source, perhaps killed by this very file (#462).
+                ingest_takeovers=case(
+                    (_S.status == SourceStatus.UPLOADED.value, 0),
+                    else_=_S.ingest_takeovers + 1,
+                ),
             )
             .returning(_S)
         )
@@ -235,3 +242,15 @@ class SqlAlchemyKnowledgeIngestionRepository:
             failed = await session.scalar(statement)
             await session.commit()
             return failed is not None
+
+    async def release(self, source_id: UUID, *, claim_id: UUID) -> bool:
+        statement = (
+            update(_S)
+            .where(held(source_id, claim_id))
+            .values(status=SourceStatus.UPLOADED.value, claim_id=None, lease_expires_at=None)
+            .returning(_S.id)
+        )
+        async with self._session_factory() as session:
+            released = await session.scalar(statement)
+            await session.commit()
+            return released is not None
