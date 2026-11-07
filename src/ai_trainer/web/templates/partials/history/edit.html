@@ -1,0 +1,57 @@
+{#- A saved session's edit form (History v4 mock, frame 4 "Edit form", ticket #516): it fills the same `mat-content` sheet (taller, from just under the top) or 460 px panel as the session view, with a fixed title, a body that scrolls, and a fixed footer of Save `lg-tinted` and Cancel `lg-ghost`. The body is the Gym measures edit fields shared with the chat's draft edit (`components/gym_edit_fields.html`), with the exercise's name shown as text and never posted: renaming stays with the chat's exercise card (B37). The mock's date and time fields are not built here (owner's answer at #516's plan gate; date editing is a follow-up ticket). Save posts the form and swaps `#history-content` for the session view; a rejected value comes back as this form, as typed, with that field marked (422); a refusal (404, 409) leaves it as it is. The scrim, Close and Cancel go back to the session view. The server validates, so the browser's own validation is off (`novalidate`). `values` is what was typed, `errors` the rejected field names. -#}
+{%- from "components/icon.html" import icon -%}
+{%- from "components/gym_edit_fields.html" import gym_edit_fields -%}
+{%- set back = "/history/" ~ open.id -%}
+<a
+  href="{{ back }}"
+  hx-get="{{ back }}"
+  hx-target="#history-content"
+  hx-swap="outerHTML"
+  hx-push-url="true"
+  class="fixed inset-0 z-30 bg-base-300/60 lg:hidden"
+  aria-label="Cancel edit"
+  tabindex="-1"
+></a>
+<form
+  id="history-edit"
+  class="mat-content fixed inset-x-0 top-12 bottom-0 z-40 rounded-t-[32px] px-4 pt-2 pb-6 flex flex-col gap-3 lg:sticky lg:top-8 lg:mt-[60px] lg:inset-x-auto lg:bottom-auto lg:z-auto lg:w-[460px] lg:shrink-0 lg:h-[calc(100dvh-124px)] lg:rounded-box lg:p-5"
+  aria-label="Edit session"
+  novalidate
+  hx-post="/history/{{ open.id }}/edit"
+  hx-target="#history-content"
+  hx-swap="outerHTML"
+  hx-disable="find button[type=submit]"
+  hx-status:404="swap:none"
+  hx-status:409="swap:none"
+>
+  <span class="self-center w-9 h-1.5 rounded-full bg-base-content/25 shrink-0 lg:hidden" aria-hidden="true"></span>
+  <div class="flex items-center justify-between gap-3 shrink-0">
+    <div class="flex flex-col min-w-0">
+      <h2 class="text-[20px]/[26px] font-semibold tracking-tight">Edit {{ open.day.strftime("%a") }} {{ open.day.day }} {{ open.day.strftime("%b") }}</h2>
+      <span class="flex items-center gap-1.5 text-[13px] lbl-2">{{ icon("dumbbell", "size-4") }}Gym · {{ open.exercises | length }} exercise{{ "" if open.exercises | length == 1 else "s" }}</span>
+    </div>
+    <a
+      href="{{ back }}"
+      hx-get="{{ back }}"
+      hx-target="#history-content"
+      hx-swap="outerHTML"
+      hx-push-url="true"
+      class="lg lg-ghost lg-icon shrink-0"
+      aria-label="Close"
+    >{{ icon("x", "size-5") }}</a>
+  </div>
+  <div class="flex-1 min-h-0 overflow-y-auto flex flex-col gap-4 border-t border-base-content/10 pt-3">
+    {{ gym_edit_fields(open.exercises, values, errors, open.id, name_editable=false, labels=open.labels) }}
+  </div>
+  <div class="flex gap-2 shrink-0 border-t border-base-content/10 pt-3">
+    <button type="submit" class="lg lg-tinted flex-1">Save</button>
+    <a
+      href="{{ back }}"
+      hx-get="{{ back }}"
+      hx-target="#history-content"
+      hx-swap="outerHTML"
+      hx-push-url="true"
+      class="lg lg-ghost"
+    >Cancel</a>
+  </div>
+</form>

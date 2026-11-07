@@ -10,7 +10,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai_trainer.adapters.orm import TrainingSessionOrm
-from ai_trainer.application.ports.activities import ActivityStorePort, LoggedActivities
+from ai_trainer.application.ports.activities import (
+    ActivityStorePort,
+    EditedActivities,
+    LoggedActivities,
+)
 from ai_trainer.domain.clarification import Clarification
 from ai_trainer.domain.sports.base import extend_payload, withdraw_payload
 from ai_trainer.domain.sports.registry import SportRegistry
@@ -41,6 +45,12 @@ class PayloadActivityStore:
         return withdraw_payload(self._payload_type, log.session_payload, log.addition).model_dump(
             mode="json"
         )
+
+    async def replace(
+        self, tx: AsyncSession, user_id: UUID, edit: EditedActivities
+    ) -> dict[str, JsonValue]:
+        """The payload is the record here, so the edit is what the session keeps."""
+        return dict(edit.payload)
 
     async def ask(
         self, tx: AsyncSession, user_id: UUID, log: LoggedActivities

@@ -13,8 +13,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ai_trainer.adapters.exercise_names import settle_names
 from ai_trainer.adapters.gym_band_order import ask_for_log
 from ai_trainer.adapters.orm import AthleteBandOrm, GymExerciseEntryOrm, GymSetOrm
-from ai_trainer.application.ports.activities import LoggedActivities
+from ai_trainer.application.ports.activities import EditedActivities, LoggedActivities
 from ai_trainer.domain.clarification import Clarification
+from ai_trainer.domain.history import SessionChangedError
 from ai_trainer.domain.sports.base import withdraw_payload
 from ai_trainer.domain.sports.gym.payload import GymPayload
 from ai_trainer.domain.sports.gym.rows import GymEntryRow, entries_of, unit_of
@@ -80,6 +81,53 @@ class GymActivityStore:
         await tx.execute(insert(GymExerciseEntryOrm), entries)
         await tx.execute(insert(GymSetOrm), sets)
         return {} if log.session_payload is None else dict(log.session_payload)
+
+    async def replace(
+        self, tx: AsyncSession, user_id: UUID, edit: EditedActivities
+    ) -> dict[str, JsonValue]:
+        """The athlete's edit from History (B4, ticket #516): each entry, by position, takes the
+        edit's measure, each side, implements and RIR and keeps its row, its log (`source_id`),
+        its exercise and its name as typed; its sets are replaced, numbered from 1. A band first
+        named here joins the athlete's bands unranked, as in a log, and is asked about by the
+        chat's next band question (ADR-0032, #516 amendment). The rows are the record, so the
+        session keeps its stored payload."""
+        entries = (
+            await tx.scalars(
+                select(GymExerciseEntryOrm)
+                .where(
+                    GymExerciseEntryOrm.user_id == user_id,
+                    GymExerciseEntryOrm.session_id == edit.session_id,
+                )
+                .order_by(GymExerciseEntryOrm.position)
+            )
+        ).all()
+        rows = entries_of(GymPayload.model_validate(edit.payload))
+        if len(rows) != len(entries):
+            raise SessionChangedError(edit.session_id)
+        bands = await self._band_ids(tx, user_id, rows)
+        sets: list[dict[str, object]] = []
+        for entry, row in zip(entries, rows, strict=True):
+            entry.measure = row.measure
+            entry.per_side = row.per_side
+            entry.implements = row.implements
+            entry.rir = row.rir
+            sets.extend(
+                {
+                    "user_id": user_id,
+                    "entry_id": entry.id,
+                    "band_id": bands[gym_set.band_label] if gym_set.band_label else None,
+                    **gym_set.model_dump(),
+                }
+                for gym_set in row.sets
+            )
+        await tx.execute(
+            delete(GymSetOrm).where(
+                GymSetOrm.user_id == user_id,
+                GymSetOrm.entry_id.in_([entry.id for entry in entries]),
+            )
+        )
+        await tx.execute(insert(GymSetOrm), sets)
+        return dict(edit.session_payload)
 
     async def _band_ids(
         self, tx: AsyncSession, user_id: UUID, entries: Sequence[GymEntryRow]

@@ -58,6 +58,7 @@ from ai_trainer.adapters.pmc import PmcCloudFiles, PmcCloudMetadata
 from ai_trainer.adapters.session_draft_repository import SqlAlchemySessionDraftRepository
 from ai_trainer.adapters.sessions_repository import SqlAlchemySessionsRepository
 from ai_trainer.adapters.telemetry import ScrubbingSpanExporter
+from ai_trainer.adapters.training_session_editor import SqlAlchemySessionEditor
 from ai_trainer.adapters.training_session_repository import SqlAlchemyTrainingSessionRepository
 from ai_trainer.adapters.user_status_changer import SqlAlchemyUserStatusChanger
 from ai_trainer.adapters.users_repository import SqlAlchemyUsersRepository
@@ -95,7 +96,7 @@ from ai_trainer.application.ports.llm_gateway import LlmGatewayPort
 from ai_trainer.application.ports.metrics import NO_METRICS, MetricsPort
 from ai_trainer.application.ports.object_storage import ObjectStoragePort
 from ai_trainer.application.reply import ReplyServices
-from ai_trainer.application.session_history import GymSessionHistory
+from ai_trainer.application.session_history import GymSessionEdit, GymSessionHistory
 from ai_trainer.application.training_history import ExerciseTrainingHistory, TrainingHistory
 from ai_trainer.domain.pmc import PMC_JATS_MAX_BYTES
 from ai_trainer.domain.sports.registry import SportRegistry, default_sport_registry
@@ -726,9 +727,15 @@ def create_app(  # noqa: PLR0915 -- composition root: objects are built only her
             ),
         )
     )
+    gym_sessions = SqlAlchemyGymSessionReader(session_factory)
     app.include_router(
         build_history_router(
-            templates, history=GymSessionHistory(SqlAlchemyGymSessionReader(session_factory))
+            templates,
+            history=GymSessionHistory(gym_sessions),
+            editing=GymSessionEdit(
+                gym_sessions,
+                SqlAlchemySessionEditor(session_factory, stores=activity_stores, clock=clock),
+            ),
         )
     )
     app.include_router(build_settings_router(templates, users=users))

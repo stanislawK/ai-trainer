@@ -36,3 +36,23 @@ class HistorySession(BaseModel):
     time: time
     exercises: tuple[Exercise, ...]
     labels: Mapping[str, ExerciseLabel]
+
+
+class SessionEditError(Exception):
+    """The athlete's edit of a saved session has values the payload model rejects (B4, B38,
+    ticket #516). `fields` names each one as the edit form does, e.g.
+    `activities.0.sets.1.reps`; the session is left as it was."""
+
+    def __init__(self, fields: frozenset[str]) -> None:
+        super().__init__(f"invalid fields: {sorted(fields)}")
+        self.fields = fields
+
+
+class SessionNotEditableError(Exception):
+    """The saved session's rows no longer read as a payload a later rule accepts, so it can't
+    be edited as it is (ticket #516); its rows stay as they are."""
+
+
+class SessionChangedError(Exception):
+    """The saved session no longer holds the entries the edit was made on, e.g. a log was
+    added or undone meanwhile (ticket #516); nothing is written."""

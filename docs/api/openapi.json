@@ -1941,6 +1941,84 @@
         "summary": "History Session"
       }
     },
+    "/history/{session_id}/edit": {
+      "get": {
+        "description": "The session's Edit: its exercises and sets as a form in the same sheet or panel.",
+        "operationId": "history_edit_history__session_id__edit_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "History Edit"
+      },
+      "post": {
+        "description": "The edit form's Save (B4): replaces the session's sets and answers with its view,\npushing its URL. A session whose rows no longer read, or that changed meanwhile, is a\n409 and nothing is written.",
+        "operationId": "history_save_history__session_id__edit_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "History Save"
+      }
+    },
     "/messages": {
       "post": {
         "description": "Adds to the conversation the composer shows; with none, the message starts one.",

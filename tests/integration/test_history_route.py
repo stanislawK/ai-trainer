@@ -19,12 +19,14 @@ from ai_trainer.adapters.orm import (
     TrainingSessionOrm,
     TrainingSessionSourceOrm,
 )
+from ai_trainer.adapters.training_session_editor import SqlAlchemySessionEditor
 from ai_trainer.adapters.users_repository import SqlAlchemyUsersRepository
-from ai_trainer.application.session_history import GymSessionHistory
+from ai_trainer.application.session_history import GymSessionEdit, GymSessionHistory
 from ai_trainer.domain.users import NewUser, User, UserStatus
 from ai_trainer.web.history import build_history_router
 from ai_trainer.web.templating import build_templates
-from tests.chat_support import sign_in_as
+from tests.activity_support import STORES
+from tests.chat_support import FixedClock, sign_in_as
 
 _SET = tuple[int | None, Decimal | None, str | None]
 
@@ -122,9 +124,13 @@ async def _session(
 
 def _client(factory: Callable[[], AsyncSession], user: User) -> TestClient:
     app = FastAPI()
+    reader = SqlAlchemyGymSessionReader(factory)
+    editor = SqlAlchemySessionEditor(factory, stores=STORES, clock=FixedClock())
     app.include_router(
         build_history_router(
-            build_templates(), history=GymSessionHistory(SqlAlchemyGymSessionReader(factory))
+            build_templates(),
+            history=GymSessionHistory(reader),
+            editing=GymSessionEdit(reader, editor),
         )
     )
     sign_in_as(app, user.model_copy(update={"timezone": "Europe/Warsaw"}))
@@ -225,7 +231,7 @@ async def test_session_view_shows_exercise_lines(
     assert "Thu 5 Nov" in page
     assert "18:40 · Gym · 1 exercise" in page
     assert "3 \u00d7 8 · 60 kg" in page
-    assert "Edit" not in page
+    assert f'hx-get="/history/{opened}/edit"' in page
     assert "Delete" not in page
     assert 'aria-current="true"' in page
 

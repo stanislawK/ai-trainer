@@ -1,23 +1,23 @@
-"""Reads an athlete's gym sessions for the History page (ADR-0032, ticket #515): the span of each
-session's logs, its entries and sets from the gym's own tables, and the canonical name of an
-entry settled to an exercise. Every statement filters by `user_id` (ADR-0022 invariant 6)."""
+"""Reads an athlete's gym sessions for the History page (ADR-0032, tickets #515 and #516): the
+span of each session's logs, its entries and sets from the gym's own tables, and the canonical
+name of an entry settled to an exercise. Every statement filters by `user_id` (ADR-0022
+invariant 6)."""
 
 from collections import defaultdict
 from collections.abc import Callable, Sequence
-from typing import cast
+from typing import Any, cast
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import Select, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai_trainer.adapters.orm import ExerciseOrm, GymExerciseEntryOrm, GymSetOrm, TrainingSessionOrm
 from ai_trainer.adapters.training_session_repository import select_spans, to_span
 from ai_trainer.domain.exercises import ExerciseLabel
 from ai_trainer.domain.history import StoredGymSession
+from ai_trainer.domain.sports.gym.names import GYM_SPORT_ID
 from ai_trainer.domain.sports.gym.payload import Exercise, GymSet, Measure
 from ai_trainer.domain.sports.gym.rows import load_of
-
-GYM = "gym"
 
 
 def _gym_set(row: GymSetOrm) -> GymSet:
@@ -37,9 +37,21 @@ class SqlAlchemyGymSessionReader:
         self._session_factory = session_factory
 
     async def list_sessions(self, user_id: UUID) -> Sequence[StoredGymSession]:
-        spans = select_spans(user_id).where(TrainingSessionOrm.sport_id == GYM)
+        return await self._read(user_id, select_spans(user_id))
+
+    async def get_session(self, user_id: UUID, session_id: UUID) -> StoredGymSession | None:
+        found = await self._read(
+            user_id, select_spans(user_id).where(TrainingSessionOrm.id == session_id)
+        )
+        return found[0] if found else None
+
+    async def _read(
+        self, user_id: UUID, spans: Select[tuple[Any, ...]]
+    ) -> Sequence[StoredGymSession]:
+        """The gym sessions `spans` selects, with their entries and sets."""
+        gym_spans = spans.where(TrainingSessionOrm.sport_id == GYM_SPORT_ID)
         async with self._session_factory() as db:
-            span_rows = [to_span(row) for row in (await db.execute(spans)).all()]
+            span_rows = [to_span(row) for row in (await db.execute(gym_spans)).all()]
             ids = [span.id for span in span_rows]
             entries = (
                 (
