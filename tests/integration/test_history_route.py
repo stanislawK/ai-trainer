@@ -236,6 +236,21 @@ async def test_session_view_shows_exercise_lines(
     assert 'aria-current="true"' in page
 
 
+async def test_session_rows_link_to_progress(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    user = await _user(db_session_factory)
+    opened = await _session(
+        db_session_factory, user, date(2026, 11, 5), datetime(2026, 11, 5, 17, 40, tzinfo=UTC),
+        {"bench": _BENCH, "squat": _BENCH},
+    )  # fmt: skip
+
+    page = _client(db_session_factory, user).get(f"/history/{opened}").text
+
+    assert f'href="/history/{opened}/exercises/0"' in page
+    assert f'href="/history/{opened}/exercises/1"' in page
+
+
 async def test_htmx_request_gets_partial(
     db_session_factory: Callable[[], AsyncSession],
 ) -> None:

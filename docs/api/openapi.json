@@ -2019,6 +2019,54 @@
         "summary": "History Save"
       }
     },
+    "/history/{session_id}/exercises/{index}": {
+      "get": {
+        "operationId": "exercise_progress_history__session_id__exercises__index__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "index",
+            "required": true,
+            "schema": {
+              "title": "Index",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Exercise Progress"
+      }
+    },
     "/messages": {
       "post": {
         "description": "Adds to the conversation the composer shows; with none, the message starts one.",

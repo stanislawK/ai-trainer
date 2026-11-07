@@ -75,6 +75,7 @@ from ai_trainer.application.exercise_candidates import (
     SearchedExerciseNames,
 )
 from ai_trainer.application.exercise_lookup import ExerciseFinder
+from ai_trainer.application.exercise_progress import ExerciseProgress
 from ai_trainer.application.exercise_resolution import ResolutionLimits, ResolveExercises
 from ai_trainer.application.feedback import FeedbackRecorder
 from ai_trainer.application.knowledge_file_staging import FileStaging
@@ -124,6 +125,7 @@ from ai_trainer.web.auth import build_auth_router
 from ai_trainer.web.chat import build_chat_router
 from ai_trainer.web.csrf import CsrfMiddleware
 from ai_trainer.web.errors import register_error_handlers
+from ai_trainer.web.exercise_progress import build_exercise_progress_router
 from ai_trainer.web.health import build_health_router
 from ai_trainer.web.history import build_history_router
 from ai_trainer.web.rate_limit import RateLimitMiddleware
@@ -728,13 +730,27 @@ def create_app(  # noqa: PLR0915 -- composition root: objects are built only her
         )
     )
     gym_sessions = SqlAlchemyGymSessionReader(session_factory)
+    session_history = GymSessionHistory(gym_sessions)
     app.include_router(
         build_history_router(
             templates,
-            history=GymSessionHistory(gym_sessions),
+            history=session_history,
             editing=GymSessionEdit(
                 gym_sessions,
                 SqlAlchemySessionEditor(session_factory, stores=activity_stores, clock=clock),
+            ),
+        )
+    )
+    app.include_router(
+        build_exercise_progress_router(
+            templates,
+            progress=ExerciseProgress(
+                session_history,
+                ExerciseTrainingHistory(
+                    SqlAlchemyExerciseRepository(session_factory),
+                    SqlAlchemyExerciseHistory(session_factory),
+                ),
+                SqlAlchemyBandOrder(session_factory),
             ),
         )
     )

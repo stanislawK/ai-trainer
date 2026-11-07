@@ -1,4 +1,4 @@
-{#- One saved session: a `mat-content` sheet from the bottom over a scrim on a phone, a 460 px panel beside the list from `lg` (History v4 mock, ticket #515). The scrim and Close go back to the list. Under the title, Edit `lg-clear` opens the edit form in the same sheet or panel (#516); Delete and progress are #518 and #517. -#}
+{#- One saved session: a `mat-content` sheet from the bottom over a scrim on a phone, a 460 px panel beside the list from `lg` (History v4 mock, ticket #515). The scrim and Close go back to the list. Under the title, Edit `lg-clear` opens the edit form in the same sheet or panel (#516); each exercise row opens its progress (#517); Delete is #518. -#}
 {% from "components/icon.html" import icon %}
 {% from "components/gym_copy.html" import done, exercise_name %}
 <a
@@ -46,9 +46,14 @@
     {% for exercise in open.exercises %}
     {%- set label = open.labels.get(exercise.name_as_typed) %}
     {%- set line = done(exercise) | trim %}
-    <li class="border-t border-base-content/10 first:border-t-0 flex flex-col py-2.5 min-h-11">
-      <span class="text-[15px] font-medium">{{ label.name if label else exercise_name(exercise.name_as_typed) }}</span>
-      {% if line %}<span class="text-[14px] tabular-nums lbl-2">{{ line }}</span>{% endif %}
+    <li class="border-t border-base-content/10 first:border-t-0">
+      <a href="/history/{{ open.id }}/exercises/{{ loop.index0 }}" class="flex items-center gap-3 py-2.5 min-h-11">
+        <span class="flex flex-col flex-1 min-w-0">
+          <span class="text-[15px] font-medium">{{ label.name if label else exercise_name(exercise.name_as_typed) }}</span>
+          {% if line %}<span class="text-[14px] tabular-nums lbl-2">{{ line }}</span>{% endif %}
+        </span>
+        {{ icon("chevron-right", "size-4 lbl-2 shrink-0") }}
+      </a>
     </li>
     {% endfor %}
   </ul>
