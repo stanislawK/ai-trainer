@@ -100,12 +100,22 @@ Media is linked to the catalogue exercise, never to a name. Every alias, history
 - **Other sources:** get candidate exercises from trigram similarity, and from embeddings once ADR-0033's model is chosen. Jev confirms or abstains, and links are written as `suggested`. An admin approves them in bulk at `/admin/exercises`.
 - **Storage:** the media bucket behind `ObjectStoragePort` (ADR-0033). It holds no user data, so it is served publicly through an R2 custom domain with Cloudflare caching, never `r2.dev`, which Cloudflare reserves for non-production traffic ([R2 public buckets](https://developers.cloudflare.com/r2/buckets/public-buckets/)). The attribution is shown next to the media.
 
-No media is imported until a source is chosen under PRD 0012 G16. That is a ticket, not this ADR.
+No media is imported from a source other than the one chosen below, and none from a source PRD 0012 G16 puts *out*, without permission.
 
 - **`licensed`** (our own drawings, an open licence, or permission we hold) may be `stored` in the media bucket, or `embedded`.
 - **`unstated`** (published freely by its owner, no licence stated) is only `embedded`: the card uses the source's own embed, such as YouTube's player, or a link to its page. Nothing is downloaded or re-hosted, and the source's own measures against framing or hotlinking are respected; where they apply, the card links out instead. The card shows "rights not confirmed" in place of a licence.
 - Media G16 puts *out* is not imported, as either kind, without permission.
 - **`removed`** is the takedown path. It hides the link at once. For `stored` media it also moves the object out of the public bucket to a private quarantine key and purges its Cloudflare cache entry, so the public URL stops serving it. The row is kept, so a removal can be audited and undone, and an importer skips a `sha256` or `embed_url` that is `removed`.
+
+#### First media source (#514)
+
+Owner-directed 2026-11-07, at #514. Evidence: [exercise-media.md](../research/exercise-media.md).
+
+- **Source:** `wger` images ([API](https://wger.de/api/v2/exerciseimage/)). **Tier:** `licensed` (G16). **Delivery:** `stored` in the media bucket. `license` is each image's own: CC BY-SA 4 or CC BY-SA 3 (every image read on 2026-11-02 was one of the two).
+- **Attribution**, shown beside the image: `<author> · <licence name> (<licence URL>) — via wger.de`. Author, licence name and URL come from that image's own record into `attribution` and `license`.
+- **Use rule:** the file is served unaltered, scaled by CSS only, with the credit and licence link beside it. Whether that avoids ShareAlike is not settled by any source read. The owner accepts the remaining risk as a non-commercial side project (G17), and a rights holder's removal request is honoured at once through `removed` (G16).
+- **Skipped at admin review (F24):** an image with no author, and one wger flags as AI-generated (kept in `source_ref` at import). This rule is the agent's, offered with the recommended option; the owner confirms it in the PR review.
+- **Rejected:** Gym visual, because the owner will not pay for content in a side project, so G16 *Out* holds until permission is held. `free-exercise-db`'s images, because G16 puts them *Out*: its maintainer does not know their origin ([issue #2](https://github.com/yuhonas/free-exercise-db/issues/2)) and finding 1 of the research calls them likely infringing.
 
 ### Invariants
 
@@ -131,7 +141,7 @@ No media is imported until a source is chosen under PRD 0012 G16. That is a tick
 - The migration adds `CREATE EXTENSION IF NOT EXISTS pg_trgm` and `unaccent`. Both are expand-only (ADR-0024).
 - ADR-0020's catalogue candidate is delivered here. The set starts at a conservative threshold and is tuned from feedback (ADR-0034).
 - The F23 card needs a Claude Design mock with a media slot before its web ticket (ADR-0019).
-- ⚠ The media source (a Gym visual license, an openly licensed set, or drawings) is a spike ticket. Until it lands, cards show text only.
+- ⚠ The media source is `wger` (see "First media source (#514)", 2026-11-07). The import is the M2m ticket's work. Until it lands, cards show text only.
 - Owner-directed amendment, 2026-11-07, with [PRD 0012](../prd/0012-ai-training-companion.md) (F24, G16, G17). It is proposed for the owner's review with this branch's PR and holds once PRD 0012 is Approved. The app is a non-commercial side project, so media its owner published freely without stating a licence may be embedded after an admin approves it. This adds `rights`, `delivery`, `embed_url` and `removed` above, relaxes "a license we hold" and invariant 5, and leaves the admin gate and the attribution rule for licensed media as they were.
   - **Why embed, not copy.** Under EU case law, linking to or framing a work its owner made freely available is not a communication to the public, unless it gets around a measure against framing. The cases are *Svensson*, *BestWater* and *VG Bild-Kunst*. A non-profit linker's lack of knowledge that a source infringes counts in its favour, but is not presumed, and a linker who knew or ought to have known is liable (*GS Media*). See [exercise-media.md](../research/exercise-media.md), finding 7.
   - **Sources under this rule.** `wger`'s CC BY-SA images are `licensed`. Gym visual's GIFs stay out: the dataset's [NOTICE.md](https://github.com/hasaneyldrm/exercises-dataset/blob/main/NOTICE.md) excludes them from its MIT licence (read 2026-10-29). `free-exercise-db`'s images stay out as well, even as links, since its maintainer does not know their origin ([issue #2](https://github.com/yuhonas/free-exercise-db/issues/2), read 2026-11-02) and finding 1 calls them likely infringing. Either can become `licensed` with written permission.

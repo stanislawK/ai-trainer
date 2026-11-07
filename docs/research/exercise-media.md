@@ -4,7 +4,7 @@
 |---|---|
 | Ticket | #416 |
 | Read on | 2026-11-02; finding 7 added 2026-11-07 |
-| Feeds | ADR-0031 (media links); the M2m "Show me" milestone and its licensed-media-source ticket (PRD 0010 F24) |
+| Feeds | ADR-0031 (media links); the M2m "Show me" milestone and its licensed-media-source ticket (PRD 0010 F24). Used at #514 (2026-11-07): the pick is recorded in ADR-0031, "First media source (#514)" |
 
 This document decides nothing. It compares where exercise pictures could come from, so the owner can pick one and M2m can be ticketed. Reads were free: no paid model call was made and no athlete data left the project.
 
@@ -121,6 +121,8 @@ What this means for the options above:
 
 ## Recommendations for this project
 
+> Decision, 2026-11-07 (#514): the owner picked `wger` and rejected Gym visual on cost. See "Decision" below and ADR-0031. The inputs that follow are kept as written.
+
 These are inputs for the owner and for the M2m ticket. None of them decides anything, and none contradicts ADR-0031: it already says no media is imported "until a source with a license we hold is chosen".
 
 - Treat `free-exercise-db` images as unusable. Its text and JSON may still be useful as data, which is outside this ticket.
@@ -130,19 +132,29 @@ These are inputs for the owner and for the M2m ticket. None of them decides anyt
 - Run a small image-model sample only if the owner asks. It is the one paid step and the least known on rights.
 - If the owner picks an option that changes ADR-0031's media tables or the PRD's F24 wording, that change goes through `/update-docs`.
 
+## Decision (2026-11-07, #514)
+
+The owner picked `wger` as the first source: `licensed`, `stored`, CC BY-SA per image. Gym visual is rejected (cost: a side project that will not pay for content; G16 *Out* until permission is held), and `free-exercise-db` is rejected as G16 *Out* (finding 1). This document still decides nothing: the pick, the tier, the delivery and the attribution text are in [ADR-0031, "First media source (#514)"](../adr/0031-exercise-catalogue-and-name-resolution.md).
+
 ## Open questions
 
-- **Gym visual terms, price and app use.** Both pages returned HTTP 403 to automated fetches on 2026-11-02. Settled by the owner reading https://gymvisual.com/content/3-terms-and-conditions-of-use in a browser, or by asking Gym visual for a quote.
-- **Other open image sets.** Only `free-exercise-db` and `wger` were checked. Settled by a wider search if the owner wants an alternative to Gym visual.
-- **CC BY-SA and in-app use.** Whether an unaltered or resized `wger` picture in the app is an adaptation under Polish and EU law is not settled by the FAQ read. Settled by a lawyer, or by choosing another option.
-- **`wger` images with no author.** 104 of 383 have an empty author field. How to attribute them is not answered by any source read.
-- **OpenAI's terms on output.** HTTP 403 on 2026-11-02. Settled by reading them in a browser, or by dropping OpenAI from the shortlist.
-- **Copyrightability of AI output.** The US Copyright Office report on copyrightability was not read. It is a US view, and the project is Europe first. Settled by reading that report and an EU source, and it bears on whether an SVG or an image-model picture can be owned at all.
-- **Which Anthropic terms govern a Claude-written SVG used in the product.** The consumer terms bar commercial use and the commercial terms assign outputs. Which applies depends on the account used to write the SVG. Settled by the owner.
-- **Cost of an SVG, and where it is stored.** No per-SVG token count was kept, and no source read says whether a drawing belongs in the media bucket or the table. Settled by writing one SVG with a token count kept, and by the M2m ticket.
-- **Per-image cost of the image models.** OpenRouter's `image_output` unit is not stated in the listing. Settled by `get-model` on a chosen model, or by the one paid sample.
-- **Form accuracy of an image model and of Gym visual's pictures.** Neither was seen. Settled by a sample the owner asks for, and by reading Gym visual's terms first.
-- **Whether the catalogue's `wger` matches are the right variants.** Hits were matched by name only. Settled by an admin looking at each picture, which F24 already requires.
+Resolved at #514 (2026-11-07) for the `wger` pick:
+
+- **Gym visual terms, price and app use.** Answered: ruled out by the owner on cost. The terms were read in a browser by the owner, who recorded no price. Not pursued further.
+- **CC BY-SA and in-app use.** Answered as a rule, not as law: serve the file unaltered, scaled by CSS only, with credit and licence link beside it. The remaining adaptation risk is accepted by the owner (side project, G17), and a rights holder's removal request is honoured at once (G16).
+- **`wger` images with no author.** Answered: skipped at admin review (F24), not shown.
+- **AI-flagged `wger` images.** Answered: skipped likewise; the flag is stored in `source_ref` at import. This rule is the agent's, offered with the recommended option, and the owner confirms it in the PR review.
+- **Whether the catalogue's `wger` matches are the right variants.** Answered: an admin looks at each picture, which F24 already requires.
+
+Not needed for the pick (they concern options not chosen):
+
+- **Other open image sets.** Not needed for the pick.
+- **OpenAI's terms on output.** Not needed for the pick.
+- **Copyrightability of AI output.** Not needed for the pick.
+- **Which Anthropic terms govern a Claude-written SVG used in the product.** Not needed for the pick.
+- **Cost of an SVG, and where it is stored.** Not needed for the pick.
+- **Per-image cost of the image models.** Not needed for the pick.
+- **Form accuracy of an image model and of Gym visual's pictures.** Not needed for the pick.
 
 ## Sources
 
