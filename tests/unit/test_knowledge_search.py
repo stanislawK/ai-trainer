@@ -13,6 +13,7 @@ from ai_trainer.domain.embeddings import (
     EmbeddingFailed,
     EmbeddingFailure,
     EmbeddingOutcome,
+    QueryTask,
     RateLimited,
 )
 from ai_trainer.domain.knowledge import EvidenceTier, SourceLanguage, SourceType
@@ -55,9 +56,13 @@ class _Embeddings:
     def __init__(self, outcome: EmbeddingOutcome | None = None) -> None:
         self.outcome = outcome or Embedded(vectors=(_VECTOR,), model=_MODEL)
         self.calls: list[tuple[str, UUID]] = []
+        self.tasks: list[QueryTask] = []
 
-    async def embed_query(self, text: str, *, acting_user_id: UUID) -> EmbeddingOutcome:
+    async def embed_query(
+        self, text: str, *, acting_user_id: UUID, task: QueryTask = QueryTask.QUESTION
+    ) -> EmbeddingOutcome:
         self.calls.append((text, acting_user_id))
+        self.tasks.append(task)
         return self.outcome
 
 
@@ -124,6 +129,18 @@ async def test_hits_are_fused_from_both_legs_best_first() -> None:
     assert page.hits[0] == both
     assert {hit.chunk_id for hit in page.hits} == {both.chunk_id, meaning.chunk_id, words.chunk_id}
     assert page.truncated is False
+
+
+async def test_a_question_is_embedded_as_a_question_unless_the_query_says_otherwise() -> None:
+    embeddings = _Embeddings()
+    search = _search(_Repository(by_words=[_hit("x")]), embeddings)
+
+    await search.search(_ATHLETE, KnowledgeSearchQuery(text="how often to deload?"))
+    await search.search(
+        _ATHLETE, KnowledgeSearchQuery(text="rising straight arms", task=QueryTask.EXERCISE)
+    )
+
+    assert embeddings.tasks == [QueryTask.QUESTION, QueryTask.EXERCISE]
 
 
 async def test_the_query_is_embedded_for_the_athlete_and_both_legs_get_the_filters() -> None:

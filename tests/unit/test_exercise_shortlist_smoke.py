@@ -325,7 +325,10 @@ def test_the_committed_set_has_five_cases_with_an_easy_a_tie_and_a_none() -> Non
     assert len(smoke_set.cases) == len(cases)
     assert "none" in labels
     assert any(label != "none" for label in labels)
-    assert smoke_set.known_gaps == {}
+    # The pick cases all pass; only live recall cases are known gaps, each with its ticket (#508).
+    live = {case["name"] for case in cases if case["inputs"]["deps"].get("live")}
+    assert set(smoke_set.known_gaps) <= live
+    assert set(smoke_set.known_gaps.values()) == {"#508"}
     assert not smoke_set.has_judge
 
 

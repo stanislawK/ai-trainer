@@ -11,6 +11,12 @@
 # false and true, for the before and the after; they need `uv run ai-trainer import-exercises`,
 # for the search also an ingest (`make ingest-once`), and an active admin in ADMIN_EMAILS.
 name: exercise_shortlist
+# Measured at #429 (2026-11-07), search off then on: 1 of 4 live cases passes, then 2 of 4.
+# "live pull ups" passes only with the search on, which ships off; the other two fail either way.
+known_gaps:
+  live rising straight arms: "#508"
+  live triceps arm bent to 90: "#508"
+  live pull ups: "#508"
 cases:
 - name: pull ups
   metadata:

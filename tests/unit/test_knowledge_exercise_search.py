@@ -17,6 +17,7 @@ from ai_trainer.domain.embeddings import (
     EmbeddingFailed,
     EmbeddingFailure,
     EmbeddingOutcome,
+    QueryTask,
 )
 from ai_trainer.domain.knowledge import EvidenceTier, SourceLanguage, SourceType
 from ai_trainer.domain.knowledge_document import SectionLocator
@@ -53,9 +54,13 @@ class _Embeddings:
     def __init__(self, outcome: EmbeddingOutcome) -> None:
         self.outcome = outcome
         self.asked: list[tuple[str, UUID]] = []
+        self.tasks: list[QueryTask] = []
 
-    async def embed_query(self, text: str, *, acting_user_id: UUID) -> EmbeddingOutcome:
+    async def embed_query(
+        self, text: str, *, acting_user_id: UUID, task: QueryTask = QueryTask.QUESTION
+    ) -> EmbeddingOutcome:
         self.asked.append((text, acting_user_id))
+        self.tasks.append(task)
         return self.outcome
 
 
@@ -104,6 +109,8 @@ async def test_it_searches_the_gym_for_the_typed_name_as_the_athlete() -> None:
     await _search(repository, embeddings).similar(_ATHLETE, "rising straight arms")
 
     assert embeddings.asked == [("rising straight arms", _ATHLETE)]
+    # A typed name describes a movement, so it is embedded behind the exercise instruction.
+    assert embeddings.tasks == [QueryTask.EXERCISE]
     assert [f.sport_id for f in repository.filters] == ["gym"]
 
 

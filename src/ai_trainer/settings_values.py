@@ -18,7 +18,7 @@ class ExerciseSearchSettings(BaseModel):
     measured it; the search is cut off after the timeout and today's shortlist stands."""
 
     exercise_search_enabled: bool = False
-    exercise_search_timeout_seconds: float = Field(default=1.5, gt=0)
+    exercise_search_timeout_seconds: float = Field(default=2.5, gt=0)
 
 
 def split_comma_separated(value: Any) -> Any:  # noqa: ANN401 -- raw env input of any type

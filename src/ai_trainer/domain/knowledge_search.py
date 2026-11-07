@@ -9,6 +9,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
 
+from ai_trainer.domain.embeddings import QueryTask
 from ai_trainer.domain.knowledge import EvidenceTier, SourceLanguage, SourceType
 from ai_trainer.domain.knowledge_document import Locator
 
@@ -84,6 +85,8 @@ class KnowledgeSearchQuery:
     topics: tuple[str, ...] = ()
     exercise_id: UUID | None = None
     limit: int = DEFAULT_HITS
+    # What the text is, which picks the instruction its embedding carries (#429).
+    task: QueryTask = QueryTask.QUESTION
 
 
 @dataclass(frozen=True, slots=True)

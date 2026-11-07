@@ -80,7 +80,7 @@ The draft carries `exercise_id` per activity. The typed name always stays as `na
 **The shortlist is best effort until the knowledge base lands.** Owner-directed 2026-10-31. Guessing a name the athlete paraphrased is not a bar for M1g:
 - A missed guess costs one tap on "Keep my name", and history remembers the answer from then on.
 - M1g sets no recall target and evaluates the shortlist no further than the decision set's smoke set of 5 cases (ADR-0034).
-- Better matching comes from M3's search over the catalogue texts (ADR-0033), and is measured then, on real data.
+- Better matching comes from M3's search over the catalogue texts (ADR-0033), and is measured then, on real data. It was measured at #429 (see the amendment under Consequences): the search helps some names and not the paraphrase that motivated it, so the shortlist stays best effort.
 
 **No language step.** Matching runs over aliases and texts in every language, and trigram search needs no language. A Jev language check would add a round trip to the hot path and decide nothing that matching needs. If a later feature needs the language, a local detector library is cheaper than a model call.
 
@@ -120,7 +120,7 @@ No media is imported until a source with a license we hold is chosen. That is a 
 ## Consequences
 
 - `gym.extract` keeps copying the name as typed, which history matches on (invariant 4), and gains the measures (ADR-0032). Resolution names the exercise. The new template version goes through `/tune-prompt` (ADR-0034).
-- ⚠ Expect paraphrases to miss, accepted above. A Python approximation of `pg_trgm` on the pinned dataset, 2026-10-31, ranks `dumbbell lateral raise` 178th among dumbbell exercises for "Rising straight arms on both sides", and "Face pull" isn't in the dataset. Plain names such as "Bench press" and "Plank" do find the right family of exercises.
+- ⚠ Expect paraphrases to miss, accepted above. A Python approximation of `pg_trgm` on the pinned dataset, 2026-10-31, ranks `dumbbell lateral raise` 178th among dumbbell exercises for "Rising straight arms on both sides", and "Face pull" isn't in the dataset. Plain names such as "Bench press" and "Plank" do find the right family of exercises. At #429 the catalogue search ranks it 5th, still outside the four candidates (2026-11-07, below).
 - Reading sets and reps (owner-directed 2026-10-31, #373): "3x8", "3 x 8" and "3×8" are 3 sets of 8 reps, the first number being the sets. After a number of reps, an "x" attached to the next number counts the sets: "8 x3" and "8 pull-ups 3x" are 3 sets of 8. A lone "x5" after a load or a name ("140kg x5") is 5 reps. The owner narrowed the plan-gate wording after review, because "an x attached to one number counts the sets" also read "140kg x5" as 5 sets. The athlete corrects any misread on the draft card.
 - The migration adds `CREATE EXTENSION IF NOT EXISTS pg_trgm` and `unaccent`. Both are expand-only (ADR-0024).
 - ADR-0020's catalogue candidate is delivered here. The set starts at a conservative threshold and is tuned from feedback (ADR-0034).
@@ -180,3 +180,36 @@ No media is imported until a source with a license we hold is chosen. That is a 
   - **Source defects, handled in `overrides.yaml`.** Ten pairs of rows share a name after cleaning, two of them differing only in punctuation (`close grip`, `close-grip`), so one of each is skipped: 1,324 − 10 + 1 (Face Pull) = 1,315 rows. Four names hold a mis-encoded degree sign (`45в°`), one a stray `_shoulder` and one a bare `male` with no brackets; they are renamed. The import refuses two rows a person couldn't tell apart and an override naming an unknown row, so a pin bump can't add either unnoticed.
   - **Attribution.** Every source row's `attribution` is the media credit `© Gym visual`, which doesn't apply to the data. Rows store our own text naming the MIT-licensed data, the commit and the fetch date (G10), and `data/catalogue/LICENSE.exercises-dataset` keeps the notice MIT requires.
   - **Measures.** `resistance band` counts as a band, like `band`. Other equipment follows the `load_reps` rule, so a stability-ball crunch defaults to `load_reps` with its load left empty.
+- **Amended at #429 (the catalogue search as a third input), owner-directed at its plan gate, 2026-11-07.** The owner kept the cap at `exercise_shortlist_size` and asked for the search's ranking to be fixed first, and for the acceptance criterion to be amended only if that still missed. It still missed. The figures are from the imported catalogue (1,315 exercises, English and Polish texts embedded with `qwen/qwen3-embedding-8b`), measured on this ticket's worktree on 2026-11-07 with `uv run ai-trainer-evals smoke exercise_shortlist` and `make latency-scenario sport=gym`.
+  - **Shape.** `SearchedExerciseNames` (`application/exercise_candidates.py`) decorates `ExerciseNamesPort`. For a name history doesn't know it fuses two rankings of exercises by reciprocal rank at k = 60:
+    - today's trigram and full-text list, read 20 deep;
+    - `search_knowledge` filtered to `gym`, 20 deep per leg, each exercise at its best passage.
+
+    It cuts the fused list at the cap, rereads the exercises the athlete can see (invariant 3) and hands them to Jev and the card as before. Jev's question, its candidate count and `exercise_pick_threshold` are unchanged.
+  - **History is still first.** A name the athlete settled is answered before any shortlist is read, so it makes no search and no embedding call.
+  - **The query instruction.** A typed name describes a movement, it isn't a question, so it is embedded behind its own instruction, `exercise.query` v1 (`llm/prompts/exercise.query/v1.en.md`, keyed so in `llm_calls`): "Retrieve the how-to instructions of the gym exercise whose movement matches this description". The knowledge question's instruction ranked Dumbbell Lateral Raise 23rd for "rising straight arms on both sides", and this one 5th. Five wordings were tried on four cases from one transcript, so the choice is fitted to them. The text leg is empty for the two paraphrases (`websearch_to_tsquery` needs every word), so leaving it out changes nothing there.
+  - **Fallback and timeout.** A search that fails, is empty or runs past `EXERCISE_SEARCH_TIMEOUT_SECONDS` (default 2.5 s) leaves today's shortlist, and the log still drafts. Only a search that answered is remembered, for the latest 256 athlete-and-name pairs and as IDs alone, because a name Jev isn't sure of is shortlisted twice, once to pick and once for the card, and the first run paid two embeddings per new name.
+  - **Off by default.** `EXERCISE_SEARCH_ENABLED` ships `false`. It needs the catalogue imported and ingested (`import-exercises`, then the `ingest` container) in the environment it is turned on in; without chunks the search finds nothing and falls back. Turning it on is the owner's step.
+  - **Rank of the wanted exercise** (search alone, exercise level, depth 20 and a 200-deep probe). "Final" is the fused shortlist of 4:
+
+    | Typed name | Wanted | Question instruction | `exercise.query` v1 | In the final 4 |
+    |---|---|---|---|---|
+    | rising straight arms on both sides | Dumbbell Lateral Raise | 23rd | 5th | no |
+    | Triceps - straightening arm bent to 90 degr | Dumbbell Kickback | 22nd | beyond 20th | no |
+    | Pull ups | Pull-Up | 7th | 6th | yes (was no) |
+    | Face pull | Face Pull | 1st | 1st | yes |
+
+    The kickback label is the agent's reading of the owner's wording, to be confirmed (#508).
+  - **Smoke set.** The `live` recall cases of `exercise_shortlist` pass 1 of 4 with the search off and 2 of 4 with it on; the five pick cases pass in both.
+  - **The pool was not widened.** A pool of 25 candidates would leave the card at 4, so the athlete would not see the right exercise, and it would change Jev's inputs without recalibrating its threshold (ADR-0020, ADR-0034). Probed on 2026-11-07: even with Dumbbell Lateral Raise in a pool of 25, Jev answers "none" at 0.9.
+  - **G14 holds.** Eight runs of 10 gym log turns, new athlete each run, `.env.example` models and timeouts:
+
+    | | Search off | Search on (2.5 s) |
+    |---|---|---|
+    | All 40 log turns, p50 / p95 / max | 1.46 s / 2.29 s / 4.4 s | 2.24 s / 4.06 s / 6.9 s |
+    | 16 turns with a new name, p50 / p95 | 1.68 s / 4.42 s | 2.59 s / 6.88 s |
+    | Embedding call, p50 / p95 / max | not made | 0.40 s / 1.77 s / 1.91 s (20 calls, none failed) |
+    | Timeouts, failures | 0, 0 | 0, 0 |
+
+    With a 1.5 s timeout 2 of 22 embedding calls were cut off and fell back, which is why the default is 2.5 s. The scenario's USD per log turn did not change at six decimals. Percentiles are nearest rank over the pooled turns, as the scenario computes them. The run-to-run spread is wide, so read the added 0.4 to 0.9 s as a rough size.
+  - **Not done.** `find_exercise` (ADR-0010) still uses today's shortlist. The acceptance criterion "lists Dumbbell Lateral Raise among its candidates" is amended to "ranks higher than before" (23rd to 5th). Getting it into the four is #508.

@@ -198,6 +198,67 @@ async def test_the_trigram_leg_is_read_deeper_than_the_cap() -> None:
     assert inner.shortlisted == [20]
 
 
+async def _ask(names: SearchedExerciseNames, user_id: UUID, name: str) -> None:
+    await names.shortlist(
+        user_id, sport_id="gym", name=name, measure="load_reps", floor=0.25, limit=4
+    )
+
+
+async def test_the_card_reuses_the_search_jev_was_just_shown() -> None:
+    # Settling asks for the shortlist, then the card asks again for the same name: one embedding.
+    search = _Search([_LATERAL])
+    names = _names([_STABILITY], search)
+
+    await _ask(names, _USER, _TYPED)
+    await _ask(names, _USER, _TYPED)
+
+    assert search.asked == [(_USER, _TYPED)]
+
+
+async def test_another_athlete_or_another_name_searches_again() -> None:
+    search = _Search([_LATERAL])
+    names = _names([], search)
+    other = uuid4()
+
+    await _ask(names, _USER, _TYPED)
+    await _ask(names, other, _TYPED)
+    await _ask(names, _USER, "face pull")
+
+    assert search.asked == [(_USER, _TYPED), (other, _TYPED), (_USER, "face pull")]
+
+
+async def test_a_failed_search_is_not_remembered() -> None:
+    search = _Search([_LATERAL], fail=True)
+    names = _names([_STABILITY], search)
+
+    await _ask(names, _USER, _TYPED)
+    search.fail = False
+    await _ask(names, _USER, _TYPED)
+
+    assert len(search.asked) == 2
+    assert await _shortlist(names) == [_STABILITY, _LATERAL]  # and the second try was kept
+
+
+async def test_only_the_most_recent_searches_are_remembered() -> None:
+    search = _Search([_LATERAL])
+    names = SearchedExerciseNames(_Names([]), search, _Reader(), timeout_seconds=1.0, remembered=2)
+
+    for typed in ("one", "two", "three", "one"):
+        await _ask(names, _USER, typed)
+
+    assert [name for _, name in search.asked] == ["one", "two", "three", "one"]
+
+
+async def test_a_recently_used_search_stays_remembered() -> None:
+    search = _Search([_LATERAL])
+    names = SearchedExerciseNames(_Names([]), search, _Reader(), timeout_seconds=1.0, remembered=2)
+
+    for typed in ("one", "two", "one", "three", "one"):
+        await _ask(names, _USER, typed)
+
+    assert [name for _, name in search.asked] == ["one", "two", "three"]
+
+
 async def test_a_failing_trigram_read_fails_the_shortlist_and_stops_the_search() -> None:
     class _Broken(_Names):
         async def shortlist(self, *args: object, **kwargs: object) -> Sequence[ExerciseCandidate]:

@@ -16,11 +16,14 @@ from ai_trainer.domain.embeddings import (
     Embedded,
     EmbeddingFailed,
     EmbeddingFailure,
+    QueryTask,
     RateLimited,
 )
 from ai_trainer.domain.llm_calls import LlmCall, LlmCallOutcome, NewLlmCall, ProviderPreferences
 from ai_trainer.llm.embeddings import (
     EMBEDDING_TEMPLATE_ID,
+    EXERCISE_QUERY_TEMPLATE_ID,
+    EXERCISE_QUERY_TEMPLATE_VERSION,
     QUERY_TEMPLATE_ID,
     QUERY_TEMPLATE_VERSION,
     OpenRouterEmbeddingGateway,
@@ -276,6 +279,31 @@ async def test_a_query_embedding_writes_one_llm_calls_row_for_the_athlete() -> N
         LlmCallOutcome.SUCCESS,
     )
     assert (QUERY_TEMPLATE_ID, QUERY_TEMPLATE_VERSION) == ("knowledge.query", 1)
+
+
+async def test_an_exercise_query_carries_its_own_instruction_and_template_key() -> None:
+    """#429: a typed gym name is a description of a movement, not a question, so it is embedded
+    behind `exercise.query` v1 and its row is keyed to that template."""
+    sent: list[httpx2.Request] = []
+    calls = _Calls()
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        sent.append(request)
+        return _ok(1)
+
+    await _gateway(handler, calls).embed_query(
+        "rising straight arms on both sides", acting_user_id=_ATHLETE, task=QueryTask.EXERCISE
+    )
+
+    (request,) = sent
+    [text] = json.loads(request.content)["input"]
+    assert text == f"{query_instruction(QueryTask.EXERCISE)}rising straight arms on both sides"
+    assert text.startswith("Instruct: ")
+    assert "\nQuery:" in text
+    assert query_instruction(QueryTask.EXERCISE) != query_instruction(QueryTask.QUESTION)
+    (row,) = calls.recorded
+    assert (row.template_id, row.template_version) == ("exercise.query", 1)
+    assert (EXERCISE_QUERY_TEMPLATE_ID, EXERCISE_QUERY_TEMPLATE_VERSION) == ("exercise.query", 1)
 
 
 async def test_a_failed_query_embedding_is_a_value_with_an_error_row() -> None:
