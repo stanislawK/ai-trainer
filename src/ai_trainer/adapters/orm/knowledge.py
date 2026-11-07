@@ -136,6 +136,10 @@ class KnowledgeSourceOrm(Base):
     # What the last ingest stored, written with its chunks, for the admin list (#423).
     chunk_count: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     embedding_model: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Takeovers of a lapsed lease since the last claim from `uploaded` (#462).
+    ingest_takeovers: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, server_default=text("0")
+    )
 
 
 class KnowledgeChunkOrm(Base):

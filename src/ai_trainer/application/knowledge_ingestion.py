@@ -88,6 +88,7 @@ class KnowledgeIngestion:
         batch_size: int,
         max_attempts: int,
         lease: timedelta,
+        max_takeovers: int,
         catalogue: CatalogueIngestion,
         pmc: PmcSourceFile,
     ) -> None:
@@ -103,13 +104,19 @@ class KnowledgeIngestion:
         self._batch_size = batch_size
         self._max_attempts = max_attempts
         self._lease = lease
+        self._max_takeovers = max_takeovers
 
     async def run(
         self, *, poll_seconds: float, on_report: Callable[[IngestReport], Awaitable[None]]
     ) -> None:
-        """Ingests sources as they arrive, until cancelled."""
+        """Ingests sources as they arrive, until cancelled. A queue error (a database blip) is
+        logged and the loop goes on, so it never ends the `ingest` container's process (#462)."""
         while True:
-            report = await self.ingest_next()
+            try:
+                report = await self.ingest_next()
+            except Exception as exc:
+                logger.warning("ingest poll failed: %s", type(exc).__name__)
+                report = None
             if report is None:
                 await self._sleep(poll_seconds)
             else:
@@ -130,14 +137,29 @@ class KnowledgeIngestion:
         )
         if source is None:
             return None
+        if source.ingest_takeovers > self._max_takeovers:
+            return await self._fail(source, claim_id, IngestFailure.WORKER_CRASHED)
         lost = asyncio.Event()
         heartbeat = asyncio.create_task(self._heartbeat(source.id, claim_id, lost))
         try:
             return await self._ingest(source, claim_id, lost)
+        except BaseException:
+            # Stopped on purpose (SIGTERM cancels it) or by a queue error: hand the source back
+            # now, so it isn't left to lapse and counted as a crash (#462). An OOM kill never
+            # gets here, and that is the case the takeover count is for.
+            await self._release(source.id, claim_id)
+            raise
         finally:
             heartbeat.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await heartbeat
+
+    async def _release(self, source_id: UUID, claim_id: UUID) -> None:
+        try:
+            await self._repository.release(source_id, claim_id=claim_id)
+        except Exception as exc:
+            # Best effort: the lease lapses on its own, and the first error is the one to raise.
+            logger.warning("ingest release failed: %s", type(exc).__name__)
 
     async def _heartbeat(self, source_id: UUID, claim_id: UUID, lost: asyncio.Event) -> None:
         interval = self._lease.total_seconds() / 3

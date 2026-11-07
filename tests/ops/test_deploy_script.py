@@ -159,6 +159,9 @@ if "exec" in args and "wget" in args:
 if "up" in args and "alloy" in args and os.environ.get("FAKE_ALLOY_FAIL"):
     sys.stderr.write("Error response from daemon: alloy failed to start\\n")
     sys.exit(1)
+if "up" in args and "ingest" in args and os.environ.get("FAKE_INGEST_FAIL"):
+    sys.stderr.write("Error response from daemon: ingest failed to start\\n")
+    sys.exit(1)
 if "up" in args and "app" in args:
     (state / "serving").write_text(os.environ["APP_IMAGE"])
     if os.environ["APP_IMAGE"].endswith(os.environ.get("FAKE_HANG_DIGEST", "-")):
@@ -309,7 +312,10 @@ class Server:
                     names.append("health")
                 elif "up" in args:
                     names.append(
-                        "up:" + "+".join(a for a in ("db", "app", "caddy", "alloy") if a in args)
+                        "up:"
+                        + "+".join(
+                            a for a in ("db", "app", "ingest", "caddy", "alloy") if a in args
+                        )
                     )
             else:
                 names.append(call["tool"])
@@ -389,6 +395,7 @@ def test_steps_run_in_the_adr_order(server: Server) -> None:
         "monitor-password",
         "up:app+caddy",
         "health",
+        "up:ingest",
         "status:success",
     ]
 
@@ -951,6 +958,40 @@ def test_alloy_starts_without_waiting_and_by_itself(server: Server) -> None:
     assert {"-d", "--no-deps"} <= set(up["args"])
     assert "--wait" not in up["args"]
     assert up["args"][-1] == "alloy"
+
+
+def test_ingest_starts_on_the_new_image_once_the_release_is_final(server: Server) -> None:
+    """ADR-0036 invariant 6 (#462): ingestion never holds up chat, so `ingest` switches only after
+    the app is healthy and the release recorded, with no --wait."""
+    assert server.run().returncode == 0
+
+    (up,) = [c for c in server.calls("docker") if "up" in c["args"] and "ingest" in c["args"]]
+    assert {"-d", "--no-deps"} <= set(up["args"])
+    assert "--wait" not in up["args"]
+    assert up["args"][-1] == "ingest"
+    assert up["app_image"] == f"{IMAGE}@{NEW}"
+
+
+def test_an_ingest_that_fails_to_start_never_fails_the_deploy(server: Server) -> None:
+    server.env["FAKE_INGEST_FAIL"] = "1"
+
+    result = server.run()
+
+    assert result.returncode == 0, result.stderr
+    assert server.posted()[-1]["state"] == "success"
+    assert server.recorded_image() == f"{IMAGE}@{NEW}"
+    assert "ingest" in result.stderr
+
+
+@pytest.mark.parametrize("seen_by", ["FAKE_UNHEALTHY", "FAKE_HEALTH_UNHEALTHY"])
+def test_a_rolled_back_release_never_switches_ingest(server: Server, seen_by: str) -> None:
+    """The previous release's `ingest` keeps running its image: the schema is expand-only
+    (ADR-0024), so it reads the migrated database as it did before."""
+    server.env[seen_by] = f"{IMAGE}@{NEW}"
+
+    server.run()
+
+    assert [c for c in server.calls("docker") if "ingest" in c["args"]] == []
 
 
 def test_an_alloy_that_fails_to_start_never_fails_the_deploy(server: Server) -> None:

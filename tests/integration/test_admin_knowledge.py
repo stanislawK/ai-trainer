@@ -884,6 +884,7 @@ async def test_a_source_without_chunks_shows_no_chunks_line(
         ("rate_limited", "OpenRouter kept answering “too many requests”. Try Re-ingest later."),
         ("no_acting_admin", "The admin who uploaded it no longer has an account."),
         ("ingest_error", "Ingestion failed unexpectedly. Try Re-ingest"),
+        ("worker_crashed", "The worker stopped while reading it, more than once."),
         ("Something only #422 wrote.", "Something only #422 wrote."),
     ],
     ids=[
@@ -898,6 +899,7 @@ async def test_a_source_without_chunks_shows_no_chunks_line(
         "rate",
         "orphan",
         "unexpected",
+        "crashed",
         "free",
     ],
 )

@@ -88,7 +88,9 @@ async def test_add_stores_every_field_and_get_reads_it_back(
     stored = await repo.add(new)
 
     assert (
-        stored.model_dump(exclude={"error", "ingested_at", "chunk_count", "embedding_model"})
+        stored.model_dump(
+            exclude={"error", "ingested_at", "chunk_count", "embedding_model", "ingest_takeovers"}
+        )
         == new.model_dump()
     )
     assert (stored.status, stored.error, stored.ingested_at) == (SourceStatus.UPLOADED, None, None)
@@ -125,7 +127,9 @@ async def test_a_source_round_trips_its_license_and_identifiers(
     stored = await repo.add(new)
 
     assert (
-        stored.model_dump(exclude={"error", "ingested_at", "chunk_count", "embedding_model"})
+        stored.model_dump(
+            exclude={"error", "ingested_at", "chunk_count", "embedding_model", "ingest_takeovers"}
+        )
         == new.model_dump()
     )
     assert await repo.get(new.id) == stored
@@ -177,7 +181,9 @@ async def test_a_detected_licence_round_trips_what_was_matched(
     stored = await repo.add(new)
 
     assert (
-        stored.model_dump(exclude={"error", "ingested_at", "chunk_count", "embedding_model"})
+        stored.model_dump(
+            exclude={"error", "ingested_at", "chunk_count", "embedding_model", "ingest_takeovers"}
+        )
         == new.model_dump()
     )
     assert stored.licence_flag is not None

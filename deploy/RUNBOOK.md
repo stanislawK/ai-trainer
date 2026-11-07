@@ -616,7 +616,7 @@ The app's migrations create the catalogue's tables empty. Run the import once, b
 docker exec ai-trainer-prod-app-1 ai-trainer import-exercises
 ```
 
-It ends on one line. `import-exercises: result=ok exercises=1315 inserted=1315 updated=0 unchanged=0 texts_written=2629 skipped=10 catalogue_queued=2` is the first import of the commit pinned at #375 into an empty database. A later run of the same release reports `inserted=0 updated=0 texts_written=0 catalogue_queued=0`. Since #427 an import also queues each of the catalogue's two knowledge sources that is missing, failed, or has a text with no chunk or a changed one (`catalogue_queued=<0-2>`). The ingest worker then embeds only the changed texts as the oldest active user in `ADMIN_EMAILS`, about $0.004 for the whole catalogue. Until the `ingest` container ships (#462), run it by hand with `docker exec ai-trainer-prod-app-1 ai-trainer ingest-worker --once`, which needs the section 14 storage keys even for the catalogue. Its line is `ingest-worker: source=<id> result=ingested chunks=<n>` per language. `result=failed reason=no_acting_admin` means no listed admin had signed in: sign in, then run `import-exercises` again (or press Re-ingest on the two "Exercise catalogue" rows at `/admin/knowledge`). The first run on a database that already holds the catalogue reports `inserted=0 … catalogue_queued=2`, since it creates the sources. `import-exercises: result=failed reason=<download|catalogue> detail=<why>` with exit code 1 changes no row, so fix the cause and run it again. It needs outbound HTTPS to `raw.githubusercontent.com`.
+It ends on one line. `import-exercises: result=ok exercises=1315 inserted=1315 updated=0 unchanged=0 texts_written=2629 skipped=10 catalogue_queued=2` is the first import of the commit pinned at #375 into an empty database. A later run of the same release reports `inserted=0 updated=0 texts_written=0 catalogue_queued=0`. Since #427 an import also queues each of the catalogue's two knowledge sources that is missing, failed, or has a text with no chunk or a changed one (`catalogue_queued=<0-2>`). The `ingest` container ([section 15](#15-ingest-container)) then embeds only the changed texts as the oldest active user in `ADMIN_EMAILS`, about $0.004 for the whole catalogue, with no command typed. It needs the section 14 storage keys even for the catalogue. Its line in `/opt/ai-trainer/compose.sh logs ingest` is `ingest-worker: source=<id> result=ingested chunks=<n>` per language. `result=failed reason=no_acting_admin` means no listed admin had signed in: sign in, then run `import-exercises` again (or press Re-ingest on the two "Exercise catalogue" rows at `/admin/knowledge`). The first run on a database that already holds the catalogue reports `inserted=0 … catalogue_queued=2`, since it creates the sources. `import-exercises: result=failed reason=<download|catalogue> detail=<why>` with exit code 1 changes no row, so fix the cause and run it again. It needs outbound HTTPS to `raw.githubusercontent.com`.
 
 ## 14. Knowledge file storage
 
@@ -644,7 +644,7 @@ Copy the **Access Key ID**, the **Secret Access Key** (shown once) and the accou
 
 ### 14.2 Settings on the server
 
-Log in with `ssh deploy@<ip>`. Add these to `/opt/ai-trainer/.env`, unquoted, then recreate the app so it reads them:
+Log in with `ssh deploy@<ip>`. Add these to `/opt/ai-trainer/.env`, unquoted, then recreate the app and the ingest worker so they read them:
 
 ```sh
 OBJECT_STORAGE_ENDPOINT=https://<account-id>.r2.cloudflarestorage.com
@@ -656,7 +656,7 @@ OBJECT_STORAGE_TIMEOUT_SECONDS=60
 ```
 
 ```sh
-/opt/ai-trainer/compose.sh up -d --no-deps app
+/opt/ai-trainer/compose.sh up -d --no-deps app ingest
 ```
 
 `KNOWLEDGE_MAX_UPLOAD_MB` is optional: the largest file `/admin/knowledge` takes, 50 by default and at most 90, since Caddy and Cloudflare pass no larger body than 100 MB on that route (ADR-0029).
@@ -683,6 +683,77 @@ It takes about five seconds. It writes one probe object under `storage-check/`, 
 | `result=failed step=expiry reason=status_<n>` | The expired link didn't answer 400 or 403. With `status_200` it outlived its time, so check the host's clock with `timedatectl` |
 
 `probe_left=true` on a failed line means the probe object may still be in the bucket: delete it under `storage-check/` in the dashboard. A `step=put reason=unavailable` line can also leave one, if the write landed and only its answer was lost, so look there after a run that failed that way.
+
+## 15. Ingest container
+
+Source: ADR-0036 (invariant 6 and its #462 amendment). Ticket #462.
+
+Knowledge sources are read, chunked and embedded in their own container, `ai-trainer-prod-ingest-1`: the app's image running `ai-trainer ingest-worker`. Parsing then never stalls chat, and a document too large for the worker kills this container, not the app.
+- **Starting it:** `deploy.sh` starts it on the new image once a release is healthy and recorded ([section 10](#10-deploy-poller)). A release that fails or rolls back leaves it on the previous image. A failure to start it only warns in the deploy's journal, and `unless-stopped` keeps it trying.
+- **Limits:** 768 MiB and one CPU. It takes one source at a time.
+- **Storage keys:** it reads the same `/opt/ai-trainer/.env` as the app, so it needs the section 14 keys. Without them it logs `ingest-worker: result=idle reason=not_configured` and waits. After adding them, run `/opt/ai-trainer/compose.sh up -d --no-deps ingest`.
+- **Before the first release that carries it:** the service and its start in `deploy.sh` reach the host only through [`install.sh`](install.sh) ([section 8.4](#84-install-on-the-server)), as [section 10](#10-deploy-poller) says for every host file. Run `deploy/install.sh <ip>` first, then approve the release. With the old `deploy.sh`, a release would migrate and start the app but never start `ingest`, and uploads would wait as `uploaded`.
+
+### 15.1 Reading it
+
+```sh
+/opt/ai-trainer/compose.sh logs -f ingest
+docker inspect ai-trainer-prod-ingest-1 --format '{{.State.Status}} restarts={{.RestartCount}} oom={{.State.OOMKilled}}'
+```
+
+Its lines also reach Grafana Cloud as `{service="ingest"}`, through Alloy's discovery of this project's containers ([section 11](#11-telemetry-to-grafana-cloud)). The lines and what they mean:
+- `ingest-worker: source=<id> result=ingested chunks=<n>`: done.
+- `result=failed reason=<reason>`: the admin page words the reason.
+- `result=gone`: deleted while it was read.
+
+### 15.2 When it stops mid-source
+
+A worker stopped on purpose (`docker stop`, a deploy recreating the container) hands the source it was reading back as `uploaded` at once, and logs `ingest-worker: result=stopped`. One killed outright (SIGKILL, an OOM kill) leaves its lease to lapse 60 seconds later (`KNOWLEDGE_INGEST_LEASE_SECONDS`). Either way the restarted container reads the source again from the start, and the source never ends up with half its chunks.
+- **A file it can't fit:** `oom=true` and a rising `restarts` mean a file needs more than 768 MiB. The worker holds a file's vectors until its single write, about 32 KiB a chunk, so about 10,000 chunks fit (measured 2026-11-06, ADR-0036's #462 amendment). A source taken over more than `KNOWLEDGE_INGEST_MAX_TAKEOVERS` times (2) fails as `worker_crashed` without being read again, and the queue moves on. The admin page says "The worker stopped while reading it, more than once."
+- **What to do with it:** split the file and upload the parts, or raise the limit in a release. Re-ingest starts its count again, so pressing it on the same file repeats the three kills.
+- **Chat:** the app is a separate container with its own 1 GiB, so it keeps answering throughout. Check with `docker inspect ai-trainer-prod-app-1 --format '{{.RestartCount}}'`, which stays as it was.
+
+### 15.3 Rebuild the vector index after a bulk load
+
+pgvector builds an HNSW index much faster when its graph fits in `maintenance_work_mem`, which is 64 MB by default. After approving a large batch of proposals, once `/admin/knowledge` shows them `ingested`, rebuild the index online:
+
+```sh
+docker exec ai-trainer-prod-ingest-1 ai-trainer rebuild-knowledge-index
+```
+
+It raises `maintenance_work_mem` to `KNOWLEDGE_INDEX_BUILD_MEMORY_MB` (256) for its own connection only. It then runs `REINDEX INDEX CONCURRENTLY ix_knowledge_chunks_embedding`, so search keeps answering from the old index until the new one replaces it, and resets the setting, even on failure.
+- **The line:** `rebuild-knowledge-index: result=ok index=ix_knowledge_chunks_embedding maintenance_work_mem=256MB`.
+- **Time and space:** measured on a laptop (2026-11-06, 100,000 chunks), it took 161 s at 256 MB and 224 s at 64 MB. The CX23 will be slower. While it runs the disk holds both indexes, 781 MB each per 100,000 chunks.
+- **The ceiling:** 256 MB is as high as it goes. A parallel build allocates the setting from the db container's 256 MiB `shm_size`, and 512 MB failed with `could not resize shared memory segment`. `--memory-mb 64` to `256` overrides it for one run.
+- **A failed run:** it prints `result=failed reason=<error class>`, exits 1, and can leave an invalid copy named `ix_knowledge_chunks_embedding_ccnew`. Drop that copy and run the command again:
+
+  ```sh
+  docker exec ai-trainer-prod-db-1 psql -U ai_trainer -d ai_trainer -c "DROP INDEX CONCURRENTLY IF EXISTS ix_knowledge_chunks_embedding_ccnew"
+  ```
+
+### 15.4 Database memory as the corpus grows
+
+The db container stays at 1 GiB (owner, at #462's plan gate, 2026-11-06). Search stays fast while its indexes fit in memory beside Postgres itself.
+
+Measured per 100,000 chunks (2026-11-06, pgvector on PostgreSQL 18, ADR-0036's #462 amendment):
+
+| Index | Size |
+|---|---|
+| HNSW | 781 MB |
+| GIN | 67 MB at most |
+
+The table and its TOAST, 1.43 GB, stay on disk.
+
+**That fits about 80,000 chunks.** Read the current count with:
+
+```sh
+docker exec ai-trainer-prod-db-1 psql -U ai_trainer -d ai_trainer -Atc "SELECT count(*) FROM knowledge_chunks"
+```
+
+Past 80,000, decide one of these before ingesting more. Each is an owner's decision through `/update-docs`:
+- raise the db limit to 1.5 GiB, which overcommits the CX23's 4 GB;
+- index `halfvec`, which halves the HNSW index;
+- move to a larger host.
 
 ## Provisioning record
 

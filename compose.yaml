@@ -40,6 +40,36 @@ services:
       db:
         condition: service_healthy
 
+  # The knowledge ingestion worker in its own container (ADR-0036 invariant 6, #462), from the
+  # app's image (the same build, so the layer cache makes it free). Nothing waits for it, and it
+  # waits for nothing but `db`: killing it, or a document too large for its memory limit, never
+  # touches `app`. `on-failure` brings it back; a killed worker's source is taken over once its
+  # lease lapses. Without storage settings (`make up`, CI's e2e job) it prints
+  # `ingest-worker: result=idle reason=not_configured` and waits; `compose.dev.yaml` gives it the
+  # local bucket. INGEST_MEMORY_LIMIT isn't a Settings key: set it in the shell
+  # (`INGEST_MEMORY_LIMIT=64m make start`) to force an OOM kill.
+  ingest:
+    build: .
+    command:
+      - ai-trainer
+      - ingest-worker
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://ai_trainer:ai_trainer@db:5432/${APP_DB_NAME:-ai_trainer}
+    restart: on-failure
+    # The image's HEALTHCHECK probes the app's :8000, which the worker doesn't serve.
+    healthcheck:
+      disable: true
+    depends_on:
+      db:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: ${INGEST_MEMORY_LIMIT:-768m}
+          cpus: "1.0"
+
   db:
     image: pgvector/pgvector:pg18-trixie
     environment:

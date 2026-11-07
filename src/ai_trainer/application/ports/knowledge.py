@@ -147,6 +147,11 @@ class KnowledgeIngestionRepositoryPort(Protocol):
         changing nothing, when the source is gone or no longer this claim's."""
         ...
 
+    async def release(self, source_id: UUID, *, claim_id: UUID) -> bool:
+        """Hands a claimed source back as `uploaded`, for a worker stopped on purpose (#462), so
+        the next claim is a fresh one, not a takeover. False when the claim isn't held."""
+        ...
+
 
 class CatalogueSourcesPort(Protocol):
     """The catalogue's two sources, one per language (ADR-0036's #427 amendment)."""
@@ -211,6 +216,18 @@ class DocumentReadersPort(Protocol):
 
 class ChunkerPort(Protocol):
     def chunk(self, document: KnowledgeDocument) -> Sequence[NewKnowledgeChunk]: ...
+
+
+class KnowledgeIndexPort(Protocol):
+    """Rebuilds the chunks' HNSW index after a bulk load (ADR-0036's #462 amendment)."""
+
+    @property
+    def index(self) -> str: ...
+
+    async def rebuild(self, *, memory_mb: int) -> str:
+        """Rebuilds it online at a `maintenance_work_mem` of `memory_mb` and returns the setting
+        as the server read it. The connection's own setting is restored, even on failure."""
+        ...
 
 
 class KnowledgeSearchPort(Protocol):

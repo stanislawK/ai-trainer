@@ -24,7 +24,7 @@ def test_the_embedding_defaults_are_adr_0033s_pick_pinned_to_deepinfra() -> None
     assert settings.knowledge_embedding_batch_size == 32
     assert settings.knowledge_embedding_max_attempts == 5
     assert (settings.knowledge_chunk_max_words, settings.knowledge_chunk_min_words) == (300, 80)
-    assert settings.knowledge_ingest_lease_seconds == 300
+    assert settings.knowledge_ingest_lease_seconds == 60
     assert settings.knowledge_ingest_poll_seconds == 5
 
 

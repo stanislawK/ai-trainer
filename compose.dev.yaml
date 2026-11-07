@@ -68,6 +68,35 @@ services:
         - action: rebuild
           path: ./pyproject.toml
 
+  # The ingest worker against the same local bucket as `app` (#462), so an upload at
+  # /admin/knowledge reaches `ingested` with no command typed. The worker has no reload, so a
+  # synced change restarts it (`sync+restart`). Kept identical to `app`'s storage block
+  # (tests/ops/test_compose_ingest.py).
+  ingest:
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      storage:
+        condition: service_started
+    environment:
+      OBJECT_STORAGE_ENDPOINT: http://storage:7070
+      OBJECT_STORAGE_REGION: auto
+      OBJECT_STORAGE_ACCESS_KEY_ID: ai_trainer_dev
+      OBJECT_STORAGE_SECRET_ACCESS_KEY: ai_trainer_dev_secret
+      OBJECT_STORAGE_UPLOADS_BUCKET: ai-trainer-uploads
+    develop:
+      watch:
+        - action: sync+restart
+          path: ./src
+          target: /app/src
+          ignore:
+            - "**/__pycache__"
+            - "*.pyc"
+        - action: rebuild
+          path: ./uv.lock
+        - action: rebuild
+          path: ./pyproject.toml
+
   # One-shot: brings the schema to head before `app` starts (#64), so a fresh clone or a
   # newly pulled migration never serves against a stale schema. `alembic upgrade head` is
   # idempotent — already-at-head is a fast no-op, matching `app`'s image (same build) and

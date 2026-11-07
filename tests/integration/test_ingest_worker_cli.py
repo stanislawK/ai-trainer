@@ -3,6 +3,7 @@ server on 127.0.0.1 and OpenRouter faked at the HTTP transport. The command open
 and commits, so the source is a real row, dated 2002 so it is claimed before any dev data but after
 `test_knowledge_ingestion`'s 2001 sources, and removed after."""
 
+import asyncio
 import hashlib
 import io
 import json
@@ -15,7 +16,7 @@ import httpx2
 import pytest
 from sqlalchemy import text
 
-from ai_trainer import cli
+from ai_trainer import cli, cli_knowledge
 from ai_trainer.adapters.db import build_engine, build_session_factory
 from ai_trainer.adapters.knowledge_repository import SqlAlchemyKnowledgeSourcesRepository
 from ai_trainer.adapters.users_repository import SqlAlchemyUsersRepository
@@ -103,7 +104,9 @@ async def test_once_ingests_the_uploaded_source_and_accounts_each_call(source_id
     output = io.StringIO()
 
     code = await cli.run(
-        [cli.INGEST_WORKER, "--once"], output=output, embedding_transport=_openrouter(seen)
+        [cli_knowledge.INGEST_WORKER, "--once"],
+        output=output,
+        embedding_transport=_openrouter(seen),
     )
 
     assert code == 0
@@ -145,7 +148,7 @@ async def test_without_storage_settings_it_refuses_to_start(
         monkeypatch.setenv(key, "")
     output = io.StringIO()
 
-    code = await cli.run([cli.INGEST_WORKER, "--once"], output=output)
+    code = await cli.run([cli_knowledge.INGEST_WORKER, "--once"], output=output)
 
     assert code == 1
     assert output.getvalue() == "ingest-worker: result=failed reason=not_configured\n"
@@ -191,7 +194,7 @@ async def test_once_fetches_an_approved_pmc_articles_jats_and_ingests_it(
     output = io.StringIO()
 
     code = await cli.run(
-        [cli.INGEST_WORKER, "--once"],
+        [cli_knowledge.INGEST_WORKER, "--once"],
         output=output,
         embedding_transport=_openrouter([]),
         pmc_transport=bucket.transport(),
@@ -225,3 +228,61 @@ async def test_once_fetches_an_approved_pmc_articles_jats_and_ingests_it(
         hashlib.sha256(xml).hexdigest(),
         f"{pmcid}.xml",
     )
+
+
+async def test_the_polling_worker_configures_the_apps_logging(
+    source_id: UUID, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The `ingest` container is a long-running service (#462): its warnings go out through the
+    app's handler, JSON with `LOG_FORMAT=json`, not as bare stderr text (ADR-0030)."""
+    configured: list[Settings] = []
+    monkeypatch.setattr(cli, "configure_logging", configured.append)
+    seen: list[dict[str, object]] = []
+    output = io.StringIO()
+    slept = asyncio.Event()
+
+    async def _sleep(_seconds: float) -> None:
+        slept.set()
+        await asyncio.Event().wait()
+
+    worker = asyncio.create_task(
+        cli.run(
+            [cli_knowledge.INGEST_WORKER],
+            output=output,
+            sleep=_sleep,
+            embedding_transport=_openrouter(seen),
+        )
+    )
+    await asyncio.wait_for(slept.wait(), timeout=30)
+    worker.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await worker
+
+    assert len(configured) == 1
+    assert f"ingest-worker: source={source_id} result=ingested" in output.getvalue()
+
+
+async def test_polling_worker_idles_when_storage_is_not_configured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The `ingest` container under `make up`, CI and the smoke stack has no bucket (#462): it says
+    so once and waits, so its restart policy never spins, rather than exiting."""
+    for key in (
+        "OBJECT_STORAGE_ENDPOINT",
+        "OBJECT_STORAGE_ACCESS_KEY_ID",
+        "OBJECT_STORAGE_SECRET_ACCESS_KEY",
+        "OBJECT_STORAGE_UPLOADS_BUCKET",
+    ):
+        monkeypatch.setenv(key, "")
+    output = io.StringIO()
+
+    worker = asyncio.create_task(cli.run([cli_knowledge.INGEST_WORKER], output=output))
+    while not output.getvalue():
+        await asyncio.sleep(0.01)
+    await asyncio.sleep(0.05)
+
+    assert not worker.done()
+    worker.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await worker
+    assert output.getvalue() == "ingest-worker: result=idle reason=not_configured\n"

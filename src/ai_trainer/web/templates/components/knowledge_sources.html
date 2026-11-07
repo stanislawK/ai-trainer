@@ -78,6 +78,7 @@
   "wrong_shape": "The embedding service sent back vectors of the wrong size. Try Re-ingest.",
   "no_acting_admin": "The admin who uploaded it no longer has an account. Re-ingest it to ingest it as you.",
   "ingest_error": "Ingestion failed unexpectedly. Try Re-ingest; if it fails again, the file may be malformed.",
+  "worker_crashed": "The worker stopped while reading it, more than once. The file may be too large to ingest.",
 } %}
 
 {% macro ingest_error(source) -%}
