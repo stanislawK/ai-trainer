@@ -70,16 +70,30 @@ def _band(sets: Sequence[LoggedSet], band_order: Sequence[str]) -> EntryBest | N
     return EntryBest(value=float(places[heaviest]), text=f"{heaviest} band")
 
 
+def _fallback(sets: Sequence[LoggedSet]) -> EntryBest | None:
+    """What an entry says when its measure's own value is missing: the first value any set
+    carries, never plotted and never estimated (B38)."""
+    for pick in (_reps, _load_reps, _time, _distance):
+        found = pick(sets)
+        if found is not None:
+            return EntryBest(value=None, text=found.text)
+    labels = [s.band_label for s in sets if s.band_label is not None]
+    return EntryBest(value=None, text=f"{labels[0]} band") if labels else None
+
+
 def best_of(entry: ExerciseEntry, band_order: Sequence[str]) -> EntryBest | None:
-    """The entry's best set by its measure, or `None` when no set carries that measure."""
+    """The entry's best set by its measure. With no set carrying that measure, the first other
+    value a set has, as text with no plotted value; `None` when no set has any value."""
+    found: EntryBest | None
     match entry.measure:
         case ExerciseMeasure.LOAD_REPS:
-            return _load_reps(entry.sets)
+            found = _load_reps(entry.sets)
         case ExerciseMeasure.REPS:
-            return _reps(entry.sets)
+            found = _reps(entry.sets)
         case ExerciseMeasure.TIME:
-            return _time(entry.sets)
+            found = _time(entry.sets)
         case ExerciseMeasure.DISTANCE:
-            return _distance(entry.sets)
+            found = _distance(entry.sets)
         case ExerciseMeasure.BAND_REPS:
-            return _band(entry.sets, band_order)
+            found = _band(entry.sets, band_order)
+    return found if found is not None else _fallback(entry.sets)

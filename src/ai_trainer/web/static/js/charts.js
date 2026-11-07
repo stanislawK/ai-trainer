@@ -64,11 +64,11 @@
       title: { display: !band && !!spec.unit, text: spec.unit, color: colors.text },
     };
     if (band) {
-      y.min = 0.5;
-      y.max = spec.order.length + 0.5;
+      y.min = 0;
+      y.max = spec.order.length + 1;
       y.ticks.stepSize = 1;
       y.ticks.callback = function (value) {
-        return spec.order[value - 1] || "";
+        return Number.isInteger(value) ? spec.order[value - 1] || "" : "";
       };
     } else {
       y.beginAtZero = false;

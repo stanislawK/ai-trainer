@@ -57,6 +57,11 @@ class ProgressView(BaseModel):
     # The athlete's ranked bands, lightest first, for a band chart's axis; empty otherwise.
     order: tuple[str, ...] = ()
 
+    @property
+    def spans_years(self) -> bool:
+        """Whether the rows cover more than one calendar year, so dates need their year."""
+        return len({row.day.year for row in self.rows}) > 1
+
 
 def _payload(entry: ExerciseEntry) -> Exercise:
     """The entry as a payload exercise, so the logged card's line reads it. Not validated: the
@@ -134,6 +139,7 @@ class ExerciseProgress:
             points=tuple(
                 ProgressPoint(day=entry.occurred_on, value=best.value)
                 for entry, best in reversed(measured)
+                if best.value is not None or measure is ExerciseMeasure.BAND_REPS
             ),
             rows=tuple(
                 ProgressRow(day=entry.occurred_on, exercise=_payload(entry), best=best.text)

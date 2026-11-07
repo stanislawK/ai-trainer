@@ -24,8 +24,9 @@ _UNITS = {
 def _chart(view: ProgressView) -> dict[str, object]:
     """What `static/js/charts.js` reads from the canvas: a label and a value per day, oldest
     first, `null` for a band with no place, and for a band chart its order for the axis."""
+    pattern = "%-d %b %Y" if view.spans_years else "%-d %b"
     return {
-        "labels": [f"{point.day.day} {point.day.strftime('%b')}" for point in view.points],
+        "labels": [point.day.strftime(pattern) for point in view.points],
         "values": [point.value for point in view.points],
         "unit": _UNITS[view.measure],
         "order": list(view.order),

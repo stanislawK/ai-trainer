@@ -24,6 +24,7 @@
   </div>
 
   {% if view.rows %}
+  {% if view.points %}
   <figure class="mat-content rounded-box p-4 flex flex-col gap-2" aria-label="{{ 'Heaviest band per session, by your order' if view.measure.value == 'band_reps' else 'Best set per session' }}">
     <div class="relative w-full max-w-[600px] h-[190px]">
       <canvas id="progress-chart" data-chart="{{ chart | tojson | forceescape }}" role="img" aria-label="Progress over time"></canvas>
@@ -34,9 +35,10 @@
       {% else %}
         The best set of each session, oldest first.
       {% endif %}
-      {% if view.truncated %}Showing the latest {{ view.rows | length }} sessions.{% endif %}
+      {% if view.truncated %}Older sessions aren't shown.{% endif %}
     </figcaption>
   </figure>
+  {% endif %}
 
   <div class="mat-content rounded-box px-4 py-1 flex flex-col" role="table" aria-label="Sessions with this exercise">
     <div role="row" class="grid grid-cols-[1fr_auto] gap-x-3 gap-y-0.5 lg:grid-cols-[96px_1fr_150px] lg:gap-x-4 lg:items-baseline py-2 text-[12px] font-medium lbl-2">
@@ -44,7 +46,7 @@
     </div>
     {% for row in view.rows %}
     <div role="row" class="grid grid-cols-[1fr_auto] gap-x-3 gap-y-0.5 lg:grid-cols-[96px_1fr_150px] lg:gap-x-4 lg:items-baseline py-2.5 border-t border-base-content/10">
-      <span role="cell" class="text-[14px] font-medium tabular-nums">{{ row.day.day }} {{ row.day.strftime("%b") }}</span>
+      <span role="cell" class="text-[14px] font-medium tabular-nums">{{ row.day.strftime("%-d %b %Y" if view.spans_years else "%-d %b") }}</span>
       <span role="cell" class="text-[14px] tabular-nums lbl-2 col-span-2 row-start-2 lg:col-span-1 lg:row-start-auto">{{ done(row.exercise) | trim }}</span>
       <span role="cell" class="text-[14px] tabular-nums text-right {{ 'lbl-2' if 'not in your order' in row.best else 'font-semibold' }}">{{ row.best }}</span>
     </div>
@@ -55,10 +57,11 @@
     {{ icon("trending-up", "size-8 lbl-2") }}
     <span class="text-[17px] font-semibold">No sessions with this exercise yet</span>
     <span class="text-[15px] lbl-2 max-w-[30ch]">When you log it, each session shows here with what you did.</span>
+    {% if view.truncated %}<span class="text-[13px] lbl-2">Older sessions aren't shown.</span>{% endif %}
   </div>
   {% endif %}
 </div>
-{% if view.rows %}
+{% if view.points %}
 <script src="/static/vendor/chart-4.5.1.umd.min.js" defer></script>
 <script src="/static/js/charts.js" defer></script>
 {% endif %}

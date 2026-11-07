@@ -217,3 +217,44 @@ async def test_unknown_session_or_index_or_exercise_is_none() -> None:
         await _progress(session, history, known=False).view(_USER, "UTC", session.span.id, 0)
         is None
     )
+
+
+async def test_entries_with_reps_but_no_kg_keep_a_row_and_are_not_plotted() -> None:
+    session = _session(_SQUAT)
+    history = _History(
+        [
+            _load(date(2026, 11, 3), 7.0),
+            _entry(date(2026, 10, 27), LoggedSet(set_no=1, reps=12)),
+        ]
+    )
+
+    view = await _progress(session, history).view(_USER, "UTC", session.span.id, 0)
+
+    assert view is not None
+    assert [r.best for r in view.rows] == ["5 @ 7 kg", "12 reps"]
+    assert [p.day for p in view.points] == [date(2026, 11, 3)]
+
+
+async def test_only_unplotted_entries_give_rows_and_no_points() -> None:
+    session = _session(_SQUAT)
+    history = _History([_entry(date(2026, 11, 3), LoggedSet(set_no=1, reps=12))])
+
+    view = await _progress(session, history).view(_USER, "UTC", session.span.id, 0)
+
+    assert view is not None
+    assert len(view.rows) == 1
+    assert view.points == ()
+
+
+async def test_spans_years_only_across_calendar_years() -> None:
+    session = _session(_SQUAT)
+    same = _History([_load(date(2026, 11, 3), 7.0), _load(date(2026, 1, 3), 6.0)])
+    across = _History([_load(date(2026, 1, 3), 7.0), _load(date(2025, 12, 30), 6.0)])
+
+    a = await _progress(session, same).view(_USER, "UTC", session.span.id, 0)
+    b = await _progress(session, across).view(_USER, "UTC", session.span.id, 0)
+
+    assert a is not None
+    assert b is not None
+    assert a.spans_years is False
+    assert b.spans_years is True

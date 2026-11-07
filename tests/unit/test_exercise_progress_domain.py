@@ -69,3 +69,28 @@ def test_unranked_band_has_no_value_and_says_so() -> None:
 def test_set_missing_its_value_is_skipped_never_estimated() -> None:
     for measure in ExerciseMeasure:
         assert best_of(_entry(measure, LoggedSet(set_no=1)), []) is None
+
+
+def test_load_reps_without_kg_falls_back_to_most_reps_and_plots_nothing() -> None:
+    entry = _entry(
+        ExerciseMeasure.LOAD_REPS,
+        LoggedSet(set_no=1, reps=8),
+        LoggedSet(set_no=2, reps=10),
+    )
+
+    assert best_of(entry, []) == EntryBest(value=None, text="10 reps")
+
+
+def test_fallback_reads_any_other_value_a_set_carries() -> None:
+    assert best_of(
+        _entry(ExerciseMeasure.REPS, LoggedSet(set_no=1, load_kg=20.0)), []
+    ) == EntryBest(value=None, text="20 kg")
+    assert best_of(
+        _entry(ExerciseMeasure.LOAD_REPS, LoggedSet(set_no=1, duration_s=30)), []
+    ) == EntryBest(value=None, text="30 s")
+    assert best_of(
+        _entry(ExerciseMeasure.TIME, LoggedSet(set_no=1, distance_m=40.0)), []
+    ) == EntryBest(value=None, text="40 m")
+    assert best_of(
+        _entry(ExerciseMeasure.REPS, LoggedSet(set_no=1, band_label="red")), []
+    ) == EntryBest(value=None, text="red band")

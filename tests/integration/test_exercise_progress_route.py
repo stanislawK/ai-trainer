@@ -339,3 +339,38 @@ async def test_band_progress_plots_places_and_marks_the_unranked(
     assert chart["order"] == ["red", "black"]
     assert "blue · not in your order" in page
     assert ExerciseMeasure.BAND_REPS.value == "band_reps"
+
+
+async def test_progress_labels_carry_the_year_when_entries_span_years(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    user = await _user(db_session_factory)
+    raise_id = await _exercise(db_session_factory, user, "Lateral Raise")
+    await _log(
+        db_session_factory, user, date(2025, 11, 3), "lateral raise",
+        [(12, Decimal("6"), "6 kg")], exercise_id=raise_id,
+    )  # fmt: skip
+    latest = await _log(
+        db_session_factory, user, date(2026, 11, 3), "lateral raise",
+        [(12, Decimal("7"), "7 kg")], exercise_id=raise_id,
+    )  # fmt: skip
+
+    page = _client(db_session_factory, user).get(f"/history/{latest}/exercises/0").text
+
+    assert _chart(page)["labels"] == ["3 Nov 2025", "3 Nov 2026"]
+    assert "3 Nov 2025" in page.split('role="table"', 1)[1]
+
+
+async def test_progress_with_reps_and_no_kg_lists_rows_without_a_chart(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    user = await _user(db_session_factory)
+    session = await _log(
+        db_session_factory, user, date(2026, 11, 3), "pull up", [(8, None, None)] * 2
+    )
+
+    page = _client(db_session_factory, user).get(f"/history/{session}/exercises/0").text
+
+    assert "No sessions with this exercise yet" not in page
+    assert "8 reps" in page
+    assert "<canvas" not in page
