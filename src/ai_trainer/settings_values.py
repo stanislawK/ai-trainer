@@ -6,10 +6,19 @@ import re
 from typing import Annotated, Any
 from urllib.parse import urlsplit
 
-from pydantic import BeforeValidator, Field
+from pydantic import BaseModel, BeforeValidator, Field
 from pydantic_settings import NoDecode
 
 from ai_trainer.domain.llm_calls import ProviderPreferences, ReasoningEffort
+
+
+class ExerciseSearchSettings(BaseModel):
+    """The catalogue's search by meaning as the exercise shortlist's third input (ADR-0031,
+    #429): one embedding call per name history doesn't know. Off until the latency scenario has
+    measured it; the search is cut off after the timeout and today's shortlist stands."""
+
+    exercise_search_enabled: bool = False
+    exercise_search_timeout_seconds: float = Field(default=2.5, gt=0)
 
 
 def split_comma_separated(value: Any) -> Any:  # noqa: ANN401 -- raw env input of any type

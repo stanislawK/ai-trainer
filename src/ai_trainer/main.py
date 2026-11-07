@@ -64,6 +64,10 @@ from ai_trainer.application.admin_tokens import AdminTokens, TokenAuthenticator
 from ai_trainer.application.background_reads import BackgroundReads
 from ai_trainer.application.budgeted_gateways import BudgetedDecisionGateway, BudgetedLlmGateway
 from ai_trainer.application.catalogue_ingestion import CatalogueIngestion
+from ai_trainer.application.exercise_candidates import (
+    KnowledgeExerciseSearch,
+    SearchedExerciseNames,
+)
 from ai_trainer.application.exercise_lookup import ExerciseFinder
 from ai_trainer.application.exercise_resolution import ResolutionLimits, ResolveExercises
 from ai_trainer.application.feedback import FeedbackRecorder
@@ -79,6 +83,7 @@ from ai_trainer.application.ports.clock import ClockPort
 from ai_trainer.application.ports.conversation import ConversationModelPort
 from ai_trainer.application.ports.decision_gateway import DecisionGatewayPort
 from ai_trainer.application.ports.draft_settling import DraftSettlerPort
+from ai_trainer.application.ports.exercises import ExerciseNamesPort
 from ai_trainer.application.ports.llm_calls import LlmCallsRepositoryPort
 from ai_trainer.application.ports.llm_gateway import LlmGatewayPort
 from ai_trainer.application.ports.metrics import NO_METRICS, MetricsPort
@@ -177,12 +182,34 @@ def build_draft_settlers(
     session_factory: Callable[[], AsyncSession],
     conversation: ConversationModelPort,
     decisions: DecisionGatewayPort,
+    *,
+    sports: SportRegistry,
+    calls_repository: LlmCallsRepositoryPort,
+    http_client: httpx2.AsyncClient,
 ) -> Mapping[str, DraftSettlerPort]:
     """What each sport settles on its drafts: the gym's exercise names (ADR-0031, tickets #397
     and #399). "Keep my name" takes one of the card's `max_clarification_options`."""
+    exercises = SqlAlchemyExerciseRepository(session_factory)
+    names: ExerciseNamesPort = exercises
+    if settings.exercise_search_enabled:
+        # The catalogue's search as the shortlist's third input (ADR-0031, #429).
+        names = SearchedExerciseNames(
+            exercises,
+            KnowledgeExerciseSearch(
+                build_knowledge_search(
+                    settings,
+                    session_factory,
+                    sports,
+                    calls_repository=calls_repository,
+                    http_client=http_client,
+                )
+            ),
+            exercises,
+            timeout_seconds=settings.exercise_search_timeout_seconds,
+        )
     return {
         "gym": ResolveExercises(
-            SqlAlchemyExerciseRepository(session_factory),
+            names,
             JevExercisePicker(decisions, threshold=settings.exercise_pick_threshold),
             question=conversation.exercise_question,
             limits=ResolutionLimits(
@@ -540,7 +567,15 @@ def create_app(  # noqa: PLR0915 -- composition root: objects are built only her
         # Content-free feedback events from the athlete's edits, discards, undos and taps
         # (ADR-0034).
         feedback=FeedbackRecorder(SqlAlchemyFeedbackEventsRepository(session_factory), clock=clock),
-        settlers=build_draft_settlers(settings, session_factory, conversation, decisions),
+        settlers=build_draft_settlers(
+            settings,
+            session_factory,
+            conversation,
+            decisions,
+            sports=app.state.sport_registry,
+            calls_repository=llm_calls,
+            http_client=search_http,
+        ),
         band_orders={"gym": SqlAlchemyBandOrder(session_factory)},
     )
     app.include_router(

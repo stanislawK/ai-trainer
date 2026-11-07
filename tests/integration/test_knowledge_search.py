@@ -19,7 +19,7 @@ from ai_trainer.adapters.knowledge_repository import SqlAlchemyKnowledgeSourcesR
 from ai_trainer.adapters.knowledge_search_repository import SqlAlchemyKnowledgeSearch
 from ai_trainer.adapters.orm import KnowledgeChunkOrm
 from ai_trainer.application.knowledge_search import KnowledgeSearch
-from ai_trainer.domain.embeddings import Embedded, EmbeddingOutcome
+from ai_trainer.domain.embeddings import Embedded, EmbeddingOutcome, QueryTask
 from ai_trainer.domain.knowledge import (
     EvidenceTier,
     KnowledgeSource,
@@ -63,7 +63,9 @@ class _QueryVector:
     def __init__(self, model: str) -> None:
         self.model = model
 
-    async def embed_query(self, text: str, *, acting_user_id: UUID) -> EmbeddingOutcome:
+    async def embed_query(
+        self, text: str, *, acting_user_id: UUID, task: QueryTask = QueryTask.QUESTION
+    ) -> EmbeddingOutcome:
         return Embedded(vectors=(tuple(_axis(0)),), model=self.model)
 
 

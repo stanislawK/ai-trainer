@@ -2,7 +2,10 @@
 would do with Jev's answer at the `Settings` threshold, a confident pick or the card. A fake
 `DecisionModel` stands in for Jev (ADR-0013)."""
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
 import yaml
@@ -18,9 +21,14 @@ from pydantic_ai.models.decision import (
 )
 from pydantic_ai.usage import RequestUsage
 
+from ai_trainer import evals_main
+from ai_trainer.domain.exercises import ExerciseCandidate
 from ai_trainer.llm.evals import cli as cli_module
-from ai_trainer.llm.evals.cli import _build_parser, execute_smoke, main
-from ai_trainer.llm.evals.exercise_shortlist_smoke import run_exercise_shortlist_smoke
+from ai_trainer.llm.evals.cli import DecisionSmokeRunner, _build_parser, execute_smoke, main
+from ai_trainer.llm.evals.exercise_shortlist_smoke import (
+    LiveShortlister,
+    run_exercise_shortlist_smoke,
+)
 from ai_trainer.llm.evals.smoke import SmokeCaseResult, SmokeError, SmokeSet, read_smoke_set
 from ai_trainer.llm.exercise_shortlist import EXERCISE_SHORTLIST_ID
 from ai_trainer.llm.prompts.registry import PromptRegistry
@@ -310,12 +318,17 @@ def test_the_committed_set_has_five_cases_with_an_easy_a_tie_and_a_none() -> Non
         "exercise_shortlist", smoke_root=SMOKE_ROOT, known_templates={EXERCISE_SHORTLIST_ID: 1}
     )
     cases = yaml.safe_load((SMOKE_ROOT / "exercise_shortlist.yaml").read_text())["cases"]
-    labels = [case["expected_output"]["pick"] for case in cases]
+    picks = [case for case in cases if not case["inputs"]["deps"].get("live")]
+    labels = [case["expected_output"]["pick"] for case in picks]
 
-    assert len(smoke_set.cases) == 5
+    assert len(picks) == 5
+    assert len(smoke_set.cases) == len(cases)
     assert "none" in labels
     assert any(label != "none" for label in labels)
-    assert smoke_set.known_gaps == {}
+    # The pick cases all pass; only live recall cases are known gaps, each with its ticket (#508).
+    live = {case["name"] for case in cases if case["inputs"]["deps"].get("live")}
+    assert set(smoke_set.known_gaps) <= live
+    assert set(smoke_set.known_gaps.values()) == {"#508"}
     assert not smoke_set.has_judge
 
 
@@ -323,6 +336,8 @@ def test_every_committed_label_names_one_of_its_candidates() -> None:
     cases = yaml.safe_load((SMOKE_ROOT / "exercise_shortlist.yaml").read_text())["cases"]
 
     for case in cases:
+        if case["inputs"]["deps"].get("live"):
+            continue
         names = [c["name"] for c in case["inputs"]["deps"]["candidates"]]
         assert case["expected_output"]["pick"] in {"none", *names}, case["name"]
         assert 1 <= len(names) <= Settings().exercise_shortlist_size, case["name"]
@@ -330,3 +345,192 @@ def test_every_committed_label_names_one_of_its_candidates() -> None:
 
 def test_the_default_threshold_starts_conservative() -> None:
     assert Settings().exercise_pick_threshold == 0.9
+
+
+# --- live recall cases (ticket #429) -----------------------------------------------------------
+
+
+def _live(name: str, listed: str | None = "Dumbbell Lateral Raise") -> dict[str, object]:
+    expected: dict[str, object] = {} if listed is None else {"listed": listed}
+    return {
+        "name": name,
+        "inputs": {"prompt": name, "deps": {"live": True}},
+        "expected_output": expected,
+    }
+
+
+class _Shortlist:
+    """The app's shortlist, scripted by typed name. Records every ask."""
+
+    def __init__(self, found: dict[str, list[str]], *, error: Exception | None = None) -> None:
+        self.found = found
+        self.error = error
+        self.asked: list[str] = []
+
+    async def __call__(self, name: str) -> list[ExerciseCandidate]:
+        self.asked.append(name)
+        if self.error is not None:
+            raise self.error
+        return [ExerciseCandidate(id=uuid4(), name=n) for n in self.found.get(name, [])]
+
+
+async def _run_live(
+    root: Path, shortlist: _Shortlist | None, jev: ScriptedJev | None = None
+) -> list[tuple[str, bool, str]]:
+    smoke_set = read_smoke_set(
+        "exercise_shortlist", smoke_root=root, known_templates={EXERCISE_SHORTLIST_ID: 1}
+    )
+    results = await run_exercise_shortlist_smoke(
+        smoke_set, model=jev or ScriptedJev({}), threshold=_THRESHOLD, shortlist=shortlist
+    )
+    return [(r.name, r.passed, r.detail) for r in results]
+
+
+async def test_a_live_case_passes_when_the_shortlist_lists_the_exercise(tmp_path: Path) -> None:
+    root = _set(tmp_path, _live("rising straight arms"))
+    shortlist = _Shortlist(
+        {"rising straight arms": ["Stability Ball Crunch", "Dumbbell Lateral Raise"]}
+    )
+
+    jev = ScriptedJev({})
+
+    assert await _run_live(root, shortlist, jev) == [("rising straight arms", True, "")]
+    assert shortlist.asked == ["rising straight arms"]
+    assert jev.states == []  # a live case makes no Jev call
+
+
+async def test_a_live_case_fails_naming_what_the_shortlist_listed(tmp_path: Path) -> None:
+    root = _set(tmp_path, _live("rising straight arms"))
+    shortlist = _Shortlist({"rising straight arms": ["Stability Ball Crunch"]})
+
+    [(_, passed, detail)] = await _run_live(root, shortlist)
+
+    assert not passed
+    assert "Dumbbell Lateral Raise" in detail
+    assert "Stability Ball Crunch" in detail
+
+
+async def test_a_failing_shortlist_fails_its_live_case_and_the_rest_still_run(
+    tmp_path: Path,
+) -> None:
+    root = _set(tmp_path, _live("one"), _case("pull ups", "none", "Pull-up", "Chin-up"))
+
+    results = await _run_live(root, _Shortlist({}, error=RuntimeError("db is down")))
+
+    live, pick = results
+    assert live[:2] == ("one", False)
+    assert "db is down" in live[2]
+    assert pick[0] == "pull ups"
+
+
+async def test_a_live_case_without_a_database_fails_rather_than_passing(tmp_path: Path) -> None:
+    [(_, passed, detail)] = await _run_live(_set(tmp_path, _live("one")), None)
+
+    assert not passed
+    assert "database" in detail
+
+
+async def test_a_live_case_with_no_exercise_to_list_is_refused(tmp_path: Path) -> None:
+    with pytest.raises(SmokeError, match="listed"):
+        await _run_live(_set(tmp_path, _live("one", listed=None)), _Shortlist({}))
+
+
+async def test_a_live_case_that_also_lists_candidates_is_refused(tmp_path: Path) -> None:
+    case = _live("one")
+    case["inputs"] = {"prompt": "one", "deps": {"live": True, "candidates": [{"name": "A"}]}}
+
+    with pytest.raises(SmokeError, match="live case"):
+        await _run_live(_set(tmp_path, case), _Shortlist({}))
+
+
+class _Opens:
+    """The entry point's way of opening the live shortlist, counting how often it is opened."""
+
+    def __init__(self, shortlist: _Shortlist) -> None:
+        self.shortlist = shortlist
+        self.opened = 0
+
+    @asynccontextmanager
+    async def __call__(self) -> AsyncIterator[_Shortlist]:
+        self.opened += 1
+        yield self.shortlist
+
+
+def _runner(opens: _Opens | None) -> DecisionSmokeRunner:
+    decision_runners, _ = cli_module._own_runners(
+        Settings(), PromptRegistry(root=ROOT), {EXERCISE_SHORTLIST_ID: 1}, opens
+    )
+    return decision_runners[EXERCISE_SHORTLIST_ID]
+
+
+def _smoke_set(root: Path) -> SmokeSet:
+    return read_smoke_set(
+        "exercise_shortlist", smoke_root=root, known_templates={EXERCISE_SHORTLIST_ID: 1}
+    )
+
+
+async def test_the_cli_opens_the_live_shortlist_once_for_a_set_with_live_cases(
+    tmp_path: Path,
+) -> None:
+    opens = _Opens(_Shortlist({"one": ["Dumbbell Lateral Raise"]}))
+    smoke_set = _smoke_set(_set(tmp_path, _live("one")))
+
+    results = await _runner(opens)(smoke_set, ScriptedJev({}))
+
+    assert [(r.name, r.passed) for r in results] == [("one", True)]
+    assert opens.opened == 1
+
+
+async def test_the_cli_opens_no_database_for_a_set_of_picks_only(tmp_path: Path) -> None:
+    opens = _Opens(_Shortlist({}))
+    smoke_set = _smoke_set(_set(tmp_path, _case("pull ups", "none", "Pull-up", "Chin-up")))
+
+    await _runner(opens)(smoke_set, ScriptedJev({"pull ups": ("Pull-up", 0.5)}))
+
+    assert opens.opened == 0
+
+
+async def test_the_cli_without_the_entry_points_database_fails_a_live_case_by_name(
+    tmp_path: Path,
+) -> None:
+    [result] = await _runner(None)(_smoke_set(_set(tmp_path, _live("one"))), ScriptedJev({}))
+
+    assert not result.passed
+    assert "database" in result.detail
+
+
+def test_main_hands_the_live_shortlister_to_the_smoke_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _env(monkeypatch, key="test-key")
+    handed: list[object] = []
+
+    def smoke(args: object, settings: object, live: object) -> int:
+        handed.append(live)
+        return 0
+
+    monkeypatch.setattr(cli_module, "_main_smoke", smoke)
+    opens = _Opens(_Shortlist({}))
+
+    assert main(["smoke", "exercise_shortlist"], live_shortlister=opens) == 0
+
+    assert handed == [opens]
+
+
+def test_the_entry_point_builds_the_live_shortlister_from_the_settings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _env(monkeypatch, key="test-key")
+    monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://u:p@localhost:5432/db")
+    seen: dict[str, object] = {}
+
+    def run(argv: list[str] | None, *, live_shortlister: LiveShortlister) -> int:
+        seen["argv"] = argv
+        seen["live"] = live_shortlister()
+        return 7
+
+    monkeypatch.setattr(evals_main, "run_evals", run)
+
+    assert evals_main.main(["smoke", "exercise_shortlist"]) == 7
+    assert seen["argv"] == ["smoke", "exercise_shortlist"]
+    assert seen["live"] is not None  # an unopened context manager: no database was touched

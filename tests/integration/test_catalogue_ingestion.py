@@ -40,6 +40,7 @@ from ai_trainer.domain.embeddings import (
     EmbeddingFailed,
     EmbeddingFailure,
     EmbeddingOutcome,
+    QueryTask,
 )
 from ai_trainer.domain.knowledge import (
     EvidenceTier,
@@ -109,7 +110,9 @@ class _Question:
     def __init__(self, name: str) -> None:
         self.name = name
 
-    async def embed_query(self, text: str, *, acting_user_id: UUID) -> EmbeddingOutcome:
+    async def embed_query(
+        self, text: str, *, acting_user_id: UUID, task: QueryTask = QueryTask.QUESTION
+    ) -> EmbeddingOutcome:
         return Embedded(vectors=(_direction(self.name),), model=MODEL)
 
 

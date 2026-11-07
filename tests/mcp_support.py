@@ -11,7 +11,7 @@ from ai_trainer.application.exercise_lookup import ExerciseFinder
 from ai_trainer.application.exercise_resolution import ResolutionLimits
 from ai_trainer.application.knowledge_search import KnowledgeSearch
 from ai_trainer.application.training_history import ExerciseTrainingHistory, TrainingHistory
-from ai_trainer.domain.embeddings import Embedded, EmbeddingOutcome
+from ai_trainer.domain.embeddings import Embedded, EmbeddingOutcome, QueryTask
 from ai_trainer.domain.exercises import (
     CatalogueExercise,
     CatalogueWrite,
@@ -114,7 +114,9 @@ class QueryEmbeddings:
         self.outcome = outcome or Embedded(vectors=((1.0, 0.0),), model=EMBEDDING_MODEL)
         self.acting: list[UUID] = []
 
-    async def embed_query(self, text: str, *, acting_user_id: UUID) -> EmbeddingOutcome:
+    async def embed_query(
+        self, text: str, *, acting_user_id: UUID, task: QueryTask = QueryTask.QUESTION
+    ) -> EmbeddingOutcome:
         self.acting.append(acting_user_id)
         return self.outcome
 

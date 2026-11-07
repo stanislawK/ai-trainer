@@ -25,6 +25,7 @@ from ai_trainer.domain.embeddings import (
     EmbeddingFailed,
     EmbeddingFailure,
     EmbeddingOutcome,
+    QueryTask,
     RateLimited,
 )
 from ai_trainer.domain.llm_calls import LlmCallOutcome, ProviderPreferences
@@ -40,14 +41,22 @@ EMBEDDING_TEMPLATE_VERSION = 1
 # `Instruct: <task>\nQuery:` in the model card's form, the question appended as written (#424).
 QUERY_TEMPLATE_ID = "knowledge.query"
 QUERY_TEMPLATE_VERSION = 1
+# The same for a typed gym name, which describes a movement rather than asking a question
+# (ADR-0031 amendment, #429): the question instruction ranked Dumbbell Lateral Raise 23rd for
+# "rising straight arms on both sides", this one 5th.
+EXERCISE_QUERY_TEMPLATE_ID = "exercise.query"
+EXERCISE_QUERY_TEMPLATE_VERSION = 1
+_TEMPLATES: dict[QueryTask, tuple[str, int]] = {
+    QueryTask.QUESTION: (QUERY_TEMPLATE_ID, QUERY_TEMPLATE_VERSION),
+    QueryTask.EXERCISE: (EXERCISE_QUERY_TEMPLATE_ID, EXERCISE_QUERY_TEMPLATE_VERSION),
+}
 _PROMPTS_ROOT = Path(__file__).resolve().parent / "prompts"
 
 
 @cache
-def query_instruction() -> str:
-    return PromptRegistry(root=_PROMPTS_ROOT).load_fixed_reply(
-        QUERY_TEMPLATE_ID, QUERY_TEMPLATE_VERSION
-    )
+def query_instruction(task: QueryTask = QueryTask.QUESTION) -> str:
+    template_id, version = _TEMPLATES[task]
+    return PromptRegistry(root=_PROMPTS_ROOT).load_fixed_reply(template_id, version)
 
 
 class _Item(BaseModel):
@@ -113,14 +122,18 @@ class OpenRouterEmbeddingGateway:
             ),
         )
 
-    async def embed_query(self, text: str, *, acting_user_id: UUID) -> EmbeddingOutcome:
-        """Implements `QueryEmbeddingPort`: the question behind the `knowledge.query` line."""
+    async def embed_query(
+        self, text: str, *, acting_user_id: UUID, task: QueryTask = QueryTask.QUESTION
+    ) -> EmbeddingOutcome:
+        """Implements `QueryEmbeddingPort`: the text behind the `knowledge.query` line, or
+        behind `exercise.query` for a description of a gym movement."""
+        template_id, version = _TEMPLATES[task]
         return await self._embed(
-            [f"{query_instruction()}{text}"],
+            [f"{query_instruction(task)}{text}"],
             CallKey(
                 user_id=acting_user_id,
-                template_id=QUERY_TEMPLATE_ID,
-                template_version=QUERY_TEMPLATE_VERSION,
+                template_id=template_id,
+                template_version=version,
                 model=self._model,
             ),
         )
