@@ -126,8 +126,9 @@ async def _shortlist(names: SearchedExerciseNames, *, limit: int = 4) -> list[Ex
     )
 
 
-async def test_rising_straight_arms_lists_dumbbell_lateral_raise_among_its_candidates() -> None:
-    # Trigram finds only a stability-ball crunch; the search knows the movement.
+async def test_an_exercise_only_the_search_finds_joins_the_shortlist() -> None:
+    # Fusion arithmetic only, on scripted rankings. Whether the real search ranks the lateral raise
+    # high enough for "rising straight arms on both sides" is measured, not tested (ADR-0031, #429).
     names = _names([_STABILITY], _Search([_LATERAL, _FRONT]))
 
     assert _LATERAL in await _shortlist(names)
@@ -227,16 +228,39 @@ async def test_another_athlete_or_another_name_searches_again() -> None:
     assert search.asked == [(_USER, _TYPED), (other, _TYPED), (_USER, "face pull")]
 
 
-async def test_a_failed_search_is_not_remembered() -> None:
+async def test_a_failed_search_is_remembered_so_the_card_does_not_wait_it_out_again() -> None:
+    # Jev was shown the trigram list, so the card shows the same one, with no second timeout.
     search = _Search([_LATERAL], fail=True)
     names = _names([_STABILITY], search)
 
     await _ask(names, _USER, _TYPED)
     search.fail = False
+    shown_on_the_card = await _shortlist(names)
+
+    assert len(search.asked) == 1
+    assert shown_on_the_card == [_STABILITY]
+
+
+async def test_a_timed_out_search_is_not_waited_for_twice() -> None:
+    search = _Search([_LATERAL], delay=5.0)
+    names = _names([_STABILITY], search, timeout=0.01)
+
+    await _ask(names, _USER, _TYPED)
     await _ask(names, _USER, _TYPED)
 
-    assert len(search.asked) == 2
-    assert await _shortlist(names) == [_STABILITY, _LATERAL]  # and the second try was kept
+    assert len(search.asked) == 1
+
+
+async def test_a_failing_read_of_the_fused_exercises_falls_back_to_the_trigram_shortlist() -> None:
+    class _Broken(_Reader):
+        async def candidates(
+            self, user_id: UUID, exercise_ids: Sequence[UUID]
+        ) -> Sequence[ExerciseCandidate]:
+            raise RuntimeError("db is down")
+
+    names = _names([_STABILITY], _Search([_LATERAL]), reader=_Broken())
+
+    assert await _shortlist(names) == [_STABILITY]
 
 
 async def test_only_the_most_recent_searches_are_remembered() -> None:
@@ -311,6 +335,28 @@ async def test_a_name_in_the_athletes_history_makes_no_search_and_no_embedding_c
     assert search.asked == []
     assert picker.asked == []
     assert settled.activities[0].exercise_id == _LATERAL.id
+
+
+async def test_only_the_name_history_does_not_know_reaches_the_search() -> None:
+    search = _Search([_FRONT])
+    picker = ScriptedPicker()
+    names = _names([_STABILITY], search, inner=_Names(aliases={_TYPED: _LATERAL.id}))
+    resolver = ResolveExercises(names, picker, question=_never_asked, limits=_LIMITS)
+    payload = GymPayload.model_validate(
+        {
+            "activities": [
+                {"name": _TYPED, "sets": 3, "reps": 8},
+                {"name": "front raises", "sets": 3, "reps": 10},
+            ]
+        }
+    ).model_dump(mode="json")
+
+    settled = GymPayload.model_validate(await resolver.settle(_USER, payload))
+
+    assert search.asked == [(_USER, "front raises")]
+    assert [name for _, name, _ in picker.asked] == ["front raises"]
+    assert settled.activities[0].exercise_id == _LATERAL.id
+    assert settled.activities[1].exercise_id is None  # Jev wasn't sure, so the card asks
 
 
 async def test_a_log_still_drafts_when_the_search_times_out() -> None:

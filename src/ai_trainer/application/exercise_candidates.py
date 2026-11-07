@@ -100,23 +100,29 @@ class SearchedExerciseNames:
         fused = rrf_fuse([[candidate.id for candidate in trigram], found])[:limit]
         missing = [exercise_id for exercise_id in fused if exercise_id not in by_id]
         if missing:
-            by_id |= {c.id: c for c in await self._candidates.candidates(user_id, missing)}
+            try:
+                by_id |= {c.id: c for c in await self._candidates.candidates(user_id, missing)}
+            except Exception:  # the extra input never fails the log: today's list stands
+                logger.warning("exercise search candidates unreadable, using the trigram shortlist")
+                return list(trigram)[:limit]
         # An exercise the athlete can't see has no candidate and is dropped.
         return [by_id[exercise_id] for exercise_id in fused if exercise_id in by_id]
 
     async def _similar(self, user_id: UUID, name: str) -> Sequence[UUID]:
-        """The search's IDs, or none when it is slow or fails: the log still drafts. Only a
-        search that answered is remembered."""
+        """The search's IDs, or none when it is slow or fails: the log still drafts. A failure is
+        remembered like an answer, so the card shows the shortlist Jev was shown and does not
+        wait out a second timeout."""
         key = (user_id, name)
         if key in self._recent:
             self._recent.move_to_end(key)
             return self._recent[key]
+        found: Sequence[UUID]
         try:
             async with asyncio.timeout(self._timeout):
                 found = await self._search.similar(user_id, name)
         except Exception:  # any failure of the extra input falls back to today's list
             logger.warning("exercise search unavailable, using the trigram shortlist")
-            return ()
+            found = ()
         self._recent[key] = found
         while len(self._recent) > self._remembered:
             self._recent.popitem(last=False)
