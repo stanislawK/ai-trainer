@@ -40,7 +40,11 @@ from ai_trainer.llm.decision_gateway import OPENROUTER_SYSTEM_ONE_BASE_URL
 from ai_trainer.llm.decisions.loader import DECISIONS_ROOT, DecisionSetLoader
 from ai_trainer.llm.evals.answer_smoke import run_answer_smoke
 from ai_trainer.llm.evals.decisions import run_decision_eval
-from ai_trainer.llm.evals.exercise_shortlist_smoke import run_exercise_shortlist_smoke
+from ai_trainer.llm.evals.exercise_shortlist_smoke import (
+    LiveShortlister,
+    has_live_cases,
+    run_exercise_shortlist_smoke,
+)
 from ai_trainer.llm.evals.jev_check import JevCheck, configure_jev_check
 from ai_trainer.llm.evals.question_sport_smoke import run_question_sport_smoke
 from ai_trainer.llm.evals.router_fast import FastPathAccuracyError, run_router_fast_eval
@@ -533,14 +537,24 @@ def _model_under_test(
 
 
 def _own_runners(
-    settings: Settings, registry: PromptRegistry, versions: Mapping[str, int]
+    settings: Settings,
+    registry: PromptRegistry,
+    versions: Mapping[str, int],
+    live_shortlister: LiveShortlister | None = None,
 ) -> tuple[dict[str, DecisionSmokeRunner], dict[str, DecisionSmokeRunner]]:
     """The sets with a runner of their own: the decision sets, then the answer templates."""
 
     async def exercise_shortlist(smoke_set: SmokeSet, model: Model) -> list[SmokeCaseResult]:
-        return await run_exercise_shortlist_smoke(
-            smoke_set, model, threshold=settings.exercise_pick_threshold
-        )
+        if live_shortlister is None or not has_live_cases(smoke_set):
+            # Without the entry point's database wiring a live case fails by name.
+            return await run_exercise_shortlist_smoke(
+                smoke_set, model, threshold=settings.exercise_pick_threshold
+            )
+        # Live cases read the app's shortlist from the database (ticket #429).
+        async with live_shortlister() as shortlist:
+            return await run_exercise_shortlist_smoke(
+                smoke_set, model, threshold=settings.exercise_pick_threshold, shortlist=shortlist
+            )
 
     async def router_fast(smoke_set: SmokeSet, model: Model) -> list[SmokeCaseResult]:
         return await run_router_fast_smoke(
@@ -574,7 +588,9 @@ def _own_runners(
     return decision_runners, answer_runners
 
 
-def _main_smoke(args: argparse.Namespace, settings: Settings) -> int:
+def _main_smoke(
+    args: argparse.Namespace, settings: Settings, live_shortlister: LiveShortlister | None
+) -> int:
     registry = _default_registry()
     provider: OpenRouterProvider | None = None
 
@@ -588,7 +604,7 @@ def _main_smoke(args: argparse.Namespace, settings: Settings) -> int:
         return provider
 
     versions = _active_versions(default_sport_registry())
-    decision_runners, answer_runners = _own_runners(settings, registry, versions)
+    decision_runners, answer_runners = _own_runners(settings, registry, versions, live_shortlister)
 
     def model_for(template_id: str) -> tuple[Model, str]:
         if template_id in decision_runners:
@@ -620,14 +636,18 @@ def _main_smoke(args: argparse.Namespace, settings: Settings) -> int:
     )
 
 
-def main(argv: Sequence[str] | None = None) -> int:
+def main(
+    argv: Sequence[str] | None = None, *, live_shortlister: LiveShortlister | None = None
+) -> int:
+    """`live_shortlister` opens the app's exercise shortlist on the database; only the entry
+    point (`ai_trainer.evals_main`) can build one (ADR-0003)."""
     parser = _build_parser()
     args = parser.parse_args(argv)
     if args.command == "smoke" and args.all == (args.smoke_id is not None):
         parser.error("smoke takes one set ID, or --all")
     settings = Settings()
     if args.command == "smoke":
-        return _main_smoke(args, settings)
+        return _main_smoke(args, settings, live_shortlister)
     registry = _default_registry()
     loader = DecisionSetLoader(root=_DECISIONS_ROOT)
     template_versions = registry.versions(args.template_id)

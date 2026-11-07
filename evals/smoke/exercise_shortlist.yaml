@@ -4,6 +4,12 @@
 # should ask (Jev says none, is torn between two, or is below the Settings threshold).
 # Names 3-5 are cut from evals/field/gym/2026-10-28-first-gym-session.md; the candidates are
 # catalogue names (ADR-0031). There is no judge: a decision is graded by its outcome.
+#
+# The last four cases are `live` (#429): no candidates and no Jev call. They ask the app's own
+# shortlist, on the imported catalogue, for the typed name and pass when `listed` is among its
+# candidates, so they score the shortlist's recall. Run the set twice, with EXERCISE_SEARCH_ENABLED
+# false and true, for the before and the after; they need `uv run ai-trainer import-exercises`,
+# for the search also an ingest (`make ingest-once`), and an active admin in ADMIN_EMAILS.
 name: exercise_shortlist
 cases:
 - name: pull ups
@@ -64,3 +70,37 @@ cases:
       - {name: Close-Grip Bench Press, equipment: barbell, target: triceps}
   expected_output:
     pick: none
+- name: live rising straight arms
+  metadata:
+    source: evals/field/gym/2026-10-28-first-gym-session.md
+    note: the case ADR-0031 records as ranking 178th by trigram (#402, #429)
+  inputs:
+    prompt: rising straight arms on both sides
+    deps: {live: true}
+  expected_output:
+    listed: Dumbbell Lateral Raise
+- name: live triceps arm bent to 90
+  metadata:
+    source: evals/field/gym/2026-10-28-first-gym-session.md
+    note: the label is the agent's reading of "straightening arm bent to 90" (a kickback); the owner may correct it
+  inputs:
+    prompt: Triceps - straightening arm bent to 90 degr
+    deps: {live: true}
+  expected_output:
+    listed: Dumbbell Kickback
+- name: live pull ups
+  metadata:
+    source: evals/field/gym/2026-10-28-first-gym-session.md
+  inputs:
+    prompt: Pull ups
+    deps: {live: true}
+  expected_output:
+    listed: Pull-Up
+- name: live face pull
+  metadata:
+    source: evals/field/gym/2026-10-28-first-gym-session.md
+  inputs:
+    prompt: Face pull
+    deps: {live: true}
+  expected_output:
+    listed: Face Pull
