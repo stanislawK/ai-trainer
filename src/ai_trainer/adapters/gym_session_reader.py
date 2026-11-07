@@ -4,6 +4,7 @@ entry settled to an exercise. Every statement filters by `user_id` (ADR-0022 inv
 
 from collections import defaultdict
 from collections.abc import Callable, Sequence
+from typing import cast
 from uuid import UUID
 
 from sqlalchemy import select
@@ -13,14 +14,14 @@ from ai_trainer.adapters.orm import ExerciseOrm, GymExerciseEntryOrm, GymSetOrm,
 from ai_trainer.adapters.training_session_repository import select_spans, to_span
 from ai_trainer.domain.exercises import ExerciseLabel
 from ai_trainer.domain.history import StoredGymSession
-from ai_trainer.domain.sports.gym.payload import Exercise, GymSet
+from ai_trainer.domain.sports.gym.payload import Exercise, GymSet, Measure
 from ai_trainer.domain.sports.gym.rows import load_of
 
 GYM = "gym"
 
 
 def _gym_set(row: GymSetOrm) -> GymSet:
-    return GymSet(
+    return GymSet.model_construct(
         reps=row.reps,
         load=None if row.load_kg is None else load_of(row.load_original, row.load_kg),
         duration_s=row.duration_s,
@@ -36,16 +37,7 @@ class SqlAlchemyGymSessionReader:
         self._session_factory = session_factory
 
     async def list_sessions(self, user_id: UUID) -> Sequence[StoredGymSession]:
-        return await self._read(user_id, None)
-
-    async def get_session(self, user_id: UUID, session_id: UUID) -> StoredGymSession | None:
-        found = await self._read(user_id, session_id)
-        return found[0] if found else None
-
-    async def _read(self, user_id: UUID, session_id: UUID | None) -> list[StoredGymSession]:
         spans = select_spans(user_id).where(TrainingSessionOrm.sport_id == GYM)
-        if session_id is not None:
-            spans = spans.where(TrainingSessionOrm.id == session_id)
         async with self._session_factory() as db:
             span_rows = [to_span(row) for row in (await db.execute(spans)).all()]
             ids = [span.id for span in span_rows]
@@ -78,17 +70,17 @@ class SqlAlchemyGymSessionReader:
         labels = defaultdict[UUID, dict[str, ExerciseLabel]](dict)
         for entry, canonical in entries:
             exercises[entry.session_id].append(
-                Exercise.model_validate(
-                    {
-                        "exercise_id": entry.exercise_id,
-                        "name_as_typed": entry.name_as_typed,
-                        # The check constraint keeps `measure` to the five values.
-                        "measure": entry.measure,
-                        "per_side": entry.per_side,
-                        "implements": entry.implements,
-                        "rir": entry.rir,
-                        "sets": [_gym_set(row) for row in sets[entry.id]],
-                    }
+                # Not validated: the rows were valid when written, and a stricter payload rule
+                # later must not take the athlete's whole history down with it.
+                Exercise.model_construct(
+                    exercise_id=entry.exercise_id,
+                    name_as_typed=entry.name_as_typed,
+                    # The check constraint keeps `measure` to the five values.
+                    measure=cast(Measure, entry.measure),
+                    per_side=entry.per_side,
+                    implements=entry.implements,
+                    rir=entry.rir,
+                    sets=[_gym_set(row) for row in sets[entry.id]],
                 )
             )
             if canonical is not None:

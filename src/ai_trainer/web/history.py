@@ -28,10 +28,11 @@ def build_history_router(templates: Jinja2Templates, *, history: GymSessionHisto
     @router.get("/history/{session_id}", response_class=HTMLResponse)
     async def history_session(request: Request, session_id: str) -> HTMLResponse:
         user: User = request.state.user
-        opened = await history.get(user.id, user.timezone, parse_id(session_id))
+        wanted = parse_id(session_id)
+        sessions = await history.list(user.id, user.timezone)
+        opened = next((session for session in sessions if session.id == wanted), None)
         if opened is None:
             raise HTTPException(status_code=NOT_FOUND)
-        sessions = await history.list(user.id, user.timezone)
         return render(request, {"sessions": sessions, "open": opened})
 
     return router

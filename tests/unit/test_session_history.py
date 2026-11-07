@@ -1,5 +1,5 @@
 """The History read model (ticket #515): newest first, the time of day in the athlete's
-timezone, and an unknown session as `None`."""
+timezone, and a UTC fallback for an unknown zone."""
 
 from collections.abc import Sequence
 from datetime import UTC, date, datetime
@@ -25,9 +25,6 @@ class FakeReader:
     async def list_sessions(self, user_id: UUID) -> Sequence[StoredGymSession]:
         return self._sessions
 
-    async def get_session(self, user_id: UUID, session_id: UUID) -> StoredGymSession | None:
-        return next((s for s in self._sessions if s.span.id == session_id), None)
-
 
 async def test_orders_newest_first_and_converts_to_user_timezone() -> None:
     old = _stored(date(2026, 10, 1), datetime(2026, 10, 1, 16, 30, tzinfo=UTC))
@@ -42,12 +39,10 @@ async def test_orders_newest_first_and_converts_to_user_timezone() -> None:
     assert sessions[0].day == date(2026, 11, 3)
 
 
-async def test_get_converts_one_session_and_an_unknown_one_is_none() -> None:
+async def test_unknown_timezone_falls_back_to_utc() -> None:
     stored = _stored(date(2026, 11, 3), datetime(2026, 11, 3, 17, 40, tzinfo=UTC))
     history = GymSessionHistory(FakeReader(stored))
 
-    found = await history.get(uuid4(), "UTC", stored.span.id)
+    sessions = await history.list(uuid4(), "Not/AZone")
 
-    assert found is not None
-    assert found.time.isoformat() == "17:40:00"
-    assert await history.get(uuid4(), "UTC", uuid4()) is None
+    assert sessions[0].time.isoformat() == "17:40:00"

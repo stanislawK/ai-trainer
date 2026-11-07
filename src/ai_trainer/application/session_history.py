@@ -3,7 +3,7 @@ sessions, newest first, with the time of day in their timezone (ADR-0014)."""
 
 from collections.abc import Sequence
 from uuid import UUID
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from ai_trainer.application.ports.gym_history import GymSessionReaderPort
 from ai_trainer.domain.history import HistorySession, StoredGymSession
@@ -20,6 +20,14 @@ def _local(stored: StoredGymSession, timezone: ZoneInfo) -> HistorySession:
     )
 
 
+def _zone(name: str) -> ZoneInfo:
+    """The athlete's zone, UTC when the stored name is unknown (ADR-0014)."""
+    try:
+        return ZoneInfo(name)
+    except ZoneInfoNotFoundError, ValueError:
+        return ZoneInfo("UTC")
+
+
 class GymSessionHistory:
     def __init__(self, reader: GymSessionReaderPort) -> None:
         self._reader = reader
@@ -32,9 +40,5 @@ class GymSessionHistory:
             key=lambda session: (session.span.occurred_on, session.span.first_logged_at),
             reverse=True,
         )
-        zone = ZoneInfo(timezone)
+        zone = _zone(timezone)
         return [_local(session, zone) for session in ordered]
-
-    async def get(self, user_id: UUID, timezone: str, session_id: UUID) -> HistorySession | None:
-        stored = await self._reader.get_session(user_id, session_id)
-        return None if stored is None else _local(stored, ZoneInfo(timezone))

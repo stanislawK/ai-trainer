@@ -13,7 +13,3 @@ class GymSessionReaderPort(Protocol):
     async def list_sessions(self, user_id: UUID) -> Sequence[StoredGymSession]:
         """Every gym session of the user, in no set order."""
         ...
-
-    async def get_session(self, user_id: UUID, session_id: UUID) -> StoredGymSession | None:
-        """One gym session of the user, `None` for an unknown id or another user's."""
-        ...
