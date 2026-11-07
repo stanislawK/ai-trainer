@@ -9,6 +9,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
 
+from ai_trainer.domain.embeddings import QueryTask
 from ai_trainer.domain.knowledge import EvidenceTier, SourceLanguage, SourceType
 from ai_trainer.domain.knowledge_document import Locator
 
@@ -84,6 +85,10 @@ class KnowledgeSearchQuery:
     topics: tuple[str, ...] = ()
     exercise_id: UUID | None = None
     limit: int = DEFAULT_HITS
+    # What the text is, which picks the instruction its embedding carries (#429).
+    task: QueryTask = QueryTask.QUESTION
+    # Only the catalogue's exercise texts, so a paper never takes a slot (#429).
+    exercises_only: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,6 +100,7 @@ class KnowledgeFilters:
     sport_id: str | None = None
     topics: tuple[str, ...] = ()
     exercise_id: UUID | None = None
+    exercises_only: bool = False
 
 
 @dataclass(frozen=True, slots=True)

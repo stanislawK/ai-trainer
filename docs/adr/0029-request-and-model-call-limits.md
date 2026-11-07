@@ -64,3 +64,4 @@ The owner also sets a credit limit on the production OpenRouter key. The app can
   - **Limits of the fix.** A per-address limit doesn't stop a flood spread over many addresses; Cloudflare in front is the backstop for that.
   - **Settings.** `token_failures_per_address_per_minute` defaults to 10, as on sign-in.
   - **Ticket.** It is implemented in #470, after #457.
+- Amended at #429 (plan gate 2026-11-07, review the same day): the exercise search's query embedding is charged to the model-call budget. It runs on the log path, outside any tool loop's slot, and a log naming N new exercises makes N calls at once, so it counts like a text or decision call (`BudgetedQueryEmbeddings`); a refused call is not sent and the shortlist falls back to trigram matching. The embedding calls inside a specialist's tool loop stay under that loop's one slot, and evals are not capped. See ADR-0031's #429 amendment.

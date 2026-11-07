@@ -11,6 +11,7 @@ from pydantic import BaseModel
 
 from ai_trainer.application.model_budget import ModelCallBudget
 from ai_trainer.application.ports.decision_gateway import DecisionGatewayPort, DecisionResult
+from ai_trainer.application.ports.embeddings import QueryEmbeddingPort
 from ai_trainer.application.ports.llm_gateway import (
     LlmGatewayPort,
     LlmGatewayResult,
@@ -18,6 +19,7 @@ from ai_trainer.application.ports.llm_gateway import (
     StreamEnd,
     ToolLoop,
 )
+from ai_trainer.domain.embeddings import EmbeddingOutcome, QueryTask, RateLimited
 from ai_trainer.domain.llm_calls import LlmCallOutcome, ProviderPreferences, ReasoningEffort
 
 
@@ -104,6 +106,25 @@ class BudgetedLlmGateway:
                 timeout_seconds=timeout_seconds,
             ):
                 yield event
+
+
+class BudgetedQueryEmbeddings:
+    """Implements `QueryEmbeddingPort`. Shares the text gateway's budget, for the embedding calls
+    that run outside a tool loop's slot: the exercise search on the log path (ADR-0031, #429),
+    where a log naming N exercises makes N calls at once. A refused call is not sent and reads as
+    `RateLimited`, which the search turns into its fallback."""
+
+    def __init__(self, inner: QueryEmbeddingPort, budget: ModelCallBudget) -> None:
+        self._inner = inner
+        self._budget = budget
+
+    async def embed_query(
+        self, text: str, *, acting_user_id: UUID, task: QueryTask = QueryTask.QUESTION
+    ) -> EmbeddingOutcome:
+        async with self._budget.hold(acting_user_id) as allowed:
+            if not allowed:
+                return RateLimited()
+            return await self._inner.embed_query(text, acting_user_id=acting_user_id, task=task)
 
 
 class BudgetedDecisionGateway:

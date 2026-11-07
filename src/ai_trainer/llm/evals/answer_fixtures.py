@@ -8,7 +8,7 @@ from uuid import NAMESPACE_URL, UUID, uuid5
 
 from pydantic import BaseModel
 
-from ai_trainer.domain.embeddings import Embedded, EmbeddingOutcome
+from ai_trainer.domain.embeddings import Embedded, EmbeddingOutcome, QueryTask
 from ai_trainer.domain.exercises import (
     CatalogueExercise,
     CatalogueWrite,
@@ -267,7 +267,9 @@ class CaseKnowledge:
             for number, passage in enumerate(passages)
         )
 
-    async def embed_query(self, text: str, *, acting_user_id: UUID) -> EmbeddingOutcome:
+    async def embed_query(
+        self, text: str, *, acting_user_id: UUID, task: QueryTask = QueryTask.QUESTION
+    ) -> EmbeddingOutcome:
         return Embedded(vectors=((1.0,),), model=EMBEDDING_MODEL)
 
     async def candidates(

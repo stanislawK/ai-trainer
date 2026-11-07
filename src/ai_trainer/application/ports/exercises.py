@@ -58,6 +58,26 @@ class ExerciseNamesPort(Protocol):
         ...
 
 
+class ExerciseSearchPort(Protocol):
+    """The catalogue's search by meaning, the shortlist's third input (ADR-0031, #429)."""
+
+    async def similar(self, user_id: UUID, name: str) -> Sequence[UUID]:
+        """Exercise IDs for a typed name, best first, each once, from the catalogue's texts. The
+        embedding call is charged to `user_id`. Raises when the search could not be used: it
+        failed, matched nothing, or matched no exercise. Never returns an empty list."""
+        ...
+
+
+class ExerciseCandidatesPort(Protocol):
+    async def candidates(
+        self, user_id: UUID, exercise_ids: Sequence[UUID], *, measure: str
+    ) -> Sequence[ExerciseCandidate]:
+        """The exercises among `exercise_ids` that `user_id` can see, each with its short English
+        text: those whose default measure is `measure` first, the order given otherwise. An ID the
+        athlete can't see is left out (invariant 3)."""
+        ...
+
+
 class ExerciseLookupPort(ExerciseNamesPort, Protocol):
     """What `find_exercise` reads on top of naming (ADR-0010, ADR-0031)."""
 

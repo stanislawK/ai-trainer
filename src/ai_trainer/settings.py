@@ -29,12 +29,13 @@ from ai_trainer.settings_values import (
     VERSIONED_DECISION_MODEL,
     CallTimeout,
     CommaSeparated,
+    ExerciseSearchSettings,
     ProviderPreferencesSetting,
     http_origin,
 )
 
 
-class Settings(BaseSettings):
+class Settings(ExerciseSearchSettings, BaseSettings):
     """All configuration; the only reader of the environment (ADR-0002)."""
 
     model_config = SettingsConfigDict(
@@ -74,9 +75,8 @@ class Settings(BaseSettings):
     )
     exercise_dataset_fetched_on: date = date(2026, 10, 31)
     exercise_catalogue_dir: Path = Path("data/catalogue")
-    # A typed name this similar (`pg_trgm`) to one of the athlete's own aliases is that exercise,
-    # with no question (ADR-0031). Measured on the catalogue at #397: "bench pres" 0.77 and
-    # "hammer curls" 0.79 pass, "incline" against "decline bench press" 0.67 doesn't.
+    # A typed name this similar (`pg_trgm`) to one of the athlete's aliases is that exercise, with
+    # no question (ADR-0031, #397): "bench pres" 0.77 passes, "incline" vs "decline bench" 0.67 not.
     exercise_near_match_threshold: float = Field(default=0.75, ge=0, le=1)
     # A catalogue exercise this similar to a typed name is a candidate; with none, the card
     # offers only "Keep my name". Measured at #397: "RDL" tops out at 0.14, nonsense at 0.06.

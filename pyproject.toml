@@ -39,7 +39,7 @@ dependencies = [
 
 [project.scripts]
 ai-trainer = "ai_trainer.cli:main"
-ai-trainer-evals = "ai_trainer.llm.evals.cli:main"
+ai-trainer-evals = "ai_trainer.evals_main:main"
 
 [build-system]
 requires = ["uv_build>=0.13.7,<0.14.0"]

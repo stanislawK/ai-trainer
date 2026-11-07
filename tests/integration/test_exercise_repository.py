@@ -167,3 +167,56 @@ async def test_get_of_an_unknown_id_is_none(
     user = await _user(db_session_factory, "exercise-unknown")
 
     assert await repository.get(user, uuid4()) is None
+
+
+async def test_candidates_keep_the_order_given_and_leave_out_what_the_athlete_cannot_see(
+    db_session_factory: SessionFactory, repository: SqlAlchemyExerciseRepository
+) -> None:
+    await import_catalogue(source=sample_source(), exercises=repository)
+    owner = await _user(db_session_factory, "exercise-candidates-owner")
+    other = await _user(db_session_factory, "exercise-candidates-other")
+    custom = await repository.create_custom(
+        owner, sport_id="gym", name="My Raise", default_measure=ExerciseMeasure.REPS
+    )
+    async with db_session_factory() as session:
+        catalogue = list(
+            (
+                await session.execute(
+                    text(
+                        "SELECT id FROM exercises WHERE source_ref IN ('zz-test-02', 'zz-test-01')"
+                        " ORDER BY source_ref DESC"
+                    )
+                )
+            ).scalars()
+        )
+
+    wanted = [catalogue[0], custom.id, catalogue[1]]
+    mine = await repository.candidates(owner, wanted, measure="reps")
+    theirs = await repository.candidates(other, wanted, measure="reps")
+
+    assert [c.id for c in mine] == wanted
+    assert [c.id for c in theirs] == [catalogue[0], catalogue[1]]
+    assert await repository.candidates(owner, [], measure="reps") == []
+
+
+async def test_candidates_put_the_entrys_own_measure_first_and_keep_the_given_order(
+    db_session_factory: SessionFactory, repository: SqlAlchemyExerciseRepository
+) -> None:
+    owner = await _user(db_session_factory, "exercise-candidates-measure")
+    made = {
+        measure: await repository.create_custom(
+            owner, sport_id="gym", name=f"My {measure.value}", default_measure=measure
+        )
+        for measure in (ExerciseMeasure.TIME, ExerciseMeasure.REPS, ExerciseMeasure.LOAD_REPS)
+    }
+    wanted = [
+        made[ExerciseMeasure.TIME].id,
+        made[ExerciseMeasure.REPS].id,
+        made[ExerciseMeasure.LOAD_REPS].id,
+    ]
+
+    timed = await repository.candidates(owner, wanted, measure="time")
+    reps = await repository.candidates(owner, wanted, measure="reps")
+
+    assert [c.name for c in timed] == ["My time", "My reps", "My load_reps"]
+    assert [c.name for c in reps] == ["My reps", "My time", "My load_reps"]

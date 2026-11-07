@@ -50,6 +50,8 @@ def _filters(filters: KnowledgeFilters) -> list[ColumnElement[bool]]:
         conditions.append(_C.topics.overlap(cast(list(filters.topics), ARRAY(Text))))
     if filters.exercise_id is not None:
         conditions.append(_C.exercise_id == filters.exercise_id)
+    if filters.exercises_only:
+        conditions.append(_C.exercise_id.is_not(None))
     return conditions
 
 

@@ -52,7 +52,7 @@ class KnowledgeSearch:
                     reason="unknown_sport",
                     known_sports=tuple(plugin.id for plugin in self._sports.all()),
                 )
-        embedded = await self._embeddings.embed_query(text, acting_user_id=user_id)
+        embedded = await self._embeddings.embed_query(text, acting_user_id=user_id, task=query.task)
         if not isinstance(embedded, Embedded) or len(embedded.vectors) != 1:
             return KnowledgeSearchFailed(reason="embedding_unavailable")
         candidates = await self._repository.candidates(
@@ -63,6 +63,7 @@ class KnowledgeSearch:
                 sport_id=query.sport_id,
                 topics=tuple(t for topic in query.topics if (t := topic.strip().lower())),
                 exercise_id=query.exercise_id,
+                exercises_only=query.exercises_only,
             ),
             depth=self._depth,
         )

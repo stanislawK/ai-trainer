@@ -4,7 +4,21 @@
 # should ask (Jev says none, is torn between two, or is below the Settings threshold).
 # Names 3-5 are cut from evals/field/gym/2026-10-28-first-gym-session.md; the candidates are
 # catalogue names (ADR-0031). There is no judge: a decision is graded by its outcome.
+#
+# The last four cases are `live` (#429): no candidates and no Jev call. They ask the app's own
+# shortlist, on the imported catalogue, for the typed name and the entry's `measure` (default
+# `load_reps`) and pass when `listed` is among its candidates, so they score the shortlist's
+# recall. Run the set twice, with EXERCISE_SEARCH_ENABLED false and true, for the before and the
+# after; they need `uv run ai-trainer import-exercises`, for the search also an ingest
+# (`make ingest-once`), and an active admin in ADMIN_EMAILS.
 name: exercise_shortlist
+# Measured at #429 (2026-11-07), search off then on: 2 of 4 live cases pass both ways (pull ups
+# and face pull, by trigram matching alone). The two paraphrases fail either way; with the search
+# on, "rising straight arms" gets the lateral-raise family instead of a crunch, but not the
+# lateral raise itself. Raising recall is #508.
+known_gaps:
+  live rising straight arms: "#508"
+  live triceps arm bent to 90: "#508"
 cases:
 - name: pull ups
   metadata:
@@ -64,3 +78,37 @@ cases:
       - {name: Close-Grip Bench Press, equipment: barbell, target: triceps}
   expected_output:
     pick: none
+- name: live rising straight arms
+  metadata:
+    source: evals/field/gym/2026-10-28-first-gym-session.md
+    note: the case ADR-0031 records as ranking 178th by trigram (#402, #429)
+  inputs:
+    prompt: rising straight arms on both sides
+    deps: {live: true}
+  expected_output:
+    listed: Dumbbell Lateral Raise
+- name: live triceps arm bent to 90
+  metadata:
+    source: evals/field/gym/2026-10-28-first-gym-session.md
+    note: the label is the agent's reading of "straightening arm bent to 90" (a kickback); the owner may correct it
+  inputs:
+    prompt: Triceps - straightening arm bent to 90 degr
+    deps: {live: true}
+  expected_output:
+    listed: Dumbbell Kickback
+- name: live pull ups
+  metadata:
+    source: evals/field/gym/2026-10-28-first-gym-session.md
+  inputs:
+    prompt: Pull ups
+    deps: {live: true, measure: reps}  # "Gym 8 pull ups 3x": reps only, no load
+  expected_output:
+    listed: Pull-Up
+- name: live face pull
+  metadata:
+    source: evals/field/gym/2026-10-28-first-gym-session.md
+  inputs:
+    prompt: Face pull
+    deps: {live: true}
+  expected_output:
+    listed: Face Pull

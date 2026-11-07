@@ -2,7 +2,7 @@ from collections.abc import Sequence
 from typing import Protocol
 from uuid import UUID
 
-from ai_trainer.domain.embeddings import EmbeddingOutcome
+from ai_trainer.domain.embeddings import EmbeddingOutcome, QueryTask
 
 
 class EmbeddingGatewayPort(Protocol):
@@ -19,4 +19,9 @@ class QueryEmbeddingPort(Protocol):
     writes one `llm_calls` row for `acting_user_id`, the athlete who searched; only the query
     text is sent."""
 
-    async def embed_query(self, text: str, *, acting_user_id: UUID) -> EmbeddingOutcome: ...
+    async def embed_query(
+        self, text: str, *, acting_user_id: UUID, task: QueryTask = QueryTask.QUESTION
+    ) -> EmbeddingOutcome:
+        """`task` picks the instruction line: a question, or a description of a gym movement
+        (#429)."""
+        ...

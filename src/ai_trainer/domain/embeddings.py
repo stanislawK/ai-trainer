@@ -5,6 +5,14 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 
+class QueryTask(StrEnum):
+    """What a search query is, which picks its instruction line (ADR-0033, #429): a question
+    about training, or an athlete's description of a gym movement."""
+
+    QUESTION = "question"
+    EXERCISE = "exercise"
+
+
 @dataclass(frozen=True, slots=True)
 class Embedded:
     """One vector per input, in input order, and the model the response names."""
