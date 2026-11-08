@@ -25,14 +25,20 @@ class MediaAssetOrm(Base):
             name="media_assets_embedded",
         ),
         CheckConstraint(
-            "rights <> 'licensed' OR (license IS NOT NULL AND attribution IS NOT NULL)",
+            "rights <> 'licensed' OR (license IS NOT NULL AND attribution IS NOT NULL "
+            "AND btrim(license) <> '' AND btrim(attribution) <> '')",
             name="media_assets_licensed",
         ),
         CheckConstraint(
             "rights <> 'unstated' OR delivery = 'embedded'", name="media_assets_unstated"
         ),
         CheckConstraint("sha256 ~ '^[0-9a-f]{64}$'", name="media_assets_sha256_format"),
-        CheckConstraint("width > 0 AND height > 0", name="media_assets_size"),
+        CheckConstraint("embed_url ~ '^https?://'", name="media_assets_embed_url_scheme"),
+        CheckConstraint(
+            "(width IS NULL AND height IS NULL) OR "
+            "(width IS NOT NULL AND height IS NOT NULL AND width > 0 AND height > 0)",
+            name="media_assets_size",
+        ),
         CheckConstraint("source <> '' AND source_ref <> ''", name="media_assets_source_present"),
         Index(
             "media_assets_sha256_key",

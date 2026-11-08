@@ -700,7 +700,7 @@ Edit the token from 14.1 so **Apply to specific buckets only** lists both `ai-tr
 OBJECT_STORAGE_MEDIA_BUCKET=ai-trainer-media
 ```
 
-It needs the endpoint and both keys from 14.2. Set alone, the app refuses to start and names the missing keys.
+It needs the whole `OBJECT_STORAGE_*` set from 14.2, the uploads bucket included. Set without it, the app refuses to start and names the missing keys.
 
 ## 15. Ingest container
 

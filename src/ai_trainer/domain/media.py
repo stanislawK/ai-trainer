@@ -7,6 +7,8 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 # A lower-case hex SHA-256 digest, as `media_assets_sha256_format` checks it.
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+# As `media_assets_embed_url_scheme` checks it: never a `javascript:` or `data:` URL.
+EMBED_URL_PATTERN = re.compile(r"^https?://")
 
 
 class MediaKind(StrEnum):
@@ -69,8 +71,12 @@ class MediaAsset(BaseModel):
                 raise ValueError("stored media has a storage key and a sha256, and no embed URL")
         elif self.embed_url is None or self.storage_key is not None:
             raise ValueError("embedded media has an embed URL and no storage key")
+        if self.embed_url is not None and not EMBED_URL_PATTERN.match(self.embed_url):
+            raise ValueError("an embed URL is http(s)")
+        if (self.width is None) != (self.height is None):
+            raise ValueError("width and height are set together")
         if self.rights is MediaRights.LICENSED:
-            if self.license is None or self.attribution is None:
+            if not (self.license or "").strip() or not (self.attribution or "").strip():
                 raise ValueError("licensed media has a licence and an attribution")
         elif self.delivery is not MediaDelivery.EMBEDDED:
             raise ValueError("media with unstated rights is only embedded")

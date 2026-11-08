@@ -67,6 +67,10 @@ def test_a_stored_licensed_asset_and_an_embedded_unstated_one_are_valid() -> Non
         _stored(height=-1),
         _stored(source=""),
         _stored(source_ref=""),
+        _stored(attribution="  "),
+        _stored(license=""),
+        _embedded(embed_url="javascript:alert(1)"),
+        _stored(width=100, height=None),
     ],
     ids=[
         "stored-no-sha256",
@@ -82,6 +86,10 @@ def test_a_stored_licensed_asset_and_an_embedded_unstated_one_are_valid() -> Non
         "negative-height",
         "blank-source",
         "blank-source-ref",
+        "blank-attribution",
+        "blank-license",
+        "embed-not-http",
+        "half-set-size",
     ],
 )
 def test_an_asset_the_checks_refuse_is_refused(fields: dict[str, Any]) -> None:

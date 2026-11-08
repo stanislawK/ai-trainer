@@ -145,7 +145,8 @@ class ObjectStorageSettings(BaseModel):
             raise ValueError(f"object storage is only partly set; missing {', '.join(missing)}")
         if self.object_storage_media_bucket is not None and missing:
             raise ValueError(
-                f"OBJECT_STORAGE_MEDIA_BUCKET needs the object storage keys; missing "
+                f"OBJECT_STORAGE_MEDIA_BUCKET needs every OBJECT_STORAGE_* key, the uploads bucket "
+                f"included; missing "
                 f"{', '.join(missing)}"
             )
         return self

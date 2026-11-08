@@ -60,14 +60,20 @@ def upgrade() -> None:
             name="media_assets_embedded",
         ),
         sa.CheckConstraint(
-            "rights <> 'licensed' OR (license IS NOT NULL AND attribution IS NOT NULL)",
+            "rights <> 'licensed' OR (license IS NOT NULL AND attribution IS NOT NULL "
+            "AND btrim(license) <> '' AND btrim(attribution) <> '')",
             name="media_assets_licensed",
         ),
         sa.CheckConstraint(
             "rights <> 'unstated' OR delivery = 'embedded'", name="media_assets_unstated"
         ),
         sa.CheckConstraint("sha256 ~ '^[0-9a-f]{64}$'", name="media_assets_sha256_format"),
-        sa.CheckConstraint("width > 0 AND height > 0", name="media_assets_size"),
+        sa.CheckConstraint("embed_url ~ '^https?://'", name="media_assets_embed_url_scheme"),
+        sa.CheckConstraint(
+            "(width IS NULL AND height IS NULL) OR "
+            "(width IS NOT NULL AND height IS NOT NULL AND width > 0 AND height > 0)",
+            name="media_assets_size",
+        ),
         sa.CheckConstraint("source <> '' AND source_ref <> ''", name="media_assets_source_present"),
         sa.PrimaryKeyConstraint("id"),
     )

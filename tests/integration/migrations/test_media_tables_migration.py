@@ -159,6 +159,10 @@ def test_media_check_rejects_licensed_without_attribution(cur: psycopg.Cursor[An
         (_stored(sha256="ABC"), "media_assets_sha256_format"),
         (_stored(width=0), "media_assets_size"),
         (_stored(source=""), "media_assets_source_present"),
+        (_stored(attribution="  "), "media_assets_licensed"),
+        (_stored(license=""), "media_assets_licensed"),
+        (_embedded(embed_url="javascript:alert(1)"), "media_assets_embed_url_scheme"),
+        (_stored(width=100, height=None), "media_assets_size"),
     ],
     ids=[
         "stored-no-key",
@@ -173,6 +177,10 @@ def test_media_check_rejects_licensed_without_attribution(cur: psycopg.Cursor[An
         "bad-sha256",
         "zero-width",
         "blank-source",
+        "blank-attribution",
+        "blank-license",
+        "embed-not-http",
+        "half-set-size",
     ],
 )
 def test_media_checks_reject_invalid_rows(
