@@ -79,6 +79,11 @@ from ai_trainer.llm.onboarding import (
     LevelMatch,
     ScheduleMatch,
 )
+from ai_trainer.llm.picture_brief import (
+    PICTURE_BRIEF_TEMPLATE_ID,
+    PICTURE_BRIEF_VERSION,
+    PictureBriefMatch,
+)
 from ai_trainer.llm.prompts.registry import PromptRegistry
 from ai_trainer.llm.prompts.template import PromptTemplate, TemplateOutput
 from ai_trainer.llm.question_sport import QUESTION_SPORT_ID, QUESTION_SPORT_VERSION
@@ -122,6 +127,8 @@ _EVALUATORS: dict[str, tuple[type[Evaluator[EvalCaseInputs, BaseModel, object]],
     GOALS_TEMPLATE_ID: (GoalsMatch,),
     LEVEL_TEMPLATE_ID: (LevelMatch,),
     SCHEDULE_TEMPLATE_ID: (ScheduleMatch,),
+    # Positions, the no-text rule and the name, graded in code (ADR-0031, #532).
+    PICTURE_BRIEF_TEMPLATE_ID: (PictureBriefMatch,),
     # Every sport's extraction template is graded the same way, in code (ADR-0006, ADR-0014),
     # and one that may ask on whether it asked (ticket #164).
     **{
@@ -165,6 +172,7 @@ def _active_versions(sports: SportRegistry) -> dict[str, int]:
         GOALS_TEMPLATE_ID: SPORT_STEP_VERSION,
         LEVEL_TEMPLATE_ID: SPORT_STEP_VERSION,
         SCHEDULE_TEMPLATE_ID: SPORT_STEP_VERSION,
+        PICTURE_BRIEF_TEMPLATE_ID: PICTURE_BRIEF_VERSION,
         **{
             plugin.extraction.template_id: plugin.extraction.version
             for plugin in sports.all()

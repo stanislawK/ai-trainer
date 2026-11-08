@@ -1,0 +1,195 @@
+# Smoke set for media.picture_brief (ADR-0031 *Picture generation*, ADR-0034, #532): the six
+# exercises of #523 (docs/research/exercise-media.md, finding 8: a picture drawn from a bare name
+# printed wrong labels), each with its catalogue description exactly as `ai-trainer
+# import-exercises` stores it from the pinned dataset commit 7455efae (Face Pull from
+# data/catalogue/extra.yaml); a no-text case; and a passage that contradicts the description.
+# No field transcript covers pictures yet. Passages marked `knowledge_source: synthetic` are
+# written for this set. Graded in code by PictureBriefMatch, run once, no judge. An
+# `expected_output` brief is a reference: only its kind is graded.
+name: media.picture_brief
+cases:
+- name: 'catalogue: pull-up'
+  inputs:
+    prompt: Write the picture brief.
+    deps:
+      exercise_name: Pull-Up
+      description: Hang from a pull-up bar with your palms facing away from you and your arms
+        fully extended. Engage your core and squeeze your shoulder blades together. Pull your
+        body up towards the bar by bending your elbows and bringing your chest towards the bar.
+        Pause at the top of the movement, then slowly lower your body back down to the starting
+        position. Repeat for the desired number of repetitions.
+      passages: []
+  metadata:
+    source: docs/research/exercise-media.md finding 8, #523
+    description_source: exercises-dataset 0652
+  expected_output:
+    exercise_name: Pull-Up
+    start_position: Hanging from the bar, palms facing away, arms fully extended
+    end_position: Chest at the bar, elbows bent
+    image_prompt: One person hanging from a pull-up bar with arms fully extended, then with the
+      chest at the bar and elbows bent. Plain background. No text, letters, numbers, labels or
+      arrows in the picture.
+- name: 'catalogue: barbell bench press, with a passage'
+  inputs:
+    prompt: Write the picture brief.
+    deps:
+      exercise_name: Barbell Bench Press
+      description: Lie flat on a bench with your feet flat on the ground and your back pressed
+        against the bench. Grasp the barbell with an overhand grip slightly wider than
+        shoulder-width apart. Lift the barbell off the rack and hold it directly above your
+        chest with your arms fully extended. Lower the barbell slowly towards your chest,
+        keeping your elbows tucked in. Pause for a moment when the barbell touches your chest.
+        Push the barbell back up to the starting position by extending your arms. Repeat for
+        the desired number of repetitions.
+      passages:
+      - title: Strength training basics
+        text: In the bench press, keep the shoulder blades pulled back and down against the
+          bench throughout the lift.
+  metadata:
+    source: docs/research/exercise-media.md finding 8, #523
+    description_source: exercises-dataset 0025
+    knowledge_source: synthetic
+  expected_output:
+    exercise_name: Barbell Bench Press
+    start_position: Lying on the bench, barbell held above the chest with arms extended
+    end_position: Barbell touching the chest, elbows tucked in
+    image_prompt: One person lying flat on a bench, feet flat on the floor, barbell above the
+      chest with arms extended, then the barbell touching the chest with elbows tucked in.
+      Plain background. No text,
+      letters, numbers, labels or arrows in the picture.
+- name: 'catalogue: face pull'
+  inputs:
+    prompt: Write the picture brief.
+    deps:
+      exercise_name: Face Pull
+      description: Set a cable pulley at about face height with a rope attachment and hold one
+        end of the rope in each hand, palms facing each other. Step back until your arms are
+        straight and the weight lifts off the stack. Pull the rope towards your face, keeping
+        your elbows high and moving your hands apart so they finish beside your ears. Squeeze
+        your shoulder blades together for a moment, then straighten your arms slowly under
+        control.
+      passages: []
+  metadata:
+    source: docs/research/exercise-media.md finding 8, #523
+    description_source: data/catalogue/extra.yaml face-pull
+  expected_output:
+    exercise_name: Face Pull
+    start_position: Standing facing the cable, arms straight holding the rope
+    end_position: Rope pulled to the face, elbows high, hands beside the ears
+    image_prompt: One person at a cable pulley set at face height, arms straight holding the
+      rope, then pulling it to the face with elbows high and hands beside the ears. Plain
+      background. No text, letters, numbers, labels or arrows in the picture.
+- name: 'catalogue: dumbbell lateral raise'
+  inputs:
+    prompt: Write the picture brief.
+    deps:
+      exercise_name: Dumbbell Lateral Raise
+      description: Stand with your feet shoulder-width apart and hold a dumbbell in each hand,
+        palms facing your body. Keep your back straight and engage your core. Raise your arms
+        out to the sides until they are parallel to the floor, keeping a slight bend in your
+        elbows. Pause for a moment at the top, then slowly lower your arms back down to the
+        starting position. Repeat for the desired number of repetitions.
+      passages: []
+  metadata:
+    source: docs/research/exercise-media.md finding 8, #523
+    description_source: exercises-dataset 0334
+  expected_output:
+    exercise_name: Dumbbell Lateral Raise
+    start_position: Standing, a dumbbell in each hand at the sides, palms facing the body
+    end_position: Arms raised out to the sides, parallel to the floor, elbows slightly bent
+    image_prompt: One person standing with a dumbbell in each hand at the sides, then with the
+      arms raised out to the sides parallel to the floor. Plain background. No text, letters,
+      numbers, labels or arrows in the picture.
+- name: 'catalogue: dumbbell standing triceps extension, with a passage'
+  inputs:
+    prompt: Write the picture brief.
+    deps:
+      exercise_name: Dumbbell Standing Triceps Extension
+      description: Stand with your feet shoulder-width apart and hold a dumbbell in one hand.
+        Raise the dumbbell overhead, keeping your arm straight. Bend your elbow and lower the
+        dumbbell behind your head, keeping your upper arm stationary. Extend your arm back up to
+        the starting position. Repeat for the desired number of repetitions.
+      passages:
+      - title: Arm training guide
+        text: In overhead triceps extensions, keep the upper arm close to the head and pointing
+          up, so only the forearm moves.
+  metadata:
+    source: docs/research/exercise-media.md finding 8, #523
+    description_source: exercises-dataset 0430
+    knowledge_source: synthetic
+  expected_output:
+    exercise_name: Dumbbell Standing Triceps Extension
+    start_position: Standing, dumbbell held overhead in one hand with the arm straight
+    end_position: Elbow bent, dumbbell lowered behind the head, upper arm still
+    image_prompt: One person standing with a dumbbell overhead in one straight arm, then with
+      the elbow bent and the dumbbell lowered behind the head. Plain background. No text,
+      letters, numbers, labels or arrows in the picture.
+- name: 'catalogue: band horizontal pallof press'
+  inputs:
+    prompt: Write the picture brief.
+    deps:
+      exercise_name: Band Horizontal Pallof Press
+      description: Attach the band to a sturdy anchor point at waist height. Stand perpendicular
+        to the anchor point with your feet shoulder-width apart. Grasp the band handle with both
+        hands and step away from the anchor point to create tension in the band. Bring your
+        hands to your chest, keeping your elbows bent and close to your body. Engage your core
+        and maintain a stable stance. Extend your arms straight out in front of you, pushing the
+        band away from your body. Hold the extended position for a few seconds, focusing on
+        maintaining tension in your core. Slowly bring your hands back to your chest, resisting
+        the pull of the band. Repeat for the desired number of repetitions.
+      passages: []
+  metadata:
+    source: docs/research/exercise-media.md finding 8, #523
+    description_source: exercises-dataset 0979
+  expected_output:
+    exercise_name: Band Horizontal Pallof Press
+    start_position: Standing side-on to the anchor, band handle held at the chest, elbows bent
+    end_position: Arms extended straight in front of the chest, band under tension
+    image_prompt: One person standing side-on to a band anchored at waist height, band handle
+      held at the chest with elbows bent, then arms extended straight in front of the chest with
+      the band under tension. Plain background. No text, letters, numbers, labels or arrows in
+      the picture.
+- name: 'no text: neither a description nor a passage'
+  inputs:
+    prompt: Write the picture brief.
+    deps:
+      exercise_name: Zercher Carry
+      description: null
+      passages: []
+  metadata:
+    source: ADR-0031 Picture generation, an exercise with no text is never drawn from its name
+  expected_output:
+    reason: Nothing describes how the exercise is done.
+- name: 'contradiction: a passage puts the feet on the bench'
+  inputs:
+    prompt: Write the picture brief.
+    deps:
+      exercise_name: Barbell Bench Press
+      description: Lie flat on a bench with your feet flat on the ground and your back pressed
+        against the bench. Grasp the barbell with an overhand grip slightly wider than
+        shoulder-width apart. Lift the barbell off the rack and hold it directly above your
+        chest with your arms fully extended. Lower the barbell slowly towards your chest,
+        keeping your elbows tucked in. Pause for a moment when the barbell touches your chest.
+        Push the barbell back up to the starting position by extending your arms. Repeat for
+        the desired number of repetitions.
+      passages:
+      - title: Bench press variations
+        text: Press with your feet up on the bench and your legs raised, so the lower back
+          stays flat.
+  metadata:
+    source: docs/research/exercise-media.md finding 8, #523
+    description_source: exercises-dataset 0025
+    knowledge_source: synthetic
+    expect:
+      forbids:
+      - feet (up )?on the bench
+      - legs raised
+  expected_output:
+    exercise_name: Barbell Bench Press
+    start_position: Lying on the bench, feet flat on the floor, barbell above the chest
+    end_position: Barbell touching the chest, elbows tucked in
+    image_prompt: One person lying flat on a bench with feet flat on the floor, barbell above
+      the chest with arms extended, then the barbell touching the chest with elbows tucked in.
+      Plain background. No text, letters, numbers, labels or arrows in the picture.
+evaluators:
+- PictureBriefMatch
