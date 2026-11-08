@@ -180,6 +180,18 @@ def test_picture_brief_match_grades_positions_and_no_text_rule() -> None:
     assert no_rule["no_text_rule"] is False  # type: ignore[index]
 
 
+def test_picture_brief_match_needs_the_position_itself_in_the_prompt() -> None:
+    # Only filler words are shared with the prompt: the position isn't restated.
+    filler_only = _brief(
+        start_position="hanging from the bar with arms straight",
+        image_prompt="One figure with a plain background, from the side. No text or labels.",
+    )
+
+    result = PictureBriefMatch().evaluate(_ctx(filler_only, _brief()))
+
+    assert result["positions_named"] is False  # type: ignore[index]
+
+
 def test_picture_brief_match_fails_a_renamed_exercise() -> None:
     result = PictureBriefMatch().evaluate(_ctx(_brief(exercise_name="Chin-Up"), _brief()))
 

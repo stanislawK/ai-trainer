@@ -54,7 +54,8 @@ cases:
     start_position: Lying on the bench, barbell held above the chest with arms extended
     end_position: Barbell touching the chest, elbows tucked in
     image_prompt: One person lying flat on a bench, feet flat on the floor, barbell above the
-      chest with arms extended, then lowered to touch the chest. Plain background. No text,
+      chest with arms extended, then the barbell touching the chest with elbows tucked in.
+      Plain background. No text,
       letters, numbers, labels or arrows in the picture.
 - name: 'catalogue: face pull'
   inputs:
@@ -144,9 +145,10 @@ cases:
     exercise_name: Band Horizontal Pallof Press
     start_position: Standing side-on to the anchor, band handle held at the chest, elbows bent
     end_position: Arms extended straight in front of the chest, band under tension
-    image_prompt: One person standing side-on to a band anchored at waist height, hands at the
-      chest, then arms extended straight in front. Plain background. No text, letters, numbers,
-      labels or arrows in the picture.
+    image_prompt: One person standing side-on to a band anchored at waist height, band handle
+      held at the chest with elbows bent, then arms extended straight in front of the chest with
+      the band under tension. Plain background. No text, letters, numbers, labels or arrows in
+      the picture.
 - name: 'no text: neither a description nor a passage'
   inputs:
     prompt: Write the picture brief.
@@ -187,7 +189,7 @@ cases:
     start_position: Lying on the bench, feet flat on the floor, barbell above the chest
     end_position: Barbell touching the chest, elbows tucked in
     image_prompt: One person lying flat on a bench with feet flat on the floor, barbell above
-      the chest with arms extended, then lowered to touch the chest. Plain background. No text,
-      letters, numbers, labels or arrows in the picture.
+      the chest with arms extended, then the barbell touching the chest with elbows tucked in.
+      Plain background. No text, letters, numbers, labels or arrows in the picture.
 evaluators:
 - PictureBriefMatch

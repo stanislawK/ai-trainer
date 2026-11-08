@@ -24,8 +24,13 @@ PICTURE_BRIEF_VERSION = 1
 
 # The brief's image prompt forbids printed text in so many words.
 _NO_TEXT_RULE = re.compile(r"\b(no|without)\b[^.]*\b(text|labels?|letters|words)\b", re.IGNORECASE)
-# A word this short ("the", "arm") says nothing about which position a prompt describes.
+# A word this short ("the", "arm") says nothing about which position a prompt describes, and
+# neither do these fillers; a position is restated when half its other words are in the prompt.
 _MIN_KEY_WORD = 4
+_FILLERS = frozenset(
+    {"with", "from", "then", "that", "this", "into", "onto", "over", "your", "their", "each"}
+)
+_RESTATED_SHARE = 0.5
 _WORD = re.compile(r"[a-z]+")
 
 
@@ -112,12 +117,18 @@ def picture_brief_template() -> PromptTemplate[PictureBriefDeps, PictureBrief | 
 
 
 def _key_words(text: str) -> set[str]:
-    return {word for word in _WORD.findall(text.lower()) if len(word) >= _MIN_KEY_WORD}
+    return {
+        word
+        for word in _WORD.findall(text.lower())
+        if len(word) >= _MIN_KEY_WORD and word not in _FILLERS
+    }
 
 
 def _named_in(position: str, prompt: str) -> bool:
     words = _key_words(position)
-    return bool(position.strip()) and bool(words & _key_words(prompt))
+    if not words:
+        return False
+    return len(words & _key_words(prompt)) >= _RESTATED_SHARE * len(words)
 
 
 def _forbids(metadata: object) -> Sequence[str]:
