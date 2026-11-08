@@ -8,6 +8,7 @@
     uv run ai-trainer storage-check
     uv run ai-trainer ingest-worker [--once]
     uv run ai-trainer rebuild-knowledge-index [--memory-mb N]
+    uv run ai-trainer generate-exercise-picture <name> --out <dir> [--admin <email>]
 
 `purge-conversations` hard-deletes every conversation last active more than
 `CONVERSATION_RETENTION_DAYS` ago, across users, with its messages by cascade. It prints the
@@ -66,6 +67,9 @@ after a bulk load, with `maintenance_work_mem` raised to `--memory-mb` or
 failure (ADR-0036's #462 amendment). It prints
 `rebuild-knowledge-index: result=ok index=<name> maintenance_work_mem=<n>MB`, or
 `result=failed reason=<error class>` with exit code 1.
+
+`generate-exercise-picture` writes one catalogue exercise's brief and picture into `--out`
+(ADR-0031, #533); `cli_media` describes it. It costs money, so it is run on purpose.
 """
 
 import argparse
@@ -74,11 +78,11 @@ import sys
 from collections.abc import Awaitable, Callable, Sequence
 from datetime import UTC, datetime
 from typing import TextIO
-from uuid import uuid4
 
 import httpx2
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ai_trainer import cli_media
 from ai_trainer.adapters.catalogue_knowledge_repository import SqlAlchemyCatalogueSources
 from ai_trainer.adapters.clock import UtcClock
 from ai_trainer.adapters.conversation_repository import SqlAlchemyConversationRepository
@@ -89,7 +93,6 @@ from ai_trainer.adapters.feedback_repository import SqlAlchemyFeedbackEventsRepo
 from ai_trainer.adapters.gym_backfill import SqlAlchemyGymBackfillStore
 from ai_trainer.adapters.knowledge_index import PostgresKnowledgeIndex
 from ai_trainer.adapters.log_records import configure_logging
-from ai_trainer.adapters.object_storage import UrllibPresignedLinks
 from ai_trainer.application.exercise_catalogue import CatalogueQueueing, import_catalogue
 from ai_trainer.application.feedback import count_signals
 from ai_trainer.application.gym_backfill import backfill_gym_sessions as run_gym_backfill
@@ -102,14 +105,15 @@ from ai_trainer.application.ports.exercises import (
 from ai_trainer.application.ports.feedback import FeedbackEventsPort
 from ai_trainer.application.ports.gym_backfill import GymBackfillPort
 from ai_trainer.application.retention import purge_expired_conversations
-from ai_trainer.application.storage_check import STEPS, check_storage
 from ai_trainer.cli_knowledge import (
     INGEST_WORKER,
     REBUILD_KNOWLEDGE_INDEX,
+    STORAGE_CHECK,
     build_memory_mb,
     idle_unconfigured,
     ingest_worker,
     rebuild_knowledge_index,
+    storage_check,
 )
 from ai_trainer.domain.exercises import ExerciseCatalogueError, ExerciseDatasetError
 from ai_trainer.llm.debug_report import report
@@ -121,7 +125,6 @@ LLM_DEBUG_REPORT = "llm-debug-report"
 IMPORT_EXERCISES = "import-exercises"
 BACKFILL_GYM_SESSIONS = "backfill-gym-sessions"
 FEEDBACK_REPORT = "feedback-report"
-STORAGE_CHECK = "storage-check"
 
 
 def _aware_time(value: str) -> datetime:
@@ -185,6 +188,7 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
         default=None,
         help="maintenance_work_mem for the build (default KNOWLEDGE_INDEX_BUILD_MEMORY_MB).",
     )
+    cli_media.add_parser(commands)
     return parser.parse_args(argv)
 
 
@@ -249,31 +253,6 @@ async def feedback_report(
     return 0
 
 
-async def storage_check(
-    settings: Settings, *, sleep: Callable[[float], Awaitable[None]], output: TextIO
-) -> int:
-    storage = build_uploads_storage(settings)
-    if storage is None:
-        output.write(f"{STORAGE_CHECK}: result=failed reason=not_configured\n")
-        return 1
-    failure = await check_storage(
-        storage=storage,
-        links=UrllibPresignedLinks(timeout_seconds=settings.object_storage_timeout_seconds),
-        sleep=sleep,
-        probe_key=f"storage-check/{uuid4()}",
-    )
-    if failure is not None:
-        probe_left = str(failure.probe_left).lower()
-        output.write(
-            f"{STORAGE_CHECK}: result=failed step={failure.step} reason={failure.reason} "
-            f"probe_left={probe_left}\n"
-        )
-        return 1
-    bucket = settings.object_storage_uploads_bucket
-    output.write(f"{STORAGE_CHECK}: result=ok bucket={bucket} steps={','.join(STEPS)}\n")
-    return 0
-
-
 async def _run_ingest_worker(
     settings: Settings,
     session_factory: Callable[[], AsyncSession],
@@ -321,9 +300,10 @@ async def run(
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     embedding_transport: httpx2.AsyncBaseTransport | None = None,
     pmc_transport: httpx2.AsyncBaseTransport | None = None,
+    picture: cli_media.PictureHooks | None = None,
 ) -> int:
     """Runs one command and returns its exit code. `dataset_transport`, `sleep`,
-    `embedding_transport` and `pmc_transport` are for tests."""
+    `embedding_transport`, `pmc_transport` and `picture` are for tests."""
     args = parse_args(argv)
     settings = Settings()
     if args.command == LLM_DEBUG_REPORT:
@@ -367,6 +347,10 @@ async def run(
                 PostgresKnowledgeIndex(engine),
                 memory_mb=args.memory_mb or settings.knowledge_index_build_memory_mb,
                 output=output,
+            )
+        if args.command == cli_media.GENERATE_EXERCISE_PICTURE:
+            return await cli_media.generate_exercise_picture(
+                settings, build_session_factory(engine), args, output=output, hooks=picture
             )
         if args.command == FEEDBACK_REPORT:
             return await feedback_report(

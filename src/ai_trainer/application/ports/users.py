@@ -24,3 +24,12 @@ class UsersRepositoryPort(Protocol):
         """Deletes the user row, no-op if it's already gone. Cascades remove every
         user-owned row (ADR-0004 invariant 1, G7)."""
         ...
+
+
+class ActiveUsersByEmailPort(Protocol):
+    """Finds the account behind an email an operator command names (ADR-0031, #533)."""
+
+    async def active_by_email(self, email: str) -> User | None:
+        """The `active` user with that email, compared case-insensitively; `None` for none, or
+        for an account that is pending or blocked."""
+        ...

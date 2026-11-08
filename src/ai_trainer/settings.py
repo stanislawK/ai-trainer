@@ -1,4 +1,5 @@
 from datetime import date
+from decimal import Decimal
 from pathlib import Path
 from typing import Literal, Self
 from urllib.parse import urlsplit
@@ -21,6 +22,8 @@ from ai_trainer.settings_values import (
     DEFAULT_ANSWER_REASONING_EFFORT,
     DEFAULT_EMBEDDING_MODEL,
     DEFAULT_EMBEDDING_PROVIDER,
+    DEFAULT_IMAGE_GENERATION_MODEL,
+    DEFAULT_IMAGE_GENERATION_PRICE_USD,
     DEFAULT_ONBOARDING_MODEL,
     DEFAULT_ONBOARDING_PROVIDER,
     DEFAULT_ONBOARDING_REASONING_EFFORT,
@@ -127,6 +130,13 @@ class Settings(ExerciseSearchSettings, ObjectStorageSettings, BaseSettings):
     # `media.picture_brief` (ADR-0031, #532): writes an exercise picture's brief for the image
     # model from its public texts, never athlete data. A blank key keeps the default.
     picture_brief_model: str = DEFAULT_PICTURE_BRIEF_MODEL
+    # `generate-exercise-picture` (ADR-0031 #524, #533): the image model, its price per picture
+    # (checked against the cap before the call; the row records the billed cost), one run's
+    # spend cap, which covers the brief, the search and one picture, and the call's timeout.
+    image_generation_model: str = DEFAULT_IMAGE_GENERATION_MODEL
+    image_generation_price_usd: Decimal = Field(default=DEFAULT_IMAGE_GENERATION_PRICE_USD, gt=0)
+    image_generation_spend_cap_usd: Decimal = Field(default=Decimal("0.25"), gt=0)
+    image_generation_timeout_seconds: float = Field(default=120.0, gt=0)
     # One group for the `<sport>.answer` templates, which answer a training question from the
     # athlete's history through the MCP tools (B40). Defaults so no deploy needs a new key; a
     # blank key keeps them. The timeout bounds each wait on the model, a whole tool round
@@ -314,6 +324,15 @@ class Settings(ExerciseSearchSettings, ObjectStorageSettings, BaseSettings):
         return self
 
     @model_validator(mode="after")
+    def _cap_covers_one_picture(self) -> Self:
+        # Below one picture's price, no run could ever draw (ADR-0031 *Picture generation*).
+        if self.image_generation_spend_cap_usd < self.image_generation_price_usd:
+            raise ValueError(
+                "IMAGE_GENERATION_SPEND_CAP_USD must be at least IMAGE_GENERATION_PRICE_USD"
+            )
+        return self
+
+    @model_validator(mode="after")
     def _llm_debug_log_only_on_localhost(self) -> Self:
         # The debug log holds athletes' words (ADR-0018), so it is refused wherever the app is
         # served beyond this machine, and logs may leave the host (ADR-0030, #278).
@@ -349,6 +368,10 @@ class Settings(ExerciseSearchSettings, ObjectStorageSettings, BaseSettings):
         "onboarding_reasoning_effort",
         "answer_model",
         "picture_brief_model",
+        "image_generation_model",
+        "image_generation_price_usd",
+        "image_generation_spend_cap_usd",
+        "image_generation_timeout_seconds",
         "answer_provider_preferences",
         "answer_reasoning_effort",
         "object_storage_region",

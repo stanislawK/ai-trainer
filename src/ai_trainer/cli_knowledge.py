@@ -1,19 +1,25 @@
 """The knowledge commands of `ai-trainer` (ADR-0036): `ingest-worker`, which the `ingest`
-container runs, and `rebuild-knowledge-index` (#462). `cli` parses and wires them; their behaviour
-is described in its docstring."""
+container runs, `rebuild-knowledge-index` (#462), and `storage-check` on the uploads bucket
+(ADR-0033). `cli` parses and wires them; their behaviour is described in its docstring."""
 
 import argparse
 import asyncio
 import signal
-from collections.abc import Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from typing import TextIO
+from uuid import uuid4
 
+from ai_trainer.adapters.object_storage import UrllibPresignedLinks
 from ai_trainer.application.knowledge_ingestion import KnowledgeIngestion
 from ai_trainer.application.ports.knowledge import KnowledgeIndexPort
+from ai_trainer.application.storage_check import STEPS, check_storage
 from ai_trainer.domain.knowledge_ingestion import IngestReport
+from ai_trainer.main import build_uploads_storage
+from ai_trainer.settings import Settings
 
 INGEST_WORKER = "ingest-worker"
 REBUILD_KNOWLEDGE_INDEX = "rebuild-knowledge-index"
+STORAGE_CHECK = "storage-check"
 
 
 def build_memory_mb(value: str) -> int:
@@ -101,4 +107,29 @@ async def rebuild_knowledge_index(
     output.write(
         f"{REBUILD_KNOWLEDGE_INDEX}: result=ok index={index.index} maintenance_work_mem={used}\n"
     )
+    return 0
+
+
+async def storage_check(
+    settings: Settings, *, sleep: Callable[[float], Awaitable[None]], output: TextIO
+) -> int:
+    storage = build_uploads_storage(settings)
+    if storage is None:
+        output.write(f"{STORAGE_CHECK}: result=failed reason=not_configured\n")
+        return 1
+    failure = await check_storage(
+        storage=storage,
+        links=UrllibPresignedLinks(timeout_seconds=settings.object_storage_timeout_seconds),
+        sleep=sleep,
+        probe_key=f"storage-check/{uuid4()}",
+    )
+    if failure is not None:
+        probe_left = str(failure.probe_left).lower()
+        output.write(
+            f"{STORAGE_CHECK}: result=failed step={failure.step} reason={failure.reason} "
+            f"probe_left={probe_left}\n"
+        )
+        return 1
+    bucket = settings.object_storage_uploads_bucket
+    output.write(f"{STORAGE_CHECK}: result=ok bucket={bucket} steps={','.join(STEPS)}\n")
     return 0

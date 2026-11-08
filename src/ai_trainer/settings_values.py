@@ -3,6 +3,7 @@ class stays within the size rule (ADR-0003). Nothing here reads the environment.
 
 import json
 import re
+from decimal import Decimal
 from typing import Annotated, Any, Self
 from urllib.parse import urlsplit
 
@@ -68,6 +69,11 @@ DEFAULT_ANSWER_REASONING_EFFORT: ReasoningEffort = "low"
 # `media.picture_brief` (ADR-0031, #532): what the other read templates run on; its smoke set
 # confirms it.
 DEFAULT_PICTURE_BRIEF_MODEL = "z-ai/glm-5.3-flash"
+# The fallback media source's model and its tool-printed price per picture (ADR-0031 #524,
+# 2026-11-08). The catalogue's `image_output` line reads lower; the price only gates the call
+# against the run's cap, so the higher figure is the safe side (#533).
+DEFAULT_IMAGE_GENERATION_MODEL = "google/gemini-3.1-flash-lite-image"
+DEFAULT_IMAGE_GENERATION_PRICE_USD = Decimal("0.0336")
 
 # Chosen by the owner at #417 (ADR-0033): one space for English and Polish, on DeepInfra only.
 DEFAULT_EMBEDDING_MODEL = "qwen/qwen3-embedding-8b"
