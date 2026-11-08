@@ -63,6 +63,24 @@ def signed_in_page(context: BrowserContext, dev_session_cookie: SetCookieParam) 
 
 
 @pytest.fixture
+def gym_history_page(context: BrowserContext) -> Iterator[Page]:
+    """A page signed in as the dedicated gym history user, freshly seeded with two gym
+    sessions of one exercise (`tests/e2e/gym_history_seed.py`, #519)."""
+    result = subprocess.run(
+        [sys.executable, "-m", "tests.e2e.gym_history_seed"],
+        capture_output=True,
+        text=True,
+        check=True,
+        cwd=REPO_ROOT,
+    )
+    cookie: SetCookieParam = json.loads(result.stdout)
+    context.add_cookies([cookie])
+    page = context.new_page()
+    yield page
+    page.close()
+
+
+@pytest.fixture
 def not_onboarded_page(
     context: BrowserContext, not_onboarded_cookie: SetCookieParam
 ) -> Iterator[Page]:
