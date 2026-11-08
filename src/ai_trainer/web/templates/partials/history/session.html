@@ -1,4 +1,4 @@
-{#- One saved session: a `mat-content` sheet from the bottom over a scrim on a phone, a 460 px panel beside the list from `lg` (History v4 mock, ticket #515). The scrim and Close go back to the list. Under the title, Edit `lg-clear` opens the edit form in the same sheet or panel (#516); each exercise row opens its progress (#517); Delete is #518. -#}
+{#- One saved session: a `mat-content` sheet from the bottom over a scrim on a phone, a 460 px panel beside the list from `lg` (History v4 mock, ticket #515). The scrim and Close go back to the list. Under the title, Edit `lg-clear` opens the edit form in the same sheet or panel (#516) and Delete `lg-quiet` asks in `delete.html`'s dialog (#518); each exercise row opens its progress (#517). -#}
 {% from "components/icon.html" import icon %}
 {% from "components/gym_copy.html" import done, exercise_name %}
 <a
@@ -41,6 +41,12 @@
       hx-push-url="true"
       class="lg lg-clear flex-1"
     >{{ icon("pencil", "size-4") }}Edit</a>
+    <button
+      type="button"
+      class="lg lg-quiet flex-1"
+      data-history-delete="history-delete"
+      aria-haspopup="dialog"
+    >{{ icon("trash-2", "size-4") }}Delete</button>
   </div>
   <ul class="flex flex-col" aria-label="Exercises">
     {% for exercise in open.exercises %}
@@ -58,3 +64,4 @@
     {% endfor %}
   </ul>
 </section>
+{% include "partials/history/delete.html" %}

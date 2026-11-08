@@ -42,3 +42,15 @@ class SessionEditorPort(Protocol):
         since the form was rendered) or it no longer holds the activities the edit was made
         on."""
         ...
+
+
+class SessionDeleterPort(Protocol):
+    """Deletes a saved session for good (B4, ADR-0022's hard delete, ticket #518): only the
+    athlete's own confirm in History calls it, with `user_id` from the authenticated session."""
+
+    async def delete(self, user_id: UUID, session_id: UUID) -> None:
+        """Deletes the session with its sources and its sport's rows; the drafts that made it
+        keep their row with no session, and the athlete's aliases, custom exercises and bands
+        stay. Raises `SessionNotFoundError` for an unknown session, another user's, or one
+        already deleted, and then deletes nothing."""
+        ...

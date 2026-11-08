@@ -1,7 +1,7 @@
-"""The History page's read model and the athlete's edit of a saved session (PRD 0011 F3, B4,
-B38, tickets #515 and #516): the athlete's saved gym sessions, newest first, with the time of day
-in their timezone (ADR-0014), and an edit of one session's exercises and sets validated as the
-draft edit is."""
+"""The History page's read model and the athlete's edit and delete of a saved session (PRD 0011
+F3, B4, B38, tickets #515, #516 and #518): the athlete's saved gym sessions, newest first, with
+the time of day in their timezone (ADR-0014), an edit of one session's exercises and sets
+validated as the draft edit is, and a delete of one session."""
 
 from collections.abc import Mapping, Sequence
 from datetime import datetime
@@ -10,7 +10,11 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import JsonValue, ValidationError
 
-from ai_trainer.application.ports.gym_history import GymSessionReaderPort, SessionEditorPort
+from ai_trainer.application.ports.gym_history import (
+    GymSessionReaderPort,
+    SessionDeleterPort,
+    SessionEditorPort,
+)
 from ai_trainer.domain.history import (
     HistorySession,
     SessionChangedError,
@@ -143,3 +147,16 @@ class GymSessionEdit:
             payload=edited.model_dump(mode="json"),
             expected_updated_at=_version(version, session_id),
         )
+
+
+class GymSessionDelete:
+    """The athlete's delete of one saved session from History (B4, ticket #518)."""
+
+    def __init__(self, deleter: SessionDeleterPort) -> None:
+        self._deleter = deleter
+
+    async def delete(self, user_id: UUID, session_id: UUID) -> None:
+        """Deletes the session for good, after the athlete confirmed it in History. Raises
+        `SessionNotFoundError` for an unknown session, another user's, or one already deleted
+        (another tab's delete), and then deletes nothing."""
+        await self._deleter.delete(user_id, session_id)
