@@ -1,4 +1,4 @@
-{#- One saved session: a `mat-content` sheet from the bottom over a scrim on a phone, a 460 px panel beside the list from `lg` (History v4 mock, ticket #515). The scrim and Close go back to the list. No Edit, Delete or progress yet (#516 to #518). -#}
+{#- One saved session: a `mat-content` sheet from the bottom over a scrim on a phone, a 460 px panel beside the list from `lg` (History v4 mock, ticket #515). The scrim and Close go back to the list. Under the title, Edit `lg-clear` opens the edit form in the same sheet or panel (#516); Delete and progress are #518 and #517. -#}
 {% from "components/icon.html" import icon %}
 {% from "components/gym_copy.html" import done, exercise_name %}
 <a
@@ -31,6 +31,16 @@
       class="lg lg-ghost lg-icon shrink-0"
       aria-label="Close"
     >{{ icon("x", "size-5") }}</a>
+  </div>
+  <div class="flex gap-2">
+    <a
+      href="/history/{{ open.id }}/edit"
+      hx-get="/history/{{ open.id }}/edit"
+      hx-target="#history-content"
+      hx-swap="outerHTML"
+      hx-push-url="true"
+      class="lg lg-clear flex-1"
+    >{{ icon("pencil", "size-4") }}Edit</a>
   </div>
   <ul class="flex flex-col" aria-label="Exercises">
     {% for exercise in open.exercises %}
