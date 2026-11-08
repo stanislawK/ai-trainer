@@ -293,6 +293,7 @@ async def test_session_view_offers_delete_in_its_dialog(
     assert "This can&#39;t be undone." in page or "This can't be undone." in page
     assert "Delete session" in page
     assert f'hx-delete="/history/{opened}"' in page
+    assert 'hx-disable="this"' in page  # a double tap sends one DELETE
     assert 'hx-target="#history-content"' in page
     assert "/static/js/history_delete.js" in page
 

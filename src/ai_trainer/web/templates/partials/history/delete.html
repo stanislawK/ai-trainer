@@ -1,4 +1,4 @@
-{#- The open session's Delete asks once (History v4 mock, "delete A", ticket #518): an `lgs lgs-thick` dialog over a scrim, opened by `static/js/history_delete.js`. Cancel, the scrim and Escape close it and delete nothing; Delete session deletes the session for good (ADR-0022) and swaps `#history-content` for the list. -#}
+{#- The open session's Delete asks once (History v4 mock, "delete A", ticket #518): an `lgs lgs-thick` dialog over a scrim, opened by `static/js/history_delete.js`. Cancel, the scrim and Escape close it and delete nothing; Delete session deletes the session for good (ADR-0022) and swaps `#history-content` for the list; it is disabled while its request runs, so a double tap sends one DELETE. -#}
 <dialog id="history-delete" class="modal bg-base-300/60" aria-label="Delete this session?">
   <div role="alertdialog" aria-modal="true" aria-labelledby="history-delete-title" class="modal-box lgs lgs-thick relative rounded-[28px] p-5 w-full max-w-[340px] flex flex-col gap-4">
     <div class="flex flex-col gap-1.5">
@@ -13,6 +13,7 @@
         hx-delete="/history/{{ open.id }}"
         hx-target="#history-content"
         hx-swap="outerHTML"
+        hx-disable="this"
       >Delete session</button>
     </div>
   </div>
