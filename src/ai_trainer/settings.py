@@ -24,6 +24,7 @@ from ai_trainer.settings_values import (
     DEFAULT_ONBOARDING_MODEL,
     DEFAULT_ONBOARDING_PROVIDER,
     DEFAULT_ONBOARDING_REASONING_EFFORT,
+    DEFAULT_PICTURE_BRIEF_MODEL,
     LOCAL_HOSTS,
     VERSIONED_DECISION_MODEL,
     CallTimeout,
@@ -123,6 +124,9 @@ class Settings(ExerciseSearchSettings, ObjectStorageSettings, BaseSettings):
     onboarding_provider_preferences: ProviderPreferencesSetting = DEFAULT_ONBOARDING_PROVIDER
     onboarding_call_timeout_seconds: CallTimeout = None
     onboarding_reasoning_effort: ReasoningEffort | None = DEFAULT_ONBOARDING_REASONING_EFFORT
+    # `media.picture_brief` (ADR-0031, #532): writes an exercise picture's brief for the image
+    # model from its public texts, never athlete data. A blank key keeps the default.
+    picture_brief_model: str = DEFAULT_PICTURE_BRIEF_MODEL
     # One group for the `<sport>.answer` templates, which answer a training question from the
     # athlete's history through the MCP tools (B40). Defaults so no deploy needs a new key; a
     # blank key keeps them. The timeout bounds each wait on the model, a whole tool round
@@ -344,6 +348,7 @@ class Settings(ExerciseSearchSettings, ObjectStorageSettings, BaseSettings):
         "onboarding_provider_preferences",
         "onboarding_reasoning_effort",
         "answer_model",
+        "picture_brief_model",
         "answer_provider_preferences",
         "answer_reasoning_effort",
         "object_storage_region",

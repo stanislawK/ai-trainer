@@ -65,6 +65,10 @@ DEFAULT_ANSWER_MODEL = "z-ai/glm-5.3-flash"
 DEFAULT_ANSWER_PROVIDER = ProviderPreferences(sort="latency", quantizations=["fp8", "nvfp4"])
 DEFAULT_ANSWER_REASONING_EFFORT: ReasoningEffort = "low"
 
+# `media.picture_brief` (ADR-0031, #532): what the other read templates run on; its smoke set
+# confirms it.
+DEFAULT_PICTURE_BRIEF_MODEL = "z-ai/glm-5.3-flash"
+
 # Chosen by the owner at #417 (ADR-0033): one space for English and Polish, on DeepInfra only.
 DEFAULT_EMBEDDING_MODEL = "qwen/qwen3-embedding-8b"
 DEFAULT_EMBEDDING_PROVIDER = ProviderPreferences(only=["deepinfra"])

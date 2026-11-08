@@ -29,6 +29,7 @@ from ai_trainer.llm.answer import answer_templates, build_answer_deps
 from ai_trainer.llm.chitchat import build_chitchat_deps, chitchat_template
 from ai_trainer.llm.extract import build_extract_deps, extract_template, extract_templates
 from ai_trainer.llm.onboarding import onboarding_templates
+from ai_trainer.llm.picture_brief import picture_brief_template
 from ai_trainer.llm.prompts.registry import PromptRegistry
 from ai_trainer.llm.router import ROUTER_VERSIONS, ChatTurn, build_router_deps, router_template
 
@@ -68,6 +69,7 @@ def build_prompt_registry(root: Path, sports: SportRegistry) -> PromptRegistry:
         registry.register(onboarding)
     for answer in answer_templates(sports):
         registry.register(answer)
+    registry.register(picture_brief_template())
     return registry
 
 
