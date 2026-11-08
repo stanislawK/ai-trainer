@@ -4,7 +4,7 @@
 |---|---|
 | Ticket | #416 |
 | Read on | 2026-11-02; finding 7 added 2026-11-07 |
-| Feeds | ADR-0031 (media links); the M2m "Show me" milestone and its licensed-media-source ticket (PRD 0010 F24). Used at #514 (2026-11-07): the pick is recorded in ADR-0031, "First media source (#514)" |
+| Feeds | ADR-0031 (media links); the M2m "Show me" milestone and its licensed-media-source ticket (PRD 0010 F24). Used at #514 (2026-11-07): the pick is recorded in ADR-0031, "First media source (#514)". Used at #524 (2026-11-08): the fallback pick is recorded in ADR-0031, "Fallback media source (#524)" |
 
 This document decides nothing. It compares where exercise pictures could come from, so the owner can pick one and M2m can be ticketed. Reads were free: no paid model call was made and no athlete data left the project.
 
@@ -176,7 +176,7 @@ Not needed for the pick (they concern options not chosen):
 - **Which Anthropic terms govern a Claude-written SVG used in the product.** Not needed for the pick.
 - **Cost of an SVG, and where it is stored.** Not needed for the pick.
 - **Per-image cost of the image models.** Measured for two models at #523 (finding 8). Still open for `openai/gpt-image-2.6-sunburst`, which was not run.
-- **Form accuracy of an image model and of Gym visual's pictures.** Samples exist for two image models (finding 8); the owner's judgment is not recorded here. Gym visual's pictures remain unjudged.
+- **Form accuracy of an image model and of Gym visual's pictures.** Samples exist for two image models (finding 8); on 2026-11-08 the owner picked `google/gemini-3.1-flash-lite-image` as the fallback source (ADR-0031, "Fallback media source (#524)"); no accuracy verdict is recorded here. Gym visual's pictures remain unjudged.
 
 ## Sources
 
