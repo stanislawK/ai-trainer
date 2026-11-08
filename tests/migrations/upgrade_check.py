@@ -11,9 +11,10 @@
    branch relies on them.
 
 A user-owned table is `users` or any table with a foreign key to a user-owned table, so a child
-that reaches `users` only through its parent counts too. The throwaway database sits next to the
-shared one, is named per process so two runs can't drop each other's, and is dropped afterwards;
-the shared database is only used to create and drop it.
+that reaches `users` only through its parent counts too. A table a user-owned one references
+(`media_assets`) is seeded, read back and compared with them. The throwaway database sits next
+to the shared one, is named per process so two runs can't drop each other's, and is dropped
+afterwards; the shared database is only used to create and drop it.
 """
 
 import os
@@ -108,13 +109,13 @@ def run_upgrade_check(config: Config, base: str, head: str) -> list[str]:
             raise UpgradeCheckError("DATABASE_URL does not point at the throwaway database")
         command.upgrade(config, base)
         with psycopg.connect(to_psycopg_dsn(url)) as conn:
-            base_tables = user_owned_tables(conn)
+            base_tables = seeded_tables(conn)
             seed(conn, base_tables)
             conn.commit()
             before = snapshot(conn, base_tables)
         command.upgrade(config, head)
         with psycopg.connect(to_psycopg_dsn(url)) as conn:
-            head_tables = user_owned_tables(conn)
+            head_tables = seeded_tables(conn)
             after = snapshot(
                 conn,
                 base_tables & head_tables,
@@ -167,8 +168,9 @@ def _database_url(url: str) -> Iterator[None]:
             os.environ["DATABASE_URL"] = previous
 
 
-def user_owned_tables(conn: psycopg.Connection[Any]) -> set[str]:
-    """`users` and every table that reaches it through foreign keys."""
+def seeded_tables(conn: psycopg.Connection[Any]) -> set[str]:
+    """`users`, every table that reaches it through foreign keys, and every table one of those
+    references, so a child's seed row has a parent to point at (`media_assets`, #530)."""
     edges = conn.execute(
         "SELECT conrelid::regclass::text, confrelid::regclass::text FROM pg_constraint "
         "WHERE contype = 'f'"
@@ -176,7 +178,7 @@ def user_owned_tables(conn: psycopg.Connection[Any]) -> set[str]:
     owned = {"users"}
     while grown := {child for child, parent in edges if parent in owned} - owned:
         owned |= grown
-    return owned
+    return owned | {parent for child, parent in edges if child in owned}
 
 
 def _primary_key(conn: psycopg.Connection[Any], table: str) -> tuple[str, ...]:

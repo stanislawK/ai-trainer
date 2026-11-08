@@ -274,6 +274,34 @@ def _rows() -> dict[str, tuple[Row, ...]]:
                 "lang": None if a else "pl",
             }
         )
+        # Catalogue media holds no user data; it is seeded so `exercise_media` has its parent.
+        asset = _id(user, 21)
+        rows.setdefault("media_assets", []).append(
+            {
+                "id": asset,
+                "kind": "image" if a else "video",
+                "rights": "licensed" if a else "unstated",
+                "delivery": "stored" if a else "embedded",
+                "storage_key": "wger/seed-1.png" if a else None,
+                "embed_url": None if a else "https://www.youtube.com/embed/seed-2",
+                "source": "wger" if a else "  YouTube ",
+                "source_ref": "https://wger.de/api/v2/exerciseimage/1/" if a else "seed-2",
+                "license": "CC BY-SA 4.0" if a else None,
+                "attribution": "Seed Author · CC BY-SA 4.0 — via wger.de" if a else None,
+                "sha256": "0123456789abcdef" * 4 if a else None,
+                "width": 800 if a else None,
+                "height": 600 if a else None,
+            }
+        )
+        rows.setdefault("exercise_media", []).append(
+            {
+                "id": _id(user, 22),
+                "exercise_id": exercise,
+                "asset_id": asset,
+                "position": n,
+                "status": "approved" if a else "removed",
+            }
+        )
         band, entry = _id(user, 14), _id(user, 15)
         rows.setdefault("athlete_bands", []).append(
             {

@@ -42,6 +42,7 @@ services:
       OBJECT_STORAGE_ACCESS_KEY_ID: ai_trainer_dev
       OBJECT_STORAGE_SECRET_ACCESS_KEY: ai_trainer_dev_secret
       OBJECT_STORAGE_UPLOADS_BUCKET: ai-trainer-uploads
+      OBJECT_STORAGE_MEDIA_BUCKET: ai-trainer-media
     # `LLM_DEBUG_LOG=true` writes to /app/.llm-debug (ADR-0018, #178); the bind mount puts
     # those lines on the host, where `jq . .llm-debug/*.jsonl` reads them. Write-only from the
     # container, so none of the bind-mount file-watching trouble above applies. Never in
@@ -84,6 +85,7 @@ services:
       OBJECT_STORAGE_ACCESS_KEY_ID: ai_trainer_dev
       OBJECT_STORAGE_SECRET_ACCESS_KEY: ai_trainer_dev_secret
       OBJECT_STORAGE_UPLOADS_BUCKET: ai-trainer-uploads
+      OBJECT_STORAGE_MEDIA_BUCKET: ai-trainer-media
     develop:
       watch:
         - action: sync+restart
@@ -130,7 +132,7 @@ services:
       - sh
       - -c
       - >-
-        mkdir -p /data/ai-trainer-uploads &&
+        mkdir -p /data/ai-trainer-uploads /data/ai-trainer-media &&
         exec versitygw --port :7070 --access ai_trainer_dev --secret ai_trainer_dev_secret
         --region auto posix /data
     ports:

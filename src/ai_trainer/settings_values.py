@@ -3,10 +3,10 @@ class stays within the size rule (ADR-0003). Nothing here reads the environment.
 
 import json
 import re
-from typing import Annotated, Any
+from typing import Annotated, Any, Self
 from urllib.parse import urlsplit
 
-from pydantic import BaseModel, BeforeValidator, Field
+from pydantic import BaseModel, BeforeValidator, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import NoDecode
 
 from ai_trainer.domain.llm_calls import ProviderPreferences, ReasoningEffort
@@ -105,3 +105,48 @@ def http_origin(value: str) -> str | None:
     ):
         return None
     return f"{parts.scheme}://{parts.netloc.lower()}"
+
+
+class ObjectStorageSettings(BaseModel):
+    """The `uploads` and `media` buckets on an S3-compatible service (ADR-0033): R2 in
+    production, versitygw under `make start`. R2's region is `auto`; the timeout bounds one
+    request with its retries. `Settings` reads a blank key as unset."""
+
+    object_storage_endpoint: str | None = None
+    object_storage_region: str = "auto"
+    object_storage_access_key_id: SecretStr | None = None
+    object_storage_secret_access_key: SecretStr | None = None
+    object_storage_uploads_bucket: str | None = None
+    object_storage_timeout_seconds: float = Field(default=60.0, gt=0)
+    # Catalogue pictures (ADR-0031), on the same service and keys. Optional, so a release never
+    # waits on it; set without the keys it refuses to start (#530).
+    object_storage_media_bucket: str | None = None
+
+    @field_validator("object_storage_endpoint")
+    @classmethod
+    def _object_storage_endpoint_is_an_origin(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        origin = http_origin(value)
+        if origin is None:
+            # Never echoes the value: credentials pasted into the URL would reach the log.
+            raise ValueError(
+                "OBJECT_STORAGE_ENDPOINT must be an http(s) origin without a path or credentials, "
+                "such as http://localhost:7070"
+            )
+        return origin
+
+    @model_validator(mode="after")
+    def _object_storage_all_or_nothing(self) -> Self:
+        # Unset is fine until a feature needs it, so a release never waits on new keys. Half set
+        # is a mistake that should stop the app at start, not at an admin's upload.
+        missing = [key.upper() for key in OBJECT_STORAGE_KEYS if getattr(self, key) is None]
+        if 0 < len(missing) < len(OBJECT_STORAGE_KEYS):
+            raise ValueError(f"object storage is only partly set; missing {', '.join(missing)}")
+        if self.object_storage_media_bucket is not None and missing:
+            raise ValueError(
+                f"OBJECT_STORAGE_MEDIA_BUCKET needs every OBJECT_STORAGE_* key, the uploads bucket "
+                f"included; missing "
+                f"{', '.join(missing)}"
+            )
+        return self
