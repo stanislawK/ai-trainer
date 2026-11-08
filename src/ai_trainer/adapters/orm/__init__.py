@@ -4,6 +4,7 @@ from ai_trainer.adapters.orm.exercises import ExerciseAliasOrm, ExerciseOrm, Exe
 from ai_trainer.adapters.orm.feedback import FeedbackEventOrm
 from ai_trainer.adapters.orm.knowledge import AdminTokenOrm, KnowledgeChunkOrm, KnowledgeSourceOrm
 from ai_trainer.adapters.orm.llm_calls import LlmCallOrm
+from ai_trainer.adapters.orm.media import ExerciseMediaOrm, MediaAssetOrm
 from ai_trainer.adapters.orm.profile import (
     AthleteProfileOrm,
     GoalOrm,
@@ -34,6 +35,7 @@ __all__ = [
     "ClarificationOrm",
     "ConversationOrm",
     "ExerciseAliasOrm",
+    "ExerciseMediaOrm",
     "ExerciseOrm",
     "ExerciseTextOrm",
     "FeedbackEventOrm",
@@ -43,6 +45,7 @@ __all__ = [
     "KnowledgeChunkOrm",
     "KnowledgeSourceOrm",
     "LlmCallOrm",
+    "MediaAssetOrm",
     "OnboardingAnswerOrm",
     "SessionDraftOrm",
     "SessionOrm",
