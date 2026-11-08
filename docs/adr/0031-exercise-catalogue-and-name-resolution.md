@@ -118,6 +118,17 @@ Owner-directed 2026-11-07, at #514. Evidence: [exercise-media.md](../research/ex
 - **AI-flagged images stay eligible:** an image wger flags as AI-generated is imported with the flag kept in `source_ref`, and the card adds "AI generated" beside the credit. The admin judges it in F24 review like any other picture. Owner-decided 2026-11-07.
 - **Rejected:** Gym visual, because the owner will not pay for content in a side project, so G16 *Out* holds until permission is held. `free-exercise-db`'s images, because G16 puts them *Out*: its maintainer does not know their origin ([issue #2](https://github.com/yuhonas/free-exercise-db/issues/2)) and finding 1 of the research calls them likely infringing.
 
+#### Fallback media source (#524)
+
+Owner-directed 2026-11-08, at #524. Evidence: [exercise-media.md](../research/exercise-media.md), finding 8.
+
+- **Model:** `google/gemini-3.1-flash-lite-image` on OpenRouter, $0.0336 per picture (tool-printed, 2026-11-08). **Tier:** `licensed` (G16): our own generated output, with no third-party licence. `license` names Google's terms: "Google won't claim ownership over that content" ([Gemini API additional terms](https://aistudio.google.com/docs/terms), read 2026-11-08). **Delivery:** `stored` in the media bucket. **`kind`:** `image`, because the model returns a JPEG (1024×1024), not a drawing or a GIF; the enum above is unchanged.
+- **Attribution**, shown beside the picture: `AI generated with Gemini 3.1 Flash Lite Image (Google) via OpenRouter · <date>`, where `<date>` is the generation date. Google's terms say use of generated content "may require" attribution to users, so the credit is always shown.
+- **Approval (F24):** each picture is written `suggested`, never `approved` on import, and an admin approves it one picture at a time before it shows. It is never bulk-approved. Gemini printed wrong labels on some samples (finding 8), so the admin checks each picture for that.
+- **Stable/GA:** `get-model`, 2026-11-08, shows no preview, beta or `-exp` marker in the ID and no `expiration_date`. The dated slug `google/gemini-3.1-flash-lite-image-20260630` is pinned in `source_ref`.
+- **Risk:** whether such pictures can be copyrighted at all is not settled (finding 4). The owner accepts that as a non-commercial side project (G17), and `removed` is the takedown path (G16).
+- **Scope:** `wger` stays the first source. This one only fills gaps where `wger` has no picture for an exercise.
+
 ### Invariants
 
 1. A mapping from a typed name to an exercise is saved only when the athlete confirms it: on the draft card, or by picking on the choice card. Jev's pick alone never writes an alias.
@@ -143,6 +154,7 @@ Owner-directed 2026-11-07, at #514. Evidence: [exercise-media.md](../research/ex
 - ADR-0020's catalogue candidate is delivered here. The set starts at a conservative threshold and is tuned from feedback (ADR-0034).
 - The F23 card needs a Claude Design mock with a media slot before its web ticket (ADR-0019).
 - ⚠ The media source is `wger` (see "First media source (#514)", 2026-11-07). The import is the M2m ticket's work. Until it lands, cards show text only.
+- ⚠ A fallback source fills `wger`'s gaps (see "Fallback media source (#524)", 2026-11-08). Still open: Gemini printed wrong labels on some samples, so a prompt that forbids text is M2m's work, and so are the generation call and its cost cap.
 - Owner-directed amendment, 2026-11-07, with [PRD 0012](../prd/0012-ai-training-companion.md) (F24, G16, G17). It is proposed for the owner's review with this branch's PR and holds once PRD 0012 is Approved. The app is a non-commercial side project, so media its owner published freely without stating a licence may be embedded after an admin approves it. This adds `rights`, `delivery`, `embed_url` and `removed` above, relaxes "a license we hold" and invariant 5, and leaves the admin gate and the attribution rule for licensed media as they were.
   - **Why embed, not copy.** Under EU case law, linking to or framing a work its owner made freely available is not a communication to the public, unless it gets around a measure against framing. The cases are *Svensson*, *BestWater* and *VG Bild-Kunst*. A non-profit linker's lack of knowledge that a source infringes counts in its favour, but is not presumed, and a linker who knew or ought to have known is liable (*GS Media*). See [exercise-media.md](../research/exercise-media.md), finding 7.
   - **Sources under this rule.** `wger`'s CC BY-SA images are `licensed`. Gym visual's GIFs stay out: the dataset's [NOTICE.md](https://github.com/hasaneyldrm/exercises-dataset/blob/main/NOTICE.md) excludes them from its MIT licence (read 2026-10-29). `free-exercise-db`'s images stay out as well, even as links, since its maintainer does not know their origin ([issue #2](https://github.com/yuhonas/free-exercise-db/issues/2), read 2026-11-02) and finding 1 calls them likely infringing. Either can become `licensed` with written permission.
