@@ -1981,7 +1981,7 @@
         "summary": "History Edit"
       },
       "post": {
-        "description": "The edit form's Save (B4): replaces the session's sets and answers with its view,\npushing its URL. A session whose rows no longer read, or that changed meanwhile, is a\n409 and nothing is written.",
+        "description": "The edit form's Save (B4): replaces the session's sets and answers with its view,\npushing its URL. The form's hidden `version` is the session's `updated_at` as rendered.\nA session whose rows no longer read, or that changed since (or a form without its\n`version`), is a 409 and nothing is written.",
         "operationId": "history_save_history__session_id__edit_post",
         "parameters": [
           {

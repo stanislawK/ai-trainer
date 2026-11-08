@@ -30,6 +30,8 @@ _DAY = date(2026, 11, 5)
 _AT = datetime(2026, 11, 5, 17, 40, tzinfo=UTC)
 _BENCH: list[_SET] = [(10, Decimal("60"), "60 kg"), (8, Decimal("70"), "70 kg")]
 _ROWS: list[_SET] = [(12, Decimal("30"), "30 kg")] * 3
+# The form's version token: the session's `updated_at`, which `_session` sets to `_AT`.
+_VERSION = {"version": _AT.isoformat()}
 
 
 def _client(factory: Callable[[], AsyncSession], user: User) -> TestClient:
@@ -109,7 +111,9 @@ async def test_changed_load_shows_in_history_and_exercise_history(
 
     response = client.post(
         f"/history/{session_id}/edit",
-        data=_set_fields(0, 0, 0, reps="10", load="65") | _set_fields(0, 1, 1, reps="8", load="70"),
+        data=_VERSION
+        | _set_fields(0, 0, 0, reps="10", load="65")
+        | _set_fields(0, 1, 1, reps="8", load="70"),
         headers={"HX-Request": "true"},
     )
 
@@ -141,7 +145,8 @@ async def test_added_and_removed_sets_persist_after_reload(
 
     response = _client(db_session_factory, user).post(
         f"/history/{session_id}/edit",
-        data=_set_fields(0, 0, 0, reps="10", load="60")
+        data=_VERSION
+        | _set_fields(0, 0, 0, reps="10", load="60")
         | _set_fields(0, 1, 1, reps="8", load="70")
         | _set_fields(0, 2, None, reps="6", load="80")
         | _set_fields(1, 0, 0, reps="12", load="30")
@@ -179,7 +184,9 @@ async def test_rejected_value_is_marked_and_nothing_saved(
 
     response = _client(db_session_factory, user).post(
         f"/history/{session_id}/edit",
-        data=_set_fields(0, 0, 0, reps="0", load="65") | _set_fields(0, 1, 1, reps="8", load="70"),
+        data=_VERSION
+        | _set_fields(0, 0, 0, reps="0", load="65")
+        | _set_fields(0, 1, 1, reps="8", load="70"),
         headers={"HX-Request": "true"},
     )
 
@@ -203,7 +210,9 @@ async def test_cleared_value_is_saved_blank_never_zero(
 
     response = _client(db_session_factory, user).post(
         f"/history/{session_id}/edit",
-        data=_set_fields(0, 0, 0, reps="10", load="") | _set_fields(0, 1, 1, reps="8", load="70"),
+        data=_VERSION
+        | _set_fields(0, 0, 0, reps="10", load="")
+        | _set_fields(0, 1, 1, reps="8", load="70"),
     )
 
     assert response.status_code == 200
@@ -231,7 +240,9 @@ async def test_other_users_session_is_404_and_unchanged(
     shown = client.get(f"/history/{theirs}/edit")
     saved = client.post(
         f"/history/{theirs}/edit",
-        data=_set_fields(0, 0, 0, reps="1", load="1") | _set_fields(0, 1, 1, reps="1", load="1"),
+        data=_VERSION
+        | _set_fields(0, 0, 0, reps="1", load="1")
+        | _set_fields(0, 1, 1, reps="1", load="1"),
     )
 
     assert shown.status_code == 404
@@ -257,11 +268,49 @@ async def test_session_whose_rows_no_longer_read_is_409(
     before = await _rows(db_session_factory, session_id)
 
     response = _client(db_session_factory, user).post(
-        f"/history/{session_id}/edit", data=_set_fields(0, 0, None, reps="8", load="60")
+        f"/history/{session_id}/edit", data=_VERSION | _set_fields(0, 0, None, reps="8", load="60")
     )
 
     assert response.status_code == 409
     assert await _rows(db_session_factory, session_id) == before
+
+
+async def test_stale_form_is_409_and_unchanged(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    """The session changed in another tab after its form was rendered (e.g. a log undone and
+    another added, the same number of entries): the old form's values never land on the new
+    rows, and a form without its version token is refused the same way."""
+    user = await _user(db_session_factory)
+    session_id = await _session(db_session_factory, user, _DAY, _AT, {"bench": _BENCH})
+    client = _client(db_session_factory, user)
+    form = client.get(f"/history/{session_id}/edit").text
+    assert f'name="version" value="{_AT.isoformat()}"' in form
+    async with db_session_factory() as db:
+        await db.execute(
+            text("UPDATE gym_exercise_entries SET name_as_typed = 'squat' WHERE session_id = :id"),
+            {"id": session_id},
+        )
+        await db.execute(
+            text("UPDATE training_sessions SET updated_at = :at WHERE id = :id"),
+            {"id": session_id, "at": datetime(2026, 11, 5, 18, 0, tzinfo=UTC)},
+        )
+        await db.commit()
+    rows, stored = (
+        await _rows(db_session_factory, session_id),
+        await _stored_session(db_session_factory, session_id),
+    )
+    fields = _set_fields(0, 0, 0, reps="10", load="65") | _set_fields(0, 1, 1, reps="8", load="70")
+
+    stale = client.post(
+        f"/history/{session_id}/edit", data=_VERSION | fields, headers={"HX-Request": "true"}
+    )
+    unversioned = client.post(f"/history/{session_id}/edit", data=fields)
+
+    assert stale.status_code == 409
+    assert unversioned.status_code == 409
+    assert await _rows(db_session_factory, session_id) == rows
+    assert await _stored_session(db_session_factory, session_id) == stored
 
 
 # --- The form -------------------------------------------------------------------------------
@@ -315,7 +364,8 @@ async def test_posted_name_is_ignored(db_session_factory: Callable[[], AsyncSess
 
     response = _client(db_session_factory, user).post(
         f"/history/{session_id}/edit",
-        data={"activities.0.name": "squat"}
+        data=_VERSION
+        | {"activities.0.name": "squat"}
         | _set_fields(0, 0, 0, reps="10", load="60")
         | _set_fields(0, 1, 1, reps="8", load="70"),
     )
@@ -371,7 +421,9 @@ async def test_new_band_is_saved_unranked_and_asks_nothing(
 
     response = _client(db_session_factory, user).post(
         f"/history/{session_id}/edit",
-        data={"activities.0.measure": "band_reps"} | _set_fields(0, 0, 0, reps="12", band="blue"),
+        data=_VERSION
+        | {"activities.0.measure": "band_reps"}
+        | _set_fields(0, 0, 0, reps="12", band="blue"),
     )
 
     assert response.status_code == 200
@@ -407,7 +459,7 @@ async def test_known_band_any_case_keeps_its_band_id(
 
     _client(db_session_factory, user).post(
         f"/history/{session_id}/edit",
-        data=_set_fields(0, 0, 0, reps="12", band=" red "),
+        data=_VERSION | _set_fields(0, 0, 0, reps="12", band=" red "),
     )
 
     ((band_id, label, rank),) = await _bands(db_session_factory, user.id)

@@ -4,6 +4,7 @@ in their timezone (ADR-0014), and an edit of one session's exercises and sets va
 draft edit is."""
 
 from collections.abc import Mapping, Sequence
+from datetime import datetime
 from uuid import UUID
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -12,6 +13,7 @@ from pydantic import JsonValue, ValidationError
 from ai_trainer.application.ports.gym_history import GymSessionReaderPort, SessionEditorPort
 from ai_trainer.domain.history import (
     HistorySession,
+    SessionChangedError,
     SessionEditError,
     SessionNotEditableError,
     StoredGymSession,
@@ -28,6 +30,7 @@ def _local(stored: StoredGymSession, timezone: ZoneInfo) -> HistorySession:
         id=stored.span.id,
         day=stored.span.occurred_on,
         time=first.time().replace(microsecond=0),
+        updated_at=stored.updated_at,
         exercises=stored.exercises,
         labels=stored.labels,
     )
@@ -79,6 +82,18 @@ def _fields(error: ValidationError) -> frozenset[str]:
     return frozenset(".".join(str(part) for part in detail["loc"]) for detail in error.errors())
 
 
+def _version(token: str | None, session_id: UUID) -> datetime:
+    """The session's `updated_at` as its edit form was rendered; a missing, unreadable or
+    naive token reads as a change made meanwhile (ticket #516)."""
+    try:
+        version = datetime.fromisoformat(token or "")
+    except ValueError:
+        raise SessionChangedError(session_id) from None
+    if version.tzinfo is None:
+        raise SessionChangedError(session_id)
+    return version
+
+
 class GymSessionEdit:
     """The athlete's edit of one saved gym session (B4, ticket #516)."""
 
@@ -86,15 +101,26 @@ class GymSessionEdit:
         self._reader = reader
         self._editor = editor
 
-    async def save(self, user_id: UUID, session_id: UUID, changes: Mapping[str, JsonValue]) -> None:
+    async def save(
+        self,
+        user_id: UUID,
+        session_id: UUID,
+        changes: Mapping[str, JsonValue],
+        *,
+        version: str | None,
+    ) -> None:
         """Applies the athlete's form to the session's stored exercises as the draft edit does
         (B38: a field left out stays, a blank one is cleared, never 0) and saves the result.
-        Raises `SessionNotFoundError` for an unknown session or another user's,
-        `SessionNotEditableError` when its rows no longer read, and `SessionEditError` naming
-        every rejected field; neither of the last two writes anything."""
+        `version` is the session's `updated_at` the form was rendered with. Raises
+        `SessionNotFoundError` for an unknown session or another user's,
+        `SessionNotEditableError` when it has no exercises or its rows no longer read,
+        `SessionEditError` naming every rejected field, and `SessionChangedError` when the
+        session changed since the form was rendered; none of the last three writes anything."""
         stored = await self._reader.get_session(user_id, session_id)
         if stored is None:
             raise SessionNotFoundError(session_id)
+        if not stored.exercises:
+            raise SessionNotEditableError(session_id)
         try:
             current = GymPayload.model_validate(
                 {"activities": [exercise.model_dump(mode="json") for exercise in stored.exercises]}
@@ -106,5 +132,9 @@ class GymSessionEdit:
         except ValidationError as error:
             raise SessionEditError(_fields(error)) from None
         await self._editor.replace_activities(
-            user_id, session_id, sport_id=GYM_SPORT_ID, payload=edited.model_dump(mode="json")
+            user_id,
+            session_id,
+            sport_id=GYM_SPORT_ID,
+            payload=edited.model_dump(mode="json"),
+            expected_updated_at=_version(version, session_id),
         )

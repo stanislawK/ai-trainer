@@ -11,7 +11,12 @@ import pytest
 from pydantic import JsonValue
 
 from ai_trainer.application.session_history import GymSessionEdit, GymSessionHistory
-from ai_trainer.domain.history import SessionEditError, SessionNotEditableError, StoredGymSession
+from ai_trainer.domain.history import (
+    SessionChangedError,
+    SessionEditError,
+    SessionNotEditableError,
+    StoredGymSession,
+)
 from ai_trainer.domain.sports.gym.payload import Exercise
 from ai_trainer.domain.training import SessionNotFoundError, SessionSpan
 
@@ -19,6 +24,7 @@ from ai_trainer.domain.training import SessionNotFoundError, SessionSpan
 def _stored(day: date, first: datetime, exercises: tuple[Exercise, ...] = ()) -> StoredGymSession:
     return StoredGymSession(
         span=SessionSpan(id=uuid4(), occurred_on=day, first_logged_at=first, last_logged_at=first),
+        updated_at=first,
         exercises=exercises,
         labels={},
     )
@@ -38,6 +44,7 @@ class FakeReader:
 class FakeEditor:
     def __init__(self) -> None:
         self.saved: list[tuple[UUID, str, Mapping[str, JsonValue]]] = []
+        self.versions: list[datetime] = []
 
     async def replace_activities(
         self,
@@ -46,8 +53,10 @@ class FakeEditor:
         *,
         sport_id: str,
         payload: Mapping[str, JsonValue],
+        expected_updated_at: datetime,
     ) -> None:
         self.saved.append((session_id, sport_id, payload))
+        self.versions.append(expected_updated_at)
 
 
 async def test_orders_newest_first_and_converts_to_user_timezone() -> None:
@@ -80,6 +89,7 @@ _BENCH = Exercise.model_validate(
     }
 )
 _FIRST = datetime(2026, 11, 5, 17, 40, tzinfo=UTC)
+_TOKEN = _FIRST.isoformat()
 
 
 async def test_edit_maps_validation_error_to_fields() -> None:
@@ -88,7 +98,7 @@ async def test_edit_maps_validation_error_to_fields() -> None:
 
     with pytest.raises(SessionEditError) as raised:
         await GymSessionEdit(FakeReader(stored), editor).save(
-            uuid4(), stored.span.id, {"activities": [{"sets": [{"reps": "0"}]}]}
+            uuid4(), stored.span.id, {"activities": [{"sets": [{"reps": "0"}]}]}, version=_TOKEN
         )
 
     assert raised.value.fields == frozenset({"activities.0.sets.0.reps"})
@@ -96,11 +106,26 @@ async def test_edit_maps_validation_error_to_fields() -> None:
 
 
 async def test_stored_row_invalid_is_not_editable() -> None:
+    no_sets = Exercise.model_construct(name_as_typed="bench", measure="reps", sets=[])
+    stored = _stored(date(2026, 11, 5), _FIRST, (no_sets,))
+    editor = FakeEditor()
+
+    with pytest.raises(SessionNotEditableError):
+        await GymSessionEdit(FakeReader(stored), editor).save(
+            uuid4(), stored.span.id, {}, version=_TOKEN
+        )
+
+    assert editor.saved == []
+
+
+async def test_session_without_entries_is_not_editable() -> None:
     stored = _stored(date(2026, 11, 5), _FIRST)
     editor = FakeEditor()
 
     with pytest.raises(SessionNotEditableError):
-        await GymSessionEdit(FakeReader(stored), editor).save(uuid4(), stored.span.id, {})
+        await GymSessionEdit(FakeReader(stored), editor).save(
+            uuid4(), stored.span.id, {"activities": [{"sets": [{"reps": "8"}]}]}, version=_TOKEN
+        )
 
     assert editor.saved == []
 
@@ -109,7 +134,7 @@ async def test_unknown_session_is_not_found() -> None:
     editor = FakeEditor()
 
     with pytest.raises(SessionNotFoundError):
-        await GymSessionEdit(FakeReader(), editor).save(uuid4(), uuid4(), {})
+        await GymSessionEdit(FakeReader(), editor).save(uuid4(), uuid4(), {}, version=_TOKEN)
 
     assert editor.saved == []
 
@@ -122,6 +147,7 @@ async def test_edit_ignores_a_posted_name_and_saves_the_gym_payload() -> None:
         uuid4(),
         stored.span.id,
         {"activities": [{"name": "squat", "sets": [{"src": "0", "reps": "8", "load": "65"}]}]},
+        version=_TOKEN,
     )
 
     [(session_id, sport_id, payload)] = editor.saved
@@ -144,7 +170,37 @@ async def test_edit_without_activities_saves_the_session_as_it_is() -> None:
     stored = _stored(date(2026, 11, 5), _FIRST, (_BENCH,))
     editor = FakeEditor()
 
-    await GymSessionEdit(FakeReader(stored), editor).save(uuid4(), stored.span.id, {})
+    await GymSessionEdit(FakeReader(stored), editor).save(
+        uuid4(), stored.span.id, {}, version=_TOKEN
+    )
 
     [(_, _, payload)] = editor.saved
     assert payload == {"sport": "gym", "activities": [_BENCH.model_dump(mode="json")]}
+
+
+async def test_edit_passes_the_rendered_version_to_the_editor() -> None:
+    stored = _stored(date(2026, 11, 5), _FIRST, (_BENCH,))
+    editor = FakeEditor()
+
+    await GymSessionEdit(FakeReader(stored), editor).save(
+        uuid4(), stored.span.id, {}, version=_TOKEN
+    )
+
+    assert editor.versions == [_FIRST]
+
+
+@pytest.mark.parametrize(
+    "version",
+    [None, "", "not a time", "2026-11-05T17:40:00"],
+    ids=["missing", "blank", "unparseable", "naive"],
+)
+async def test_missing_or_unreadable_version_is_changed(version: str | None) -> None:
+    stored = _stored(date(2026, 11, 5), _FIRST, (_BENCH,))
+    editor = FakeEditor()
+
+    with pytest.raises(SessionChangedError):
+        await GymSessionEdit(FakeReader(stored), editor).save(
+            uuid4(), stored.span.id, {}, version=version
+        )
+
+    assert editor.saved == []

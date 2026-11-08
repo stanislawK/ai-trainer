@@ -81,14 +81,18 @@ def build_history_router(
     @router.post("/history/{session_id}/edit", response_class=HTMLResponse)
     async def history_save(request: Request, session_id: str) -> HTMLResponse:
         """The edit form's Save (B4): replaces the session's sets and answers with its view,
-        pushing its URL. A session whose rows no longer read, or that changed meanwhile, is a
-        409 and nothing is written."""
+        pushing its URL. The form's hidden `version` is the session's `updated_at` as rendered.
+        A session whose rows no longer read, or that changed since (or a form without its
+        `version`), is a 409 and nothing is written."""
         user: User = request.state.user
         wanted = parse_id(session_id)
         form = await request.form()
         values = {key: value for key, value in form.multi_items() if isinstance(value, str)}
+        fields = {key: value for key, value in values.items() if key != "version"}
         try:
-            await editing.save(user.id, wanted, form_changes(values.items()))
+            await editing.save(
+                user.id, wanted, form_changes(fields.items()), version=values.get("version")
+            )
         except SessionNotFoundError:
             raise HTTPException(status_code=NOT_FOUND) from None
         except SessionNotEditableError, SessionChangedError:

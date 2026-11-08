@@ -53,6 +53,17 @@ class SqlAlchemyGymSessionReader:
         async with self._session_factory() as db:
             span_rows = [to_span(row) for row in (await db.execute(gym_spans)).all()]
             ids = [span.id for span in span_rows]
+            updated_at = dict(
+                (
+                    await db.execute(
+                        select(TrainingSessionOrm.id, TrainingSessionOrm.updated_at).where(
+                            TrainingSessionOrm.user_id == user_id, TrainingSessionOrm.id.in_(ids)
+                        )
+                    )
+                )
+                .tuples()
+                .all()
+            )
             entries = (
                 (
                     await db.execute(
@@ -98,6 +109,11 @@ class SqlAlchemyGymSessionReader:
             if canonical is not None:
                 labels[entry.session_id][entry.name_as_typed] = ExerciseLabel(name=canonical)
         return [
-            StoredGymSession(span=span, exercises=tuple(exercises[span.id]), labels=labels[span.id])
+            StoredGymSession(
+                span=span,
+                updated_at=updated_at[span.id],
+                exercises=tuple(exercises[span.id]),
+                labels=labels[span.id],
+            )
             for span in span_rows
         ]

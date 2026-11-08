@@ -1,4 +1,5 @@
 from collections.abc import Mapping, Sequence
+from datetime import datetime
 from typing import Protocol
 from uuid import UUID
 
@@ -32,9 +33,12 @@ class SessionEditorPort(Protocol):
         *,
         sport_id: str,
         payload: Mapping[str, JsonValue],
+        expected_updated_at: datetime,
     ) -> None:
         """In one transaction, replaces the session's activities with `payload` through its
         sport's activity store and bumps `updated_at`. Raises `SessionNotFoundError` for an
         unknown session, another user's, or one of another sport, and `SessionChangedError`
-        when the session no longer holds the activities the edit was made on."""
+        when the locked row's `updated_at` is not `expected_updated_at` (the session changed
+        since the form was rendered) or it no longer holds the activities the edit was made
+        on."""
         ...

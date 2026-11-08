@@ -3,7 +3,7 @@ local time, and its exercises in the shape of the gym payload, so the page forma
 chat's logged card does."""
 
 from collections.abc import Mapping
-from datetime import date, time
+from datetime import date, datetime, time
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
@@ -16,24 +16,28 @@ from ai_trainer.domain.training import SessionSpan
 class StoredGymSession(BaseModel):
     """What a reader returns for one session: the span of its logs (in UTC) and its entries in
     the order logged. `labels` names the entries settled to a catalogue or custom exercise, by
-    the name as typed."""
+    the name as typed. `updated_at` is the session row's, which the edit form posts back to
+    detect a change made meanwhile (ticket #516)."""
 
     model_config = ConfigDict(frozen=True)
 
     span: SessionSpan
+    updated_at: datetime
     exercises: tuple[Exercise, ...]
     labels: Mapping[str, ExerciseLabel]
 
 
 class HistorySession(BaseModel):
     """A stored session for the athlete: `day` is the day it happened on, `time` is when its
-    first log was sent, in the athlete's timezone (ADR-0014)."""
+    first log was sent, in the athlete's timezone (ADR-0014). `updated_at` is the session row's
+    last write, in UTC, as the edit form's version token (ticket #516)."""
 
     model_config = ConfigDict(frozen=True)
 
     id: UUID
     day: date
     time: time
+    updated_at: datetime
     exercises: tuple[Exercise, ...]
     labels: Mapping[str, ExerciseLabel]
 
@@ -54,5 +58,6 @@ class SessionNotEditableError(Exception):
 
 
 class SessionChangedError(Exception):
-    """The saved session no longer holds the entries the edit was made on, e.g. a log was
-    added or undone meanwhile (ticket #516); nothing is written."""
+    """The saved session changed since its edit form was rendered, e.g. a log was added or
+    undone meanwhile, or the form's version token is missing (ticket #516); nothing is
+    written."""
