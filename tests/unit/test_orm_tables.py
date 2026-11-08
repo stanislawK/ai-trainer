@@ -21,6 +21,8 @@ EXPECTED_TABLES = {
     "exercises",
     "exercise_texts",
     "exercise_aliases",
+    "media_assets",
+    "exercise_media",
     "gym_exercise_entries",
     "gym_sets",
     "athlete_bands",

@@ -25,17 +25,17 @@ from ai_trainer.settings_values import (
     DEFAULT_ONBOARDING_PROVIDER,
     DEFAULT_ONBOARDING_REASONING_EFFORT,
     LOCAL_HOSTS,
-    OBJECT_STORAGE_KEYS,
     VERSIONED_DECISION_MODEL,
     CallTimeout,
     CommaSeparated,
     ExerciseSearchSettings,
+    ObjectStorageSettings,
     ProviderPreferencesSetting,
     http_origin,
 )
 
 
-class Settings(ExerciseSearchSettings, BaseSettings):
+class Settings(ExerciseSearchSettings, ObjectStorageSettings, BaseSettings):
     """All configuration; the only reader of the environment (ADR-0002)."""
 
     model_config = SettingsConfigDict(
@@ -187,17 +187,7 @@ class Settings(ExerciseSearchSettings, BaseSettings):
     # A sport's extraction reads its context from this many of the athlete's latest sessions
     # in that sport, e.g. the climbing kinds they do (ticket #164).
     extract_recent_sessions: int = Field(default=10, ge=1)
-    # The private `uploads` bucket on an S3-compatible service (ADR-0033): R2 in production,
-    # versitygw under `make start`. R2's region is `auto`; the timeout bounds one request+retries.
-    object_storage_endpoint: str | None = None
-    object_storage_region: str = "auto"
-    object_storage_access_key_id: SecretStr | None = None
-    object_storage_secret_access_key: SecretStr | None = None
-    object_storage_uploads_bucket: str | None = None
-    object_storage_timeout_seconds: float = Field(default=60.0, gt=0)
-    # The `media` bucket for catalogue pictures (ADR-0031, ADR-0033), on the same service and
-    # keys. Optional, so a release never waits on it; set alone it refuses to start.
-    object_storage_media_bucket: str | None = None
+    # Object storage (ADR-0033) is in `ObjectStorageSettings`.
     # The largest knowledge file an admin may upload, in MiB (ADR-0033). At most 90, so the form
     # fits Caddy's and Cloudflare's 100 MB on that route (ADR-0029).
     knowledge_max_upload_mb: int = Field(default=50, ge=1, le=90)
@@ -309,34 +299,6 @@ class Settings(ExerciseSearchSettings, BaseSettings):
                 "https://pmc-oa-opendata.s3.amazonaws.com"
             )
         return origin
-
-    @field_validator("object_storage_endpoint")
-    @classmethod
-    def _object_storage_endpoint_is_an_origin(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        origin = http_origin(value)
-        if origin is None:
-            # Never echoes the value: credentials pasted into the URL would reach the log.
-            raise ValueError(
-                "OBJECT_STORAGE_ENDPOINT must be an http(s) origin without a path or credentials, "
-                "such as http://localhost:7070"
-            )
-        return origin
-
-    @model_validator(mode="after")
-    def _object_storage_all_or_nothing(self) -> Self:
-        # Unset is fine until the admin upload ticket needs it, so a release never waits on new
-        # keys. Half set is a mistake that should stop the app at start, not at an admin's upload.
-        missing = [key.upper() for key in OBJECT_STORAGE_KEYS if getattr(self, key) is None]
-        if 0 < len(missing) < len(OBJECT_STORAGE_KEYS):
-            raise ValueError(f"object storage is only partly set; missing {', '.join(missing)}")
-        if self.object_storage_media_bucket is not None and missing:
-            raise ValueError(
-                f"OBJECT_STORAGE_MEDIA_BUCKET needs the object storage keys; missing "
-                f"{', '.join(missing)}"
-            )
-        return self
 
     @model_validator(mode="after")
     def _merge_floor_below_the_budget(self) -> Self:
