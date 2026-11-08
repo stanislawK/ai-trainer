@@ -65,7 +65,7 @@ This document decides nothing. It compares where exercise pictures could come fr
 - OpenAI's terms returned HTTP 403 to an automated fetch ([OpenAI terms of use](https://openai.com/policies/terms-of-use/), 2026-11-02) and are not read.
 - wger itself carries an "AI generated" flag and shows 46 such images ([wger API](https://wger.de/api/v2/exerciseimage/), 2026-11-02), which shows the open-set maintainers treat provenance as something to record.
 - Whether purely AI-generated pictures can be copyrighted is not settled by any page read. The US Copyright Office report on copyrightability was fetched as a PDF the tools here could not render, and its conclusion is not read.
-- No image was generated, so form accuracy is judged from the option's nature only (finding 6).
+- No image was generated at the time of writing, so form accuracy was judged from the option's nature only (finding 6). Generated samples and real costs for two of the models are in finding 8 (#523).
 
 ### 5. Coverage on the first gym session
 
@@ -117,7 +117,29 @@ What this means for the options above:
 | `wger` images | Per image: CC BY-SA 4 (295) or CC BY-SA 3 (88), by named authors | Yes: author and licence link per image; 104 have no author listed | 3 clear + 3 weaker of 6, 279 exercises with images | Free; storage only |
 | Gym visual | © Gym visual, own licence required | Yes: "© Gym visual — https://gymvisual.com/" | 3 clear + 2 families + 1 none of 6, 1,324 exercises, the same rows as ADR-0031's catalogue; media is 180×180 only | Not read; Open question |
 | Claude-written SVG | Outputs assigned to the customer under the Commercial Terms (API, Console); the Consumer Terms bar commercial use, so the account used to write an SVG matters (the samples were written in a Claude Code session); copyrightability not settled | No third party; our own credit line is a choice | Any exercise we write one for | Tokens per SVG, not measured |
-| Image model (per provider) | Gemini: Google claims no ownership; OpenAI: not read; others: not read | Gemini: "may require" attribution to users | Any exercise we generate | Provider prices as listed on OpenRouter, unit unclear; none run |
+| Image model (per provider) | Gemini: Google claims no ownership; OpenAI: not read; others: not read | Gemini: "may require" attribution to users | Any exercise we generate | Measured 2026-11-08 (finding 8): Recraft vector $0.08 and Gemini 3.1 Flash Lite Image about $0.034 per picture; the catalogue's `image_output` figures are not prices; OpenAI's model not run |
+
+### 8. Generated pictures, sampled (#523)
+
+Run on 2026-11-08, with the owner's yes and a spend cap of $1 in the session. Every prompt named only the exercise ("<exercise> exercise, instructional line illustration showing the start and end position", 1:1) and carried no athlete data. The exercises are the six of finding 5. The tool used was the OpenRouter MCP `generate-image`; its `get-current-key` usage rose from $0 to $0.681621 over the run, which matches the sum of the per-call costs the tool printed.
+
+| Model | Pictures | Cost per picture | Format and size |
+|---|---|---|---|
+| `recraft/recraft-v4.1-vector` | 6 of 6 | $0.08 each (tool-printed, 2026-11-08) | SVG, 2048×2048 viewBox shown at 1024; 66.9 to 163.8 KiB (about 4,200 tokens per call). Each file embeds a C2PA manifest in `<metadata>`, about 17 KiB |
+| `google/gemini-3.1-flash-lite-image` | 6 of 6 | $0.0336 each (tool-printed, 2026-11-08) | JPEG, 1024×1024; 154.0 to 264.8 KiB |
+| `openai/gpt-image-2.6-sunburst` | 0 of 6 | not run | not run |
+
+- **Cost source.** The tool returned no generation ID, so `get-generation` could not be called, and the cost is the figure printed with each call, cross-checked against the key's usage total. The owner agreed to this on 2026-11-08. The catalogue's `image_output` figures (for example $0.0000191616766467066/image for the Recraft model, $0.00003/image for the other two) are not prices: the real cost was 4,000 times higher for Recraft and about 1,100 times higher for Gemini.
+- **Skipped: `openai/gpt-image-2.6-sunburst`.** The tool has no `output_format` option, so the `gif` request could not be made. Under the ticket's stop rule nothing was generated for this model, and its cost, file size, frame count and duration remain unknown. The owner chose to skip it rather than run one default-format probe. A rerun needs a way to send `output_format: gif` to `/api/v1/images`.
+- **Form accuracy** is for the owner to judge on the [samples page](https://claude.ai/artifact/BgoG9dnEuAkhsxVU9sJwut), one row per exercise. Two observations while generating, not a verdict: the Gemini pictures carry printed labels, some wrong ("Babows", "Spotter's Arms" on the bench press, "Hanging Body Body" on the pull-up), and the Gemini face pull ends with the rope across the face and elbows flared. The Recraft SVGs were not inspected closely enough to list errors here.
+- **Where the samples live.** The page is a private Artifact on claude.ai, not a Claude Design page, because Claude Design accepts file data only inline and the 12 files total about 0.9 MB after stripping the C2PA block from the SVGs and shrinking the JPEGs to 512 px. The SVGs on that page have the C2PA block removed, so their sizes there are smaller than in the table. The files themselves are not committed.
+
+Output terms, read 2026-11-08:
+
+- **Recraft.** Terms effective 21 October 2026 ([recraft.ai/terms](https://www.recraft.ai/terms)). Paid subscription: "You own all Assets you create with the Services", and Recraft "hereby assigns to you all copyright rights it may have in the Assets". Free tier: "Free Tier Assets are owned by Recraft", and "no commercial use of Free Tier Assets is permitted". No attribution requirement. Section 8.2 says the user will not remove or alter machine-readable metadata or watermarks Recraft applies, which is relevant to the C2PA block above. Assets may not be used to train AI models. Section 7.3 sends API and MCP access to separate Developer Terms, which were not read, so what applies to a key used through OpenRouter is **unread**: not fetched in this run.
+- **Google.** [Gemini API additional terms](https://aistudio.google.com/docs/terms) (the old ai.google.dev URL redirects there), effective 23 March 2026: "Google won't claim ownership over that content", and use of generated content "may require the provision of attribution to your users when returned as part of an API call". No mention of watermarks or SynthID on that page.
+- **OpenAI.** **Unread.** `openai.com/policies/service-terms/` and `openai.com/policies/row-terms-of-use/` returned HTTP 403 to an automated fetch on 2026-11-08, as `terms-of-use` did on 2026-11-02 (finding 4). Nothing is claimed about output ownership for `gpt-image-2.6-sunburst`, which was also not run.
+- Whether such pictures can be copyrighted at all is still not settled by any page read (finding 4).
 
 ## Recommendations for this project
 
@@ -153,8 +175,8 @@ Not needed for the pick (they concern options not chosen):
 - **Copyrightability of AI output.** Not needed for the pick.
 - **Which Anthropic terms govern a Claude-written SVG used in the product.** Not needed for the pick.
 - **Cost of an SVG, and where it is stored.** Not needed for the pick.
-- **Per-image cost of the image models.** Not needed for the pick.
-- **Form accuracy of an image model and of Gym visual's pictures.** Not needed for the pick.
+- **Per-image cost of the image models.** Measured for two models at #523 (finding 8). Still open for `openai/gpt-image-2.6-sunburst`, which was not run.
+- **Form accuracy of an image model and of Gym visual's pictures.** Samples exist for two image models (finding 8); the owner's judgment is not recorded here. Gym visual's pictures remain unjudged.
 
 ## Sources
 
@@ -176,3 +198,7 @@ Not needed for the pick (they concern options not chosen):
 | [CJEU C-160/15 *GS Media*](https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:62015CJ0160) | Court ruling | judgment 2016-09-08, read 2026-11-07 |
 | [CJEU C-392/19 *VG Bild-Kunst*](https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:62019CJ0392) | Court ruling | judgment 2021-03-09, read 2026-11-07 |
 | [First gym session transcript](../../evals/field/gym/2026-10-28-first-gym-session.md) | Project data | 2026-10-28 |
+| [Recraft Terms of Service](https://www.recraft.ai/terms) | Provider's own terms | effective 2026-10-21, read 2026-11-08 |
+| [Gemini API additional terms](https://aistudio.google.com/docs/terms) | Provider's own terms | effective 2026-03-23, read 2026-11-08 |
+| OpenRouter `generate-image` and `get-current-key` (12 sample pictures, $0.681621) | OpenRouter MCP, paid, owner-approved with a $1 cap | 2026-11-08 |
+| [Generated exercise pictures](https://claude.ai/artifact/BgoG9dnEuAkhsxVU9sJwut) | Private Artifact page, this ticket | 2026-11-08 |
