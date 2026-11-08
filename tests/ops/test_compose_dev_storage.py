@@ -35,12 +35,14 @@ def test_local_storage_matches_env_example() -> None:
         "OBJECT_STORAGE_ACCESS_KEY_ID",
         "OBJECT_STORAGE_SECRET_ACCESS_KEY",
         "OBJECT_STORAGE_UPLOADS_BUCKET",
+        "OBJECT_STORAGE_MEDIA_BUCKET",
     ):
         assert app[key] == env[key], key
     assert f"--access {env['OBJECT_STORAGE_ACCESS_KEY_ID']}" in command
     assert f"--secret {env['OBJECT_STORAGE_SECRET_ACCESS_KEY']}" in command
     assert f"--region {env['OBJECT_STORAGE_REGION']}" in command
     assert f"/data/{env['OBJECT_STORAGE_UPLOADS_BUCKET']}" in command
+    assert f"/data/{env['OBJECT_STORAGE_MEDIA_BUCKET']}" in command
 
 
 def test_local_storage_is_pinned_and_published_only_on_this_machine() -> None:

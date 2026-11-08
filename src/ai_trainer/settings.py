@@ -195,6 +195,9 @@ class Settings(ExerciseSearchSettings, BaseSettings):
     object_storage_secret_access_key: SecretStr | None = None
     object_storage_uploads_bucket: str | None = None
     object_storage_timeout_seconds: float = Field(default=60.0, gt=0)
+    # The `media` bucket for catalogue pictures (ADR-0031, ADR-0033), on the same service and
+    # keys. Optional, so a release never waits on it; set alone it refuses to start.
+    object_storage_media_bucket: str | None = None
     # The largest knowledge file an admin may upload, in MiB (ADR-0033). At most 90, so the form
     # fits Caddy's and Cloudflare's 100 MB on that route (ADR-0029).
     knowledge_max_upload_mb: int = Field(default=50, ge=1, le=90)
@@ -328,6 +331,11 @@ class Settings(ExerciseSearchSettings, BaseSettings):
         missing = [key.upper() for key in OBJECT_STORAGE_KEYS if getattr(self, key) is None]
         if 0 < len(missing) < len(OBJECT_STORAGE_KEYS):
             raise ValueError(f"object storage is only partly set; missing {', '.join(missing)}")
+        if self.object_storage_media_bucket is not None and missing:
+            raise ValueError(
+                f"OBJECT_STORAGE_MEDIA_BUCKET needs the object storage keys; missing "
+                f"{', '.join(missing)}"
+            )
         return self
 
     @model_validator(mode="after")
@@ -360,6 +368,7 @@ class Settings(ExerciseSearchSettings, BaseSettings):
         "object_storage_access_key_id",
         "object_storage_secret_access_key",
         "object_storage_uploads_bucket",
+        "object_storage_media_bucket",
         mode="before",
     )
     @classmethod

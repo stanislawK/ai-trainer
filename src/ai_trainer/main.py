@@ -296,10 +296,19 @@ def build_onboarding_reader(
 def build_uploads_storage(settings: Settings) -> ObstoreObjectStorage | None:
     """The `uploads` bucket from `OBJECT_STORAGE_*`, or None while they are unset (ADR-0033):
     the app then lists sources and refuses uploads, and the worker refuses to start."""
+    return _bucket_storage(settings, settings.object_storage_uploads_bucket)
+
+
+def build_media_storage(settings: Settings) -> ObstoreObjectStorage | None:
+    """The `media` bucket for catalogue pictures (ADR-0031, ADR-0033), on the same service and
+    keys as `uploads`, or None while `OBJECT_STORAGE_MEDIA_BUCKET` is unset."""
+    return _bucket_storage(settings, settings.object_storage_media_bucket)
+
+
+def _bucket_storage(settings: Settings, bucket: str | None) -> ObstoreObjectStorage | None:
     endpoint = settings.object_storage_endpoint
     access_key_id = settings.object_storage_access_key_id
     secret_access_key = settings.object_storage_secret_access_key
-    bucket = settings.object_storage_uploads_bucket
     if endpoint is None or access_key_id is None or secret_access_key is None or bucket is None:
         return None
     return ObstoreObjectStorage(

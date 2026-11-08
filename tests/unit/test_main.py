@@ -1,3 +1,4 @@
+from datetime import timedelta
 from typing import Any
 
 import httpx2
@@ -509,3 +510,27 @@ def test_only_the_health_route_itself_goes_untraced() -> None:
 
     assert untraced == ()
     assert exporter.get_finished_spans()
+
+
+_STORAGE = {
+    "object_storage_endpoint": "http://localhost:7070",
+    "object_storage_access_key_id": SecretStr("ai_trainer_dev"),
+    "object_storage_secret_access_key": SecretStr("ai_trainer_dev_secret"),
+    "object_storage_uploads_bucket": "ai-trainer-uploads",
+}
+
+
+async def test_build_media_storage_uses_the_media_bucket() -> None:
+    storage = main_module.build_media_storage(
+        _settings(**_STORAGE, object_storage_media_bucket="ai-trainer-media")
+    )
+
+    assert storage is not None
+    # Signing is local, so the link shows the bucket without a request.
+    link = await storage.presigned_get("probe.png", expires_in=timedelta(minutes=1))
+    assert link.startswith("http://localhost:7070/ai-trainer-media/probe.png?")
+
+
+def test_build_media_storage_is_none_while_unset() -> None:
+    assert main_module.build_media_storage(_settings(**_STORAGE)) is None
+    assert main_module.build_media_storage(_settings()) is None

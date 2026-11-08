@@ -622,7 +622,7 @@ It ends on one line. `import-exercises: result=ok exercises=1315 inserted=1315 u
 
 Source: ADR-0033. Ticket #420.
 
-Admins' uploaded knowledge files live in a private R2 bucket, `ai-trainer-uploads`, never in the repo or the image. Nothing uses it until the admin upload page ships, and the app starts without these keys, so a release never waits on this section. The public `media` bucket (ADR-0033) gets its steps with the ticket that first uses it.
+Admins' uploaded knowledge files live in a private R2 bucket, `ai-trainer-uploads`, never in the repo or the image. Nothing uses it until the admin upload page ships, and the app starts without these keys, so a release never waits on this section. The `media` bucket for catalogue pictures is in 14.4.
 
 **Keep the originals.** This bucket isn't backed up (ADR-0033). The nightly backup holds the chunks and their text, so search survives a lost file, but re-ingesting that source needs the file uploaded again. The app's token can delete objects, and a bucket lock would refuse the delete the admin page has to do, so this bucket has neither a lock nor a lifecycle rule.
 
@@ -683,6 +683,24 @@ It takes about five seconds. It writes one probe object under `storage-check/`, 
 | `result=failed step=expiry reason=status_<n>` | The expired link didn't answer 400 or 403. With `status_200` it outlived its time, so check the host's clock with `timedatectl` |
 
 `probe_left=true` on a failed line means the probe object may still be in the bucket: delete it under `storage-check/` in the dashboard. A `step=put reason=unavailable` line can also leave one, if the write landed and only its answer was lost, so look there after a run that failed that way.
+
+### 14.4 Media bucket (ticket #530)
+
+Catalogue exercise pictures (ADR-0031) live in a second bucket, `ai-trainer-media`, on the same R2 account and token. It holds no user data. The app starts without it, and nothing writes to it until the media importer ships, so a release never waits on this step. Its public custom domain comes with the ticket that first serves a picture; until then leave public access off.
+
+The owner creates it on the laptop:
+
+```sh
+npx wrangler r2 bucket create ai-trainer-media --location weur
+```
+
+Edit the token from 14.1 so **Apply to specific buckets only** lists both `ai-trainer-uploads` and `ai-trainer-media`. Then add to `/opt/ai-trainer/.env` and recreate as in 14.2:
+
+```sh
+OBJECT_STORAGE_MEDIA_BUCKET=ai-trainer-media
+```
+
+It needs the endpoint and both keys from 14.2. Set alone, the app refuses to start and names the missing keys.
 
 ## 15. Ingest container
 

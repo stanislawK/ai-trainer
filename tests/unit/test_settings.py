@@ -919,3 +919,35 @@ def test_an_unknown_log_format_or_level_fails_naming_the_setting(
         Settings(_env_file=None)
 
     assert [error["loc"] for error in excinfo.value.errors()] == [(key.lower(),)]
+
+
+def test_media_bucket_is_unset_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    _set_object_storage(monkeypatch)
+    monkeypatch.delenv("OBJECT_STORAGE_MEDIA_BUCKET", raising=False)
+
+    assert Settings(_env_file=None).object_storage_media_bucket is None
+
+
+def test_media_bucket_blank_is_unset(monkeypatch: pytest.MonkeyPatch) -> None:
+    _set_object_storage(monkeypatch, OBJECT_STORAGE_MEDIA_BUCKET="  ")
+
+    assert Settings(_env_file=None).object_storage_media_bucket is None
+
+
+def test_media_bucket_is_read_with_the_storage_keys(monkeypatch: pytest.MonkeyPatch) -> None:
+    _set_object_storage(monkeypatch, OBJECT_STORAGE_MEDIA_BUCKET="ai-trainer-media")
+
+    assert Settings(_env_file=None).object_storage_media_bucket == "ai-trainer-media"
+
+
+def test_media_bucket_needs_the_storage_keys(monkeypatch: pytest.MonkeyPatch) -> None:
+    _set_required_keys(monkeypatch)
+    for key in OBJECT_STORAGE_KEYS:
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("OBJECT_STORAGE_MEDIA_BUCKET", "ai-trainer-media")
+
+    with pytest.raises(ValidationError) as excinfo:
+        Settings(_env_file=None)
+
+    assert "OBJECT_STORAGE_MEDIA_BUCKET" in str(excinfo.value)
+    assert "OBJECT_STORAGE_ENDPOINT" in str(excinfo.value)
