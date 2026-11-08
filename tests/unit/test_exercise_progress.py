@@ -34,6 +34,9 @@ class _Reader:
     async def list_sessions(self, user_id: UUID) -> Sequence[StoredGymSession]:
         return self._sessions
 
+    async def get_session(self, user_id: UUID, session_id: UUID) -> StoredGymSession | None:
+        return next((s for s in self._sessions if s.span.id == session_id), None)
+
 
 class _Exercises(EmptyExercises):
     def __init__(self, *, known: bool = True) -> None:
@@ -105,6 +108,7 @@ def _session(exercise_id: UUID | None, *, label: str | None = None) -> StoredGym
         span=SessionSpan(
             id=uuid4(), occurred_on=date(2026, 11, 3), first_logged_at=at, last_logged_at=at
         ),
+        updated_at=at,
         exercises=(
             Exercise(
                 exercise_id=exercise_id,

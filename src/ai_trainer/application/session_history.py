@@ -59,6 +59,11 @@ class GymSessionHistory:
         zone = _zone(timezone)
         return [_local(session, zone) for session in ordered]
 
+    async def get(self, user_id: UUID, session_id: UUID, timezone: str) -> HistorySession | None:
+        """One of the user's sessions, or `None` for an unknown one or another user's."""
+        stored = await self._reader.get_session(user_id, session_id)
+        return None if stored is None else _local(stored, _zone(timezone))
+
 
 def _without_names(changes: Mapping[str, JsonValue]) -> dict[str, JsonValue]:
     """The edit without any exercise's name: History never renames or remaps an exercise (B37

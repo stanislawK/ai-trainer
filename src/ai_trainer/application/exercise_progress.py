@@ -103,8 +103,7 @@ class ExerciseProgress:
     ) -> ProgressView | None:
         """The progress of the exercise at `index` of the user's session, or `None` when the
         session isn't theirs, the index is out of range, or the exercise isn't visible to them."""
-        sessions = await self._sessions.list(user_id, timezone)
-        opened = next((s for s in sessions if s.id == session_id), None)
+        opened = await self._sessions.get(user_id, session_id, timezone)
         if opened is None or not 0 <= index < len(opened.exercises):
             return None
         chosen = opened.exercises[index]

@@ -72,6 +72,17 @@ async def test_orders_newest_first_and_converts_to_user_timezone() -> None:
     assert sessions[0].day == date(2026, 11, 3)
 
 
+async def test_get_reads_one_session_in_user_timezone_and_none_for_unknown() -> None:
+    stored = _stored(date(2026, 11, 3), datetime(2026, 11, 3, 17, 40, tzinfo=UTC))
+    history = GymSessionHistory(FakeReader(stored))
+
+    found = await history.get(uuid4(), stored.span.id, "Europe/Warsaw")
+
+    assert found is not None
+    assert (found.id, found.time.isoformat()) == (stored.span.id, "18:40:00")
+    assert await history.get(uuid4(), uuid4(), "Europe/Warsaw") is None
+
+
 async def test_unknown_timezone_falls_back_to_utc() -> None:
     stored = _stored(date(2026, 11, 3), datetime(2026, 11, 3, 17, 40, tzinfo=UTC))
     history = GymSessionHistory(FakeReader(stored))
