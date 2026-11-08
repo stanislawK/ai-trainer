@@ -30,9 +30,10 @@ def test_history_lists_the_seeded_gym_sessions(gym_history_page: Page) -> None:
     page = gym_history_page
     page.goto(f"{BASE_URL}/history")
     content = page.locator("#history-content")
-    expect(content.get_by_role("link", name=re.compile(r"Wed\s*28\s*Oct"))).to_have_count(1)
-    expect(content.get_by_role("link", name=re.compile(r"Wed\s*4\s*Nov"))).to_have_count(1)
-    expect(content.get_by_text(EXERCISE)).to_have_count(2)
+    for day in (r"Wed\s*28\s*Oct", r"Wed\s*4\s*Nov"):
+        session = content.get_by_role("link", name=re.compile(day))
+        expect(session).to_have_count(1)
+        expect(session).to_contain_text(EXERCISE)
 
 
 def test_an_edited_set_shows_in_history_and_progress(gym_history_page: Page) -> None:
@@ -42,7 +43,7 @@ def test_an_edited_set_shows_in_history_and_progress(gym_history_page: Page) -> 
     expect(session).to_contain_text("7 kg")
     session.get_by_role("link", name="Edit").click()
     form = page.get_by_role("form", name="Edit session")
-    form.get_by_label("kg").first.fill("8")
+    form.get_by_label("kg", exact=True).first.fill("8")
     form.get_by_role("button", name="Save").click()
     session = page.get_by_role("region", name="Saved session")
     expect(session).to_be_visible()
@@ -59,8 +60,10 @@ def test_progress_shows_6_then_7_kg_across_two_typed_names(gym_history_page: Pag
     _open_later_session(page)
     _open_progress(page)
     # The chart runs oldest first: 6 kg, then 7 kg.
-    chart = json.loads(page.locator("#progress-chart").get_attribute("data-chart") or "{}")
-    assert chart["values"] == [6, 7]
+    # The canvas draws from its `data-chart` payload; there is no text to read the order from.
+    payload = page.locator("#progress-chart").get_attribute("data-chart")
+    assert payload is not None, "the progress chart has no data-chart payload"
+    assert json.loads(payload).get("values") == [6, 7]
     # The table lists the same sessions newest first.
     rows = page.get_by_role("table", name="Sessions with this exercise").get_by_role("row")
     expect(rows).to_have_count(3)

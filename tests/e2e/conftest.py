@@ -29,8 +29,14 @@ def browser_context_args(browser_context_args: dict[str, Any]) -> dict[str, Any]
 def _seed_dev_session(*args: str) -> SetCookieParam:
     """Runs `scripts/dev_session.py` against the compose stack's Postgres and returns the
     cookie payload it prints, ready for `BrowserContext.add_cookies`."""
+    return _run_seeder(str(DEV_SESSION_SCRIPT), *args)
+
+
+def _run_seeder(*command: str) -> SetCookieParam:
+    """Runs a seeder with this interpreter from the repo root and parses the cookie it
+    prints on stdout."""
     result = subprocess.run(
-        [sys.executable, str(DEV_SESSION_SCRIPT), *args],
+        [sys.executable, *command],
         capture_output=True,
         text=True,
         check=True,
@@ -66,15 +72,7 @@ def signed_in_page(context: BrowserContext, dev_session_cookie: SetCookieParam) 
 def gym_history_page(context: BrowserContext) -> Iterator[Page]:
     """A page signed in as the dedicated gym history user, freshly seeded with two gym
     sessions of one exercise (`tests/e2e/gym_history_seed.py`, #519)."""
-    result = subprocess.run(
-        [sys.executable, "-m", "tests.e2e.gym_history_seed"],
-        capture_output=True,
-        text=True,
-        check=True,
-        cwd=REPO_ROOT,
-    )
-    cookie: SetCookieParam = json.loads(result.stdout)
-    context.add_cookies([cookie])
+    context.add_cookies([_run_seeder("-m", "tests.e2e.gym_history_seed")])
     page = context.new_page()
     yield page
     page.close()
