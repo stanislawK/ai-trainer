@@ -192,6 +192,40 @@ def test_picture_brief_match_needs_the_position_itself_in_the_prompt() -> None:
     assert result["positions_named"] is False  # type: ignore[index]
 
 
+def test_picture_brief_match_reads_other_forms_of_a_position_word() -> None:
+    reworded = _brief(
+        end_position="arms extended to the bar",
+        image_prompt=(
+            "One person hanging from a bar with arms straight, then the right arm extending to "
+            "the bar. Plain background. No text or labels."
+        ),
+    )
+
+    result = PictureBriefMatch().evaluate(_ctx(reworded, _brief()))
+
+    assert result["positions_named"] is True  # type: ignore[index]
+
+
+def test_picture_brief_match_needs_the_no_text_rule_itself() -> None:
+    evaluator = PictureBriefMatch()
+    stated = (
+        "No text, labels or arrows.",
+        "Draw it without any text or labels.",
+        "No printed labels in the picture.",
+    )
+    loose = (
+        "No props; a person holding a sign with words on it.",
+        "Without a bench, label the muscles with text.",
+    )
+
+    for rule in stated:
+        brief = _brief(image_prompt=f"{_brief().image_prompt.split('. Plain')[0]}. {rule}")
+        assert evaluator.evaluate(_ctx(brief, _brief()))["no_text_rule"] is True, rule  # type: ignore[index]
+    for rule in loose:
+        brief = _brief(image_prompt=f"{_brief().image_prompt.split('. Plain')[0]}. {rule}")
+        assert evaluator.evaluate(_ctx(brief, _brief()))["no_text_rule"] is False, rule  # type: ignore[index]
+
+
 def test_picture_brief_match_fails_a_renamed_exercise() -> None:
     result = PictureBriefMatch().evaluate(_ctx(_brief(exercise_name="Chin-Up"), _brief()))
 
@@ -246,6 +280,15 @@ def test_deps_take_passages_only_from_the_search_page() -> None:
     failed = picture_brief_deps("Pull-Up", None, KnowledgeSearchFailed(reason="no_match"))
     assert failed.passages == []
     assert failed.description is None
+
+
+def test_deps_drop_a_passage_with_no_text_so_no_model_is_called() -> None:
+    page = KnowledgeSearchPage(hits=(_hit("Book A", "  "),), truncated=False)
+
+    deps = picture_brief_deps("Pull-Up", None, page)
+
+    assert deps.passages == []
+    assert isinstance(needs_no_model(deps), NoBrief)
 
 
 def test_deps_fall_back_to_the_steps_when_the_instructions_are_blank() -> None:

@@ -22,14 +22,23 @@ from ai_trainer.llm.prompts.template import PromptTemplate
 PICTURE_BRIEF_TEMPLATE_ID = "media.picture_brief"
 PICTURE_BRIEF_VERSION = 1
 
-# The brief's image prompt forbids printed text in so many words.
-_NO_TEXT_RULE = re.compile(r"\b(no|without)\b[^.]*\b(text|labels?|letters|words)\b", re.IGNORECASE)
-# A word this short ("the", "arm") says nothing about which position a prompt describes, and
-# neither do these fillers; a position is restated when half its other words are in the prompt.
-_MIN_KEY_WORD = 4
-_FILLERS = frozenset(
-    {"with", "from", "then", "that", "this", "into", "onto", "over", "your", "their", "each"}
+# The brief's image prompt forbids printed text in so many words: "no" or "without" right
+# before the text it forbids, not anywhere earlier in the sentence.
+_NO_TEXT_RULE = re.compile(
+    r"\b(no|without)\s+(any\s+)?(printed\s+|written\s+)?(text|labels?|letters|words)\b",
+    re.IGNORECASE,
 )
+# Fillers say nothing about which position a prompt describes. A word is compared by its stem
+# (no plural "s", first five letters), so "arms" meets "arm" and "extended" meets "extending".
+# A position is restated when half its other words are in the prompt.
+_MIN_KEY_WORD = 3
+_STEM_LENGTH = 5
+_FILLERS = frozenset(
+    {
+        "the", "and", "for", "its", "his", "her", "one", "with", "from", "then", "that",
+        "this", "into", "onto", "over", "your", "their", "each",
+    }
+)  # fmt: skip
 _RESTATED_SHARE = 0.5
 _WORD = re.compile(r"[a-z]+")
 
@@ -89,7 +98,8 @@ def picture_brief_deps(
     return PictureBriefDeps(
         exercise_name=exercise_name,
         description=_description(text),
-        passages=[BriefPassage(title=hit.title, text=hit.text) for hit in hits],
+        # A passage with no text says nothing, so it can't stand in for a description.
+        passages=[BriefPassage(title=hit.title, text=hit.text) for hit in hits if hit.text.strip()],
     )
 
 
@@ -118,7 +128,7 @@ def picture_brief_template() -> PromptTemplate[PictureBriefDeps, PictureBrief | 
 
 def _key_words(text: str) -> set[str]:
     return {
-        word
+        word.removesuffix("s")[:_STEM_LENGTH]
         for word in _WORD.findall(text.lower())
         if len(word) >= _MIN_KEY_WORD and word not in _FILLERS
     }
