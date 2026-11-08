@@ -5,11 +5,11 @@
       <h2 id="history-delete-title" class="text-[17px] font-semibold">Delete this session?</h2>
       <p class="text-[15px] leading-[22px] lbl-2">This can't be undone.</p>
     </div>
-    <div class="flex gap-2">
-      <form method="dialog" class="flex flex-1"><button class="lg lg-ghost flex-1">Cancel</button></form>
+    <div class="grid grid-cols-2 gap-2">
+      <form method="dialog" class="flex"><button class="lg lg-ghost flex-1">Cancel</button></form>
       <button
         type="button"
-        class="lg lg-danger flex-1"
+        class="lg lg-danger"
         hx-delete="/history/{{ open.id }}"
         hx-target="#history-content"
         hx-swap="outerHTML"
