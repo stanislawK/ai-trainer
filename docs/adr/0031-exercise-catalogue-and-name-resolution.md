@@ -138,10 +138,12 @@ Owner-directed 2026-11-08, at #531. Evidence: [exercise-media.md](../research/ex
 - **Description sources:** `exercise_texts` and `search_knowledge` passages only. An internet lookup is out for now (owner, 2026-11-08).
 - **Brief rules:** the start and end position, one figure, a plain background, no printed text or labels. Gemini printed wrong labels from a bare-name prompt (finding 8).
 - **Port:** `ImageGenerationPort`, a `typing.Protocol` in `application/ports/`. Its adapter is in `adapters/`, over OpenRouter's images endpoint (`/api/v1/images`), wired in the composition root (ADR-0003). The text step uses the existing gateway.
-- **Accounting:** an `llm_calls` row per call (ADR-0018), recording the admin who runs the generation, as admin-run ingestion does. Traces are content-free.
-- **Cap:** `Settings.image_generation_spend_cap_usd`, one cap per run, summed from the run's own `llm_calls` cost.
-- **Run on purpose:** an admin-run command, never from a chat, a page or any request. Invariant 6 holds: nothing is written by a model at request time.
+- **Accounting:** an `llm_calls` row per call (ADR-0018), recording the admin who runs the generation, as admin-run ingestion does. The command takes the admin's email and checks it against `ADMIN_EMAILS`; it refuses otherwise, so no unverified `user_id` is written. Traces are content-free. The image adapter has its own timeout, error translation and accounting, since it does not go through the text gateway.
+- **Cap:** `Settings.image_generation_spend_cap_usd`, one cap per run, summed from the run's own `llm_calls` cost. A call whose cost is unknown (null) stops the run, so the cap can't be passed by missing figures. The cap is checked before each call, so the last call may pass it by one picture's price.
+- **No description:** an exercise with neither an `exercise_texts` row nor a `search_knowledge` passage is skipped and listed in the run's report, never drawn from its name alone (finding 8).
+- **Run on purpose:** an admin-run command, never from a chat, a page or any request. Nothing is generated at request time, and every picture is written `suggested` for admin approval (#524). Invariant 6 is not the basis for this: it covers names, aliases and descriptions, not pictures.
 - **Cap hit:** the run stops before the next call and keeps the pictures already made as `suggested` (approval rule above). It reports the number done and the spend. Raising the cap is the owner's edit of `Settings`.
+- ⚠ **Open for the owner:** whether these admin-run calls count toward ADR-0029's per-user model-call budget or are exempt. No document records it; the code ticket must not guess.
 
 ### Invariants
 
