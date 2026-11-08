@@ -9,6 +9,7 @@ from ai_trainer.domain.knowledge_search import (
     KnowledgeSearchQuery,
 )
 from ai_trainer.domain.media_generation import (
+    AmbiguousExerciseName,
     BriefFailed,
     GeneratedImage,
     ImageGenerationFailed,
@@ -40,9 +41,12 @@ class PictureBriefWriterPort(Protocol):
 class PictureSubjectsPort(Protocol):
     """The shared catalogue, read by exact name. It holds no user data."""
 
-    async def catalogue_exercise(self, name: str, *, lang: str) -> PictureSubject | None:
+    async def catalogue_exercise(
+        self, name: str, *, lang: str
+    ) -> PictureSubject | AmbiguousExerciseName | None:
         """The catalogue exercise named `name`, compared case-insensitively, with its text in
-        `lang`, else in any language. An athlete's own exercise is never returned."""
+        `lang`, else in any language; `AmbiguousExerciseName` when the name is in more than one
+        sport. An athlete's own exercise is never returned."""
         ...
 
 

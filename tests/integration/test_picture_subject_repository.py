@@ -5,7 +5,7 @@ the image call's `llm_calls` row, which holds no prompt text."""
 import base64
 from collections.abc import Callable
 from decimal import Decimal
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import httpx2
 from sqlalchemy import text
@@ -16,7 +16,7 @@ from ai_trainer.adapters.llm_calls_repository import SqlAlchemyLlmCallsRepositor
 from ai_trainer.adapters.picture_subject_repository import SqlAlchemyPictureSubjectsRepository
 from ai_trainer.adapters.users_repository import SqlAlchemyUsersRepository
 from ai_trainer.domain.exercises import CatalogueExercise, ExerciseMeasure, ExerciseText
-from ai_trainer.domain.media_generation import PictureSubject
+from ai_trainer.domain.media_generation import AmbiguousExerciseName, PictureSubject
 from ai_trainer.domain.users import NewUser, User, UserStatus
 from ai_trainer.llm.images import OpenRouterImageGenerator
 
@@ -24,9 +24,9 @@ SessionFactory = Callable[[], AsyncSession]
 _PROMPT = "One person hanging from a bar, then chest at the bar. Plain background. No text."
 
 
-def _exercise(name: str, *texts: ExerciseText) -> CatalogueExercise:
+def _exercise(name: str, *texts: ExerciseText, sport_id: str = "gym") -> CatalogueExercise:
     return CatalogueExercise(
-        sport_id="gym",
+        sport_id=sport_id,
         source="zz-pic",
         source_ref=f"zz-pic-{uuid4()}",
         name=name,
@@ -44,6 +44,16 @@ async def _user(factory: SessionFactory, email: str, status: UserStatus) -> User
     return await SqlAlchemyUsersRepository(factory).create(
         NewUser(sub=f"sub-{uuid4()}", email=email, name=None, locale="en", status=status)
     )
+
+
+async def _id(factory: SessionFactory, name: str) -> UUID:
+    async with factory() as session:
+        found = await session.scalar(
+            text("SELECT id FROM exercises WHERE name = :name AND owner_user_id IS NULL"),
+            {"name": name},
+        )
+    assert isinstance(found, UUID)
+    return found
 
 
 async def test_active_by_email_finds_an_active_user_case_insensitively(
@@ -80,11 +90,13 @@ async def test_catalogue_exercise_by_name_with_its_text_in_the_language_asked_fi
     )
     subjects = SqlAlchemyPictureSubjectsRepository(db_session_factory)
 
+    exercise_id = await _id(db_session_factory, "Zz Pic Pull-Up")
+
     assert await subjects.catalogue_exercise("zz pic PULL-UP", lang="en") == PictureSubject(
-        name="Zz Pic Pull-Up", sport_id="gym", text=english
+        exercise_id=exercise_id, name="Zz Pic Pull-Up", sport_id="gym", text=english
     )
     found = await subjects.catalogue_exercise("Zz Pic Pull-Up", lang="de")
-    assert found is not None
+    assert isinstance(found, PictureSubject)
     assert found.text == english
 
 
@@ -105,9 +117,46 @@ async def test_catalogue_exercise_with_no_text_or_no_match(
     subjects = SqlAlchemyPictureSubjectsRepository(db_session_factory)
 
     assert await subjects.catalogue_exercise("Zz Pic Bare", lang="en") == PictureSubject(
-        name="Zz Pic Bare", sport_id="gym", text=None
+        exercise_id=await _id(db_session_factory, "Zz Pic Bare"),
+        name="Zz Pic Bare",
+        sport_id="gym",
+        text=None,
     )
     assert await subjects.catalogue_exercise("Zz Pic Nothing", lang="en") is None
+
+
+async def test_a_name_in_more_than_one_sport_is_ambiguous(
+    db_session_factory: SessionFactory,
+) -> None:
+    said = ExerciseText(lang="en", instructions="Hold.", steps=())
+    await SqlAlchemyExerciseRepository(db_session_factory).upsert_catalogue(
+        [
+            _exercise("Zz Pic Plank", said, sport_id="gym"),
+            _exercise("ZZ PIC PLANK", said, sport_id="climbing"),
+        ]
+    )
+
+    found = await SqlAlchemyPictureSubjectsRepository(db_session_factory).catalogue_exercise(
+        "zz pic plank", lang="en"
+    )
+
+    assert found == AmbiguousExerciseName(sport_ids=("climbing", "gym"))
+
+
+async def test_a_name_twice_in_one_sport_is_not_ambiguous(
+    db_session_factory: SessionFactory,
+) -> None:
+    said = ExerciseText(lang="en", instructions="Hold.", steps=())
+    await SqlAlchemyExerciseRepository(db_session_factory).upsert_catalogue(
+        [_exercise("Zz Pic Twice", said), _exercise("Zz Pic Twice", said)]
+    )
+
+    found = await SqlAlchemyPictureSubjectsRepository(db_session_factory).catalogue_exercise(
+        "Zz Pic Twice", lang="en"
+    )
+
+    assert isinstance(found, PictureSubject)
+    assert found.sport_id == "gym"
 
 
 async def test_an_athletes_own_exercise_is_never_a_picture_subject(

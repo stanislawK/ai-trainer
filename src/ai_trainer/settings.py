@@ -324,6 +324,15 @@ class Settings(ExerciseSearchSettings, ObjectStorageSettings, BaseSettings):
         return self
 
     @model_validator(mode="after")
+    def _cap_covers_one_picture(self) -> Self:
+        # Below one picture's price, no run could ever draw (ADR-0031 *Picture generation*).
+        if self.image_generation_spend_cap_usd < self.image_generation_price_usd:
+            raise ValueError(
+                "IMAGE_GENERATION_SPEND_CAP_USD must be at least IMAGE_GENERATION_PRICE_USD"
+            )
+        return self
+
+    @model_validator(mode="after")
     def _llm_debug_log_only_on_localhost(self) -> Self:
         # The debug log holds athletes' words (ADR-0018), so it is refused wherever the app is
         # served beyond this machine, and logs may leave the host (ADR-0030, #278).

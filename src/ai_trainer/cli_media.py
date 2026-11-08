@@ -4,30 +4,39 @@
 
 An admin generates one picture of one catalogue exercise, to look at before anything is linked:
 the brief is written from the exercise's public texts and its `search_knowledge` passages, then
-the image model draws it. It writes `<dir>/<slug>.brief.json` and `<dir>/<slug>.jpg` (or
-`.png`), and nothing to the media tables. Every call is an `llm_calls` row under the admin; the
-run stops before a call that would take it past `IMAGE_GENERATION_SPEND_CAP_USD`, and when a
-call's cost is unknown. It costs money, so it is run on purpose, never from a test.
+the image model draws it. It writes `<dir>/<slug>.brief.json` and `<dir>/<slug>.jpg` (or `.png`,
+`.webp`), both or neither, and nothing to the media tables. Every call is an `llm_calls` row
+under the admin; the run stops before a call that would take it past
+`IMAGE_GENERATION_SPEND_CAP_USD`, and when a call's cost is unknown. A name in more than one
+sport is refused (`reason=ambiguous_name`) before any call. It costs money, so it is run on
+purpose, never from a test.
 
 `--admin` defaults to the one `ADMIN_EMAILS` entry; the email must be listed there and belong to
 an active account. It prints one line and never the prompt, the brief or the email:
 `generate-exercise-picture: result=written brief=<path> picture=<path> spent_usd=<x>` with exit
 code 0, or `result=skipped|refused|cap_reached|failed reason=<...> spent_usd=<x|unknown>` with
-exit code 1, and then no file is written."""
+exit code 1, and then no file is written (a failed write is `result=failed reason=write_error`).
+"""
 
 import argparse
+import contextlib
+import os
 import re
+import tempfile
+import unicodedata
 from collections.abc import Callable
 from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
 from typing import TextIO, assert_never
+from uuid import UUID
 
 import httpx2
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai_trainer.application.ports.media_generation import PictureBriefWriterPort
 from ai_trainer.domain.media_generation import (
+    ImageMediaType,
     PictureFailed,
     PictureMade,
     PictureRefused,
@@ -39,8 +48,14 @@ from ai_trainer.main import build_exercise_picture_service
 from ai_trainer.settings import Settings
 
 GENERATE_EXERCISE_PICTURE = "generate-exercise-picture"
-_EXTENSIONS = {"image/jpeg": "jpg", "image/png": "png"}
+_EXTENSIONS: dict[ImageMediaType, str] = {
+    "image/jpeg": "jpg",
+    "image/png": "png",
+    "image/webp": "webp",
+}
 _NOT_SLUG = re.compile(r"[^a-z0-9]+")
+# Latin letters NFKD doesn't split into a base letter and a mark.
+_UNSPLIT = str.maketrans({"ł": "l", "ø": "o", "đ": "d", "ß": "ss", "æ": "ae", "œ": "oe"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,8 +79,38 @@ def add_parser(commands: argparse._SubParsersAction[argparse.ArgumentParser]) ->
     )
 
 
-def slug(name: str) -> str:
-    return _NOT_SLUG.sub("-", name.lower()).strip("-") or "exercise"
+def slug(name: str, *, exercise_id: UUID) -> str:
+    """The file name's stem: the name's letters with diacritics folded, else the exercise's ID,
+    so two names never share a stem by falling back."""
+    folded = unicodedata.normalize("NFKD", name.lower().translate(_UNSPLIT))
+    ascii_name = folded.encode("ascii", "ignore").decode()
+    return _NOT_SLUG.sub("-", ascii_name).strip("-") or f"exercise-{exercise_id}"
+
+
+def _write_pair(made: PictureMade, *, out: Path, stem: str) -> tuple[Path, Path]:
+    """Writes the picture and the brief to temporary names in `out`, then renames both; a
+    failure removes what it wrote, so there is never one without the other."""
+    out.mkdir(parents=True, exist_ok=True)
+    brief_path = out / f"{stem}.brief.json"
+    picture_path = out / f"{stem}.{_EXTENSIONS[made.image.media_type]}"
+    brief = (made.brief.model_dump_json(indent=2) + "\n").encode()
+    temporary: list[Path] = []
+    renamed: list[Path] = []
+    try:
+        for data in (made.image.data, brief):
+            fd, name = tempfile.mkstemp(dir=out, prefix=f".{stem}.", suffix=".tmp")
+            temporary.append(Path(name))
+            with os.fdopen(fd, "wb") as file:
+                file.write(data)
+        for source, target in zip(temporary, (picture_path, brief_path), strict=True):
+            source.replace(target)
+            renamed.append(target)
+    except OSError:
+        for path in (*temporary, *renamed):
+            with contextlib.suppress(OSError):
+                path.unlink()
+        raise
+    return brief_path, picture_path
 
 
 def _usd(value: Decimal | None) -> str:
@@ -97,12 +142,14 @@ def write_result(result: PictureResult, *, out: Path, name: str, output: TextIO)
     """Writes the files only for a made picture, and prints the run's one line."""
     prefix = f"{GENERATE_EXERCISE_PICTURE}: result="
     match result:
-        case PictureMade(brief=brief, image=image, spent_usd=spent):
-            out.mkdir(parents=True, exist_ok=True)
-            brief_path = out / f"{slug(name)}.brief.json"
-            picture_path = out / f"{slug(name)}.{_EXTENSIONS[image.media_type]}"
-            brief_path.write_text(brief.model_dump_json(indent=2) + "\n", encoding="utf-8")
-            picture_path.write_bytes(image.data)
+        case PictureMade(exercise_id=exercise_id, spent_usd=spent):
+            try:
+                brief_path, picture_path = _write_pair(
+                    result, out=out, stem=slug(name, exercise_id=exercise_id)
+                )
+            except OSError:
+                output.write(f"{prefix}failed reason=write_error spent_usd={_usd(spent)}\n")
+                return 1
             output.write(
                 f"{prefix}written brief={brief_path} picture={picture_path} "
                 f"spent_usd={_usd(spent)}\n"

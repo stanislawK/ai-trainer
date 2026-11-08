@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai_trainer.adapters.orm import ExerciseOrm, ExerciseTextOrm
 from ai_trainer.domain.exercises import ExerciseText
-from ai_trainer.domain.media_generation import PictureSubject
+from ai_trainer.domain.media_generation import AmbiguousExerciseName, PictureSubject
 
 
 class SqlAlchemyPictureSubjectsRepository:
@@ -15,19 +15,26 @@ class SqlAlchemyPictureSubjectsRepository:
     def __init__(self, session_factory: Callable[[], AsyncSession]) -> None:
         self._session_factory = session_factory
 
-    async def catalogue_exercise(self, name: str, *, lang: str) -> PictureSubject | None:
+    async def catalogue_exercise(
+        self, name: str, *, lang: str
+    ) -> PictureSubject | AmbiguousExerciseName | None:
         async with self._session_factory() as session:
-            exercise = await session.scalar(
-                select(ExerciseOrm)
-                .where(
-                    ExerciseOrm.owner_user_id.is_(None),
-                    func.lower(ExerciseOrm.name) == name.strip().lower(),
+            matches = (
+                await session.scalars(
+                    select(ExerciseOrm)
+                    .where(
+                        ExerciseOrm.owner_user_id.is_(None),
+                        func.lower(ExerciseOrm.name) == name.strip().lower(),
+                    )
+                    .order_by(ExerciseOrm.sport_id, ExerciseOrm.id)
                 )
-                .order_by(ExerciseOrm.sport_id, ExerciseOrm.id)
-                .limit(1)
-            )
-            if exercise is None:
+            ).all()
+            if not matches:
                 return None
+            sport_ids = tuple(dict.fromkeys(match.sport_id for match in matches))
+            if len(sport_ids) > 1:
+                return AmbiguousExerciseName(sport_ids=sport_ids)
+            exercise = matches[0]
             text = await session.scalar(
                 select(ExerciseTextOrm)
                 .where(ExerciseTextOrm.exercise_id == exercise.id)
@@ -35,6 +42,7 @@ class SqlAlchemyPictureSubjectsRepository:
                 .limit(1)
             )
             return PictureSubject(
+                exercise_id=exercise.id,
                 name=exercise.name,
                 sport_id=exercise.sport_id,
                 text=None

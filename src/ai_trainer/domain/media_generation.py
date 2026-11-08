@@ -9,6 +9,7 @@ no model call."""
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Literal
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
 
@@ -86,12 +87,23 @@ def needs_no_model(deps: PictureBriefDeps) -> NoBrief | None:
 
 @dataclass(frozen=True, slots=True)
 class PictureSubject:
-    """A catalogue exercise to draw: its name and sport, and its text in the language asked for,
-    else in any language, else none."""
+    """A catalogue exercise to draw: its ID, name and sport, and its text in the language asked
+    for, else in any language, else none."""
 
+    exercise_id: UUID
     name: str
     sport_id: str
     text: ExerciseText | None
+
+
+type ImageMediaType = Literal["image/jpeg", "image/png", "image/webp"]
+
+
+@dataclass(frozen=True, slots=True)
+class AmbiguousExerciseName:
+    """The name matches catalogue exercises in more than one sport, so none is picked."""
+
+    sport_ids: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,7 +111,7 @@ class GeneratedImage:
     """The picture's bytes as the provider returned them, never re-encoded."""
 
     data: bytes
-    media_type: Literal["image/jpeg", "image/png"]
+    media_type: ImageMediaType
 
 
 @dataclass(frozen=True, slots=True)
@@ -125,11 +137,16 @@ class PictureSpendLimits:
     price_usd: Decimal
 
 
+# A result's `spent_usd` is None when one of the run's calls has no billed cost, so the run's
+# spend is unknown rather than the sum of the costs that are known.
+
+
 @dataclass(frozen=True, slots=True)
 class PictureMade:
+    exercise_id: UUID
     brief: PictureBrief
     image: GeneratedImage
-    spent_usd: Decimal
+    spent_usd: Decimal | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -137,14 +154,15 @@ class PictureSkipped:
     """Nothing to draw from: no such catalogue exercise, or no text that says how it's done."""
 
     reason: Literal["no_such_exercise", "no_description"]
-    spent_usd: Decimal
+    spent_usd: Decimal | None
 
 
 @dataclass(frozen=True, slots=True)
 class PictureRefused:
-    """The email isn't an active admin's (ADR-0031): no call is made, and no row written."""
+    """The email isn't an active admin's (ADR-0031), or the name matches catalogue exercises in
+    more than one sport: no call is made, and no row written."""
 
-    reason: Literal["not_admin"]
+    reason: Literal["not_admin", "ambiguous_name"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -161,7 +179,7 @@ class SpendCapReached:
 class PictureFailed:
     step: Literal["brief", "image"]
     reason: Literal["timeout", "error"]
-    spent_usd: Decimal
+    spent_usd: Decimal | None
 
 
 type PictureResult = PictureMade | PictureSkipped | PictureRefused | SpendCapReached | PictureFailed

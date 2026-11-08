@@ -20,6 +20,7 @@ from ai_trainer.domain.knowledge_search import (
 )
 from ai_trainer.domain.llm_calls import LlmCall, LlmCallOutcome, NewLlmCall
 from ai_trainer.domain.media_generation import (
+    AmbiguousExerciseName,
     BriefFailed,
     GeneratedImage,
     ImageGenerationFailed,
@@ -51,6 +52,7 @@ _BRIEF = PictureBrief(
 )
 _IMAGE = GeneratedImage(data=b"\xff\xd8jpeg", media_type="image/jpeg")
 _PRICE = Decimal("0.0336")
+_PULL_UP_ID = UUID("00000000-0000-4000-8000-0000000c0533")
 
 
 class FakeCalls:
@@ -101,11 +103,13 @@ class FakeAdmins:
 
 
 class FakeSubjects:
-    def __init__(self, subjects: dict[str, PictureSubject]) -> None:
+    def __init__(self, subjects: dict[str, PictureSubject | AmbiguousExerciseName]) -> None:
         self.subjects = subjects
         self.langs: list[str] = []
 
-    async def catalogue_exercise(self, name: str, *, lang: str) -> PictureSubject | None:
+    async def catalogue_exercise(
+        self, name: str, *, lang: str
+    ) -> PictureSubject | AmbiguousExerciseName | None:
         self.langs.append(lang)
         return self.subjects.get(name.casefold())
 
@@ -209,7 +213,14 @@ def _run(
     calls = FakeCalls()
     spend = RunSpend(calls)
     admins = FakeAdmins([_user()] if users is None else users)
-    subjects = FakeSubjects({"pull-up": PictureSubject(name="Pull-Up", sport_id="gym", text=text)})
+    subjects = FakeSubjects(
+        {
+            "pull-up": PictureSubject(
+                exercise_id=_PULL_UP_ID, name="Pull-Up", sport_id="gym", text=text
+            ),
+            "plank": AmbiguousExerciseName(sport_ids=("climbing", "gym")),
+        }
+    )
     searcher = FakeSearch(spend, search or KnowledgeSearchFailed(reason="no_match"))
     briefs = FakeBriefs(spend)
     images = FakeImageGenerator(spend)
@@ -237,6 +248,7 @@ async def test_service_uses_only_the_fake_image_port() -> None:
     [admin] = run.admins.users
     assert run.images.prompts == [(admin.id, _BRIEF.image_prompt)]
     assert result.spent_usd == Decimal("0.00001") + Decimal("0.0002") + _PRICE
+    assert result.exercise_id == _PULL_UP_ID
 
 
 async def test_the_brief_reads_the_catalogue_text_and_the_runs_own_passages() -> None:
@@ -376,11 +388,65 @@ async def test_a_failed_brief_fails_the_run_without_an_image_call() -> None:
 async def test_a_failed_image_fails_the_run() -> None:
     run = _run()
     run.images.reply = ImageGenerationFailed(reason="error")
+
+    result = await run.service.generate(admin_email=_ADMIN_EMAIL, exercise_name="pull-up")
+
+    assert result == PictureFailed(step="image", reason="error", spent_usd=Decimal("0.03381"))
+
+
+async def test_a_failed_image_with_no_billed_cost_reports_the_spend_as_unknown() -> None:
+    """An error or timeout row has a null cost, so the run's spend isn't the plain sum."""
+    run = _run()
+    run.images.reply = ImageGenerationFailed(reason="timeout")
     run.images.cost = None
 
     result = await run.service.generate(admin_email=_ADMIN_EMAIL, exercise_name="pull-up")
 
-    assert result == PictureFailed(step="image", reason="error", spent_usd=Decimal("0.00021"))
+    assert result == PictureFailed(step="image", reason="timeout", spent_usd=None)
+
+
+async def test_a_failed_or_empty_brief_with_no_billed_cost_reports_the_spend_as_unknown() -> None:
+    failed = _run()
+    failed.briefs.reply = BriefFailed(reason="timeout")
+    failed.briefs.cost = None
+    empty = _run()
+    empty.briefs.reply = NoBrief(reason="it doesn't say how")
+    empty.briefs.cost = None
+
+    assert await failed.service.generate(
+        admin_email=_ADMIN_EMAIL, exercise_name="pull-up"
+    ) == PictureFailed(step="brief", reason="timeout", spent_usd=None)
+    assert await empty.service.generate(
+        admin_email=_ADMIN_EMAIL, exercise_name="pull-up"
+    ) == PictureSkipped(reason="no_description", spent_usd=None)
+
+
+async def test_a_search_with_no_billed_cost_and_no_text_reports_the_spend_as_unknown() -> None:
+    run = _run(text=None)
+    run.search.cost = None
+
+    result = await run.service.generate(admin_email=_ADMIN_EMAIL, exercise_name="pull-up")
+
+    assert result == PictureSkipped(reason="no_description", spent_usd=None)
+
+
+async def test_a_picture_with_no_billed_cost_reports_the_spend_as_unknown() -> None:
+    run = _run()
+    run.images.cost = None
+
+    result = await run.service.generate(admin_email=_ADMIN_EMAIL, exercise_name="pull-up")
+
+    assert isinstance(result, PictureMade)
+    assert result.spent_usd is None
+
+
+async def test_a_name_in_more_than_one_sport_is_refused_with_no_call() -> None:
+    run = _run()
+
+    result = await run.service.generate(admin_email=_ADMIN_EMAIL, exercise_name="Plank")
+
+    assert result == PictureRefused(reason="ambiguous_name")
+    assert run.calls.recorded == []
 
 
 async def test_run_spend_passes_rows_through_and_reads_them_back() -> None:

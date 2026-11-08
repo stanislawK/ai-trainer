@@ -63,3 +63,19 @@ def test_the_cap_reads_from_the_environment(monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.setenv("IMAGE_GENERATION_SPEND_CAP_USD", "1.50")
 
     assert Settings(_env_file=None).image_generation_spend_cap_usd == Decimal("1.50")
+
+
+def test_a_cap_below_one_pictures_price_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No run could ever draw: the image call alone would pass the cap."""
+    monkeypatch.setenv("IMAGE_GENERATION_PRICE_USD", "0.05")
+    monkeypatch.setenv("IMAGE_GENERATION_SPEND_CAP_USD", "0.04")
+
+    with pytest.raises(ValidationError, match="IMAGE_GENERATION_SPEND_CAP_USD"):
+        Settings(_env_file=None)
+
+
+def test_a_cap_equal_to_one_pictures_price_is_allowed(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("IMAGE_GENERATION_PRICE_USD", "0.05")
+    monkeypatch.setenv("IMAGE_GENERATION_SPEND_CAP_USD", "0.05")
+
+    assert Settings(_env_file=None).image_generation_spend_cap_usd == Decimal("0.05")

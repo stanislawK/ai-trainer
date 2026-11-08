@@ -196,7 +196,7 @@ async def test_provider_error_exits_non_zero_and_writes_nothing(
     assert code == 1
     assert not out.exists()
     assert output.getvalue() == (
-        "generate-exercise-picture: result=failed step=image reason=error spent_usd=0.0000004\n"
+        "generate-exercise-picture: result=failed step=image reason=error spent_usd=unknown\n"
     )
     [row] = await _image_rows(admin_id)
     assert row["outcome"] == "error"
@@ -205,8 +205,10 @@ async def test_provider_error_exits_non_zero_and_writes_nothing(
 async def test_stops_before_the_image_call_over_the_cap(
     admin_id: UUID, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """AC: a run stops before the call when the cap would be exceeded."""
-    monkeypatch.setenv("IMAGE_GENERATION_SPEND_CAP_USD", "0.01")
+    """AC: a run stops before the call when the cap would be exceeded: the cap is one picture's
+    price, and the search has already spent some of it."""
+    monkeypatch.setenv("IMAGE_GENERATION_PRICE_USD", "0.0336")
+    monkeypatch.setenv("IMAGE_GENERATION_SPEND_CAP_USD", "0.0336")
     output = io.StringIO()
     seen: list[str] = []
     out = tmp_path / "pictures"
@@ -224,3 +226,45 @@ async def test_stops_before_the_image_call_over_the_cap(
         "generate-exercise-picture: result=cap_reached reason=over_cap "
     )
     assert await _image_rows(admin_id) == []
+
+
+async def test_a_name_in_more_than_one_sport_is_refused_before_any_call(
+    admin_id: UUID, tmp_path: Path
+) -> None:
+    engine = build_engine(str(Settings().database_url))
+    try:
+        await SqlAlchemyExerciseRepository(build_session_factory(engine)).upsert_catalogue(
+            [
+                CatalogueExercise(
+                    sport_id="climbing",
+                    source="zz-pic-cli",
+                    source_ref="zz-pic-cli-pull-up-climbing",
+                    name=_NAME.upper(),
+                    equipment="body weight",
+                    body_part="back",
+                    target="lats",
+                    secondary_muscles=(),
+                    default_measure=ExerciseMeasure.REPS,
+                    attribution="test",
+                    texts=(ExerciseText(lang="en", instructions="Hang, then pull.", steps=()),),
+                )
+            ]
+        )
+    finally:
+        await engine.dispose()
+    output = io.StringIO()
+    seen: list[str] = []
+    briefs = FakeBriefs()
+    out = tmp_path / "pictures"
+
+    code = await cli.run(
+        [GENERATE_EXERCISE_PICTURE, _NAME, "--out", str(out)],
+        output=output,
+        picture=PictureHooks(transport=_openrouter(_picture, seen), brief_writer=briefs),
+    )
+
+    assert code == 1
+    assert output.getvalue() == "generate-exercise-picture: result=refused reason=ambiguous_name\n"
+    assert seen == []
+    assert briefs.seen == []
+    assert not out.exists()

@@ -24,6 +24,7 @@ from ai_trainer.application.ports.users import ActiveUsersByEmailPort
 from ai_trainer.domain.knowledge_search import KnowledgeSearchQuery
 from ai_trainer.domain.llm_calls import LlmCall, NewLlmCall
 from ai_trainer.domain.media_generation import (
+    AmbiguousExerciseName,
     BriefFailed,
     ImageGenerationFailed,
     NoBrief,
@@ -55,6 +56,11 @@ class RunSpend:
         self._calls = calls
         self.spent_usd = Decimal(0)
         self.cost_unknown = False
+
+    @property
+    def reported_usd(self) -> Decimal | None:
+        """The spend a result reports: unknown once a call's cost is unknown."""
+        return None if self.cost_unknown else self.spent_usd
 
     async def record(self, call: NewLlmCall) -> LlmCall:
         recorded = await self._calls.record(call)
@@ -97,7 +103,9 @@ class ExercisePictureService:
             return PictureRefused(reason="not_admin")
         subject = await self._ports.subjects.catalogue_exercise(exercise_name, lang=_TEXT_LANG)
         if subject is None:
-            return PictureSkipped(reason="no_such_exercise", spent_usd=self._spend.spent_usd)
+            return PictureSkipped(reason="no_such_exercise", spent_usd=self._spend.reported_usd)
+        if isinstance(subject, AmbiguousExerciseName):
+            return PictureRefused(reason="ambiguous_name")
         brief = await self._brief(admin, subject)
         if not isinstance(brief, PictureBrief):
             return brief
@@ -105,8 +113,15 @@ class ExercisePictureService:
             return stop
         image = await self._ports.images.generate(user_id=admin, prompt=brief.image_prompt)
         if isinstance(image, ImageGenerationFailed):
-            return PictureFailed(step="image", reason=image.reason, spent_usd=self._spend.spent_usd)
-        return PictureMade(brief=brief, image=image, spent_usd=self._spend.spent_usd)
+            return PictureFailed(
+                step="image", reason=image.reason, spent_usd=self._spend.reported_usd
+            )
+        return PictureMade(
+            exercise_id=subject.exercise_id,
+            brief=brief,
+            image=image,
+            spent_usd=self._spend.reported_usd,
+        )
 
     async def _admin(self, email: str) -> UUID | None:
         """The admin's user ID: the email is in `ADMIN_EMAILS` (ADR-0005) and an active account
@@ -124,16 +139,18 @@ class ExercisePictureService:
         )
         deps = picture_brief_deps(subject.name, subject.text, search)
         if needs_no_model(deps) is not None:
-            return PictureSkipped(reason="no_description", spent_usd=self._spend.spent_usd)
+            return PictureSkipped(reason="no_description", spent_usd=self._spend.reported_usd)
         # The brief's price isn't in `Settings`: only a cost already unknown or over the cap
         # stops the run here.
         if stop := self._stop_before(Decimal(0)):
             return stop
         brief = await self._ports.briefs.write(user_id=admin, deps=deps)
         if isinstance(brief, NoBrief):
-            return PictureSkipped(reason="no_description", spent_usd=self._spend.spent_usd)
+            return PictureSkipped(reason="no_description", spent_usd=self._spend.reported_usd)
         if isinstance(brief, BriefFailed):
-            return PictureFailed(step="brief", reason=brief.reason, spent_usd=self._spend.spent_usd)
+            return PictureFailed(
+                step="brief", reason=brief.reason, spent_usd=self._spend.reported_usd
+            )
         return brief
 
     def _stop_before(self, price_usd: Decimal) -> SpendCapReached | None:

@@ -6,14 +6,15 @@ runs the generation.
 
 The body names the model and the prompt, and nothing else: no `user` field, so the admin never
 leaves the app. The prompt is the brief's image prompt; it never reaches the row, which has no
-text field. A non-2xx answer, malformed JSON, no image, or a type other than JPEG or PNG is an
-`error` row and a returned `ImageGenerationFailed`, never an exception (ADR-0007)."""
+text field. OpenRouter documents an image's `media_type` as optional, so when it is absent the
+type is read from the bytes' magic numbers. A non-2xx answer, malformed JSON, no image, or a
+type other than JPEG, PNG or WebP (declared or detected) is an `error` row, which keeps the
+billed cost, and a returned `ImageGenerationFailed`, never an exception (ADR-0007)."""
 
 import base64
 import binascii
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Literal
 from uuid import UUID
 
 import httpx2
@@ -21,7 +22,11 @@ from pydantic import BaseModel, ValidationError
 
 from ai_trainer.application.ports.llm_calls import LlmCallsRepositoryPort
 from ai_trainer.domain.llm_calls import LlmCallOutcome
-from ai_trainer.domain.media_generation import GeneratedImage, ImageGenerationFailed
+from ai_trainer.domain.media_generation import (
+    GeneratedImage,
+    ImageGenerationFailed,
+    ImageMediaType,
+)
 from ai_trainer.llm.call_accounting import CallAccountant, CallKey, CallUsage
 
 IMAGES_URL = "https://openrouter.ai/api/v1/images"
@@ -33,7 +38,25 @@ PICTURE_TEMPLATE_VERSION = 1
 
 class _Image(BaseModel):
     b64_json: str
-    media_type: Literal["image/jpeg", "image/png"]
+    media_type: str | None = None
+
+
+_MEDIA_TYPES: dict[str, ImageMediaType] = {
+    "image/jpeg": "image/jpeg",
+    "image/png": "image/png",
+    "image/webp": "image/webp",
+}
+
+
+def _sniffed(data: bytes) -> ImageMediaType | None:
+    """The type the bytes' magic numbers name, if it is one the command writes."""
+    if data.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    return None
 
 
 class _Usage(BaseModel):
@@ -134,7 +157,10 @@ def _read(content: bytes) -> _Reply:
         data = base64.b64decode(image.b64_json, validate=True)
     except binascii.Error:
         return _Reply(_FAILED, billed)
-    return _Reply(GeneratedImage(data=data, media_type=image.media_type), billed)
+    media_type = _sniffed(data) if image.media_type is None else _MEDIA_TYPES.get(image.media_type)
+    if media_type is None:
+        return _Reply(_FAILED, billed)
+    return _Reply(GeneratedImage(data=data, media_type=media_type), billed)
 
 
 def _billed(content: bytes) -> CallUsage:

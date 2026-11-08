@@ -11,9 +11,10 @@ from decimal import Decimal
 from uuid import UUID, uuid4
 
 import httpx2
+import pytest
 
 from ai_trainer.domain.llm_calls import LlmCall, LlmCallOutcome, NewLlmCall
-from ai_trainer.domain.media_generation import GeneratedImage, ImageGenerationFailed
+from ai_trainer.domain.media_generation import GeneratedImage, ImageGenerationFailed, ImageMediaType
 from ai_trainer.llm.images import (
     IMAGES_URL,
     PICTURE_TEMPLATE_ID,
@@ -26,6 +27,8 @@ _AT = datetime(2026, 11, 8, tzinfo=UTC)
 _MODEL = "google/gemini-3.1-flash-lite-image"
 _PROMPT = "One person hanging from a bar, then chest at the bar. Plain background. No text."
 _JPEG = b"\xff\xd8\xff\xe0fake-jpeg"
+_PNG = b"\x89PNG\r\n\x1a\nfake-png"
+_WEBP = b"RIFF\x10\x00\x00\x00WEBPVP8 fake-webp"
 
 
 class _Calls:
@@ -117,6 +120,47 @@ async def test_a_png_is_returned_as_png() -> None:
     assert result == GeneratedImage(data=_JPEG, media_type="image/png")
 
 
+async def test_a_webp_is_returned_as_webp() -> None:
+    result = await _generator(
+        lambda request: ok_response(data=_WEBP, media_type="image/webp"), _Calls()
+    ).generate(user_id=_ADMIN, prompt=_PROMPT)
+
+    assert result == GeneratedImage(data=_WEBP, media_type="image/webp")
+
+
+@pytest.mark.parametrize(
+    ("data", "media_type"),
+    [(_JPEG, "image/jpeg"), (_PNG, "image/png"), (_WEBP, "image/webp")],
+    ids=["jpeg", "png", "webp"],
+)
+async def test_a_missing_type_is_read_from_the_bytes(
+    data: bytes, media_type: ImageMediaType
+) -> None:
+    """OpenRouter documents `media_type` as optional, so its absence isn't an error."""
+    calls = _Calls()
+
+    result = await _generator(
+        lambda request: ok_response(data=data, media_type=None), calls
+    ).generate(user_id=_ADMIN, prompt=_PROMPT)
+
+    assert result == GeneratedImage(data=data, media_type=media_type)
+    [row] = calls.recorded
+    assert row.outcome is LlmCallOutcome.SUCCESS
+
+
+async def test_an_undetectable_type_is_an_error_row_that_keeps_its_cost() -> None:
+    calls = _Calls()
+
+    result = await _generator(
+        lambda request: ok_response(data=b"GIF89a-not-allowed", media_type=None), calls
+    ).generate(user_id=_ADMIN, prompt=_PROMPT)
+
+    assert result == ImageGenerationFailed(reason="error")
+    [row] = calls.recorded
+    assert row.outcome is LlmCallOutcome.ERROR
+    assert row.cost == Decimal("0.0336")
+
+
 async def test_a_missing_cost_is_recorded_as_null() -> None:
     calls = _Calls()
 
@@ -148,7 +192,7 @@ async def test_malformed_json_no_image_or_an_unknown_type_is_an_error_row() -> N
         httpx2.Response(200, content=b"not json"),
         httpx2.Response(200, json={"data": [], "usage": {"cost": 0.0336}}),
         ok_response(media_type="image/svg+xml"),
-        ok_response(media_type=None),
+        ok_response(data=b"<svg/>", media_type=None),
         httpx2.Response(200, json={"data": [{"b64_json": "%%%", "media_type": "image/jpeg"}]}),
     ]
     for reply in replies:
