@@ -1,7 +1,8 @@
 """The History read model (ticket #515): newest first, the time of day in the athlete's
 timezone, and a UTC fallback for an unknown zone. The athlete's edit of a saved session (ticket
 #516): a rejected value names its field, an unreadable session is not editable, and neither
-writes anything."""
+writes anything. The athlete's delete of a saved session (ticket #518): it reaches the
+deleter with the user's id, and an unknown session is not found."""
 
 from collections.abc import Mapping, Sequence
 from datetime import UTC, date, datetime
@@ -10,7 +11,11 @@ from uuid import UUID, uuid4
 import pytest
 from pydantic import JsonValue
 
-from ai_trainer.application.session_history import GymSessionEdit, GymSessionHistory
+from ai_trainer.application.session_history import (
+    GymSessionDelete,
+    GymSessionEdit,
+    GymSessionHistory,
+)
 from ai_trainer.domain.history import (
     SessionChangedError,
     SessionEditError,
@@ -215,3 +220,36 @@ async def test_missing_or_unreadable_version_is_changed(version: str | None) -> 
         )
 
     assert editor.saved == []
+
+
+# --- #518: the athlete's delete of a saved session -----------------------------------------
+
+
+class FakeDeleter:
+    def __init__(self, *known: UUID) -> None:
+        self.known = set(known)
+        self.deleted: list[tuple[UUID, UUID]] = []
+
+    async def delete(self, user_id: UUID, session_id: UUID) -> None:
+        if session_id not in self.known:
+            raise SessionNotFoundError(session_id)
+        self.known.discard(session_id)
+        self.deleted.append((user_id, session_id))
+
+
+async def test_delete_passes_the_user_and_session_to_the_deleter() -> None:
+    user_id, session_id = uuid4(), uuid4()
+    deleter = FakeDeleter(session_id)
+
+    await GymSessionDelete(deleter).delete(user_id, session_id)
+
+    assert deleter.deleted == [(user_id, session_id)]
+
+
+async def test_delete_of_an_unknown_session_is_not_found() -> None:
+    deleter = FakeDeleter()
+
+    with pytest.raises(SessionNotFoundError):
+        await GymSessionDelete(deleter).delete(uuid4(), uuid4())
+
+    assert deleter.deleted == []

@@ -17,8 +17,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai_trainer.adapters.exercise_history import SqlAlchemyExerciseHistory
 from ai_trainer.adapters.gym_session_reader import SqlAlchemyGymSessionReader
-from ai_trainer.adapters.training_session_editor import SqlAlchemySessionEditor
-from ai_trainer.application.session_history import GymSessionEdit, GymSessionHistory
+from ai_trainer.adapters.training_session_editor import (
+    SqlAlchemySessionDeleter,
+    SqlAlchemySessionEditor,
+)
+from ai_trainer.application.session_history import (
+    GymSessionDelete,
+    GymSessionEdit,
+    GymSessionHistory,
+)
 from ai_trainer.domain.users import User
 from ai_trainer.web.history import build_history_router
 from ai_trainer.web.templating import build_templates
@@ -44,6 +51,7 @@ def _client(factory: Callable[[], AsyncSession], user: User) -> TestClient:
             editing=GymSessionEdit(
                 reader, SqlAlchemySessionEditor(factory, stores=STORES, clock=FixedClock())
             ),
+            deleting=GymSessionDelete(SqlAlchemySessionDeleter(factory)),
         )
     )
     sign_in_as(app, user.model_copy(update={"timezone": "Europe/Warsaw"}))

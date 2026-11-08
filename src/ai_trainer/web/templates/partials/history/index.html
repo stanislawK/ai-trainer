@@ -1,4 +1,4 @@
-{#- The History page (History v4 mock, ticket #515): the day cards, and a saved session open beside them on desktop or as a sheet from the bottom on a phone. A card, the sheet's scrim and its Close all swap this whole block, so the list's layout follows whether a session is open. With `editing`, the open session's edit form takes the session view's place (#516). Delete and an exercise's progress are #518 and #517. -#}
+{#- The History page (History v4 mock, ticket #515): the day cards, and a saved session open beside them on desktop or as a sheet from the bottom on a phone. A card, the sheet's scrim and its Close all swap this whole block, so the list's layout follows whether a session is open. With `editing`, the open session's edit form takes the session view's place (#516). Delete answers with this block and no session open; `gone` adds the already-deleted notice (#518). -#}
 <div id="history-content" class="flex flex-col gap-4 px-4 pt-14 lg:pt-8 w-full lg:max-w-[1100px] lg:mx-auto">
   <div class="flex gap-6 items-start">
     <div class="flex flex-col gap-4 flex-1 min-w-0">
@@ -6,6 +6,10 @@
       <div class="flex items-center min-h-11">
         <h1 class="text-[34px]/[40px] lg:text-[28px]/[34px] font-semibold tracking-tight">History</h1>
       </div>
+      {% if gone %}
+        {#- A delete of a session that is no longer there, deleted in another tab say (#518): the list as it is now, and this line instead of an error page. -#}
+        <p role="status" class="mat-content rounded-box px-4 py-3 text-[15px]">This session was already deleted.</p>
+      {% endif %}
       {% if sessions %}
         {% include "partials/history/list.html" %}
       {% else %}

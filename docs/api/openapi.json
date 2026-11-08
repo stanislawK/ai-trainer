@@ -1903,6 +1903,44 @@
       }
     },
     "/history/{session_id}": {
+      "delete": {
+        "description": "The delete dialog's Delete session (B4, a hard delete, ADR-0022): answers with the\nlist and no session open, pushing `/history`. A session already deleted, in another tab\nsay, or another athlete's, is a 404 whose body is the list with a notice, so htmx 4\nswaps it in place of an error page, and nothing is deleted.",
+        "operationId": "history_delete_history__session_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "History Delete"
+      },
       "get": {
         "operationId": "history_session_history__session_id__get",
         "parameters": [

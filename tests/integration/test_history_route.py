@@ -19,10 +19,18 @@ from ai_trainer.adapters.orm import (
     TrainingSessionOrm,
     TrainingSessionSourceOrm,
 )
-from ai_trainer.adapters.training_session_editor import SqlAlchemySessionEditor
+from ai_trainer.adapters.training_session_editor import (
+    SqlAlchemySessionDeleter,
+    SqlAlchemySessionEditor,
+)
 from ai_trainer.adapters.users_repository import SqlAlchemyUsersRepository
-from ai_trainer.application.session_history import GymSessionEdit, GymSessionHistory
+from ai_trainer.application.session_history import (
+    GymSessionDelete,
+    GymSessionEdit,
+    GymSessionHistory,
+)
 from ai_trainer.domain.users import NewUser, User, UserStatus
+from ai_trainer.web.csrf import CsrfMiddleware
 from ai_trainer.web.history import build_history_router
 from ai_trainer.web.templating import build_templates
 from tests.activity_support import STORES
@@ -131,6 +139,7 @@ def _client(factory: Callable[[], AsyncSession], user: User) -> TestClient:
             build_templates(),
             history=GymSessionHistory(reader),
             editing=GymSessionEdit(reader, editor),
+            deleting=GymSessionDelete(SqlAlchemySessionDeleter(factory)),
         )
     )
     sign_in_as(app, user.model_copy(update={"timezone": "Europe/Warsaw"}))
@@ -232,7 +241,7 @@ async def test_session_view_shows_exercise_lines(
     assert "18:40 · Gym · 1 exercise" in page
     assert "3 \u00d7 8 · 60 kg" in page
     assert f'hx-get="/history/{opened}/edit"' in page
-    assert "Delete" not in page
+    assert 'data-history-delete="history-delete"' in page
     assert 'aria-current="true"' in page
 
 
@@ -266,3 +275,57 @@ async def test_htmx_request_gets_partial(
 
         assert '<div id="history-content"' in partial
         assert "<html" not in partial
+
+
+async def test_session_view_offers_delete_in_its_dialog(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    user = await _user(db_session_factory)
+    opened = await _session(
+        db_session_factory, user, date(2026, 11, 5), datetime(2026, 11, 5, 17, 40, tzinfo=UTC),
+        {"bench": _BENCH},
+    )  # fmt: skip
+
+    page = _client(db_session_factory, user).get(f"/history/{opened}").text
+
+    assert '<dialog id="history-delete"' in page
+    assert "Delete this session?" in page
+    assert "This can&#39;t be undone." in page or "This can't be undone." in page
+    assert "Delete session" in page
+    assert f'hx-delete="/history/{opened}"' in page
+    assert 'hx-target="#history-content"' in page
+    assert "/static/js/history_delete.js" in page
+
+
+async def test_history_list_offers_no_delete(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    user = await _user(db_session_factory)
+    await _session(
+        db_session_factory, user, date(2026, 11, 5), datetime(2026, 11, 5, 17, 40, tzinfo=UTC),
+        {"bench": _BENCH},
+    )  # fmt: skip
+
+    page = _client(db_session_factory, user).get("/history").text
+
+    assert "hx-delete" not in page
+    assert "This session was already deleted." not in page
+
+
+async def test_delete_without_a_csrf_token_is_refused(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    user = await _user(db_session_factory)
+    opened = await _session(
+        db_session_factory, user, date(2026, 11, 5), datetime(2026, 11, 5, 17, 40, tzinfo=UTC),
+        {"bench": _BENCH},
+    )  # fmt: skip
+    client = _client(db_session_factory, user)
+    app = client.app
+    assert isinstance(app, FastAPI)
+    app.add_middleware(CsrfMiddleware, secret_key=b"history-csrf", templates=build_templates())
+
+    response = client.delete(f"/history/{opened}", headers={"HX-Request": "true"})
+
+    assert response.status_code == 403
+    assert client.get(f"/history/{opened}").status_code == 200
