@@ -105,6 +105,7 @@ KNOWLEDGE_API_URL=<base> KNOWLEDGE_API_TOKEN=<token> uv run python scripts/knowl
 uv run ai-trainer storage-check   # put, read back and delete a probe object in the configured uploads bucket, and try a short presigned link; `make storage-check` runs it on `make start` with no R2 account (ADR-0033)
 uv run ai-trainer ingest-worker [--once]   # ingest `uploaded` knowledge sources outside the web process: read, chunk, embed (real OpenRouter calls), store; the `ingest` container runs it in both compose files, so `make start` needs no command; `make ingest-once` drains by hand (ADR-0036, #462)
 uv run ai-trainer rebuild-knowledge-index [--memory-mb N]   # REINDEX CONCURRENTLY the chunks' HNSW index after a bulk load at a raised maintenance_work_mem (64 to 256), reset afterwards; `make rebuild-knowledge-index [mb=]` on `make start` (ADR-0036, #462)
+uv run ai-trainer generate-exercise-picture "<name>" --out <dir> [--admin <email>]   # one catalogue exercise's brief and picture into <dir> for an admin; real OpenRouter calls under IMAGE_GENERATION_SPEND_CAP_USD, outside the per-user budget; costs money, run on purpose (ADR-0031, #533)
 make search-knowledge q="<question>" [sport=gym]   # call search_knowledge as the seeded dev user, print its ToolResult; one real embedding call (ADR-0036, #424)
 make latency-scenario [sport=gym]   # replay the latency scenario on `make start`, p50/p95 per log turn (ADR-0026; costs money); sport=gym exercises gym naming (ADR-0031)
 uv run playwright install chromium   # one-time browser download for e2e

@@ -23,6 +23,14 @@ from ai_trainer.domain.knowledge_search import (
     KnowledgeSearchFailed,
     KnowledgeSearchPage,
 )
+from ai_trainer.domain.media_generation import (
+    BriefPassage,
+    NoBrief,
+    PictureBrief,
+    PictureBriefDeps,
+    needs_no_model,
+    picture_brief_deps,
+)
 from ai_trainer.domain.sports.registry import default_sport_registry
 from ai_trainer.llm.conversation import build_prompt_registry
 from ai_trainer.llm.evals import cli as cli_module
@@ -31,13 +39,7 @@ from ai_trainer.llm.evals.smoke import read_smoke_set, run_smoke_set
 from ai_trainer.llm.picture_brief import (
     PICTURE_BRIEF_TEMPLATE_ID,
     PICTURE_BRIEF_VERSION,
-    BriefPassage,
-    NoBrief,
-    PictureBrief,
-    PictureBriefDeps,
     PictureBriefMatch,
-    needs_no_model,
-    picture_brief_deps,
     picture_brief_template,
 )
 from ai_trainer.settings import Settings

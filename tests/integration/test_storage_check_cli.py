@@ -8,6 +8,7 @@ import pytest
 
 from ai_trainer import cli
 from ai_trainer.application import storage_check
+from ai_trainer.cli_knowledge import STORAGE_CHECK
 from tests.object_storage_support import (
     ACCESS_KEY_ID,
     BUCKET,
@@ -38,7 +39,7 @@ async def test_cli_round_trip_against_an_s3_server(server: S3State) -> None:
 
     output = io.StringIO()
 
-    code = await cli.run([cli.STORAGE_CHECK], output=output, sleep=the_link_runs_out)
+    code = await cli.run([STORAGE_CHECK], output=output, sleep=the_link_runs_out)
 
     assert code == 0
     assert output.getvalue() == (
@@ -52,7 +53,7 @@ async def test_cli_failure_prints_no_key(server: S3State, caplog: pytest.LogCapt
     output = io.StringIO()
 
     with caplog.at_level(logging.DEBUG):
-        code = await cli.run([cli.STORAGE_CHECK], output=output)
+        code = await cli.run([STORAGE_CHECK], output=output)
 
     assert code == 1
     assert output.getvalue() == (
@@ -69,7 +70,7 @@ async def test_cli_says_when_a_probe_is_left_behind(server: S3State) -> None:
 
     output = io.StringIO()
 
-    code = await cli.run([cli.STORAGE_CHECK], output=output, sleep=service_starts_refusing)
+    code = await cli.run([STORAGE_CHECK], output=output, sleep=service_starts_refusing)
 
     assert code == 1
     assert output.getvalue() == (
@@ -88,7 +89,7 @@ async def test_cli_without_storage_settings_says_so(monkeypatch: pytest.MonkeyPa
         monkeypatch.setenv(key, "")
     output = io.StringIO()
 
-    code = await cli.run([cli.STORAGE_CHECK], output=output)
+    code = await cli.run([STORAGE_CHECK], output=output)
 
     assert code == 1
     assert output.getvalue() == "storage-check: result=failed reason=not_configured\n"

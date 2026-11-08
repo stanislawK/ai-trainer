@@ -1,0 +1,226 @@
+"""`ai-trainer generate-exercise-picture` wired end to end (ADR-0031 *Picture generation*, #533):
+real PostgreSQL, OpenRouter's embeddings and images faked at the HTTP transport, and the brief
+writer faked through its port, so nothing leaves the machine. The command opens its own engine
+and commits, so the admin and the catalogue exercise are real rows, removed after."""
+
+import base64
+import io
+import json
+from collections.abc import AsyncIterator, Callable
+from dataclasses import dataclass, field
+from pathlib import Path
+from uuid import UUID, uuid4
+
+import httpx2
+import pytest
+from sqlalchemy import text
+
+from ai_trainer import cli
+from ai_trainer.adapters.db import build_engine, build_session_factory
+from ai_trainer.adapters.exercise_repository import SqlAlchemyExerciseRepository
+from ai_trainer.adapters.users_repository import SqlAlchemyUsersRepository
+from ai_trainer.cli_media import GENERATE_EXERCISE_PICTURE, PictureHooks
+from ai_trainer.domain.exercises import CatalogueExercise, ExerciseMeasure, ExerciseText
+from ai_trainer.domain.media_generation import (
+    BriefFailed,
+    NoBrief,
+    PictureBrief,
+    PictureBriefDeps,
+)
+from ai_trainer.domain.users import NewUser, UserStatus
+from ai_trainer.settings import Settings
+from tests.ingestion_support import spread_vector
+
+_ADMIN_EMAIL = "zz-pic-cli-admin@example.com"
+_NAME = "Zz Pic Cli Pull-Up"
+_PICTURE = b"\xff\xd8\xff-a-jpeg"
+_BRIEF = PictureBrief(
+    exercise_name=_NAME,
+    start_position="Hanging, arms extended",
+    end_position="Chest at the bar",
+    image_prompt="One person hanging, then chest at the bar. Plain background. No text.",
+)
+
+
+@dataclass
+class FakeBriefs:
+    seen: list[PictureBriefDeps] = field(default_factory=list)
+
+    async def write(
+        self, *, user_id: UUID, deps: PictureBriefDeps
+    ) -> PictureBrief | NoBrief | BriefFailed:
+        self.seen.append(deps)
+        return _BRIEF
+
+
+@pytest.fixture
+async def admin_id(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[UUID]:
+    monkeypatch.setenv("ADMIN_EMAILS", _ADMIN_EMAIL)
+    engine = build_engine(str(Settings().database_url))
+    factory = build_session_factory(engine)
+    admin = await SqlAlchemyUsersRepository(factory).create(
+        NewUser(
+            sub=f"zz-pic-cli-{uuid4()}",
+            email=_ADMIN_EMAIL,
+            name=None,
+            locale="en",
+            status=UserStatus.ACTIVE,
+        )
+    )
+    await SqlAlchemyExerciseRepository(factory).upsert_catalogue(
+        [
+            CatalogueExercise(
+                sport_id="gym",
+                source="zz-pic-cli",
+                source_ref="zz-pic-cli-pull-up",
+                name=_NAME,
+                equipment="body weight",
+                body_part="back",
+                target="lats",
+                secondary_muscles=(),
+                default_measure=ExerciseMeasure.REPS,
+                attribution="test",
+                texts=(
+                    ExerciseText(
+                        lang="en", instructions="Hang from a bar, then pull.", steps=("Hang.",)
+                    ),
+                ),
+            )
+        ]
+    )
+    try:
+        yield admin.id
+    finally:
+        async with engine.begin() as connection:
+            await connection.execute(text("DELETE FROM exercises WHERE source = 'zz-pic-cli'"))
+            await connection.execute(text("DELETE FROM users WHERE id = :id"), {"id": admin.id})
+        await engine.dispose()
+
+
+def _openrouter(images: Callable[[], httpx2.Response], seen: list[str]) -> httpx2.MockTransport:
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        seen.append(request.url.path)
+        if request.url.path.endswith("/images"):
+            return images()
+        body = json.loads(request.content)
+        return httpx2.Response(
+            200,
+            json={
+                "object": "list",
+                "model": body["model"],
+                "data": [
+                    {"object": "embedding", "index": i, "embedding": list(spread_vector(item))}
+                    for i, item in enumerate(body["input"])
+                ],
+                "usage": {"prompt_tokens": 4, "total_tokens": 4, "cost": 0.0000004},
+            },
+        )
+
+    return httpx2.MockTransport(handler)
+
+
+def _picture() -> httpx2.Response:
+    return httpx2.Response(
+        200,
+        json={
+            "data": [{"b64_json": base64.b64encode(_PICTURE).decode(), "media_type": "image/jpeg"}],
+            "usage": {"prompt_tokens": 40, "completion_tokens": 1290, "cost": 0.0336},
+        },
+    )
+
+
+async def _image_rows(admin_id: UUID) -> list[dict[str, object]]:
+    engine = build_engine(str(Settings().database_url))
+    try:
+        async with engine.connect() as connection:
+            rows = await connection.execute(
+                text(
+                    "SELECT model, cost, template_id, outcome FROM llm_calls "
+                    "WHERE user_id = :id AND template_id = 'media.picture'"
+                ),
+                {"id": admin_id},
+            )
+            return [dict(row) for row in rows.mappings()]
+    finally:
+        await engine.dispose()
+
+
+async def test_writes_brief_and_picture(admin_id: UUID, tmp_path: Path) -> None:
+    """AC: the command writes the brief and the picture to the output directory."""
+    output = io.StringIO()
+    briefs = FakeBriefs()
+    seen: list[str] = []
+    out = tmp_path / "pictures"
+
+    code = await cli.run(
+        [GENERATE_EXERCISE_PICTURE, "zz pic cli pull-up", "--out", str(out)],
+        output=output,
+        picture=PictureHooks(transport=_openrouter(_picture, seen), brief_writer=briefs),
+    )
+
+    assert code == 0
+    brief_path = out / "zz-pic-cli-pull-up.brief.json"
+    picture_path = out / "zz-pic-cli-pull-up.jpg"
+    assert PictureBrief.model_validate_json(brief_path.read_text()) == _BRIEF
+    assert picture_path.read_bytes() == _PICTURE
+    assert output.getvalue() == (
+        f"generate-exercise-picture: result=written brief={brief_path} picture={picture_path} "
+        "spent_usd=0.0336004\n"
+    )
+    [deps] = briefs.seen
+    assert deps.exercise_name == _NAME
+    assert deps.description is not None
+    assert "Hang from a bar, then pull." in deps.description
+    assert seen[-1] == "/api/v1/images"
+    [row] = await _image_rows(admin_id)
+    assert row["model"] == Settings().image_generation_model
+    assert row["template_id"] == "media.picture"
+
+
+async def test_provider_error_exits_non_zero_and_writes_nothing(
+    admin_id: UUID, tmp_path: Path
+) -> None:
+    """AC: a provider error exits non-zero and writes no file."""
+    output = io.StringIO()
+    out = tmp_path / "pictures"
+
+    code = await cli.run(
+        [GENERATE_EXERCISE_PICTURE, _NAME, "--out", str(out), "--admin", _ADMIN_EMAIL],
+        output=output,
+        picture=PictureHooks(
+            transport=_openrouter(lambda: httpx2.Response(502, json={"error": {}}), []),
+            brief_writer=FakeBriefs(),
+        ),
+    )
+
+    assert code == 1
+    assert not out.exists()
+    assert output.getvalue() == (
+        "generate-exercise-picture: result=failed step=image reason=error spent_usd=0.0000004\n"
+    )
+    [row] = await _image_rows(admin_id)
+    assert row["outcome"] == "error"
+
+
+async def test_stops_before_the_image_call_over_the_cap(
+    admin_id: UUID, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """AC: a run stops before the call when the cap would be exceeded."""
+    monkeypatch.setenv("IMAGE_GENERATION_SPEND_CAP_USD", "0.01")
+    output = io.StringIO()
+    seen: list[str] = []
+    out = tmp_path / "pictures"
+
+    code = await cli.run(
+        [GENERATE_EXERCISE_PICTURE, _NAME, "--out", str(out)],
+        output=output,
+        picture=PictureHooks(transport=_openrouter(_picture, seen), brief_writer=FakeBriefs()),
+    )
+
+    assert code == 1
+    assert not out.exists()
+    assert "/api/v1/images" not in seen
+    assert output.getvalue().startswith(
+        "generate-exercise-picture: result=cap_reached reason=over_cap "
+    )
+    assert await _image_rows(admin_id) == []

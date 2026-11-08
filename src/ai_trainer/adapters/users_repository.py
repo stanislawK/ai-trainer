@@ -1,7 +1,7 @@
 from collections.abc import Callable, Sequence
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -37,6 +37,21 @@ class SqlAlchemyUsersRepository:
     async def get(self, user_id: UUID) -> User | None:
         async with self._session_factory() as session:
             row = await session.get(UserOrm, user_id)
+            return _to_domain(row) if row is not None else None
+
+    async def active_by_email(self, email: str) -> User | None:
+        """Implements `ActiveUsersByEmailPort`: compared case-insensitively, as the admin check
+        is (ADR-0005); the oldest such account when several share the email."""
+        async with self._session_factory() as session:
+            row = await session.scalar(
+                select(UserOrm)
+                .where(
+                    func.lower(UserOrm.email) == email.lower(),
+                    UserOrm.status == UserStatus.ACTIVE.value,
+                )
+                .order_by(UserOrm.created_at, UserOrm.id)
+                .limit(1)
+            )
             return _to_domain(row) if row is not None else None
 
     async def create(self, new_user: NewUser) -> User:

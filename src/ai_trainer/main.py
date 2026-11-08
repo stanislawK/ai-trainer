@@ -54,6 +54,7 @@ from ai_trainer.adapters.log_records import configure_logging
 from ai_trainer.adapters.metrics import OtelMetrics
 from ai_trainer.adapters.object_storage import ObstoreObjectStorage
 from ai_trainer.adapters.onboarding_repository import SqlAlchemyOnboardingRepository
+from ai_trainer.adapters.picture_subject_repository import SqlAlchemyPictureSubjectsRepository
 from ai_trainer.adapters.pmc import PmcCloudFiles, PmcCloudMetadata
 from ai_trainer.adapters.session_draft_repository import SqlAlchemySessionDraftRepository
 from ai_trainer.adapters.sessions_repository import SqlAlchemySessionsRepository
@@ -78,6 +79,7 @@ from ai_trainer.application.exercise_candidates import (
     SearchedExerciseNames,
 )
 from ai_trainer.application.exercise_lookup import ExerciseFinder
+from ai_trainer.application.exercise_picture import ExercisePictureService, PicturePorts, RunSpend
 from ai_trainer.application.exercise_progress import ExerciseProgress
 from ai_trainer.application.exercise_resolution import ResolutionLimits, ResolveExercises
 from ai_trainer.application.feedback import FeedbackRecorder
@@ -97,6 +99,7 @@ from ai_trainer.application.ports.embeddings import QueryEmbeddingPort
 from ai_trainer.application.ports.exercises import ExerciseNamesPort
 from ai_trainer.application.ports.llm_calls import LlmCallsRepositoryPort
 from ai_trainer.application.ports.llm_gateway import LlmGatewayPort
+from ai_trainer.application.ports.media_generation import PictureBriefWriterPort
 from ai_trainer.application.ports.metrics import NO_METRICS, MetricsPort
 from ai_trainer.application.ports.object_storage import ObjectStoragePort
 from ai_trainer.application.reply import ReplyServices
@@ -106,6 +109,7 @@ from ai_trainer.application.session_history import (
     GymSessionHistory,
 )
 from ai_trainer.application.training_history import ExerciseTrainingHistory, TrainingHistory
+from ai_trainer.domain.media_generation import PictureSpendLimits
 from ai_trainer.domain.pmc import PMC_JATS_MAX_BYTES
 from ai_trainer.domain.sports.registry import SportRegistry, default_sport_registry
 from ai_trainer.knowledge.chunker import Chunker
@@ -116,7 +120,9 @@ from ai_trainer.llm.decision_gateway import OpenRouterDecisionGateway
 from ai_trainer.llm.embeddings import OpenRouterEmbeddingGateway
 from ai_trainer.llm.exercise_shortlist import JevExercisePicker
 from ai_trainer.llm.gateway import OpenRouterGateway
+from ai_trainer.llm.images import OpenRouterImageGenerator
 from ai_trainer.llm.onboarding import LlmOnboardingReader
+from ai_trainer.llm.picture_brief import LlmPictureBriefWriter
 from ai_trainer.llm.question_sport import JevQuestionSport
 from ai_trainer.llm.router_fast import JevFastRouter, RouterFastThresholds
 from ai_trainer.llm.safety_screen import JevSafetyScreen
@@ -363,6 +369,51 @@ def build_knowledge_search(
         sports=sports,
         embedding_model=settings.embedding_model,
         depth=settings.knowledge_search_depth,
+    )
+
+
+def build_exercise_picture_service(
+    settings: Settings,
+    session_factory: Callable[[], AsyncSession],
+    *,
+    http_client: httpx2.AsyncClient,
+    brief_writer: PictureBriefWriterPort | None = None,
+) -> ExercisePictureService:
+    """One `generate-exercise-picture` run (ADR-0031 *Picture generation*, #533). Its calls go
+    through `RunSpend`, built here per run, so only this run's costs count toward
+    `IMAGE_GENERATION_SPEND_CAP_USD`. Admin-run, so no gateway is wrapped in ADR-0029's budget
+    (ADR-0031, owner-directed 2026-11-08). The caller owns `http_client` and closes it;
+    `brief_writer` is for tests."""
+    sports = default_sport_registry()
+    spend = RunSpend(SqlAlchemyLlmCallsRepository(session_factory))
+    briefs = brief_writer or LlmPictureBriefWriter(
+        registry=build_prompt_registry(_PROMPTS_ROOT, sports),
+        gateway=OpenRouterGateway(settings, spend, http_client=http_client),
+        model=settings.picture_brief_model,
+    )
+    ports = PicturePorts(
+        admins=SqlAlchemyUsersRepository(session_factory),
+        subjects=SqlAlchemyPictureSubjectsRepository(session_factory),
+        search=build_knowledge_search(
+            settings, session_factory, sports, calls_repository=spend, http_client=http_client
+        ),
+        briefs=briefs,
+        images=OpenRouterImageGenerator(
+            api_key=settings.openrouter_api_key.get_secret_value(),
+            model=settings.image_generation_model,
+            timeout_seconds=settings.image_generation_timeout_seconds,
+            calls_repository=spend,
+            http_client=http_client,
+        ),
+    )
+    return ExercisePictureService(
+        ports,
+        spend=spend,
+        limits=PictureSpendLimits(
+            cap_usd=settings.image_generation_spend_cap_usd,
+            price_usd=settings.image_generation_price_usd,
+        ),
+        admin_emails=settings.admin_emails,
     )
 
 

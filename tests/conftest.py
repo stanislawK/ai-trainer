@@ -117,6 +117,8 @@ _XDIST_GROUPS = {
         # `REINDEX INDEX CONCURRENTLY` waits for every open transaction that touched the chunks,
         # such as an ingestion test's, which holds its transaction until teardown (#462).
         "tests/integration/test_rebuild_knowledge_index_cli.py",
+        # Commits an admin and a catalogue exercise for the picture command (#533).
+        "tests/integration/test_generate_exercise_picture_cli.py",
     ),
     # `test_xdist_groups` runs this group in a subprocess, so it must not overlap the outer one.
     "src_tree": (

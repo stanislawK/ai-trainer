@@ -5,18 +5,22 @@ from a bare name printed wrong labels (docs/research/exercise-media.md finding 8
 
 Its input is public text only, never athlete data: the catalogue's `exercise_texts` and the
 passages the run's own `search_knowledge` returned. An exercise with neither gets no brief, and
-no model call."""
+no model call (`needs_no_model`). The deps, the brief and that check are in
+`domain/media_generation.py`; the template, its grader and the writer are here."""
 
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass
+from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel
 from pydantic_evals.evaluators import Evaluator, EvaluatorContext, EvaluatorOutput
 
-from ai_trainer.domain.exercises import ExerciseText
-from ai_trainer.domain.knowledge_search import KnowledgeSearchFailed, KnowledgeSearchPage
+from ai_trainer.application.ports.llm_gateway import LlmGatewayPort
+from ai_trainer.domain.llm_calls import LlmCallOutcome
+from ai_trainer.domain.media_generation import BriefFailed, NoBrief, PictureBrief, PictureBriefDeps
 from ai_trainer.llm.evals.inputs import EvalCaseInputs
+from ai_trainer.llm.prompts.registry import PromptRegistry
 from ai_trainer.llm.prompts.template import PromptTemplate
 
 PICTURE_BRIEF_TEMPLATE_ID = "media.picture_brief"
@@ -43,74 +47,6 @@ _RESTATED_SHARE = 0.5
 _WORD = re.compile(r"[a-z]+")
 
 
-class BriefPassage(BaseModel):
-    """One knowledge passage about the exercise, as the template sees it."""
-
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    title: str
-    text: str
-
-
-class PictureBriefDeps(BaseModel):
-    """The template's variables: the exercise's name and public texts, nothing else. Extra
-    fields are refused, so no identity can ride along (ADR-0031)."""
-
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    exercise_name: str
-    description: str | None
-    passages: list[BriefPassage]
-
-
-class PictureBrief(BaseModel):
-    """What the image model is given: the two positions, and the prompt that restates them
-    with the drawing rules."""
-
-    exercise_name: str
-    start_position: str
-    end_position: str
-    image_prompt: str
-
-
-class NoBrief(BaseModel):
-    """The texts don't say how the exercise is done, so nothing is drawn."""
-
-    reason: str
-
-
-def _description(text: ExerciseText | None) -> str | None:
-    if text is None:
-        return None
-    if text.instructions.strip():
-        return text.instructions.strip()
-    return "\n".join(step.strip() for step in text.steps if step.strip()) or None
-
-
-def picture_brief_deps(
-    exercise_name: str,
-    text: ExerciseText | None,
-    search: KnowledgeSearchPage | KnowledgeSearchFailed,
-) -> PictureBriefDeps:
-    """The deps for one exercise: its catalogue text, and only the passages its own search
-    returned, best first. A failed search gives none."""
-    hits = search.hits if isinstance(search, KnowledgeSearchPage) else ()
-    return PictureBriefDeps(
-        exercise_name=exercise_name,
-        description=_description(text),
-        # A passage with no text says nothing, so it can't stand in for a description.
-        passages=[BriefPassage(title=hit.title, text=hit.text) for hit in hits if hit.text.strip()],
-    )
-
-
-def needs_no_model(deps: PictureBriefDeps) -> NoBrief | None:
-    """`NoBrief` when there is nothing to draw from but the name (ADR-0031): no model is
-    called then. `None` when the template should run."""
-    if (deps.description or "").strip() or deps.passages:
-        return None
-    return NoBrief(reason="no exercise text and no knowledge passage")
-
-
 def picture_brief_template() -> PromptTemplate[PictureBriefDeps, PictureBrief | NoBrief]:
     return PromptTemplate(
         id=PICTURE_BRIEF_TEMPLATE_ID,
@@ -124,6 +60,38 @@ def picture_brief_template() -> PromptTemplate[PictureBriefDeps, PictureBrief | 
         # It never writes to the athlete.
         persona=False,
     )
+
+
+class LlmPictureBriefWriter:
+    """Implements `PictureBriefWriterPort` (#533): the template rendered as its smoke set runs
+    it, through the text gateway, which writes the call's `llm_calls` row (ADR-0018). The user
+    turn is the exercise's name, a public value, so no prompt text lives in Python (ADR-0008)."""
+
+    def __init__(self, *, registry: PromptRegistry, gateway: LlmGatewayPort, model: str) -> None:
+        self._registry = registry
+        self._gateway = gateway
+        self._model = model
+
+    async def write(
+        self, *, user_id: UUID, deps: PictureBriefDeps
+    ) -> PictureBrief | NoBrief | BriefFailed:
+        template = self._registry.get(PICTURE_BRIEF_TEMPLATE_ID, PICTURE_BRIEF_VERSION)
+        result = await self._gateway.run(
+            user_id=user_id,
+            template_id=template.id,
+            template_version=template.version,
+            model_id=self._model,
+            output_type=(PictureBrief, NoBrief),
+            instructions=self._registry.render_instructions(template.id, template.version, deps),
+            prompt=deps.exercise_name,
+            temperature=template.temperature,
+            output_retries=template.output_retries,
+        )
+        if isinstance(result.output, PictureBrief | NoBrief):
+            return result.output
+        return BriefFailed(
+            reason="timeout" if result.outcome is LlmCallOutcome.TIMEOUT else "error"
+        )
 
 
 def _key_words(text: str) -> set[str]:
