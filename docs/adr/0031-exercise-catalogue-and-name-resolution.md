@@ -129,6 +129,22 @@ Owner-directed 2026-11-08, at #524. Evidence: [exercise-media.md](../research/ex
 - **Risk:** whether such pictures can be copyrighted at all is not settled (finding 4). The owner accepts that as a non-commercial side project (G17), and `removed` is the takedown path (G16).
 - **Scope:** `wger` stays the first source. This one only fills gaps where `wger` has no picture for an exercise.
 
+#### Picture generation (#531)
+
+Owner-directed 2026-11-08, at #531. Evidence: [exercise-media.md](../research/exercise-media.md), finding 8. ⚠ The names below (template id, setting, one cap per run) are proposals for the owner's review.
+
+- **Flow:** two steps. A text model fills the template `media.picture_brief` with the exercise's description and writes a brief. Then the image model of #524 draws from that brief.
+- **Brief input:** an exercise name plus public text only. Never athlete data.
+- **Description sources:** `exercise_texts` and `search_knowledge` passages only. An internet lookup is out for now (owner, 2026-11-08).
+- **Brief rules:** the start and end position, one figure, a plain background, no printed text or labels. Gemini printed wrong labels from a bare-name prompt (finding 8).
+- **Port:** `ImageGenerationPort`, a `typing.Protocol` in `application/ports/`. Its adapter is in `adapters/`, over OpenRouter's images endpoint (`/api/v1/images`), wired in the composition root (ADR-0003). The text step uses the existing gateway.
+- **Accounting:** an `llm_calls` row per call (ADR-0018), recording the admin who runs the generation, as admin-run ingestion does. The command takes the admin's email and checks it against `ADMIN_EMAILS`; it refuses otherwise, so no unverified `user_id` is written. Traces are content-free. The image adapter has its own timeout, error translation and accounting, since it does not go through the text gateway.
+- **Cap:** `Settings.image_generation_spend_cap_usd`, one cap per run, summed from the run's own `llm_calls` cost. A call whose cost is unknown (null) stops the run, so the cap can't be passed by missing figures. The run stops before any call that would take the spend over the cap, using the model's price from `Settings`.
+- **No description:** an exercise with neither an `exercise_texts` row nor a `search_knowledge` passage is skipped and listed in the run's report, never drawn from its name alone (finding 8).
+- **Run on purpose:** an admin-run command, never from a chat, a page or any request. Nothing is generated at request time, and every picture is written `suggested` for admin approval (#524). Invariant 6 is not the basis for this: it covers names, aliases and descriptions, not pictures.
+- **Cap hit:** the run stops before the next call and keeps the pictures already made as `suggested` (approval rule above). It reports the number done and the spend. Raising the cap is the owner's edit of `Settings`.
+- ⚠ **Open for the owner:** whether these admin-run calls count toward ADR-0029's per-user model-call budget or are exempt. No document records it; the code ticket must not guess.
+
 ### Invariants
 
 1. A mapping from a typed name to an exercise is saved only when the athlete confirms it: on the draft card, or by picking on the choice card. Jev's pick alone never writes an alias.
@@ -154,7 +170,8 @@ Owner-directed 2026-11-08, at #524. Evidence: [exercise-media.md](../research/ex
 - ADR-0020's catalogue candidate is delivered here. The set starts at a conservative threshold and is tuned from feedback (ADR-0034).
 - The F23 card needs a Claude Design mock with a media slot before its web ticket (ADR-0019).
 - ⚠ The media source is `wger` (see "First media source (#514)", 2026-11-07). The import is the M2m ticket's work. Until it lands, cards show text only.
-- ⚠ A fallback source fills `wger`'s gaps (see "Fallback media source (#524)", 2026-11-08). Still open: Gemini printed wrong labels on some samples, so a prompt that forbids text is M2m's work, and so are the generation call and its cost cap.
+- ⚠ A fallback source fills `wger`'s gaps (see "Fallback media source (#524)", 2026-11-08). The generation flow, the brief rules against printed text, and the spend cap are recorded in "Picture generation (#531)", 2026-11-08. The import and the code are M2m's work.
+- Owner-directed amendment, 2026-11-08, at #531: it adds "Picture generation (#531)" and changes no Decision or Invariant.
 - Owner-directed amendment, 2026-11-07, with [PRD 0012](../prd/0012-ai-training-companion.md) (F24, G16, G17). It is proposed for the owner's review with this branch's PR and holds once PRD 0012 is Approved. The app is a non-commercial side project, so media its owner published freely without stating a licence may be embedded after an admin approves it. This adds `rights`, `delivery`, `embed_url` and `removed` above, relaxes "a license we hold" and invariant 5, and leaves the admin gate and the attribution rule for licensed media as they were.
   - **Why embed, not copy.** Under EU case law, linking to or framing a work its owner made freely available is not a communication to the public, unless it gets around a measure against framing. The cases are *Svensson*, *BestWater* and *VG Bild-Kunst*. A non-profit linker's lack of knowledge that a source infringes counts in its favour, but is not presumed, and a linker who knew or ought to have known is liable (*GS Media*). See [exercise-media.md](../research/exercise-media.md), finding 7.
   - **Sources under this rule.** `wger`'s CC BY-SA images are `licensed`. Gym visual's GIFs stay out: the dataset's [NOTICE.md](https://github.com/hasaneyldrm/exercises-dataset/blob/main/NOTICE.md) excludes them from its MIT licence (read 2026-10-29). `free-exercise-db`'s images stay out as well, even as links, since its maintainer does not know their origin ([issue #2](https://github.com/yuhonas/free-exercise-db/issues/2), read 2026-11-02) and finding 1 calls them likely infringing. Either can become `licensed` with written permission.
