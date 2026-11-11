@@ -143,6 +143,14 @@ def _group(html: str, exercise_id: UUID) -> str:
     return match.group(0)
 
 
+def _rendered_ids(group: str) -> list[UUID]:
+    """The link IDs the bulk form posts back."""
+    return [
+        UUID(value)
+        for value in re.findall(r'<input type="hidden" name="link_id" value="([^"]+)"', group)
+    ]
+
+
 async def test_admin_approves_one_suggestion_and_approved_for_returns_it(
     db_session_factory: Callable[[], AsyncSession],
 ) -> None:
@@ -177,9 +185,12 @@ async def test_approve_all_from_wger_leaves_the_generated_picture_suggested(
     assert "Generated · approve on its own" in group
     assert "Check the printed labels" in group
     assert 'type="checkbox"' not in group
+    assert _rendered_ids(group) == wger_links
 
     response = page.client.post(
-        f"/admin/exercises/{exercise_id}/approve-wger", headers=page.headers()
+        f"/admin/exercises/{exercise_id}/approve-wger",
+        headers=page.headers(),
+        data={"link_id": [str(link) for link in wger_links]},
     )
 
     assert response.status_code == 200
@@ -190,6 +201,53 @@ async def test_approve_all_from_wger_leaves_the_generated_picture_suggested(
     left = _group(response.text, exercise_id)
     assert "Approve all from wger" not in left
     assert f"/admin/exercises/links/{generated}/approve" in left
+
+
+async def test_approve_all_from_wger_approves_only_the_posted_ids(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    page = await _page(db_session_factory, "media-approve-posted")
+    exercise_id = await page.exercise(f"Lateral Raise {uuid4().hex[:6]}")
+    other_id = await page.exercise(f"Lateral Raise {uuid4().hex[:6]}")
+    seen = await page.put(exercise_id, wger_asset())
+    generated = await page.put(exercise_id, generated_asset())
+    rendered = _rendered_ids(_group(page.client.get("/admin/exercises").text, exercise_id))
+    assert rendered == [seen]
+    # Imported after the page was drawn, and a wger link on another exercise.
+    late = await page.put(exercise_id, wger_asset())
+    elsewhere = await page.put(other_id, wger_asset())
+
+    response = page.client.post(
+        f"/admin/exercises/{exercise_id}/approve-wger",
+        headers=page.headers(),
+        data={"link_id": [str(link) for link in (*rendered, generated, elsewhere)]},
+    )
+
+    assert response.status_code == 200
+    assert "Approved 1 picture from wger." in response.text
+    assert await page.status(seen) is MediaLinkStatus.APPROVED
+    assert await page.status(generated) is MediaLinkStatus.SUGGESTED
+    assert await page.status(late) is MediaLinkStatus.SUGGESTED
+    assert await page.status(elsewhere) is MediaLinkStatus.SUGGESTED
+
+
+async def test_approve_all_from_wger_with_a_malformed_or_too_many_ids_changes_nothing(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    page = await _page(db_session_factory, "media-approve-malformed")
+    exercise_id = await page.exercise(f"Lateral Raise {uuid4().hex[:6]}")
+    link_id = await page.put(exercise_id, wger_asset())
+    url = f"/admin/exercises/{exercise_id}/approve-wger"
+
+    malformed = page.client.post(
+        url, headers=page.headers(), data={"link_id": [str(link_id), "nope"]}
+    )
+    flood = page.client.post(
+        url, headers=page.headers(), data={"link_id": [str(uuid4()) for _ in range(1000)]}
+    )
+
+    assert (malformed.status_code, flood.status_code) == (404, 400)
+    assert await page.status(link_id) is MediaLinkStatus.SUGGESTED
 
 
 async def test_non_admin_gets_the_forbidden_page(

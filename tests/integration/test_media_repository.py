@@ -231,9 +231,16 @@ async def test_approve_wger_suggestions_skips_other_sources_and_other_exercises(
     for position, asset in enumerate((first, second, generated, embedded)):
         await _linked(repository, exercise_id, asset, position=position)
     await _linked(repository, other_id, elsewhere)
+    # Every ID posted, even ones that must not change: the generated and embedded links, and a
+    # wger link on another exercise.
+    posted = [
+        row.link_id
+        for exercise in (exercise_id, other_id)
+        for row in await repository.review_links(MediaLinkStatus.SUGGESTED, exercise_id=exercise)
+    ]
 
-    assert await repository.approve_suggested_from(exercise_id, "wger") == 2
-    assert await repository.approve_suggested_from(exercise_id, "wger") == 0
+    assert await repository.approve_suggested_from(exercise_id, "wger", posted) == 2
+    assert await repository.approve_suggested_from(exercise_id, "wger", posted) == 0
 
     assert {item.asset.sha256 for item in await repository.approved_for(exercise_id)} == {
         first.sha256,
@@ -242,6 +249,29 @@ async def test_approve_wger_suggestions_skips_other_sources_and_other_exercises(
     left = await repository.review_links(MediaLinkStatus.SUGGESTED, exercise_id=exercise_id)
     assert [row.asset.source for row in left] == ["ai-generated", "youtube"]
     assert await repository.approved_for(other_id) == []
+
+
+async def test_bulk_approve_leaves_a_wger_suggestion_added_after_the_page_was_drawn(
+    db_session_factory: SessionFactory, repository: SqlAlchemyExerciseMediaRepository
+) -> None:
+    exercise_id = await _exercise(db_session_factory)
+    seen = _stored()
+    await _linked(repository, exercise_id, seen)
+    drawn = [
+        row.link_id
+        for row in await repository.review_links(MediaLinkStatus.SUGGESTED, exercise_id=exercise_id)
+    ]
+    late = _stored()
+    await _linked(repository, exercise_id, late, position=1)
+
+    assert await repository.approve_suggested_from(exercise_id, "wger", drawn) == 1
+    assert await repository.approve_suggested_from(exercise_id, "wger", []) == 0
+
+    [left] = await repository.review_links(MediaLinkStatus.SUGGESTED, exercise_id=exercise_id)
+    assert left.asset.sha256 == late.sha256
+    assert [item.asset.sha256 for item in await repository.approved_for(exercise_id)] == [
+        seen.sha256
+    ]
 
 
 async def test_review_links_lists_catalogue_links_by_exercise_then_position(

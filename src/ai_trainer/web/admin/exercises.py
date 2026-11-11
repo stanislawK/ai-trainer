@@ -1,8 +1,9 @@
 """The admin's review of exercise media (F24, ADR-0031 *Media links*, #554; the Exercise Media
 mock): `GET /admin/exercises?view=suggested|approved` lists the pictures per exercise,
 `POST /admin/exercises/links/{link_id}/approve` approves one, and
-`POST /admin/exercises/{exercise_id}/approve-wger` approves all of an exercise's suggested wger
-pictures, never a generated one. Every response renders the whole `#exercise-media` region.
+`POST /admin/exercises/{exercise_id}/approve-wger` approves the exercise's suggested wger pictures
+the page drew, posted back as `link_id` fields, never a generated one nor one imported since.
+Every response renders the whole `#exercise-media` region.
 
 As on the other admin pages, the admin check comes before anything from the request is parsed,
 so a non-admin gets 403, never a 422 or 404. CSRF is checked by `CsrfMiddleware` before this.
@@ -12,6 +13,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, Response
+from starlette.datastructures import FormData
 from starlette.templating import Jinja2Templates
 
 from ai_trainer.application.exercise_media_review import (
@@ -26,6 +28,9 @@ from ai_trainer.web.admin.access import forbidden, is_admin, is_htmx, not_found
 
 # The filters this page builds; Removed comes with the removal ticket (#556).
 _VIEWS = {"suggested": MediaLinkStatus.SUGGESTED, "approved": MediaLinkStatus.APPROVED}
+# The bulk form posts one `link_id` per suggested wger picture on one exercise; far more than any
+# exercise carries, and a flood is refused by the form parser (400).
+_MAX_BULK_FIELDS = 200
 
 
 def _uuid(raw: str) -> UUID | None:
@@ -33,6 +38,12 @@ def _uuid(raw: str) -> UUID | None:
         return UUID(raw)
     except ValueError:
         return None
+
+
+def _link_ids(form: FormData) -> list[UUID] | None:
+    """Every posted link ID, or None when any of them isn't one."""
+    ids = [_uuid(value) if isinstance(value, str) else None for value in form.getlist("link_id")]
+    return None if any(i is None for i in ids) else [i for i in ids if i is not None]
 
 
 def _kind(outcome: ApproveOutcome | BulkApproved | None) -> str | None:
@@ -98,9 +109,11 @@ class _ExerciseMediaRoutes:
         if not is_admin(request):
             return forbidden(request, self._templates)
         parsed = _uuid(exercise_id)
-        if parsed is None:
+        async with request.form(max_files=0, max_fields=_MAX_BULK_FIELDS) as form:
+            link_ids = _link_ids(form)
+        if parsed is None or link_ids is None:
             return not_found(request, self._templates)
-        outcome = await self._review.approve_all_from_wger(parsed)
+        outcome = await self._review.approve_all_from_wger(parsed, link_ids)
         return await self._region(request, MediaLinkStatus.SUGGESTED, outcome=outcome)
 
 

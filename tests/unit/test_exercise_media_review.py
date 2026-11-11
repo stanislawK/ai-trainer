@@ -147,8 +147,26 @@ async def test_approve_all_from_wger_leaves_generated_pictures_suggested() -> No
     for asset in (wger_asset(), wger_asset(), generated_asset(), embedded_asset()):
         media.put(row, asset)
     generated = media.links[2].link_id
+    posted = [link.link_id for link in media.links]
     review = memory_exercise_media_review(media)
 
-    assert await review.approve_all_from_wger(row) == BulkApproved(count=2, generated_left=1)
+    assert await review.approve_all_from_wger(row, posted) == BulkApproved(
+        count=2, generated_left=1
+    )
     assert media.status_of(generated) is MediaLinkStatus.SUGGESTED
-    assert await review.approve_all_from_wger(row) == BulkApproved(count=0, generated_left=1)
+    assert await review.approve_all_from_wger(row, posted) == BulkApproved(
+        count=0, generated_left=1
+    )
+
+
+async def test_approve_all_from_wger_approves_only_the_posted_links() -> None:
+    media = MemoryExerciseMedia()
+    row = media.exercise("Row")
+    seen = media.put(row, wger_asset())
+    late = media.put(row, wger_asset())
+    review = memory_exercise_media_review(media)
+
+    assert await review.approve_all_from_wger(row, [seen]) == BulkApproved(
+        count=1, generated_left=0
+    )
+    assert media.status_of(late) is MediaLinkStatus.SUGGESTED

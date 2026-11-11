@@ -1,4 +1,4 @@
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from uuid import UUID, uuid4
 
 from sqlalchemy import ColumnElement, Select, exists, false, func, or_, select, update
@@ -164,8 +164,13 @@ class SqlAlchemyExerciseMediaRepository:
     async def approve(self, link_id: UUID) -> bool:
         return bool(await self._approve_where(ExerciseMediaOrm.id == link_id))
 
-    async def approve_suggested_from(self, exercise_id: UUID, source: str) -> int:
+    async def approve_suggested_from(
+        self, exercise_id: UUID, source: str, link_ids: Collection[UUID]
+    ) -> int:
+        if not link_ids:
+            return 0
         return await self._approve_where(
+            ExerciseMediaOrm.id.in_(link_ids),
             ExerciseMediaOrm.exercise_id == exercise_id,
             ExerciseMediaOrm.asset_id.in_(
                 select(MediaAssetOrm.id).where(MediaAssetOrm.source == source)

@@ -1,6 +1,6 @@
 """A memory `ExerciseMediaReviewPort` for the F24 review (#554), and sample assets."""
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from uuid import UUID, uuid4
 
@@ -143,11 +143,14 @@ class MemoryExerciseMedia:
                 return True
         return False
 
-    async def approve_suggested_from(self, exercise_id: UUID, source: str) -> int:
+    async def approve_suggested_from(
+        self, exercise_id: UUID, source: str, link_ids: Collection[UUID]
+    ) -> int:
         changed = 0
         for link in self.links:
             if (
-                link.exercise_id == exercise_id
+                link.link_id in link_ids
+                and link.exercise_id == exercise_id
                 and link.status is MediaLinkStatus.SUGGESTED
                 and link.asset.source == source
             ):

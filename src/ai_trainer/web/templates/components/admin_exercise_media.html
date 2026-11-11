@@ -115,6 +115,12 @@
       <span class="text-[13px] lbl-2">{{ n }} {{ "picture" if n == 1 else "pictures" }} {{ "suggested" if view.value == "suggested" else "approved" }}</span>
     </span>
     {%- if view.value == "suggested" and group.wger_suggested %}
+    {#- The IDs drawn here are the ones approved: a picture imported since stays suggested. A POST
+        carries its enclosing form's values (htmx 4). #}
+    <form class="contents">
+    {%- for picture in group.pictures if picture.origin == "wger" and picture.status.value == "suggested" %}
+    <input type="hidden" name="link_id" value="{{ picture.link_id }}">
+    {%- endfor %}
     <button
       type="button"
       class="lg lg-clear lg-sm relative shrink-0"
@@ -123,6 +129,7 @@
       hx-swap="outerHTML"
       data-media-approve-all
     ><span class="absolute inset-x-0 -inset-y-1" aria-hidden="true"></span>{{ icon("check-check", "size-4") }}Approve all from wger · {{ group.wger_suggested }}</button>
+    </form>
     {%- endif %}
   </div>
   <ul class="flex flex-col">

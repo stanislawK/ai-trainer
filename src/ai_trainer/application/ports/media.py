@@ -1,4 +1,4 @@
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from typing import Protocol
 from uuid import UUID
 
@@ -68,8 +68,11 @@ class ExerciseMediaReviewPort(Protocol):
         a concurrent change is never overwritten. False when nothing changed."""
         ...
 
-    async def approve_suggested_from(self, exercise_id: UUID, source: str) -> int:
-        """Approve the exercise's `suggested` links whose asset came from `source`, and only
-        those; returns how many changed (ADR-0031: a generated picture is never bulk-approved,
-        so the caller names the source)."""
+    async def approve_suggested_from(
+        self, exercise_id: UUID, source: str, link_ids: Collection[UUID]
+    ) -> int:
+        """Approve those of `link_ids` that are still `suggested`, on `exercise_id`, with an asset
+        from `source`, in one conditional update; any other ID is ignored. Returns how many
+        changed (ADR-0031: a generated picture is never bulk-approved, so the caller names the
+        source; the IDs are the ones the admin saw, so a later suggestion is never swept in)."""
         ...

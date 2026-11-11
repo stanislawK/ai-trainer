@@ -1,13 +1,14 @@
 """The admin's review of catalogue exercise media (F24, ADR-0031 *Media links*, #554).
 
 Suggested pictures are listed per exercise with their credit and public URL, and approved one
-at a time or, for wger's, all of an exercise's at once. A generated picture is never approved in
-bulk (ADR-0031 *Fallback media source*): bulk approval names `WGER_SOURCE`, so no other source
-can be swept in. Every approval is conditional on `suggested`, so one approved or removed since
-the page was drawn is left as it is and the admin is told."""
+at a time or, for wger's, all of an exercise's the admin saw at once. A generated picture is
+never approved in bulk (ADR-0031 *Fallback media source*): bulk approval names `WGER_SOURCE`, so
+no other source can be swept in, and only the link IDs the page drew, so no later import either.
+Every approval is conditional on `suggested`, so one approved or removed since the page was drawn
+is left as it is and the admin is told."""
 
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from itertools import groupby
 from typing import Literal
@@ -178,8 +179,13 @@ class ExerciseMediaReview:
         now = await self._media.review_link(link_id)
         return NotSuggested(exercise_name=row.exercise_name, status=(now or row).status)
 
-    async def approve_all_from_wger(self, exercise_id: UUID) -> BulkApproved:
-        count = await self._media.approve_suggested_from(exercise_id, WGER_SOURCE)
+    async def approve_all_from_wger(
+        self, exercise_id: UUID, link_ids: Collection[UUID]
+    ) -> BulkApproved:
+        """Approve the wger pictures the admin saw: `link_ids` are the ones the page drew, so one
+        imported since stays `suggested`; a posted ID that isn't a suggested wger link on this
+        exercise is ignored."""
+        count = await self._media.approve_suggested_from(exercise_id, WGER_SOURCE, link_ids)
         left = await self._media.review_links(MediaLinkStatus.SUGGESTED, exercise_id=exercise_id)
         return BulkApproved(
             count=count,
