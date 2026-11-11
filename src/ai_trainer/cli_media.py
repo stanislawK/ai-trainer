@@ -173,13 +173,10 @@ async def generate_exercise_picture(
             )
             return 1
         store = build_exercise_picture_store(settings, session_factory, storage=storage)
-    # No call may fall back to httpx2's 5 s default (#547): the brief's gateway sets no request
-    # timeout, so the shared client carries the gateway's own; the image adapter passes its own
-    # per request, and the search has the query client.
+    # The image adapter passes its timeout per request and the search has the query client
+    # (#547); the shared client serves only the brief, whose timeout is unchanged.
     async with (
-        httpx2.AsyncClient(
-            transport=hooks.transport, timeout=settings.llm_call_timeout_seconds
-        ) as http_client,
+        httpx2.AsyncClient(transport=hooks.transport) as http_client,
         query_http_client(settings, transport=hooks.transport) as search_http_client,
     ):
         service = build_exercise_picture_service(
