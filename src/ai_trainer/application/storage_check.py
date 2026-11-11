@@ -10,9 +10,20 @@ from pydantic import BaseModel, ConfigDict
 from ai_trainer.application.ports.object_storage import ObjectStoragePort, PresignedLinkPort
 from ai_trainer.domain.object_storage import ObjectNotFoundError, ObjectStorageError
 
-StorageCheckStep = Literal["put", "read", "link", "expiry", "delete"]
+StorageCheckStep = Literal[
+    "put",
+    "private",
+    "read",
+    "link",
+    "expiry",
+    "delete",
+    "media_put",
+    "media_public",
+    "media_delete",
+]
 
-STEPS: tuple[StorageCheckStep, ...] = ("put", "read", "link", "expiry", "delete")
+STEPS: tuple[StorageCheckStep, ...] = ("put", "private", "read", "link", "expiry", "delete")
+MEDIA_STEPS: tuple[StorageCheckStep, ...] = ("media_put", "media_public", "media_delete")
 # The shortest link that a slow first request can still open.
 LINK_SECONDS = 2
 # Past the link's time by more than the clock skew between this machine and the service.
@@ -22,6 +33,8 @@ _PROBE = b"ai-trainer storage-check\n"
 # How S3 services refuse an expired link. Only these prove it: a 429 or a 404 says something else
 # went wrong, and the same link was served a moment before.
 _EXPIRED_STATUSES = frozenset({400, 403})
+# How a private bucket refuses a request with no credentials.
+_PRIVATE_STATUSES = frozenset({401, 403})
 
 
 class StorageCheckFailure(BaseModel):
@@ -74,14 +87,23 @@ async def _link_runs_out(
         raise _StepFailedError("expiry", f"status_{expired}")
 
 
-async def _delete_for_good(storage: ObjectStoragePort, key: str) -> None:
-    with _step("delete"):
+async def _refuses_anonymous(links: PresignedLinkPort, plain_url: str) -> None:
+    with _step("private"):
+        status = await links.status(plain_url)
+    if status not in _PRIVATE_STATUSES:
+        raise _StepFailedError("private", f"status_{status}")
+
+
+async def _delete_for_good(
+    storage: ObjectStoragePort, key: str, step: StorageCheckStep = "delete"
+) -> None:
+    with _step(step):
         await storage.delete(key)
         try:
             await storage.get(key)
         except ObjectNotFoundError:
             return
-    raise _StepFailedError("delete", "still_there")
+    raise _StepFailedError(step, "still_there")
 
 
 async def _removed(storage: ObjectStoragePort, key: str) -> bool:
@@ -98,15 +120,18 @@ async def check_storage(
     links: PresignedLinkPort,
     sleep: Callable[[float], Awaitable[None]],
     probe_key: str,
+    plain_url: str,
 ) -> StorageCheckFailure | None:
-    """Puts a probe object, reads it back, opens a short link until it runs out, then deletes the
-    object. Returns the first failure, or None. A probe left by a failed step is deleted too."""
+    """Puts a probe object, checks that its plain URL refuses a request with no credentials,
+    reads it back, opens a short link until it runs out, then deletes the object. Returns the
+    first failure, or None. A probe left by a failed step is deleted too."""
     try:
         with _step("put"):
             await storage.put(probe_key, _PROBE, content_type="text/plain")
     except _StepFailedError as failed:
         return StorageCheckFailure(step=failed.step, reason=failed.reason, probe_left=False)
     try:
+        await _refuses_anonymous(links, plain_url)
         await _read_back(storage, probe_key)
         await _link_runs_out(storage, links, sleep, probe_key)
     except _StepFailedError as failed:
@@ -114,6 +139,36 @@ async def check_storage(
         return StorageCheckFailure(step=failed.step, reason=failed.reason, probe_left=probe_left)
     try:
         await _delete_for_good(storage, probe_key)
+    except _StepFailedError as failed:
+        return StorageCheckFailure(step=failed.step, reason=failed.reason, probe_left=True)
+    return None
+
+
+async def check_media_public(
+    *,
+    storage: ObjectStoragePort,
+    links: PresignedLinkPort,
+    public_url: str,
+    probe_key: str,
+) -> StorageCheckFailure | None:
+    """Puts a probe in the media bucket, reads it from its public URL with no credentials, then
+    deletes it (ADR-0031, #553). Returns the first failure, or None. A probe left by a failed step
+    is deleted too."""
+    try:
+        with _step("media_put"):
+            await storage.put(probe_key, _PROBE, content_type="text/plain")
+    except _StepFailedError as failed:
+        return StorageCheckFailure(step=failed.step, reason=failed.reason, probe_left=False)
+    try:
+        with _step("media_public"):
+            status = await links.status(public_url)
+        if status != 200:
+            raise _StepFailedError("media_public", f"status_{status}")
+    except _StepFailedError as failed:
+        probe_left = not await _removed(storage, probe_key)
+        return StorageCheckFailure(step=failed.step, reason=failed.reason, probe_left=probe_left)
+    try:
+        await _delete_for_good(storage, probe_key, "media_delete")
     except _StepFailedError as failed:
         return StorageCheckFailure(step=failed.step, reason=failed.reason, probe_left=True)
     return None

@@ -12,9 +12,17 @@ from uuid import uuid4
 from ai_trainer.adapters.object_storage import UrllibPresignedLinks
 from ai_trainer.application.knowledge_ingestion import KnowledgeIngestion
 from ai_trainer.application.ports.knowledge import KnowledgeIndexPort
-from ai_trainer.application.storage_check import STEPS, check_storage
+from ai_trainer.application.ports.object_storage import PresignedLinkPort
+from ai_trainer.application.storage_check import (
+    MEDIA_STEPS,
+    STEPS,
+    StorageCheckFailure,
+    check_media_public,
+    check_storage,
+)
 from ai_trainer.domain.knowledge_ingestion import IngestReport
-from ai_trainer.main import build_uploads_storage
+from ai_trainer.domain.object_storage import media_public_url
+from ai_trainer.main import build_media_storage, build_uploads_storage
 from ai_trainer.settings import Settings
 
 INGEST_WORKER = "ingest-worker"
@@ -110,6 +118,37 @@ async def rebuild_knowledge_index(
     return 0
 
 
+def _failed(output: TextIO, failure: StorageCheckFailure) -> int:
+    probe_left = str(failure.probe_left).lower()
+    output.write(
+        f"{STORAGE_CHECK}: result=failed step={failure.step} reason={failure.reason} "
+        f"probe_left={probe_left}\n"
+    )
+    return 1
+
+
+async def _check_media(
+    settings: Settings, links: PresignedLinkPort, output: TextIO
+) -> StorageCheckFailure | None:
+    """The media bucket's public read (#553), only while `MEDIA_PUBLIC_BASE_URL` is set. Writes
+    its own line when it passes or is skipped."""
+    probe_key = f"storage-check/{uuid4()}"
+    public_url = media_public_url(settings.media_public_base_url, probe_key)
+    if public_url is None:
+        output.write(f"{STORAGE_CHECK}: media=skipped reason=no_public_url\n")
+        return None
+    media = build_media_storage(settings)
+    if media is None:
+        return StorageCheckFailure(step="media_put", reason="not_configured", probe_left=False)
+    failure = await check_media_public(
+        storage=media, links=links, public_url=public_url, probe_key=probe_key
+    )
+    if failure is None:
+        bucket = settings.object_storage_media_bucket
+        output.write(f"{STORAGE_CHECK}: media=ok bucket={bucket} steps={','.join(MEDIA_STEPS)}\n")
+    return failure
+
+
 async def storage_check(
     settings: Settings, *, sleep: Callable[[float], Awaitable[None]], output: TextIO
 ) -> int:
@@ -117,19 +156,19 @@ async def storage_check(
     if storage is None:
         output.write(f"{STORAGE_CHECK}: result=failed reason=not_configured\n")
         return 1
+    links = UrllibPresignedLinks(timeout_seconds=settings.object_storage_timeout_seconds)
+    probe_key = f"storage-check/{uuid4()}"
+    bucket = settings.object_storage_uploads_bucket
     failure = await check_storage(
         storage=storage,
-        links=UrllibPresignedLinks(timeout_seconds=settings.object_storage_timeout_seconds),
+        links=links,
         sleep=sleep,
-        probe_key=f"storage-check/{uuid4()}",
+        probe_key=probe_key,
+        plain_url=f"{settings.object_storage_endpoint}/{bucket}/{probe_key}",
     )
+    if failure is None:
+        failure = await _check_media(settings, links, output)
     if failure is not None:
-        probe_left = str(failure.probe_left).lower()
-        output.write(
-            f"{STORAGE_CHECK}: result=failed step={failure.step} reason={failure.reason} "
-            f"probe_left={probe_left}\n"
-        )
-        return 1
-    bucket = settings.object_storage_uploads_bucket
+        return _failed(output, failure)
     output.write(f"{STORAGE_CHECK}: result=ok bucket={bucket} steps={','.join(STEPS)}\n")
     return 0

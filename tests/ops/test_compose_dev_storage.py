@@ -64,3 +64,42 @@ def test_the_app_waits_for_local_storage_only_in_the_dev_overlay() -> None:
     assert "storage" not in base["services"]
     prod = yaml.safe_load((ROOT / "compose.prod.yaml").read_text())
     assert "storage" not in prod["services"]
+
+
+def _init_command() -> str:
+    return " ".join(_compose()["services"]["storage-init"]["entrypoint"])
+
+
+def test_only_the_media_bucket_is_public() -> None:
+    env = _env_example()
+    init = _init_command()
+
+    assert "put-bucket-acl" in init
+    assert f"--bucket {env['OBJECT_STORAGE_MEDIA_BUCKET']} --acl public-read" in init
+    assert init.count("--acl") == 1
+    assert env["OBJECT_STORAGE_UPLOADS_BUCKET"] not in init
+    assert "public-read-write" not in init
+
+
+def test_the_media_public_url_is_the_loopback_path_style_url_in_env_example_and_compose() -> None:
+    env = _env_example()
+    services = _compose()["services"]
+
+    assert env["MEDIA_PUBLIC_BASE_URL"] == (
+        f"{env['OBJECT_STORAGE_ENDPOINT']}/{env['OBJECT_STORAGE_MEDIA_BUCKET']}"
+    )
+    for name in ("app", "ingest"):
+        assert (
+            services[name]["environment"]["MEDIA_PUBLIC_BASE_URL"] == (env["MEDIA_PUBLIC_BASE_URL"])
+        ), name
+
+
+def test_the_init_step_is_pinned_and_the_app_waits_for_it() -> None:
+    services = _compose()["services"]
+    init = services["storage-init"]
+
+    assert "@sha256:" in init["image"]
+    assert init["depends_on"]["storage"]["condition"] == "service_started"
+    assert services["app"]["depends_on"]["storage-init"]["condition"] == (
+        "service_completed_successfully"
+    )

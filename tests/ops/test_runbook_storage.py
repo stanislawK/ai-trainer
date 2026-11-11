@@ -34,3 +34,14 @@ def test_runbook_names_every_storage_setting() -> None:
     assert keys
     for key in keys:
         assert key in section, key
+
+
+def test_runbook_serves_the_media_bucket_from_a_custom_domain_never_r2_dev() -> None:
+    section = _section()
+    media = section[section.index("### 14.4") :]
+
+    assert "custom domain" in media.lower()
+    assert "MEDIA_PUBLIC_BASE_URL=https://" in media
+    assert "Cache Rule" in media
+    assert "never `r2.dev`" in media
+    assert "comes with the ticket" not in media

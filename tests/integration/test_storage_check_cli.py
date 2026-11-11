@@ -12,6 +12,7 @@ from ai_trainer.cli_knowledge import STORAGE_CHECK
 from tests.object_storage_support import (
     ACCESS_KEY_ID,
     BUCKET,
+    MEDIA_BUCKET,
     SECRET_ACCESS_KEY,
     S3State,
     s3_server,
@@ -43,7 +44,8 @@ async def test_cli_round_trip_against_an_s3_server(server: S3State) -> None:
 
     assert code == 0
     assert output.getvalue() == (
-        f"storage-check: result=ok bucket={BUCKET} steps=put,read,link,expiry,delete\n"
+        "storage-check: media=skipped reason=no_public_url\n"
+        f"storage-check: result=ok bucket={BUCKET} steps=put,private,read,link,expiry,delete\n"
     )
     assert server.objects == {}
 
@@ -93,3 +95,96 @@ async def test_cli_without_storage_settings_says_so(monkeypatch: pytest.MonkeyPa
 
     assert code == 1
     assert output.getvalue() == "storage-check: result=failed reason=not_configured\n"
+
+
+async def _link_runs_out(server: S3State, seconds: float) -> None:
+    server.seconds_after_signing = storage_check.LINK_SECONDS + 1
+
+
+def _configure_media(monkeypatch: pytest.MonkeyPatch, server: S3State) -> None:
+    monkeypatch.setenv("OBJECT_STORAGE_MEDIA_BUCKET", MEDIA_BUCKET)
+    monkeypatch.setenv("MEDIA_PUBLIC_BASE_URL", f"{server.endpoint}/{MEDIA_BUCKET}/")
+
+
+async def test_cli_checks_the_media_probe_anonymously(
+    server: S3State, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _configure_media(monkeypatch, server)
+    output = io.StringIO()
+
+    async def sleep(seconds: float) -> None:
+        await _link_runs_out(server, seconds)
+
+    code = await cli.run([STORAGE_CHECK], output=output, sleep=sleep)
+
+    assert code == 0
+    assert output.getvalue() == (
+        f"storage-check: media=ok bucket={MEDIA_BUCKET} steps=media_put,media_public,media_delete\n"
+        f"storage-check: result=ok bucket={BUCKET} steps=put,private,read,link,expiry,delete\n"
+    )
+    assert server.objects == {}
+
+
+async def test_cli_fails_when_the_media_probe_is_not_public(
+    server: S3State, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _configure_media(monkeypatch, server)
+    server.media_public = False
+    output = io.StringIO()
+
+    async def sleep(seconds: float) -> None:
+        await _link_runs_out(server, seconds)
+
+    code = await cli.run([STORAGE_CHECK], output=output, sleep=sleep)
+
+    assert code == 1
+    assert output.getvalue() == (
+        "storage-check: result=failed step=media_public reason=status_403 probe_left=false\n"
+    )
+    assert server.objects == {}
+
+
+async def test_cli_fails_when_uploads_can_be_read_anonymously(server: S3State) -> None:
+    server.uploads_public = True
+    output = io.StringIO()
+
+    code = await cli.run([STORAGE_CHECK], output=output)
+
+    assert code == 1
+    assert output.getvalue() == (
+        "storage-check: result=failed step=private reason=status_200 probe_left=false\n"
+    )
+    assert server.objects == {}
+
+
+async def test_cli_skips_the_media_step_without_a_public_url(
+    server: S3State, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("OBJECT_STORAGE_MEDIA_BUCKET", MEDIA_BUCKET)
+    monkeypatch.setenv("MEDIA_PUBLIC_BASE_URL", "")
+    output = io.StringIO()
+
+    async def sleep(seconds: float) -> None:
+        await _link_runs_out(server, seconds)
+
+    code = await cli.run([STORAGE_CHECK], output=output, sleep=sleep)
+
+    assert code == 0
+    assert output.getvalue().startswith("storage-check: media=skipped reason=no_public_url\n")
+
+
+async def test_cli_with_a_public_url_but_no_media_bucket_fails(
+    server: S3State, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("MEDIA_PUBLIC_BASE_URL", f"{server.endpoint}/{MEDIA_BUCKET}")
+    output = io.StringIO()
+
+    async def sleep(seconds: float) -> None:
+        await _link_runs_out(server, seconds)
+
+    code = await cli.run([STORAGE_CHECK], output=output, sleep=sleep)
+
+    assert code == 1
+    assert output.getvalue() == (
+        "storage-check: result=failed step=media_put reason=not_configured probe_left=false\n"
+    )

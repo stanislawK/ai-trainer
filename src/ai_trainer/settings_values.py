@@ -143,6 +143,35 @@ class ObjectStorageSettings(BaseModel):
     # Catalogue pictures (ADR-0031), on the same service and keys. Optional, so a release never
     # waits on it; set without the keys it refuses to start (#530).
     object_storage_media_bucket: str | None = None
+    # Where a browser reads a stored picture (ADR-0031): R2's custom domain on the media bucket in
+    # production, versitygw's path-style URL under `make start`. A path is allowed; unset means no
+    # picture URL. No trailing slash once validated.
+    media_public_base_url: str | None = None
+
+    @field_validator("media_public_base_url")
+    @classmethod
+    def _media_public_base_url_is_a_plain_http_url(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        try:
+            parts = urlsplit(value)
+            plain = (
+                parts.scheme in ("http", "https")
+                and bool(parts.hostname)
+                and parts.username is None
+                and parts.password is None
+                and "?" not in value
+                and "#" not in value
+            )
+        except ValueError:
+            plain = False
+        if not plain:
+            # Never echoes the value: credentials pasted into the URL would reach the log.
+            raise ValueError(
+                "MEDIA_PUBLIC_BASE_URL must be an http(s) URL without credentials, a query or a "
+                "fragment, such as https://media.example.com"
+            )
+        return value.rstrip("/")
 
     @field_validator("object_storage_endpoint")
     @classmethod

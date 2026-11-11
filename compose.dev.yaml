@@ -33,6 +33,8 @@ services:
         condition: service_completed_successfully
       storage:
         condition: service_started
+      storage-init:
+        condition: service_completed_successfully
     # The local stand-in for R2 below, by service name as `DATABASE_URL` is in compose.yaml, so
     # `make start` needs no new `.env` key. The non-secret values match `.env.example`
     # (tests/ops/test_compose_dev_storage.py).
@@ -43,6 +45,7 @@ services:
       OBJECT_STORAGE_SECRET_ACCESS_KEY: ai_trainer_dev_secret
       OBJECT_STORAGE_UPLOADS_BUCKET: ai-trainer-uploads
       OBJECT_STORAGE_MEDIA_BUCKET: ai-trainer-media
+      MEDIA_PUBLIC_BASE_URL: http://localhost:7070/ai-trainer-media
     # `LLM_DEBUG_LOG=true` writes to /app/.llm-debug (ADR-0018, #178); the bind mount puts
     # those lines on the host, where `jq . .llm-debug/*.jsonl` reads them. Write-only from the
     # container, so none of the bind-mount file-watching trouble above applies. Never in
@@ -86,6 +89,7 @@ services:
       OBJECT_STORAGE_SECRET_ACCESS_KEY: ai_trainer_dev_secret
       OBJECT_STORAGE_UPLOADS_BUCKET: ai-trainer-uploads
       OBJECT_STORAGE_MEDIA_BUCKET: ai-trainer-media
+      MEDIA_PUBLIC_BASE_URL: http://localhost:7070/ai-trainer-media
     develop:
       watch:
         - action: sync+restart
@@ -139,6 +143,28 @@ services:
       - "127.0.0.1:7070:7070"
     volumes:
       - storage_data:/data
+
+  # One-shot (#553): makes the media bucket readable without credentials, as R2's custom domain
+  # does in production (ADR-0031), and only that bucket: `uploads` stays private. versitygw sets a
+  # bucket ACL only through the S3 API, signed, and its image has no client, hence this one. The
+  # ACL lives in the bucket's xattrs in `storage_data`, so a re-run changes nothing. Retries until
+  # the gateway is up.
+  storage-init:
+    image: amazon/aws-cli:2.27.50@sha256:48c3d4212e2f5b0e24bdc6af7708f9412ce65425a79575e0f78b8f8c0dcd70ab
+    entrypoint:
+      - sh
+      - -c
+      - >-
+        until aws --endpoint-url http://storage:7070 s3api put-bucket-acl
+        --bucket ai-trainer-media --acl public-read; do sleep 1; done
+    environment:
+      AWS_ACCESS_KEY_ID: ai_trainer_dev
+      AWS_SECRET_ACCESS_KEY: ai_trainer_dev_secret
+      AWS_DEFAULT_REGION: auto
+    depends_on:
+      storage:
+        condition: service_started
+    restart: "no"
 
 volumes:
   storage_data:
