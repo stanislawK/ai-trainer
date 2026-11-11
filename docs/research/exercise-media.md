@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Ticket | #416 |
-| Read on | 2026-11-02; finding 7 added 2026-11-07; finding 10 added 2026-11-11 |
+| Read on | 2026-11-02; finding 7 added 2026-11-07; findings 9 and 10 added 2026-11-11 |
 | Feeds | ADR-0031 (media links); the M2m "Show me" milestone and its licensed-media-source ticket (PRD 0010 F24). Used at #514 (2026-11-07): the pick is recorded in ADR-0031, "First media source (#514)". Used at #524 (2026-11-08): the fallback pick is recorded in ADR-0031, "Fallback media source (#524)" |
 
 This document decides nothing. It compares where exercise pictures could come from, so the owner can pick one and M2m can be ticketed. Reads were free: no paid model call was made and no athlete data left the project.
@@ -142,20 +142,41 @@ Output terms, read 2026-11-08:
 - **OpenAI.** **Unread.** `openai.com/policies/service-terms/` and `openai.com/policies/row-terms-of-use/` returned HTTP 403 to an automated fetch on 2026-11-08, as `terms-of-use` did on 2026-11-02 (finding 4). Nothing is claimed about output ownership for `gpt-image-2.6-sunburst`, which was also not run.
 - Whether such pictures can be copyrighted at all is still not settled by any page read (finding 4).
 
-### 9. Re-sample with generated briefs (#534): blocked, no pictures
+### 9. Re-sample with generated briefs (#534)
 
-Attempted 2026-11-11 with the owner's spend cap of $0.50 for the whole re-sample. **No picture was made, so there is no comparison with finding 8 yet.** The re-sample is blocked by two defects of `ai-trainer generate-exercise-picture` (#533), and two tickets unblock it: #543 makes the command report the real error and name the row behind `cost_unknown`, and #544 finds the root cause with web and OpenRouter MCP research.
+Run on 2026-11-11 with the owner's yes, in the ticket's worktree database, as the dev-session admin (`ADMIN_EMAILS` set on the command line only). The command was `ai-trainer generate-exercise-picture "<name>" --out <dir>`, once per exercise, with `IMAGE_GENERATION_SPEND_CAP_USD=0.12` per run inside the owner's cap of **$0.50** for the whole re-sample. The brief model was `z-ai/glm-5.3-flash` and the picture model `google/gemini-3.1-flash-lite-image`, the same picture model as finding 8. No athlete data was sent. All six runs wrote a picture and a brief on the first try.
 
-What was run, in the ticket's worktree database `ai_trainer_wt534`, which is fresh and holds no accounts:
+The exercises are finding 5's six. The catalogue has no plain "Triceps Extension" or "Pallof Press" (`import-exercises`, 1,315 rows), so I picked the closest catalogue exercises: "Dumbbell Seated Triceps Extension" (overhead, the nearest to finding 5's "straightening arm bent to 90 degr", a judgment) and "Band Horizontal Pallof Press". The others resolved by name: "Pull-Up", "Barbell Bench Press", "Face Pull", "Dumbbell Lateral Raise". Finding 8 drew from the plain names, so two rows compare a catalogue variant with a plain name.
 
-1. `Pull-Up`, first run: `result=refused reason=not_admin`. The worktree database had no admin account. Fixed by seeding the dev-session account (`scripts/dev_session.py`) and passing `ADMIN_EMAILS=dev-session@example.com` and `--admin` on the command line, so `.env` was untouched. Nothing was spent.
-2. `uv run ai-trainer import-exercises` loaded the catalogue (1,315 inserted, 10 skipped).
-3. `Pull-Up`, second run, with `IMAGE_GENERATION_SPEND_CAP_USD=0.50`: the brief step succeeded (`media.picture_brief`, `z-ai/glm-5.3-flash`, 633 input and 809 output tokens, cost $0.000383, 13.4 s). The picture step, `media.picture` on `google/gemini-3.1-flash-lite-image` through `POST /api/v1/images`, ended `result=failed step=image reason=error spent_usd=unknown` after 5.0 s. Its `llm_calls` row is `outcome=error` with no cost and zero tokens. No file was written. The `get-current-key` usage stayed at $0.681621 before and after (`get-current-key`, 2026-11-11), so the failed call looks unbilled; that key may not be the one the app uses.
-4. `Pull-Up`, retry, with the owner's yes: `result=cap_reached reason=cost_unknown spent_usd=unknown`, before any image call. The command's guard stops a run when a call's cost is unknown (ADR-0031 *Picture generation*), so a retry cannot run. Which row it read as having no cost is not known.
+| Exercise (catalogue name) | Cost, command line | Printed text | Brief used (`image_prompt` of its `.brief.json`) |
+|---|---|---|---|
+| Pull-Up | $0.033950 | no | "One figure on a plain background demonstrating a pull-up. Start position: the person hangs from an overhead pull-up bar, gripping it with palms facing away from the body, arms fully extended straight, body hanging vertically below the bar. End position: the person has pulled their body up towards the bar, elbows bent, chest close to the bar, shoulder blades squeezed together, core engaged. Show the figure clearly in both positions. No text, letters, numbers, labels or arrows in the picture." |
+| Barbell Bench Press | $0.033993 | no | "One figure on a plain background demonstrating the barbell bench press. Start position: the person lies flat on their back on a bench, feet flat on the ground and back pressed against the bench, gripping a barbell with an overhand grip slightly wider than shoulder-width, arms fully extended holding the barbell directly above the chest. End position: the same person in the same lying position, barbell lowered to touch the chest, elbows tucked in and bent at the sides. Show both positions clearly. No text, letters, numbers, labels or arrows in the picture." |
+| Face Pull | $0.033944 | no | "Fitness instruction illustration of the Face Pull exercise, showing one figure twice on a plain background. Start position: the person stands facing a cable pulley machine set at about face height, gripping one end of the rope attachment in each hand with palms facing each other, arms fully straight, body stepped back so the cable is taut and the weight is lifted off the stack. End position: the same person has pulled the rope towards their face, elbows kept high and out to the sides, hands spread apart so they finish beside the ears, shoulder blades squeezed together, cable taut. Clean, simple instructional style, no text, letters, numbers, labels or arrows in the picture." |
+| Dumbbell Lateral Raise | $0.033981 | no | "One figure shown on a plain background demonstrating the dumbbell lateral raise. Start position: standing upright, feet shoulder-width apart, back straight, core engaged, a dumbbell in each hand with arms hanging down at the sides, palms facing the body, slight bend in the elbows. End position: same upright stance, arms raised out to the sides until parallel to the floor at shoulder height, dumbbells in each hand, slight bend in the elbows. Clean fitness illustration style, no text, letters, numbers, labels or arrows in the picture." |
+| Dumbbell Seated Triceps Extension | $0.033975 | no | "One figure on a plain background demonstrating the exercise \"Dumbbell Seated Triceps Extension\" in two positions. Start position: the figure sits on a bench with a straight back and feet flat on the ground, holding a dumbbell with both hands, arms extended straight up overhead. End position: the figure remains seated in the same posture, elbows bent, the dumbbell lowered behind the head with the upper arms close to the ears. No text, letters, numbers, labels or arrows in the picture." |
+| Band Horizontal Pallof Press | $0.034027 | no | "One person on a plain background demonstrating a band horizontal Pallof press: they stand perpendicular to a resistance band anchored at waist height, feet shoulder-width apart, gripping the band handle with both hands. At the start of the movement the hands are drawn in at the chest with elbows bent and close to the torso, the band taut; at the far end of the movement the arms are straight and extended forward from the chest, pressing the band away while the torso stays upright and stable. No text, letters, numbers, labels or arrows in the picture." |
 
-What is not known: the HTTP status and body of the failed image call, because the adapter turns any non-2xx answer, malformed body or missing image into `reason=error` and drops the detail (`src/ai_trainer/llm/images.py`). The request body (`model` and `prompt` only) matches OpenRouter's image-generation docs (`search-docs`, 2026-11-11), and #523 drew six pictures with this model through the MCP `generate-image` tool, so the cause could lie in our adapter, in OpenRouter's `/api/v1/images` route for this model, or in the upstream.
+Every brief ends with an explicit "No text, letters, numbers, labels or arrows" instruction, and the full brief (start and end position as well as the prompt) is in each `.brief.json`. The pictures are 1408×768 JPEGs with both positions side by side; I looked at them downscaled to 512 px.
 
-What was not done, on purpose: the failed row was not edited, and a second admin account was not made to get past the guard, since the guard is the owner's spend cap. The five other exercises were not run. Total spend: about $0.0004 (one brief; the second run's brief, if it made one, is not counted here).
+**Comparison with finding 8 (Gemini, same six).**
+
+| Exercise | Finding 8 (#523, plain-name prompt) | Finding 9 (generated brief) |
+|---|---|---|
+| Pull-up | printed label "Hanging Body Body" | no text. Hands stay on the bar in both positions, but the second figure is only slightly raised, so the top position may not show a full pull-up (owner's call) |
+| Bench press | printed labels, "Babows" and "Spotter's Arms" wrong | no readable text (the plates carry small marks, not words) |
+| Face pull | rope ended across the face, elbows flared | no text. The rope ends with the hands beside the ears, not across the face (owner's call on form) |
+| Lateral raise | labels not itemised in finding 8 | no text |
+| Triceps extension | labels not itemised in finding 8 | no text |
+| Pallof press | labels not itemised in finding 8 | no text; shown standing facing the wall anchor, not perpendicular as the brief says (owner's call) |
+| Wrong labels | 3 named in finding 8 (the finding counted no total) | 0 |
+| Pictures with printed text | at least 2 of 6 named (pull-up, bench press) | 0 of 6 |
+
+Finding 8 did not record text for the other four exercises, so the before-count is a lower bound. The labels did not print at all this time, so the next lever the ticket asks for (a negative instruction, which the briefs already contain, or Recraft vector) is not needed on the evidence of these six pictures. This is one picture per exercise, so it shows no more than that the instruction held six times. Form accuracy is not judged here; the owner's verdict is on the samples page: SAMPLES_URL. The pictures are not committed.
+
+**Spend.** Command lines summed by hand: $0.033950 + $0.033993 + $0.033944 + $0.033981 + $0.033975 + $0.034027 = **$0.203870**, against the cap of $0.50. Each line's `spent_usd` is the command's own figure, which includes the brief call (about $0.0004) and the picture call. A seventh run, "Bench Press", was refused before any call (`result=skipped reason=no_such_exercise spent_usd=0`): the catalogue names it "Barbell Bench Press". Cost source is the command output only; `get-current-key` was not read in this run.
+
+**The earlier blocked attempt.** The first try on 2026-11-11 stopped on "Pull-Up" because the command's image call timed out on a 5 s default and then its spend guard refused a retry (`cost_unknown`); finding 10 has the cause, and #543, #544 and #547 fixed the command. About $0.0004 was spent before that.
 
 ### 10. Why the picture call fails (#544)
 
@@ -230,7 +251,7 @@ Not needed for the pick (they concern options not chosen):
 - **Which Anthropic terms govern a Claude-written SVG used in the product.** Not needed for the pick.
 - **Cost of an SVG, and where it is stored.** Not needed for the pick.
 - **Per-image cost of the image models.** Measured for two models at #523 (finding 8). Still open for `openai/gpt-image-2.6-sunburst`, which was not run.
-- **Form accuracy of an image model and of Gym visual's pictures.** Samples exist for two image models (finding 8); on 2026-11-08 the owner picked `google/gemini-3.1-flash-lite-image` as the fallback source (ADR-0031, "Fallback media source (#524)"); no accuracy verdict is recorded here. Gym visual's pictures remain unjudged.
+- **Form accuracy of an image model and of Gym visual's pictures.** Samples exist for two image models (finding 8); on 2026-11-08 the owner picked `google/gemini-3.1-flash-lite-image` as the fallback source (ADR-0031, "Fallback media source (#524)"); no accuracy verdict is recorded here (a re-sample with generated briefs, finding 9 of #534, is awaiting the owner's verdict). Gym visual's pictures remain unjudged.
 
 ## Sources
 
