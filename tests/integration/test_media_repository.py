@@ -135,3 +135,154 @@ async def test_is_removed_reports_removed_sha256_and_embed_url(
     assert not await repository.is_removed(sha256=None, embed_url=suggested.embed_url)
     assert not await repository.is_removed(sha256="c" * 64, embed_url="https://example.com/x")
     assert not await repository.is_removed(sha256=None, embed_url=None)
+
+
+async def _custom_exercise(factory: SessionFactory) -> UUID:
+    exercise_id = uuid4()
+    user_id = uuid4()
+    async with factory() as session:
+        await session.execute(
+            text(
+                "INSERT INTO users (id, sub, email, name, locale, status) "
+                "VALUES (:id, :sub, :email, 'A', 'en', 'active')"
+            ),
+            {"id": user_id, "sub": f"media-{user_id}", "email": f"media-{user_id}@example.com"},
+        )
+        await session.execute(
+            text(
+                "INSERT INTO exercises (id, sport_id, owner_user_id, source, name, default_measure)"
+                " VALUES (:id, 'gym', :user, 'custom', 'Mine', 'reps')"
+            ),
+            {"id": exercise_id, "user": user_id},
+        )
+        await session.commit()
+    return exercise_id
+
+
+def _generated() -> MediaAsset:
+    return _stored().model_copy(
+        update={
+            "source": "ai-generated",
+            "source_ref": "google/gemini-3.1-flash-lite-image-20260630",
+            "attribution": "AI generated with Gemini 3.1 Flash Lite Image (Google) via OpenRouter",
+        }
+    )
+
+
+async def _linked(
+    repository: SqlAlchemyExerciseMediaRepository,
+    exercise_id: UUID,
+    asset: MediaAsset,
+    status: MediaLinkStatus = MediaLinkStatus.SUGGESTED,
+    position: int = 0,
+) -> UUID:
+    asset_id = await repository.add_asset(asset)
+    await repository.link(exercise_id, asset_id, position=position, status=status)
+    return asset_id
+
+
+async def test_approve_sets_a_suggested_link_approved(
+    db_session_factory: SessionFactory, repository: SqlAlchemyExerciseMediaRepository
+) -> None:
+    exercise_id = await _exercise(db_session_factory)
+    picture = _stored()
+    await _linked(repository, exercise_id, picture)
+    [row] = await repository.review_links(MediaLinkStatus.SUGGESTED, exercise_id=exercise_id)
+
+    assert await repository.approve(row.link_id)
+
+    assert [item.asset.sha256 for item in await repository.approved_for(exercise_id)] == [
+        picture.sha256
+    ]
+    assert await repository.review_links(MediaLinkStatus.SUGGESTED, exercise_id=exercise_id) == []
+
+
+async def test_approve_returns_false_when_not_suggested(
+    db_session_factory: SessionFactory, repository: SqlAlchemyExerciseMediaRepository
+) -> None:
+    exercise_id = await _exercise(db_session_factory)
+    await _linked(repository, exercise_id, _stored(), MediaLinkStatus.APPROVED, 0)
+    await _linked(repository, exercise_id, _stored(), MediaLinkStatus.REMOVED, 1)
+    [approved] = await repository.review_links(MediaLinkStatus.APPROVED, exercise_id=exercise_id)
+    [removed] = await repository.review_links(MediaLinkStatus.REMOVED, exercise_id=exercise_id)
+
+    assert not await repository.approve(approved.link_id)
+    assert not await repository.approve(removed.link_id)
+    assert not await repository.approve(uuid4())
+
+    still_removed = await repository.review_link(removed.link_id)
+    assert still_removed is not None
+    assert still_removed.status is MediaLinkStatus.REMOVED
+    assert await repository.review_link(uuid4()) is None
+
+
+async def test_approve_wger_suggestions_skips_other_sources_and_other_exercises(
+    db_session_factory: SessionFactory, repository: SqlAlchemyExerciseMediaRepository
+) -> None:
+    exercise_id = await _exercise(db_session_factory)
+    other_id = await _exercise(db_session_factory)
+    first, second, generated, embedded, elsewhere = (
+        _stored(),
+        _stored(),
+        _generated(),
+        _embedded(),
+        _stored(),
+    )
+    for position, asset in enumerate((first, second, generated, embedded)):
+        await _linked(repository, exercise_id, asset, position=position)
+    await _linked(repository, other_id, elsewhere)
+
+    assert await repository.approve_suggested_from(exercise_id, "wger") == 2
+    assert await repository.approve_suggested_from(exercise_id, "wger") == 0
+
+    assert {item.asset.sha256 for item in await repository.approved_for(exercise_id)} == {
+        first.sha256,
+        second.sha256,
+    }
+    left = await repository.review_links(MediaLinkStatus.SUGGESTED, exercise_id=exercise_id)
+    assert [row.asset.source for row in left] == ["ai-generated", "youtube"]
+    assert await repository.approved_for(other_id) == []
+
+
+async def test_review_links_lists_catalogue_links_by_exercise_then_position(
+    db_session_factory: SessionFactory, repository: SqlAlchemyExerciseMediaRepository
+) -> None:
+    exercise_id = await _exercise(db_session_factory)
+    custom_id = await _custom_exercise(db_session_factory)
+    later, earlier = _stored(), _embedded()
+    await _linked(repository, exercise_id, later, position=3)
+    await _linked(repository, exercise_id, earlier, position=1)
+    await _linked(repository, exercise_id, _stored(), MediaLinkStatus.APPROVED, 2)
+    await _linked(repository, custom_id, _stored())
+
+    rows = await repository.review_links(MediaLinkStatus.SUGGESTED)
+
+    mine = [row for row in rows if row.exercise_id == exercise_id]
+    assert [(row.position, row.asset.model_copy(update={"id": None})) for row in mine] == [
+        (1, earlier),
+        (3, later),
+    ]
+    assert all(row.exercise_name == "Row" for row in mine)
+    assert all(row.status is MediaLinkStatus.SUGGESTED for row in mine)
+    assert all(row.exercise_id != custom_id for row in rows)
+    assert await repository.review_links(MediaLinkStatus.SUGGESTED, exercise_id=custom_id) == []
+
+
+async def test_status_counts_count_catalogue_links_per_status(
+    db_session_factory: SessionFactory, repository: SqlAlchemyExerciseMediaRepository
+) -> None:
+    before = await repository.status_counts()
+    exercise_id = await _exercise(db_session_factory)
+    custom_id = await _custom_exercise(db_session_factory)
+    await _linked(repository, exercise_id, _stored(), position=0)
+    await _linked(repository, exercise_id, _stored(), position=1)
+    await _linked(repository, exercise_id, _stored(), MediaLinkStatus.APPROVED, 2)
+    await _linked(repository, custom_id, _stored())
+
+    after = await repository.status_counts()
+
+    assert {status: after[status] - before[status] for status in MediaLinkStatus} == {
+        MediaLinkStatus.SUGGESTED: 2,
+        MediaLinkStatus.APPROVED: 1,
+        MediaLinkStatus.REMOVED: 0,
+    }
