@@ -117,6 +117,12 @@ Owner-directed 2026-11-07, at #514. Evidence: [exercise-media.md](../research/ex
 - **Skipped at import:** an image with no author, because a `licensed` row needs an `attribution` the CHECK accepts and the credit has no author to name. Owner-decided 2026-11-07.
 - **AI-flagged images stay eligible:** an image wger flags as AI-generated is imported with the flag kept in `source_ref`, and the card adds "AI generated" beside the credit. The admin judges it in F24 review like any other picture. Owner-decided 2026-11-07.
 - **Rejected:** Gym visual, because the owner will not pay for content in a side project, so G16 *Out* holds until permission is held. `free-exercise-db`'s images, because G16 puts them *Out*: its maintainer does not know their origin ([issue #2](https://github.com/yuhonas/free-exercise-db/issues/2)) and finding 1 of the research calls them likely infringing.
+- **The import (#552).** Owner-decided 2026-11-11, at #552's plan. `ai-trainer import-wger-pictures [--limit N]` reads wger's images, licences and English exercise names, and links each picture to a shared catalogue exercise:
+  - **Matching** is catalogue-only plain trigram similarity of wger's English name against each catalogue exercise's name and catalogue aliases (never an athlete's), kept only at or above `EXERCISE_NEAR_MATCH_THRESHOLD` (0.75), not the shortlist's 0.25 floor. The shortlist's full-text term is left out, because it would tie every name holding the typed words. A picture below the threshold is reported `unmatched` and not stored.
+  - **Jev is deferred.** No decision step confirms the match. Every link is `suggested`, and the admin's F24 review is the confirmation.
+  - **`source_ref`** is the image's API record URL, `https://wger.de/api/v2/exerciseimage/<id>/`, with `#ai-generated` appended when wger flags the image.
+  - **`license`** is the licence's `short_name` from `/api/v2/license/`. An image whose licence id is not in that list is skipped (`unknown_licence`), like one with no author.
+  - A `sha256` already in `media_assets`, a `removed` one included, is skipped (`known_sha256`), so a second run writes nothing.
 
 #### Fallback media source (#524)
 
@@ -171,6 +177,7 @@ Owner-directed 2026-11-08, at #531. Evidence: [exercise-media.md](../research/ex
 - The F23 card needs a Claude Design mock with a media slot before its web ticket (ADR-0019).
 - ⚠ The media source is `wger` (see "First media source (#514)", 2026-11-07). The import is the M2m ticket's work. Until it lands, cards show text only.
 - ⚠ A fallback source fills `wger`'s gaps (see "Fallback media source (#524)", 2026-11-08). The generation flow, the brief rules against printed text, and the spend cap are recorded in "Picture generation (#531)", 2026-11-08. The import and the code are M2m's work.
+- Owner-directed amendment, 2026-11-11, at #552: it adds "The import (#552)" under "First media source (#514)" and changes no other Decision or Invariant.
 - Owner-directed amendment, 2026-11-08, at #531: it adds "Picture generation (#531)" and changes no Decision or Invariant.
 - Owner-directed amendment, 2026-11-08, at #533: in "Picture generation (#531)" the open budget question is settled. The command is outside ADR-0029's per-user budget, bounded by its spend cap and one exercise per run. It changes no other Decision or Invariant.
 - Owner-directed amendment, 2026-11-07, with [PRD 0012](../prd/0012-ai-training-companion.md) (F24, G16, G17). It is proposed for the owner's review with this branch's PR and holds once PRD 0012 is Approved. The app is a non-commercial side project, so media its owner published freely without stating a licence may be embedded after an admin approves it. This adds `rights`, `delivery`, `embed_url` and `removed` above, relaxes "a license we hold" and invariant 5, and leaves the admin gate and the attribution rule for licensed media as they were.
