@@ -24,8 +24,9 @@ code 0 (`result=stored asset=<id> exercise=<id> link=suggested spent_usd=<x>` fo
 the two paths appended when `--out` is given too), or
 `result=skipped|refused|cap_reached|failed reason=<...> spent_usd=<x|unknown>` with exit code 1
 (#543: a failed image call adds `cause=http_status|transport|malformed_body|empty_data|
-bad_base64|unsupported_type`, then `status=<n>`, `error=<provider code>` and `message=<quoted,
-never the prompt or a key>` when known, and a `cost_unknown` stop adds `template=<id>` of the
+bad_base64|unsupported_type|unexpected`, then `status=<n>`, `error=<provider code, or the
+exception class for transport>` and `message=<quoted>` when known, neither holding the prompt or
+a key, and a `cost_unknown` stop adds `template=<id>` of the
 call with no cost),
 and then no file is written (a failed write is `result=failed reason=write_error`, a failed
 upload `reason=storage_error`, a failed row write `reason=database_error`, and the same bytes

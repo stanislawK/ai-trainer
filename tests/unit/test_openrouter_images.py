@@ -377,7 +377,7 @@ async def test_timeout_is_a_timeout_row() -> None:
     assert row.cost is None
 
 
-async def test_an_unexpected_exception_is_an_error_row_with_a_transport_cause() -> None:
+async def test_an_unexpected_exception_is_an_error_row_with_an_unexpected_cause() -> None:
     def handler(request: httpx2.Request) -> httpx2.Response:
         raise RuntimeError("boom")
 
@@ -385,5 +385,46 @@ async def test_an_unexpected_exception_is_an_error_row_with_a_transport_cause() 
 
     result = await _generator(handler, calls).generate(user_id=_ADMIN, prompt=_PROMPT)
 
-    assert result == ImageGenerationFailed(reason="error", cause="transport")
+    assert result == ImageGenerationFailed(reason="error", cause="unexpected")
     assert [row.outcome for row in calls.recorded] == [LlmCallOutcome.ERROR]
+
+
+async def test_a_client_timeout_keeps_its_error_row_and_names_its_class() -> None:
+    """The accountant reads only the adapter's own `timeout_seconds` as a timeout; an httpx2
+    timeout was an `error` row before #543 and still is (accounting unchanged)."""
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        raise httpx2.ReadTimeout("slow", request=request)
+
+    calls = _Calls()
+
+    result = await _generator(handler, calls).generate(user_id=_ADMIN, prompt=_PROMPT)
+
+    assert result == ImageGenerationFailed(
+        reason="error", cause="transport", error_code="ReadTimeout"
+    )
+    assert [row.outcome for row in calls.recorded] == [LlmCallOutcome.ERROR]
+
+
+async def test_a_provider_code_echoing_prompt_or_key_is_redacted() -> None:
+    code = f"bad {_PROMPT} sk-or-v1-test"
+
+    result = await _generator(
+        lambda request: httpx2.Response(400, json={"error": {"code": code}}), _Calls()
+    ).generate(user_id=_ADMIN, prompt=_PROMPT)
+
+    assert isinstance(result, ImageGenerationFailed)
+    assert result.error_code == "bad [redacted] [redacted]"
+
+
+async def test_a_message_echoing_part_of_the_prompt_is_dropped_whole() -> None:
+    message = f'Prompt blocked: "{_PROMPT[:40]}..."'
+
+    result = await _generator(
+        lambda request: httpx2.Response(403, json={"error": {"code": 403, "message": message}}),
+        _Calls(),
+    ).generate(user_id=_ADMIN, prompt=_PROMPT)
+
+    assert isinstance(result, ImageGenerationFailed)
+    assert result.error_message == "[redacted]"
+    assert result.error_code == "403"

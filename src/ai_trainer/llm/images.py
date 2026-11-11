@@ -97,6 +97,11 @@ class _ErrorBody(BaseModel):
 
 
 _MAX_MESSAGE = 200
+_MAX_CODE = 64
+# A provider message holding any run of this many of the prompt's characters is dropped whole:
+# it may be echoing a fragment the exact-match redaction can't see.
+_ECHO_WINDOW = 20
+_REDACTED = "[redacted]"
 
 
 def _failed(
@@ -115,12 +120,22 @@ def _failed(
     )
 
 
-def _safe_message(message: str, *, prompt: str, api_key: str) -> str:
-    """The provider's message without the prompt or the key, on one line, at most 200 chars."""
+def _echoes(text: str, prompt: str) -> bool:
+    window = min(_ECHO_WINDOW, len(prompt))
+    return window > 0 and any(
+        prompt[start : start + window] in text for start in range(len(prompt) - window + 1)
+    )
+
+
+def _safe_text(text: str, *, prompt: str, api_key: str, limit: int) -> str:
+    """Provider text without the prompt or the key, on one line, at most `limit` chars; text
+    that still echoes part of the prompt is dropped whole."""
     for secret in (api_key, prompt):
         if secret:
-            message = message.replace(secret, "[redacted]")
-    return " ".join(message.split())[:_MAX_MESSAGE]
+            text = text.replace(secret, _REDACTED)
+    if _echoes(text, prompt):
+        return _REDACTED
+    return " ".join(text.split())[:limit]
 
 
 def _http_failure(response: httpx2.Response, *, prompt: str, api_key: str) -> ImageGenerationFailed:
@@ -131,11 +146,15 @@ def _http_failure(response: httpx2.Response, *, prompt: str, api_key: str) -> Im
     return _failed(
         "http_status",
         status=response.status_code,
-        error_code=None if error.code is None else str(error.code),
+        error_code=(
+            None
+            if error.code is None
+            else _safe_text(str(error.code), prompt=prompt, api_key=api_key, limit=_MAX_CODE)
+        ),
         error_message=(
             None
             if error.message is None
-            else _safe_message(error.message, prompt=prompt, api_key=api_key)
+            else _safe_text(error.message, prompt=prompt, api_key=api_key, limit=_MAX_MESSAGE)
         ),
     )
 
@@ -186,7 +205,8 @@ class OpenRouterImageGenerator:
             return attempt.value.outcome
         if attempt.outcome is LlmCallOutcome.TIMEOUT:
             return ImageGenerationFailed(reason="timeout")
-        return _failed("transport")
+        # `_post` turns every HTTP error but a timeout into a reply, so this is anything else.
+        return _failed("unexpected")
 
     async def _post(self, prompt: str) -> _Reply:
         try:

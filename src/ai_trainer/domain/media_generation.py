@@ -118,7 +118,13 @@ class GeneratedImage:
 
 
 type ImageFailureCause = Literal[
-    "http_status", "transport", "malformed_body", "empty_data", "bad_base64", "unsupported_type"
+    "http_status",
+    "transport",
+    "malformed_body",
+    "empty_data",
+    "bad_base64",
+    "unsupported_type",
+    "unexpected",
 ]
 
 
