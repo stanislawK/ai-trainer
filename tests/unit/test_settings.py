@@ -984,3 +984,48 @@ def test_media_bucket_needs_the_storage_keys(monkeypatch: pytest.MonkeyPatch) ->
 
     assert "OBJECT_STORAGE_MEDIA_BUCKET" in str(excinfo.value)
     assert "OBJECT_STORAGE_ENDPOINT" in str(excinfo.value)
+
+
+def test_media_public_base_url_is_unset_by_default_and_blank_is_unset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _set_required_keys(monkeypatch)
+    monkeypatch.delenv("MEDIA_PUBLIC_BASE_URL", raising=False)
+    assert Settings(_env_file=None).media_public_base_url is None
+
+    monkeypatch.setenv("MEDIA_PUBLIC_BASE_URL", "  ")
+    assert Settings(_env_file=None).media_public_base_url is None
+
+
+def test_media_public_base_url_keeps_its_path_and_drops_a_trailing_slash(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _set_required_keys(monkeypatch)
+    monkeypatch.setenv("MEDIA_PUBLIC_BASE_URL", "http://localhost:7070/ai-trainer-media/")
+
+    assert (
+        Settings(_env_file=None).media_public_base_url == "http://localhost:7070/ai-trainer-media"
+    )
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "ftp://media.example.com",
+        "media.example.com",
+        "https://user:secret@media.example.com",
+        "https://media.example.com/?token=secret",
+        "https://media.example.com/#secret",
+        "https://[secret.example.com/",
+    ],
+)
+def test_media_public_base_url_rejects_the_wrong_shape_without_echoing_it(
+    monkeypatch: pytest.MonkeyPatch, value: str
+) -> None:
+    _set_required_keys(monkeypatch)
+    monkeypatch.setenv("MEDIA_PUBLIC_BASE_URL", value)
+
+    with pytest.raises(ValueError, match="MEDIA_PUBLIC_BASE_URL") as raised:
+        Settings(_env_file=None)
+
+    assert "secret" not in str(raised.value)

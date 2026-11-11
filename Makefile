@@ -175,8 +175,8 @@ import-exercises: ## Upsert the exercise catalogue from the pinned dataset commi
 backfill-gym-sessions: ## Write gym sessions logged before the typed tables into them; payloads stay as stored, a second run writes nothing (ADR-0032); needs the stack's database up
 	uv run ai-trainer backfill-gym-sessions
 
-storage-check: ## Put, read back and delete a probe object in the local uploads bucket and try a short presigned link (ADR-0033); runs in the app container, needs `make start` and no R2 account
-	docker compose -f compose.yaml -f compose.dev.yaml exec -T app ai-trainer storage-check
+storage-check: ## Put, read back and delete a probe object in the local uploads bucket, check it is private and try a short presigned link, then read a media probe anonymously (ADR-0033, #553); runs in the app container, needs `make start` and no R2 account
+	docker compose -f compose.yaml -f compose.dev.yaml exec -T -e MEDIA_PUBLIC_BASE_URL=http://storage:7070/ai-trainer-media app ai-trainer storage-check
 
 import-wger-pictures: ## Import wger's authored pictures into the local media bucket as `suggested` links on matched catalogue exercises; [limit=N] reads only the first N images (ADR-0031, #552); runs in the app container, needs `make start` and the imported catalogue; real requests to wger.de, no model calls
 	docker compose -f compose.yaml -f compose.dev.yaml exec -T app ai-trainer import-wger-pictures $(if $(limit),--limit $(limit))

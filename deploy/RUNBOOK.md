@@ -675,7 +675,12 @@ It takes about five seconds. It writes one probe object under `storage-check/`, 
 
 | Line | Meaning |
 |---|---|
-| `storage-check: result=ok bucket=ai-trainer-uploads steps=put,read,link,expiry,delete` | The bucket, the token, deleting and link expiry all work |
+| `storage-check: result=ok bucket=ai-trainer-uploads steps=put,private,read,link,expiry,delete` | The bucket, the token, deleting and link expiry all work, and an anonymous read of the object is refused |
+| `storage-check: media=ok bucket=ai-trainer-media steps=media_put,media_public,media_delete` | Printed before the `result=ok` line once 14.4 is done: the media probe was readable from `MEDIA_PUBLIC_BASE_URL` with no credentials |
+| `storage-check: media=skipped reason=no_public_url` | `MEDIA_PUBLIC_BASE_URL` isn't set, so the media bucket's public read wasn't checked (14.4) |
+| `result=failed step=private reason=status_200` | The uploads bucket answers a request with no credentials. Turn public access off on it: never a custom domain or `r2.dev` there |
+| `result=failed step=media_public reason=status_<n>` | The probe wasn't readable at its public URL: `status_403` or `status_404` means the custom domain isn't connected to the media bucket yet, or `MEDIA_PUBLIC_BASE_URL` has the wrong host |
+| `result=failed step=media_put reason=not_configured` | `MEDIA_PUBLIC_BASE_URL` is set without `OBJECT_STORAGE_MEDIA_BUCKET` |
 | `result=failed reason=not_configured` | The keys aren't in the app's environment. Recreate the app after editing `.env` |
 | `result=failed step=put reason=denied` | The token is wrong, or isn't scoped to this bucket |
 | `result=failed step=put reason=not_found` | The bucket doesn't exist. Check `OBJECT_STORAGE_UPLOADS_BUCKET` |
@@ -684,9 +689,9 @@ It takes about five seconds. It writes one probe object under `storage-check/`, 
 
 `probe_left=true` on a failed line means the probe object may still be in the bucket: delete it under `storage-check/` in the dashboard. A `step=put reason=unavailable` line can also leave one, if the write landed and only its answer was lost, so look there after a run that failed that way.
 
-### 14.4 Media bucket (ticket #530)
+### 14.4 Media bucket (tickets #530, #553)
 
-Catalogue exercise pictures (ADR-0031) live in a second bucket, `ai-trainer-media`, on the same R2 account and token. It holds no user data. The app starts without it, and nothing writes to it until the media importer ships, so a release never waits on this step. Its public custom domain comes with the ticket that first serves a picture; until then leave public access off.
+Catalogue exercise pictures (ADR-0031) live in a second bucket, `ai-trainer-media`, on the same R2 account and token. It holds no user data. The app starts without it, so a release never waits on this step. A browser loads a picture from the bucket's public custom domain, never `r2.dev` (rate-limited and uncached).
 
 The owner creates it on the laptop:
 
@@ -694,13 +699,24 @@ The owner creates it on the laptop:
 npx wrangler r2 bucket create ai-trainer-media --location weur
 ```
 
-Edit the token from 14.1 so **Apply to specific buckets only** lists both `ai-trainer-uploads` and `ai-trainer-media`. Then add to `/opt/ai-trainer/.env` and recreate as in 14.2:
+Edit the token from 14.1 so **Apply to specific buckets only** lists both `ai-trainer-uploads` and `ai-trainer-media`.
+
+Then connect the custom domain. It must be a subdomain of a zone on this Cloudflare account, for example `media.<your domain>`:
+
+1. Cloudflare dashboard, R2, `ai-trainer-media`, Settings, **Custom Domains**, **Add**. Enter the media domain and confirm; Cloudflare adds the DNS record. Leave **Public Development URL** (`r2.dev`) disabled.
+2. Caching: the domain is proxied, so add a **Cache Rule** for that hostname (the zone's Caching, Cache Rules): *Eligible for cache*, Edge TTL *Use cache-control header if present, otherwise 1 day*. A picture's key holds its content hash, so a stored picture never changes under its URL and a long cache is safe.
+3. Once a picture is stored, the second request for it from the laptop shows `cf-cache-status: HIT`.
+
+Then add to `/opt/ai-trainer/.env` and recreate as in 14.2:
 
 ```sh
 OBJECT_STORAGE_MEDIA_BUCKET=ai-trainer-media
+MEDIA_PUBLIC_BASE_URL=https://<media domain>
 ```
 
-It needs the whole `OBJECT_STORAGE_*` set from 14.2, the uploads bucket included. Set without it, the app refuses to start and names the missing keys.
+`MEDIA_PUBLIC_BASE_URL` is the media domain's origin, with no `r2.dev` and no credentials or query (a trailing slash is dropped). A stored picture's URL is that base plus its storage key. Unset, the app has no picture URL and `storage-check` skips the media step.
+
+It needs the whole `OBJECT_STORAGE_*` set from 14.2, the uploads bucket included. Set without it, the app refuses to start and names the missing keys. After recreating, run `storage-check` (14.3): its `media=ok` line proves a probe put in the media bucket is readable through the custom domain with no credentials, and its `private` step proves `uploads` is still refused.
 
 ## 15. Ingest container
 

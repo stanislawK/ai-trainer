@@ -348,6 +348,7 @@ class Settings(ExerciseSearchSettings, ObjectStorageSettings, BaseSettings):
         "object_storage_secret_access_key",
         "object_storage_uploads_bucket",
         "object_storage_media_bucket",
+        "media_public_base_url",
         mode="before",
     )
     @classmethod

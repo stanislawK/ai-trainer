@@ -18,6 +18,7 @@ from urllib.request import Request, urlopen
 ACCESS_KEY_ID = "AKIATESTACCESSKEY"
 SECRET_ACCESS_KEY = "test-secret-access-key"
 BUCKET = "test-uploads"
+MEDIA_BUCKET = "test-media"
 
 
 @dataclass
@@ -31,6 +32,9 @@ class S3State:
     refuse_with: int | None = None
     # Answer a GET with bytes that aren't HTTP, as a broken proxy might.
     answer_garbage: bool = False
+    # Whether an unsigned GET of each bucket is served, as versitygw does for a public-read ACL.
+    uploads_public: bool = False
+    media_public: bool = True
     # GETs served, so a test can tell `size` read no bytes.
     gets: int = 0
     endpoint: str = ""
@@ -54,7 +58,17 @@ def _handler(state: S3State) -> type[BaseHTTPRequestHandler]:
             self.wfile.write(body)
 
         def _key(self) -> str:
-            return urlsplit(self.path).path.removeprefix(f"/{BUCKET}/")
+            path = urlsplit(self.path).path
+            return path.removeprefix(f"/{BUCKET}/").removeprefix(f"/{MEDIA_BUCKET}/")
+
+        def _anonymous_refused(self) -> bool:
+            signed = "Authorization" in self.headers or "X-Amz-Signature" in self.path
+            media = self.path.startswith(f"/{MEDIA_BUCKET}/")
+            public = state.media_public if media else state.uploads_public
+            if signed or public:
+                return False
+            self._send(403, _refusal("AccessDenied"))
+            return True
 
         def _refused(self) -> bool:
             if state.refuse_with is None:
@@ -87,7 +101,7 @@ def _handler(state: S3State) -> type[BaseHTTPRequestHandler]:
             if state.answer_garbage:
                 self.wfile.write(b"garbage not http\r\n\r\n")
                 return
-            if self._refused() or self._expired():
+            if self._refused() or self._expired() or self._anonymous_refused():
                 return
             state.gets += 1
             body = state.objects.get(self._key())
