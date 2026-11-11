@@ -5,6 +5,7 @@ mock transport, and Jev faked behind `DecisionGatewayPort` (or behind the real g
 catalogue exercises it matches are real rows, in their own sport, and every row it writes is
 removed after."""
 
+import argparse
 import asyncio
 import hashlib
 import io
@@ -26,14 +27,14 @@ from pydantic_ai.models.decision import (
 )
 from pydantic_ai.usage import RequestUsage
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncEngine
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
 from ai_trainer import cli
 from ai_trainer.adapters.db import build_engine, build_session_factory
 from ai_trainer.adapters.llm_calls_repository import SqlAlchemyLlmCallsRepository
 from ai_trainer.adapters.users_repository import SqlAlchemyUsersRepository
 from ai_trainer.application.ports.decision_gateway import DecisionResult
-from ai_trainer.cli_media_wger import IMPORT_WGER_PICTURES, WgerHooks
+from ai_trainer.cli_media_wger import IMPORT_WGER_PICTURES, WgerHooks, import_wger_pictures
 from ai_trainer.domain.llm_calls import LlmCallOutcome
 from ai_trainer.domain.users import NewUser, UserStatus
 from ai_trainer.llm.decision_gateway import OpenRouterDecisionGateway
@@ -494,6 +495,34 @@ async def test_no_media_bucket_is_refused_before_any_request(
         "import-wger-pictures: result=refused reason=storage_not_configured\n"
     )
     assert site.requests == []
+
+
+async def test_no_media_bucket_is_refused_without_reading_the_database(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Settings alone refuse a run with no bucket: the admin lookup comes after (#555 review)."""
+    monkeypatch.setenv("OBJECT_STORAGE_MEDIA_BUCKET", "")
+    # A listed admin, so only the active-account lookup could still read the database.
+    monkeypatch.setenv("ADMIN_EMAILS", "admin@example.com")
+    opened: list[None] = []
+
+    def no_database() -> AsyncSession:
+        opened.append(None)
+        raise AssertionError("the database was read")
+
+    output = io.StringIO()
+    code = await import_wger_pictures(
+        Settings(),
+        no_database,
+        argparse.Namespace(limit=None, admin="admin@example.com"),
+        output=output,
+    )
+
+    assert code == 1
+    assert output.getvalue() == (
+        "import-wger-pictures: result=refused reason=storage_not_configured\n"
+    )
+    assert opened == []
 
 
 @pytest.mark.parametrize("limit", ["0", "-3", "many"], ids=["zero", "negative", "word"])

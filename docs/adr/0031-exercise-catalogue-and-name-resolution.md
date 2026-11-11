@@ -123,7 +123,7 @@ Owner-directed 2026-11-07, at #514. Evidence: [exercise-media.md](../research/ex
   - **Admin and accounting** (#555), as *Picture generation*: `--admin` defaults to the one `ADMIN_EMAILS` entry and must be listed there and belong to an active account, checked before any request or call (`refused reason=admin_required|not_admin`). Each Jev call writes one `llm_calls` row under that admin. The command is outside ADR-0029's per-user budget, and `--limit` bounds its calls.
   - **`source_ref`** is the image's API record URL, `https://wger.de/api/v2/exerciseimage/<id>/`, with `#ai-generated` appended when wger flags the image.
   - **`license`** is the licence's `short_name` from `/api/v2/license/`. An image whose licence id is not in that list is skipped (`unknown_licence`), like one with no author.
-  - A `sha256` already in `media_assets`, a `removed` one included, is skipped (`known_sha256`), so a second run writes nothing.
+  - A `sha256` already in `media_assets`, a `removed` one included, is skipped (`known_sha256`), so a second run stores nothing. It still asks Jev once per name, because the pick comes before the download and the `sha256` is known only after it, so it writes those calls' `llm_calls` rows (#555).
 
 #### Fallback media source (#524)
 

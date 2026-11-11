@@ -93,6 +93,12 @@ async def import_wger_pictures(
     output: TextIO,
     hooks: WgerHooks | None = None,
 ) -> int:
+    hooks = hooks or WgerHooks()
+    # Settings alone answer these two, so neither reads the database.
+    storage = hooks.storage or build_media_storage(settings)
+    if storage is None:
+        output.write(f"{_PREFIX}result=refused reason=storage_not_configured\n")
+        return 1
     email = default_admin_email(args.admin, settings.admin_emails)
     if email is None:
         output.write(f"{_PREFIX}result=refused reason=admin_required\n")
@@ -100,11 +106,6 @@ async def import_wger_pictures(
     admin_id = await resolve_operator_admin(settings, session_factory, email)
     if admin_id is None:
         output.write(f"{_PREFIX}result=refused reason=not_admin\n")
-        return 1
-    hooks = hooks or WgerHooks()
-    storage = hooks.storage or build_media_storage(settings)
-    if storage is None:
-        output.write(f"{_PREFIX}result=refused reason=storage_not_configured\n")
         return 1
     async with httpx2.AsyncClient(transport=hooks.transport) as http_client:
         importer = build_wger_picture_import(
