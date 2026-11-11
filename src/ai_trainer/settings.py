@@ -35,6 +35,7 @@ from ai_trainer.settings_values import (
     ExerciseSearchSettings,
     ObjectStorageSettings,
     ProviderPreferencesSetting,
+    PublicOrigin,
     http_origin,
 )
 
@@ -238,12 +239,16 @@ class Settings(ExerciseSearchSettings, ObjectStorageSettings, BaseSettings):
     # PMC's Cloud Service bucket, public and anonymous, read by PMC ID when an admin token stages
     # papers (ADR-0036, #458). The timeout bounds one article's two GETs together; at most 10, so
     # a request's 20 articles, five at a time, answer well inside Cloudflare's 100 seconds.
-    pmc_bucket_url: str = "https://pmc-oa-opendata.s3.amazonaws.com"
+    pmc_bucket_url: PublicOrigin = "https://pmc-oa-opendata.s3.amazonaws.com"
     pmc_timeout_seconds: float = Field(default=8.0, gt=0, le=10)
     # The `ingest` worker's download of an approved article's JATS (#463): one deadline for the
     # file's GET. Longer than the staging request's, since it is off any request and a file can
     # be several megabytes; well under the worker's lease.
     pmc_jats_timeout_seconds: float = Field(default=30.0, gt=0, le=120)
+    # wger.de, the first media source (ADR-0031, #552), read anonymously by
+    # `import-wger-pictures`. The timeout bounds each request: a listing page or one image file.
+    wger_base_url: PublicOrigin = "https://wger.de"
+    wger_timeout_seconds: float = Field(default=20.0, gt=0, le=120)
 
     # Google sign-in (ADR-0005). No Google access or refresh token is ever stored.
     # Required and non-blank: a blank value otherwise fails only on Google's own page.
@@ -300,17 +305,6 @@ class Settings(ExerciseSearchSettings, ObjectStorageSettings, BaseSettings):
             raise ValueError(
                 "PUBLIC_BASE_URL must be an http(s) origin without a path, such as "
                 f"http://localhost:8000, not {value!r}"
-            )
-        return origin
-
-    @field_validator("pmc_bucket_url")
-    @classmethod
-    def _pmc_bucket_url_is_an_origin(cls, value: str) -> str:
-        origin = http_origin(value)
-        if origin is None:
-            raise ValueError(
-                "PMC_BUCKET_URL must be an http(s) origin without a path, such as "
-                "https://pmc-oa-opendata.s3.amazonaws.com"
             )
         return origin
 

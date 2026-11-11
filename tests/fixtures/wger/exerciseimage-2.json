@@ -1,0 +1,51 @@
+{
+  "count": 4,
+  "next": null,
+  "previous": "https://wger.de/api/v2/exerciseimage/?limit=100",
+  "results": [
+    {
+      "id": 19,
+      "uuid": "065f9418-6245-46ae-8e24-b4013ce084e4",
+      "exercise": 95,
+      "exercise_uuid": "bcb7020c-8678-496d-8f4d-aad0e233a5bd",
+      "image": "https://wger.de/media/exercise-images/129/Standing-biceps-curl-1.png",
+      "thumbnails": {
+        "small": "https://wger.de/media/exercise-images/129/Standing-biceps-curl-1.png.200x200_q85.png",
+        "medium": "https://wger.de/media/exercise-images/129/Standing-biceps-curl-1.png.400x400_q85.png"
+      },
+      "is_main": true,
+      "style": "1",
+      "license": 1,
+      "license_title": "",
+      "license_object_url": "",
+      "license_author": "Everkinetic",
+      "license_author_url": "",
+      "license_derivative_source_url": "",
+      "author_history": [],
+      "is_ai_generated": false
+    },
+    {
+      "id": 724,
+      "uuid": "e947b431-e4c4-48fa-bb21-de293734cce8",
+      "exercise": 2673,
+      "exercise_uuid": "9776bcb9-90a8-4f20-898f-652f82cabd5f",
+      "image": "https://wger.de/media/exercise-images/2673/e947b431-e4c4-48fa-bb21-de293734cce8.jpg",
+      "thumbnails": {
+        "small": "https://wger.de/media/exercise-images/2673/e947b431-e4c4-48fa-bb21-de293734cce8.jpg.200x200_q85.jpg",
+        "medium": "https://wger.de/media/exercise-images/2673/e947b431-e4c4-48fa-bb21-de293734cce8.jpg.400x400_q85.jpg"
+      },
+      "is_main": false,
+      "style": "5",
+      "license": 2,
+      "license_title": "",
+      "license_object_url": "",
+      "license_author": "gemini",
+      "license_author_url": "",
+      "license_derivative_source_url": "",
+      "author_history": [
+        "gemini"
+      ],
+      "is_ai_generated": true
+    }
+  ]
+}
