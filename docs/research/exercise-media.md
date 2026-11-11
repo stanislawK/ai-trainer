@@ -142,6 +142,21 @@ Output terms, read 2026-11-08:
 - **OpenAI.** **Unread.** `openai.com/policies/service-terms/` and `openai.com/policies/row-terms-of-use/` returned HTTP 403 to an automated fetch on 2026-11-08, as `terms-of-use` did on 2026-11-02 (finding 4). Nothing is claimed about output ownership for `gpt-image-2.6-sunburst`, which was also not run.
 - Whether such pictures can be copyrighted at all is still not settled by any page read (finding 4).
 
+### 9. Re-sample with generated briefs (#534): blocked, no pictures
+
+Attempted 2026-11-11 with the owner's spend cap of $0.50 for the whole re-sample. **No picture was made, so there is no comparison with finding 8 yet.** The re-sample is blocked by two defects of `ai-trainer generate-exercise-picture` (#533), and two tickets unblock it: #543 makes the command report the real error and name the row behind `cost_unknown`, and #544 finds the root cause with web and OpenRouter MCP research.
+
+What was run, in the ticket's worktree database `ai_trainer_wt534`, which is fresh and holds no accounts:
+
+1. `Pull-Up`, first run: `result=refused reason=not_admin`. The worktree database had no admin account. Fixed by seeding the dev-session account (`scripts/dev_session.py`) and passing `ADMIN_EMAILS=dev-session@example.com` and `--admin` on the command line, so `.env` was untouched. Nothing was spent.
+2. `uv run ai-trainer import-exercises` loaded the catalogue (1,315 inserted, 10 skipped).
+3. `Pull-Up`, second run, with `IMAGE_GENERATION_SPEND_CAP_USD=0.50`: the brief step succeeded (`media.picture_brief`, `z-ai/glm-5.3-flash`, 633 input and 809 output tokens, cost $0.000383, 13.4 s). The picture step, `media.picture` on `google/gemini-3.1-flash-lite-image` through `POST /api/v1/images`, ended `result=failed step=image reason=error spent_usd=unknown` after 5.0 s. Its `llm_calls` row is `outcome=error` with no cost and zero tokens. No file was written. The `get-current-key` usage stayed at $0.681621 before and after (`get-current-key`, 2026-11-11), so the failed call looks unbilled; that key may not be the one the app uses.
+4. `Pull-Up`, retry, with the owner's yes: `result=cap_reached reason=cost_unknown spent_usd=unknown`, before any image call. The command's guard stops a run when a call's cost is unknown (ADR-0031 *Picture generation*), so a retry cannot run. Which row it read as having no cost is not known.
+
+What is not known: the HTTP status and body of the failed image call, because the adapter turns any non-2xx answer, malformed body or missing image into `reason=error` and drops the detail (`src/ai_trainer/llm/images.py`). The request body (`model` and `prompt` only) matches OpenRouter's image-generation docs (`search-docs`, 2026-11-11), and #523 drew six pictures with this model through the MCP `generate-image` tool, so the cause could lie in our adapter, in OpenRouter's `/api/v1/images` route for this model, or in the upstream.
+
+What was not done, on purpose: the failed row was not edited, and a second admin account was not made to get past the guard, since the guard is the owner's spend cap. The five other exercises were not run. Total spend: about $0.0004 (one brief; the second run's brief, if it made one, is not counted here).
+
 ### 10. Why the picture call fails (#544)
 
 Read on 2026-11-11. The picture command (`generate-exercise-picture`, #533) failed on 2026-11-11 in both runs, #534's and #544's: #534's image call ended `error` at 5003 ms, and #544's run stopped on its search call before any image call, while the MCP `generate-image` tool drew six pictures with the same model on 2026-11-08 (finding 8). The cause is in our wiring, not at OpenRouter or Google. The command's HTTP client has no timeout, so httpx2's 5 s default applies, and the image model takes about 5.4 s or longer. Paid calls were made in this ticket with the owner's yes and a cap of $0.10 (the command once, and two direct adapter probes, no athlete data). Their outputs were recorded in the ticket's state file; this finding reads them and runs nothing.
