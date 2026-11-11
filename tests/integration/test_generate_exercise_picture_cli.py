@@ -319,7 +319,7 @@ async def test_store_writes_a_suggested_link(admin_id: UUID) -> None:
     [link] = await _links(_NAME)
     assert link["status"] == "suggested"
     assert (link["rights"], link["delivery"], link["embed_url"]) == ("licensed", "stored", None)
-    assert link["source_ref"] == Settings().image_generation_model
+    assert link["source_ref"] == "google/gemini-3.1-flash-lite-image-20260630"
     assert bucket.objects == {str(link["storage_key"]): _PICTURE}
     assert output.getvalue().startswith(
         f"generate-exercise-picture: result=stored asset={link['asset_id']} exercise="

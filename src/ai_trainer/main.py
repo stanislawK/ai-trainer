@@ -132,6 +132,7 @@ from ai_trainer.mcp.citations import cited_sources
 from ai_trainer.mcp.server import build_mcp_server
 from ai_trainer.mcp.toolset import build_toolset
 from ai_trainer.settings import Settings
+from ai_trainer.settings_values import image_model_source_ref
 from ai_trainer.web.active_user_gate import ActiveUserGateMiddleware
 from ai_trainer.web.admin import build_admin_router
 from ai_trainer.web.ai_onboarding import build_ai_onboarding_router
@@ -431,7 +432,7 @@ def build_exercise_picture_store(
         storage=storage,
         media=SqlAlchemyExerciseMediaRepository(session_factory),
         clock=UtcClock(),
-        model=settings.image_generation_model,
+        model=image_model_source_ref(settings.image_generation_model),
     )
 
 
