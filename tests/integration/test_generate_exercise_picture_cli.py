@@ -484,3 +484,68 @@ async def test_no_out_and_no_store_is_refused(admin_id: UUID) -> None:
     assert code == 1
     assert output.getvalue() == "generate-exercise-picture: result=refused reason=no_destination\n"
     assert seen == []
+
+
+def _recording(seen: list[httpx2.Request], inner: httpx2.MockTransport) -> httpx2.MockTransport:
+    async def handler(request: httpx2.Request) -> httpx2.Response:
+        seen.append(request)
+        return await inner.handle_async_request(request)
+
+    return httpx2.MockTransport(handler)
+
+
+async def _run_recorded(
+    tmp_path: Path, images: Callable[[], httpx2.Response] = _picture
+) -> tuple[int, str, list[httpx2.Request]]:
+    seen: list[httpx2.Request] = []
+    output = io.StringIO()
+    code = await cli.run(
+        [GENERATE_EXERCISE_PICTURE, _NAME, "--out", str(tmp_path / "p"), "--admin", _ADMIN_EMAIL],
+        output=output,
+        picture=PictureHooks(
+            transport=_recording(seen, _openrouter(images, [])), brief_writer=FakeBriefs()
+        ),
+    )
+    return code, output.getvalue(), seen
+
+
+async def test_search_embedding_request_carries_query_timeout(
+    admin_id: UUID, tmp_path: Path
+) -> None:
+    """#547 AC 2: the search's embedding call uses KNOWLEDGE_QUERY_TIMEOUT_SECONDS."""
+    _, _, seen = await _run_recorded(tmp_path)
+
+    [embedding] = [r for r in seen if r.url.path.endswith("/embeddings")]
+    assert embedding.extensions["timeout"]["read"] == Settings().knowledge_query_timeout_seconds
+
+
+async def test_no_request_uses_httpx_default_timeout(admin_id: UUID, tmp_path: Path) -> None:
+    """#547 AC 3: no request the command sends falls back to httpx2's 5 s default."""
+    _, _, seen = await _run_recorded(tmp_path)
+
+    assert seen
+    for request in seen:
+        assert request.extensions["timeout"]["read"] != 5.0
+    image = Settings().image_generation_timeout_seconds
+    [image_request] = [r for r in seen if r.url.path.endswith("/images")]
+    assert image_request.extensions["timeout"]["read"] == image
+
+
+async def test_image_read_timeout_is_reported_as_transport_error(
+    admin_id: UUID, tmp_path: Path
+) -> None:
+    """#547 AC 4: a client timeout ends as a transport failure, one error row, no cost."""
+
+    def slow() -> httpx2.Response:
+        raise httpx2.ReadTimeout("slow")
+
+    code, line, _ = await _run_recorded(tmp_path, slow)
+
+    assert code == 1
+    assert line.startswith(
+        "generate-exercise-picture: result=failed step=image reason=error cause=transport "
+        "error=ReadTimeout"
+    )
+    [row] = await _image_rows(admin_id)
+    assert row["outcome"] == "error"
+    assert row["cost"] is None

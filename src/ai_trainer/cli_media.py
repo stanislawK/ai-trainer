@@ -68,6 +68,7 @@ from ai_trainer.main import (
     build_exercise_picture_service,
     build_exercise_picture_store,
     build_media_storage,
+    query_http_client,
 )
 from ai_trainer.settings import Settings
 
@@ -172,9 +173,18 @@ async def generate_exercise_picture(
             )
             return 1
         store = build_exercise_picture_store(settings, session_factory, storage=storage)
-    async with httpx2.AsyncClient(transport=hooks.transport) as http_client:
+    # The image adapter passes its timeout per request and the search has the query client
+    # (#547); the shared client serves only the brief, whose timeout is unchanged.
+    async with (
+        httpx2.AsyncClient(transport=hooks.transport) as http_client,
+        query_http_client(settings, transport=hooks.transport) as search_http_client,
+    ):
         service = build_exercise_picture_service(
-            settings, session_factory, http_client=http_client, brief_writer=hooks.brief_writer
+            settings,
+            session_factory,
+            http_client=http_client,
+            search_http_client=search_http_client,
+            brief_writer=hooks.brief_writer,
         )
         result = await service.generate(admin_email=admin, exercise_name=args.name)
     if store is not None and isinstance(result, PictureMade):

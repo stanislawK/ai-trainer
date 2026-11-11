@@ -182,6 +182,7 @@ class OpenRouterImageGenerator:
         self._model = model
         self._accountant = CallAccountant(calls_repository, timeout_seconds=timeout_seconds)
         self._client = http_client
+        self._timeout_seconds = timeout_seconds
 
     async def generate(
         self, *, user_id: UUID, prompt: str
@@ -214,6 +215,8 @@ class OpenRouterImageGenerator:
                 IMAGES_URL,
                 json={"model": self._model, "prompt": prompt},
                 headers={"Authorization": f"Bearer {self._api_key}"},
+                # The client's own timeout may be httpx2's 5 s default (#547).
+                timeout=self._timeout_seconds,
             )
         except httpx2.HTTPError as error:
             # The class name only: a message can carry the URL or a header.

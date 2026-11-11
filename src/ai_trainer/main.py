@@ -380,13 +380,15 @@ def build_exercise_picture_service(
     session_factory: Callable[[], AsyncSession],
     *,
     http_client: httpx2.AsyncClient,
+    search_http_client: httpx2.AsyncClient,
     brief_writer: PictureBriefWriterPort | None = None,
 ) -> ExercisePictureService:
     """One `generate-exercise-picture` run (ADR-0031 *Picture generation*, #533). Its calls go
     through `RunSpend`, built here per run, so only this run's costs count toward
     `IMAGE_GENERATION_SPEND_CAP_USD`. Admin-run, so no gateway is wrapped in ADR-0029's budget
-    (ADR-0031, owner-directed 2026-11-08). The caller owns `http_client` and closes it;
-    `brief_writer` is for tests."""
+    (ADR-0031, owner-directed 2026-11-08). The caller owns both clients and closes them:
+    `http_client` carries the brief and the image, `search_http_client` the search's embedding
+    call (`query_http_client`). `brief_writer` is for tests."""
     sports = default_sport_registry()
     spend = RunSpend(SqlAlchemyLlmCallsRepository(session_factory))
     briefs = brief_writer or LlmPictureBriefWriter(
@@ -398,7 +400,11 @@ def build_exercise_picture_service(
         admins=SqlAlchemyUsersRepository(session_factory),
         subjects=SqlAlchemyPictureSubjectsRepository(session_factory),
         search=build_knowledge_search(
-            settings, session_factory, sports, calls_repository=spend, http_client=http_client
+            settings,
+            session_factory,
+            sports,
+            calls_repository=spend,
+            http_client=search_http_client,
         ),
         briefs=briefs,
         images=OpenRouterImageGenerator(
@@ -505,9 +511,12 @@ def build_exercise_finder(
     )
 
 
-def query_http_client(settings: Settings) -> httpx2.AsyncClient:
-    """The client for `search_knowledge`'s embedding calls, at `KNOWLEDGE_QUERY_TIMEOUT_SECONDS`."""
-    return httpx2.AsyncClient(timeout=settings.knowledge_query_timeout_seconds)
+def query_http_client(
+    settings: Settings, *, transport: httpx2.AsyncBaseTransport | None = None
+) -> httpx2.AsyncClient:
+    """The client for `search_knowledge`'s embedding calls, at `KNOWLEDGE_QUERY_TIMEOUT_SECONDS`.
+    `transport` is for tests."""
+    return httpx2.AsyncClient(timeout=settings.knowledge_query_timeout_seconds, transport=transport)
 
 
 def build_knowledge_ingestion(
