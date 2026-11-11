@@ -1,8 +1,12 @@
-"""Importing wger's pictures as suggested media (ADR-0031 *First media source*, #514, #552).
+"""Importing wger's pictures as suggested media (ADR-0031 *First media source*, #514, #552, #555).
 
-Per image, in wger's order: one with no author, or with a licence wger doesn't list, is skipped;
-its English name is matched against the shared catalogue only, by trigram similarity at the
-threshold, and below it nothing is downloaded. A matched image is downloaded, skipped when its
+Per image, in wger's order: one with no author, or with a licence wger doesn't list, is skipped.
+Its English name is shortlisted against the shared catalogue only, by trigram similarity at the
+floor, and Jev picks from that shortlist through `ExercisePickerPort` as the run's admin. Only a
+confident pick is a match: no English name, no candidate, "none", a pick below the threshold, a
+timeout or an error leaves the image unmatched, and nothing is downloaded. Each name is asked
+once per run, so several images of one exercise cost one call, and `limit` bounds the calls. A
+matched image is downloaded, skipped when its
 `sha256` is already catalogued (a `removed` asset keeps its row, so a takedown is never undone),
 then put in the media bucket and written as an asset with a `suggested` link in one transaction.
 A failure after the put deletes the object, so no object is left without its row. A wger,
@@ -11,7 +15,10 @@ approves: an admin does that in F24's review."""
 
 import contextlib
 from collections.abc import Mapping
+from dataclasses import dataclass, field
+from uuid import UUID
 
+from ai_trainer.application.ports.exercises import ExercisePickerPort
 from ai_trainer.application.ports.media import ExerciseMediaRepositoryPort
 from ai_trainer.application.ports.media_sources import (
     CatalogueExerciseMatchPort,
@@ -32,6 +39,14 @@ from ai_trainer.domain.media_sources import (
 from ai_trainer.domain.object_storage import ObjectStorageError
 
 
+@dataclass(frozen=True, slots=True)
+class ShortlistLimits:
+    """The catalogue shortlist Jev picks from: candidates at `floor` or above, at most `size`."""
+
+    floor: float
+    size: int
+
+
 class _StopError(Exception):
     def __init__(self, failure: ImportFailure) -> None:
         super().__init__(failure)
@@ -44,25 +59,30 @@ class ImportWgerPictures:
         *,
         wger: WgerImagesPort,
         catalogue: CatalogueExerciseMatchPort,
+        picker: ExercisePickerPort,
         media: ExerciseMediaRepositoryPort,
         storage: ObjectStoragePort,
         sport_id: str,
-        threshold: float,
+        limits: ShortlistLimits,
     ) -> None:
         self._wger = wger
         self._catalogue = catalogue
+        self._picker = picker
         self._media = media
         self._storage = storage
         self._sport_id = sport_id
-        self._threshold = threshold
+        self._limits = limits
 
-    async def run(self, *, limit: int | None) -> ImportReport:
+    async def run(self, *, admin_id: UUID, limit: int | None) -> ImportReport:
+        """`admin_id` is an active admin's, resolved by the caller; Jev's calls are recorded under
+        it."""
         report = ImportReport()
+        picks = _Picks(admin_id)
         try:
             licences = {licence.id: licence for licence in await self._wger.licences()}
             names = await self._wger.english_names()
             async for image in self._wger.images(limit):
-                await self._one(image, licences=licences, names=names, report=report)
+                await self._one(image, licences=licences, names=names, picks=picks, report=report)
         except MediaSourceError as error:
             report.failed = error.problem
         except _StopError as stop:
@@ -75,6 +95,7 @@ class ImportWgerPictures:
         *,
         licences: Mapping[int, WgerLicence],
         names: Mapping[int, str],
+        picks: _Picks,
         report: ImportReport,
     ) -> None:
         if not (image.license_author or "").strip():
@@ -85,13 +106,7 @@ class ImportWgerPictures:
             report.skipped.append(SkippedImage(image_id=image.id, reason="unknown_licence"))
             return
         name = names.get(image.exercise)
-        exercise_id = (
-            None
-            if name is None
-            else await self._catalogue.best_catalogue_match(
-                sport_id=self._sport_id, name=name, threshold=self._threshold
-            )
-        )
+        exercise_id = None if name is None else await self._exercise_for(name, picks)
         if exercise_id is None:
             report.unmatched.append(image.id)
             return
@@ -125,3 +140,24 @@ class ImportWgerPictures:
     async def _discard(self, key: str) -> None:
         with contextlib.suppress(ObjectStorageError):
             await self._storage.delete(key)
+
+    async def _exercise_for(self, name: str, picks: _Picks) -> UUID | None:
+        if name in picks.by_name:
+            return picks.by_name[name]
+        candidates = await self._catalogue.catalogue_shortlist(
+            sport_id=self._sport_id,
+            name=name,
+            floor=self._limits.floor,
+            limit=self._limits.size,
+        )
+        picked = await self._picker.pick(picks.admin_id, name, candidates) if candidates else None
+        picks.by_name[name] = None if picked is None else picked.id
+        return picks.by_name[name]
+
+
+@dataclass(slots=True)
+class _Picks:
+    """One run's admin and its picks by wger name, so a name is shortlisted and asked once."""
+
+    admin_id: UUID
+    by_name: dict[str, UUID | None] = field(default_factory=dict)

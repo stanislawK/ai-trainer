@@ -1,7 +1,7 @@
 from collections.abc import AsyncIterator, Mapping, Sequence
 from typing import Protocol
-from uuid import UUID
 
+from ai_trainer.domain.exercises import ExerciseCandidate
 from ai_trainer.domain.media_sources import DownloadedImage, WgerImage, WgerLicence
 
 
@@ -28,12 +28,13 @@ class WgerImagesPort(Protocol):
 
 
 class CatalogueExerciseMatchPort(Protocol):
-    """Matching an outside name against the shared catalogue only: no athlete's exercise or
-    alias is ever a candidate (#552)."""
+    """Shortlisting an outside name against the shared catalogue only: no athlete's exercise or
+    alias is ever a candidate (#552, #555)."""
 
-    async def best_catalogue_match(
-        self, *, sport_id: str, name: str, threshold: float
-    ) -> UUID | None:
-        """The catalogue exercise whose name or catalogue alias is most similar to `name` by
-        trigram similarity, if that similarity is at least `threshold`."""
+    async def catalogue_shortlist(
+        self, *, sport_id: str, name: str, floor: float, limit: int
+    ) -> Sequence[ExerciseCandidate]:
+        """At most `limit` catalogue exercises whose name or catalogue alias is at least `floor`
+        similar to `name` by trigram similarity, best first, each with its equipment and target
+        (what Jev tells them apart by)."""
         ...

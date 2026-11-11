@@ -178,8 +178,8 @@ backfill-gym-sessions: ## Write gym sessions logged before the typed tables into
 storage-check: ## Put, read back and delete a probe object in the local uploads bucket, check it is private and try a short presigned link, then read a media probe anonymously (ADR-0033, #553); runs in the app container, needs `make start` and no R2 account
 	docker compose -f compose.yaml -f compose.dev.yaml exec -T -e MEDIA_PUBLIC_BASE_URL=http://storage:7070/ai-trainer-media app ai-trainer storage-check
 
-import-wger-pictures: ## Import wger's authored pictures into the local media bucket as `suggested` links on matched catalogue exercises; [limit=N] reads only the first N images (ADR-0031, #552); runs in the app container, needs `make start` and the imported catalogue; real requests to wger.de, no model calls
-	docker compose -f compose.yaml -f compose.dev.yaml exec -T app ai-trainer import-wger-pictures $(if $(limit),--limit $(limit))
+import-wger-pictures: ## Import wger's authored pictures into the local media bucket as `suggested` links on the catalogue exercise Jev picks; [limit=N] reads only the first N images, [admin=<email>] names the admin (default the one ADMIN_EMAILS entry) (ADR-0031, #552, #555); runs in the app container, needs `make start` and the imported catalogue; real requests to wger.de and real Jev calls (costs cents)
+	docker compose -f compose.yaml -f compose.dev.yaml exec -T app ai-trainer import-wger-pictures $(if $(limit),--limit $(limit)) $(if $(admin),--admin $(admin))
 
 ingest-once: ## Drain the knowledge sources waiting as `uploaded` by hand, then exit (ADR-0036, #423); `make start`'s `ingest` container does this on its own, and this runs in it, never in `app` (#462); each embedding batch is a real OpenRouter call (costs fractions of a cent)
 	docker compose -f compose.yaml -f compose.dev.yaml exec -T ingest ai-trainer ingest-worker --once

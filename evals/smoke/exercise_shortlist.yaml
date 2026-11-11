@@ -1,4 +1,5 @@
-# Smoke set for the exercise_shortlist decision (ADR-0034, #399): 5 cases, graded in code, run
+# Smoke set for the exercise_shortlist decision (ADR-0034, #399): 10 pick cases (5 of them wger's
+# names for the picture import, #555, described above their block), graded in code, run
 # once on Jev. Each case is a typed gym name and the shortlist the app would offer; `pick` is the
 # candidate's name when the app should fill the exercise with no card, or `none` when the card
 # should ask (Jev says none, is torn between two, or is below the Settings threshold).
@@ -77,6 +78,81 @@ cases:
       candidates:
       - {name: Triceps Dip, equipment: body weight, target: triceps}
       - {name: Close-Grip Bench Press, equipment: barbell, target: triceps}
+  expected_output:
+    pick: none
+# wger's English names for the picture import (#555): the candidates are the catalogue-only
+# trigram shortlist the import asks Jev about (EXERCISE_CANDIDATE_FLOOR 0.25, at most 4, best
+# first), recorded on the imported catalogue on 2026-11-11. A pick links the picture, so "none"
+# is the answer whenever the name doesn't settle one exercise.
+- name: wger dumbbell shrugs
+  metadata:
+    source: wger exercise 572
+    note: >-
+      the name doesn't say flat, incline or decline, so no variant is clearly the one; relabelled
+      from Dumbbell Shrug to none by the owner at #555 after Jev abstained (an unmatched picture
+      costs nothing, a wrong link costs an admin's rejection)
+  inputs:
+    prompt: Shrugs, Dumbbells
+    deps:
+      candidates:
+      - {name: Dumbbell Shrug, equipment: dumbbell, target: traps}
+      - {name: Dumbbell Decline Shrug, equipment: dumbbell, target: traps}
+      - {name: Dumbbell Incline Shrug, equipment: dumbbell, target: traps}
+      - {name: Dumbbell Decline Shrug v. 2, equipment: dumbbell, target: traps}
+  expected_output:
+    pick: none
+- name: wger barbell biceps curls
+  metadata:
+    source: wger exercise 91
+    note: the right exercise is 4th; the trigram top is the arm-blaster variant
+  inputs:
+    prompt: Biceps Curls With Barbell
+    deps:
+      candidates:
+      - {name: Barbell Biceps Curl (With Arm Blaster), equipment: barbell, target: biceps}
+      - {name: Barbell Alternate Biceps Curl, equipment: barbell, target: biceps}
+      - {name: Barbell Standing Wide Grip Biceps Curl, equipment: barbell, target: biceps}
+      - {name: Barbell Curl, equipment: barbell, target: biceps}
+  expected_output:
+    pick: Barbell Curl
+- name: wger bench press
+  metadata:
+    source: wger exercise 73
+    note: a near tie, four bench presses by equipment
+  inputs:
+    prompt: Bench Press
+    deps:
+      candidates:
+      - {name: Band Bench Press, equipment: band, target: pectorals}
+      - {name: Cable Bench Press, equipment: cable, target: pectorals}
+      - {name: Smith Bench Press, equipment: smith machine, target: pectorals}
+      - {name: Barbell Bench Press, equipment: barbell, target: pectorals}
+  expected_output:
+    pick: none
+- name: wger butterfly
+  metadata:
+    source: wger exercise 135
+    note: the pec deck; no candidate is it, and the trigram top is a yoga pose
+  inputs:
+    prompt: Butterfly
+    deps:
+      candidates:
+      - {name: Butterfly Yoga Pose, equipment: body weight, target: adductors}
+      - {name: Butt-Ups, equipment: body weight, target: abs}
+  expected_output:
+    pick: none
+- name: wger bench press narrow grip
+  metadata:
+    source: wger exercise 76
+    note: the trigram top is the wide grip; three close-grip presses differ only by equipment
+  inputs:
+    prompt: Bench Press Narrow Grip
+    deps:
+      candidates:
+      - {name: Smith Wide Grip Bench Press, equipment: smith machine, target: pectorals}
+      - {name: EZ-Bar Close-Grip Bench Press, equipment: ez barbell, target: triceps}
+      - {name: Smith Close-Grip Bench Press, equipment: smith machine, target: triceps}
+      - {name: Barbell Close-Grip Bench Press, equipment: barbell, target: triceps}
   expected_output:
     pick: none
 - name: live rising straight arms
