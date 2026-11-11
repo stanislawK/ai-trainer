@@ -71,7 +71,10 @@ class SqlAlchemyExerciseMediaRepository:
 
     async def add_suggested(self, asset: MediaAsset, exercise_id: UUID) -> UUID:
         asset_id = uuid4()
-        positions = select(func.count()).where(ExerciseMediaOrm.exercise_id == exercise_id)
+        # After the last link, so a removed link's gap is never reused.
+        positions = select(func.coalesce(func.max(ExerciseMediaOrm.position) + 1, 0)).where(
+            ExerciseMediaOrm.exercise_id == exercise_id
+        )
         try:
             async with self._session_factory() as session:
                 position = (await session.execute(positions)).scalar_one()

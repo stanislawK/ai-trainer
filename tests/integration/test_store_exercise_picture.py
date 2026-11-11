@@ -156,6 +156,23 @@ async def test_second_run_adds_another_suggested_link(
     ]
 
 
+async def test_a_new_link_goes_after_the_last_position_even_past_a_gap(
+    engine: AsyncEngine, exercise_id: UUID
+) -> None:
+    store = _use_case(engine, InMemoryBucket())
+    await store.store(_made(exercise_id, f"one-{uuid4()}".encode()))
+    async with engine.begin() as connection:
+        await connection.execute(
+            text("UPDATE exercise_media SET position = 2 WHERE exercise_id = :id"),
+            {"id": exercise_id},
+        )
+
+    await store.store(_made(exercise_id, f"two-{uuid4()}".encode()))
+
+    rows = await _rows(engine, exercise_id)
+    assert [row["position"] for row in rows] == [2, 3]
+
+
 async def test_storage_failure_leaves_no_asset_and_no_link(
     engine: AsyncEngine, exercise_id: UUID
 ) -> None:

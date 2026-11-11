@@ -379,6 +379,24 @@ async def test_a_storage_failure_prints_the_reason_and_writes_no_row(admin_id: U
     assert await _links(_NAME) == []
 
 
+async def test_a_failed_store_leaves_no_file_in_out(admin_id: UUID, tmp_path: Path) -> None:
+    out = tmp_path / "pictures"
+
+    code = await cli.run(
+        [GENERATE_EXERCISE_PICTURE, _NAME, "--store", "--out", str(out)],
+        output=io.StringIO(),
+        picture=PictureHooks(
+            transport=_openrouter(_picture, []),
+            brief_writer=FakeBriefs(),
+            storage=InMemoryBucket(fail_put=True),
+        ),
+    )
+
+    assert code == 1
+    assert list(out.iterdir()) == []
+    assert await _links(_NAME) == []
+
+
 async def test_store_without_a_media_bucket_is_refused_before_any_call(
     admin_id: UUID, monkeypatch: pytest.MonkeyPatch
 ) -> None:

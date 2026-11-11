@@ -7,6 +7,8 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from uuid import UUID, uuid4
 
+import pytest
+
 from ai_trainer.application.exercise_picture_store import StoreExercisePicture
 from ai_trainer.domain.media import (
     ExerciseMediaItem,
@@ -44,6 +46,7 @@ def _made(data: bytes = b"\xff\xd8\xff-jpeg", media_type: str = "image/jpeg") ->
 class FakeMedia:
     assets: list[tuple[MediaAsset, UUID]] = field(default_factory=list)
     fail: bool = False
+    crash: bool = False
 
     async def add_asset(self, asset: MediaAsset) -> UUID:
         raise NotImplementedError
@@ -65,6 +68,8 @@ class FakeMedia:
     async def add_suggested(self, asset: MediaAsset, exercise_id: UUID) -> UUID:
         if self.fail:
             raise MediaRepositoryError
+        if self.crash:
+            raise ValueError("not a database error")
         self.assets.append((asset, exercise_id))
         return uuid4()
 
@@ -125,6 +130,15 @@ async def test_database_failure_deletes_the_uploaded_object() -> None:
     result = await _use_case(bucket, media).store(_made())
 
     assert result == PictureStoreFailed(reason="database_error", spent_usd=Decimal("0.0336"))
+    assert bucket.objects == {}
+
+
+async def test_an_unexpected_error_deletes_the_uploaded_object_and_propagates() -> None:
+    bucket, media = InMemoryBucket(), FakeMedia(crash=True)
+
+    with pytest.raises(ValueError, match="not a database error"):
+        await _use_case(bucket, media).store(_made())
+
     assert bucket.objects == {}
 
 

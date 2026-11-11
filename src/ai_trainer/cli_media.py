@@ -185,7 +185,7 @@ async def _store_made(
 ) -> int:
     """Writes the files when `--out` is given, then stores the picture as suggested media."""
     prefix = f"{GENERATE_EXERCISE_PICTURE}: result="
-    files = ""
+    written: tuple[Path, Path] | None = None
     if out is not None:
         try:
             brief_path, picture_path = _write_pair(
@@ -194,16 +194,28 @@ async def _store_made(
         except OSError:
             output.write(f"{prefix}failed reason=write_error spent_usd={_usd(made.spent_usd)}\n")
             return 1
-        files = f" brief={brief_path} picture={picture_path}"
+        written = (brief_path, picture_path)
     stored = await store.store(made)
     if isinstance(stored, PictureStoreFailed):
+        # A failed run leaves no file behind, as the module says.
+        _remove_files(written)
         output.write(f"{prefix}failed reason={stored.reason} spent_usd={_usd(stored.spent_usd)}\n")
         return 1
     output.write(
         f"{prefix}stored asset={stored.asset_id} exercise={stored.exercise_id} "
-        f"link=suggested spent_usd={_usd(stored.spent_usd)}{files}\n"
+        f"link=suggested spent_usd={_usd(stored.spent_usd)}{_files_part(written)}\n"
     )
     return 0
+
+
+def _files_part(written: tuple[Path, Path] | None) -> str:
+    return "" if written is None else f" brief={written[0]} picture={written[1]}"
+
+
+def _remove_files(written: tuple[Path, Path] | None) -> None:
+    for path in written or ():
+        with contextlib.suppress(OSError):
+            path.unlink()
 
 
 def write_result(result: PictureResult, *, out: Path, name: str, output: TextIO) -> int:

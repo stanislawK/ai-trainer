@@ -56,7 +56,14 @@ class StoreExercisePicture:
         try:
             asset_id = await self._media.add_suggested(asset, made.exercise_id)
         except MediaRepositoryError:
-            with contextlib.suppress(ObjectStorageError):
-                await self._storage.delete(key)
+            await self._discard(key)
             return PictureStoreFailed(reason="database_error", spent_usd=spent)
+        except BaseException:
+            # Anything else, and a cancelled run, still leaves no object without a row.
+            await self._discard(key)
+            raise
         return StoredPicture(asset_id=asset_id, exercise_id=made.exercise_id, spent_usd=spent)
+
+    async def _discard(self, key: str) -> None:
+        with contextlib.suppress(ObjectStorageError):
+            await self._storage.delete(key)
