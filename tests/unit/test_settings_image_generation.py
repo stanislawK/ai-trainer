@@ -6,6 +6,7 @@ import pytest
 from pydantic import ValidationError
 
 from ai_trainer.settings import Settings
+from ai_trainer.settings_values import image_model_source_ref
 
 
 @pytest.fixture(autouse=True)
@@ -19,6 +20,10 @@ def test_the_defaults_are_adr_0031s_model_and_price_with_a_cap_for_one_picture()
     settings = Settings(_env_file=None)
 
     assert settings.image_generation_model == "google/gemini-3.1-flash-lite-image"
+    assert image_model_source_ref(settings.image_generation_model) == (
+        "google/gemini-3.1-flash-lite-image-20260630"
+    )
+    assert image_model_source_ref("other/image-model") == "other/image-model"
     assert settings.image_generation_price_usd == Decimal("0.0336")
     assert settings.image_generation_spend_cap_usd == Decimal("0.25")
     assert settings.image_generation_timeout_seconds == 120

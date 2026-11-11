@@ -6,7 +6,9 @@ A brief's input is public text only, never athlete data: the catalogue's `exerci
 passages the run's own `search_knowledge` returned. An exercise with neither gets no brief, and
 no model call."""
 
+import hashlib
 from dataclasses import dataclass
+from datetime import date
 from decimal import Decimal
 from typing import Literal
 from uuid import UUID
@@ -15,6 +17,7 @@ from pydantic import BaseModel, ConfigDict
 
 from ai_trainer.domain.exercises import ExerciseText
 from ai_trainer.domain.knowledge_search import KnowledgeSearchFailed, KnowledgeSearchPage
+from ai_trainer.domain.media import MediaAsset, MediaDelivery, MediaKind, MediaRights
 
 
 class BriefPassage(BaseModel):
@@ -183,3 +186,61 @@ class PictureFailed:
 
 
 type PictureResult = PictureMade | PictureSkipped | PictureRefused | SpendCapReached | PictureFailed
+
+
+# What a stored picture's asset says about itself (ADR-0031 *Fallback media source*, #535).
+GENERATED_PICTURE_SOURCE = "ai-generated"
+GENERATED_PICTURE_LICENSE = (
+    "Google won't claim ownership over generated content (Gemini API additional terms, "
+    "https://aistudio.google.com/docs/terms)"
+)
+_PICTURE_EXTENSIONS: dict[ImageMediaType, str] = {
+    "image/jpeg": "jpg",
+    "image/png": "png",
+    "image/webp": "webp",
+}
+
+
+@dataclass(frozen=True, slots=True)
+class StoredPicture:
+    """The picture is in the media bucket, as one asset with one `suggested` link."""
+
+    asset_id: UUID
+    exercise_id: UUID
+    spent_usd: Decimal | None
+
+
+@dataclass(frozen=True, slots=True)
+class PictureStoreFailed:
+    """Nothing was left behind: no object, no asset, no link. `already_stored` is a picture with
+    the same bytes already in the catalogue, which is kept as it is."""
+
+    reason: Literal["storage_error", "database_error", "already_stored"]
+    spent_usd: Decimal | None
+
+
+def picture_storage_key(exercise_id: UUID, image: GeneratedImage) -> str:
+    """`exercises/<exercise_id>/<sha256>.<ext>`: the same bytes always land on the same key."""
+    digest = hashlib.sha256(image.data).hexdigest()
+    return f"exercises/{exercise_id}/{digest}.{_PICTURE_EXTENSIONS[image.media_type]}"
+
+
+def generated_picture_asset(
+    *, exercise_id: UUID, image: GeneratedImage, model: str, generated_on: date
+) -> MediaAsset:
+    """The asset row for a generated picture: `licensed`, `stored`, `image`, no embed URL, with
+    the attribution ADR-0031 prescribes and the model's slug in `source_ref`."""
+    return MediaAsset(
+        kind=MediaKind.IMAGE,
+        rights=MediaRights.LICENSED,
+        delivery=MediaDelivery.STORED,
+        storage_key=picture_storage_key(exercise_id, image),
+        source=GENERATED_PICTURE_SOURCE,
+        source_ref=model,
+        license=GENERATED_PICTURE_LICENSE,
+        attribution=(
+            "AI generated with Gemini 3.1 Flash Lite Image (Google) via OpenRouter · "
+            f"{generated_on.isoformat()}"
+        ),
+        sha256=hashlib.sha256(image.data).hexdigest(),
+    )

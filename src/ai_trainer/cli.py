@@ -8,7 +8,7 @@
     uv run ai-trainer storage-check
     uv run ai-trainer ingest-worker [--once]
     uv run ai-trainer rebuild-knowledge-index [--memory-mb N]
-    uv run ai-trainer generate-exercise-picture <name> --out <dir> [--admin <email>]
+    uv run ai-trainer generate-exercise-picture <name> [--out <dir>] [--store] [--admin <email>]
 
 `purge-conversations` hard-deletes every conversation last active more than
 `CONVERSATION_RETENTION_DAYS` ago, across users, with its messages by cascade. It prints the
@@ -69,7 +69,8 @@ failure (ADR-0036's #462 amendment). It prints
 `result=failed reason=<error class>` with exit code 1.
 
 `generate-exercise-picture` writes one catalogue exercise's brief and picture into `--out`
-(ADR-0031, #533); `cli_media` describes it. It costs money, so it is run on purpose.
+and, with `--store`, saves the picture as `suggested` media (ADR-0031, #533, #535); `cli_media`
+describes it. It costs money, so it is run on purpose.
 """
 
 import argparse

@@ -73,6 +73,18 @@ DEFAULT_PICTURE_BRIEF_MODEL = "z-ai/glm-5.3-flash"
 # 2026-11-08). The catalogue's `image_output` line reads lower; the price only gates the call
 # against the run's cap, so the higher figure is the safe side (#533).
 DEFAULT_IMAGE_GENERATION_MODEL = "google/gemini-3.1-flash-lite-image"
+# Dated `canonical_slug`s (`get-model`, 2026-11-11) of the image models we know, by the model ID
+# that is called: what a stored picture's `source_ref` records (ADR-0031 *Fallback media
+# source*). A model not listed here is recorded under its own ID.
+IMAGE_MODEL_DATED_SLUGS = {
+    DEFAULT_IMAGE_GENERATION_MODEL: "google/gemini-3.1-flash-lite-image-20260630",
+}
+
+
+def image_model_source_ref(model: str) -> str:
+    return IMAGE_MODEL_DATED_SLUGS.get(model, model)
+
+
 DEFAULT_IMAGE_GENERATION_PRICE_USD = Decimal("0.0336")
 
 # Chosen by the owner at #417 (ADR-0033): one space for English and Polish, on DeepInfra only.

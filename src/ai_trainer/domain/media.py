@@ -11,6 +11,10 @@ SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 EMBED_URL_PATTERN = re.compile(r"^https?://")
 
 
+class MediaRepositoryError(Exception):
+    """The media tables could not be written; the cause stays in the adapter."""
+
+
 class MediaKind(StrEnum):
     """What a media asset is (ADR-0031, F24)."""
 

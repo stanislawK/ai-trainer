@@ -51,6 +51,7 @@ from ai_trainer.adapters.knowledge_repository import SqlAlchemyKnowledgeSourcesR
 from ai_trainer.adapters.knowledge_search_repository import SqlAlchemyKnowledgeSearch
 from ai_trainer.adapters.llm_calls_repository import SqlAlchemyLlmCallsRepository
 from ai_trainer.adapters.log_records import configure_logging
+from ai_trainer.adapters.media_repository import SqlAlchemyExerciseMediaRepository
 from ai_trainer.adapters.metrics import OtelMetrics
 from ai_trainer.adapters.object_storage import ObstoreObjectStorage
 from ai_trainer.adapters.onboarding_repository import SqlAlchemyOnboardingRepository
@@ -80,6 +81,7 @@ from ai_trainer.application.exercise_candidates import (
 )
 from ai_trainer.application.exercise_lookup import ExerciseFinder
 from ai_trainer.application.exercise_picture import ExercisePictureService, PicturePorts, RunSpend
+from ai_trainer.application.exercise_picture_store import StoreExercisePicture
 from ai_trainer.application.exercise_progress import ExerciseProgress
 from ai_trainer.application.exercise_resolution import ResolutionLimits, ResolveExercises
 from ai_trainer.application.feedback import FeedbackRecorder
@@ -130,6 +132,7 @@ from ai_trainer.mcp.citations import cited_sources
 from ai_trainer.mcp.server import build_mcp_server
 from ai_trainer.mcp.toolset import build_toolset
 from ai_trainer.settings import Settings
+from ai_trainer.settings_values import image_model_source_ref
 from ai_trainer.web.active_user_gate import ActiveUserGateMiddleware
 from ai_trainer.web.admin import build_admin_router
 from ai_trainer.web.ai_onboarding import build_ai_onboarding_router
@@ -414,6 +417,22 @@ def build_exercise_picture_service(
             price_usd=settings.image_generation_price_usd,
         ),
         admin_emails=settings.admin_emails,
+    )
+
+
+def build_exercise_picture_store(
+    settings: Settings,
+    session_factory: Callable[[], AsyncSession],
+    *,
+    storage: ObjectStoragePort,
+) -> StoreExercisePicture:
+    """`generate-exercise-picture --store` (ADR-0031, #535): the picture goes to the media bucket
+    `storage` (from `build_media_storage`), and its asset and `suggested` link to the tables."""
+    return StoreExercisePicture(
+        storage=storage,
+        media=SqlAlchemyExerciseMediaRepository(session_factory),
+        clock=UtcClock(),
+        model=image_model_source_ref(settings.image_generation_model),
     )
 
 
