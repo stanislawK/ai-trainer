@@ -56,6 +56,7 @@ class RunSpend:
         self._calls = calls
         self.spent_usd = Decimal(0)
         self.cost_unknown = False
+        self.unknown_cost_template_id: str | None = None
 
     @property
     def reported_usd(self) -> Decimal | None:
@@ -66,6 +67,7 @@ class RunSpend:
         recorded = await self._calls.record(call)
         if call.cost is None:
             self.cost_unknown = True
+            self.unknown_cost_template_id = self.unknown_cost_template_id or call.template_id
         else:
             self.spent_usd += call.cost
         return recorded
@@ -114,7 +116,7 @@ class ExercisePictureService:
         image = await self._ports.images.generate(user_id=admin, prompt=brief.image_prompt)
         if isinstance(image, ImageGenerationFailed):
             return PictureFailed(
-                step="image", reason=image.reason, spent_usd=self._spend.reported_usd
+                step="image", reason=image.reason, spent_usd=self._spend.reported_usd, image=image
             )
         return PictureMade(
             exercise_id=subject.exercise_id,
@@ -157,7 +159,10 @@ class ExercisePictureService:
         limits = self._limits
         if self._spend.cost_unknown:
             return SpendCapReached(
-                spent_usd=None, price_usd=limits.price_usd, cap_usd=limits.cap_usd
+                spent_usd=None,
+                price_usd=limits.price_usd,
+                cap_usd=limits.cap_usd,
+                unknown_cost_template=self._spend.unknown_cost_template_id,
             )
         if self._spend.spent_usd + price_usd > limits.cap_usd:
             return SpendCapReached(

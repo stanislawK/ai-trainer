@@ -22,7 +22,12 @@ an active account. It prints one line and never the prompt, the brief or the ema
 `generate-exercise-picture: result=written brief=<path> picture=<path> spent_usd=<x>` with exit
 code 0 (`result=stored asset=<id> exercise=<id> link=suggested spent_usd=<x>` for `--store`, with
 the two paths appended when `--out` is given too), or
-`result=skipped|refused|cap_reached|failed reason=<...> spent_usd=<x|unknown>` with exit code 1,
+`result=skipped|refused|cap_reached|failed reason=<...> spent_usd=<x|unknown>` with exit code 1
+(#543: a failed image call adds `cause=http_status|transport|malformed_body|empty_data|
+bad_base64|unsupported_type|unexpected`, then `status=<n>`, `error=<provider code, or the
+exception class for transport>` and `message=<quoted>` when known, neither holding the prompt or
+a key, and a `cost_unknown` stop adds `template=<id>` of the
+call with no cost),
 and then no file is written (a failed write is `result=failed reason=write_error`, a failed
 upload `reason=storage_error`, a failed row write `reason=database_error`, and the same bytes
 already catalogued `reason=already_stored`).
@@ -30,6 +35,7 @@ already catalogued `reason=already_stored`).
 
 import argparse
 import contextlib
+import json
 import os
 import re
 import tempfile
@@ -48,6 +54,7 @@ from ai_trainer.application.exercise_picture_store import StoreExercisePicture
 from ai_trainer.application.ports.media_generation import PictureBriefWriterPort
 from ai_trainer.application.ports.object_storage import ObjectStoragePort
 from ai_trainer.domain.media_generation import (
+    ImageGenerationFailed,
     ImageMediaType,
     PictureFailed,
     PictureMade,
@@ -218,6 +225,20 @@ def _remove_files(written: tuple[Path, Path] | None) -> None:
             path.unlink()
 
 
+def _failure_part(failed: ImageGenerationFailed | None) -> str:
+    """` cause=... status=... error=... message=...`, each only when the provider gave it."""
+    if failed is None or failed.cause is None:
+        return ""
+    part = f" cause={failed.cause}"
+    if failed.status is not None:
+        part += f" status={failed.status}"
+    if failed.error_code is not None:
+        part += f" error={failed.error_code}"
+    if failed.error_message is not None:
+        part += f" message={json.dumps(failed.error_message)}"
+    return part
+
+
 def write_result(result: PictureResult, *, out: Path, name: str, output: TextIO) -> int:
     """Writes the files only for a made picture, and prints the run's one line."""
     prefix = f"{GENERATE_EXERCISE_PICTURE}: result="
@@ -239,14 +260,20 @@ def write_result(result: PictureResult, *, out: Path, name: str, output: TextIO)
             output.write(f"{prefix}skipped reason={reason} spent_usd={_usd(spent)}\n")
         case PictureRefused(reason=reason):
             output.write(f"{prefix}refused reason={reason}\n")
-        case SpendCapReached(spent_usd=spent, price_usd=price, cap_usd=cap):
+        case SpendCapReached(
+            spent_usd=spent, price_usd=price, cap_usd=cap, unknown_cost_template=template
+        ):
             why = "cost_unknown" if spent is None else "over_cap"
+            named = f" template={template}" if template else ""
             output.write(
-                f"{prefix}cap_reached reason={why} spent_usd={_usd(spent)} "
+                f"{prefix}cap_reached reason={why}{named} spent_usd={_usd(spent)} "
                 f"price_usd={_usd(price)} cap_usd={_usd(cap)}\n"
             )
-        case PictureFailed(step=step, reason=reason, spent_usd=spent):
-            output.write(f"{prefix}failed step={step} reason={reason} spent_usd={_usd(spent)}\n")
+        case PictureFailed(step=step, reason=reason, spent_usd=spent, image=image):
+            output.write(
+                f"{prefix}failed step={step} reason={reason}{_failure_part(image)} "
+                f"spent_usd={_usd(spent)}\n"
+            )
         case _:  # pragma: no cover -- exhaustive over PictureResult
             assert_never(result)
     return 1

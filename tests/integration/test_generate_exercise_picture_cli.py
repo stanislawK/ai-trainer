@@ -208,10 +208,61 @@ async def test_provider_error_exits_non_zero_and_writes_nothing(
     assert code == 1
     assert not out.exists()
     assert output.getvalue() == (
-        "generate-exercise-picture: result=failed step=image reason=error spent_usd=unknown\n"
+        "generate-exercise-picture: result=failed step=image reason=error cause=http_status "
+        "status=502 spent_usd=unknown\n"
     )
     [row] = await _image_rows(admin_id)
     assert row["outcome"] == "error"
+
+
+async def test_provider_error_prints_status_and_error_code(admin_id: UUID, tmp_path: Path) -> None:
+    """#543 AC 1: the provider's status and error code reach the printed line."""
+    output = io.StringIO()
+    reply = httpx2.Response(429, json={"error": {"code": 429, "message": "Rate limited"}})
+
+    code = await cli.run(
+        [GENERATE_EXERCISE_PICTURE, _NAME, "--out", str(tmp_path / "p"), "--admin", _ADMIN_EMAIL],
+        output=output,
+        picture=PictureHooks(transport=_openrouter(lambda: reply, []), brief_writer=FakeBriefs()),
+    )
+
+    assert code == 1
+    assert output.getvalue() == (
+        "generate-exercise-picture: result=failed step=image reason=error cause=http_status "
+        'status=429 error=429 message="Rate limited" spent_usd=unknown\n'
+    )
+
+
+async def test_the_failed_line_and_logs_never_hold_prompt_or_key(
+    admin_id: UUID,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """#543 AC 4: a provider message echoing the prompt and the key is redacted everywhere."""
+    debug_dir = tmp_path / "debug"
+    monkeypatch.setenv("PUBLIC_BASE_URL", "http://localhost:8000")
+    monkeypatch.setenv("LLM_DEBUG_LOG", "true")
+    monkeypatch.setenv("LLM_DEBUG_LOG_DIR", str(debug_dir))
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-v1-zz-secret")
+    caplog.set_level("DEBUG")
+    output = io.StringIO()
+    message = f"rejected {_BRIEF.image_prompt} with sk-or-v1-zz-secret"
+    reply = httpx2.Response(400, json={"error": {"code": 400, "message": message}})
+
+    code = await cli.run(
+        [GENERATE_EXERCISE_PICTURE, _NAME, "--out", str(tmp_path / "p"), "--admin", _ADMIN_EMAIL],
+        output=output,
+        picture=PictureHooks(transport=_openrouter(lambda: reply, []), brief_writer=FakeBriefs()),
+    )
+
+    assert code == 1
+    assert "rejected [redacted] with [redacted]" in output.getvalue()
+    texts = [output.getvalue(), caplog.text]
+    texts += [path.read_text() for path in debug_dir.rglob("*") if path.is_file()]
+    for text_ in texts:
+        assert _BRIEF.image_prompt not in text_
+        assert "sk-or-v1-zz-secret" not in text_
 
 
 async def test_stops_before_the_image_call_over_the_cap(

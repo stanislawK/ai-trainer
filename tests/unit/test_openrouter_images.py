@@ -155,7 +155,9 @@ async def test_an_undetectable_type_is_an_error_row_that_keeps_its_cost() -> Non
         lambda request: ok_response(data=b"GIF89a-not-allowed", media_type=None), calls
     ).generate(user_id=_ADMIN, prompt=_PROMPT)
 
-    assert result == ImageGenerationFailed(reason="error")
+    assert isinstance(result, ImageGenerationFailed)
+
+    assert result.reason == "error"
     [row] = calls.recorded
     assert row.outcome is LlmCallOutcome.ERROR
     assert row.cost == Decimal("0.0336")
@@ -180,11 +182,132 @@ async def test_http_error_is_an_error_row_not_an_exception() -> None:
         lambda request: httpx2.Response(502, json={"error": {"message": _PROMPT}}), calls
     ).generate(user_id=_ADMIN, prompt=_PROMPT)
 
-    assert result == ImageGenerationFailed(reason="error")
+    assert isinstance(result, ImageGenerationFailed)
+
+    assert result.reason == "error"
     [row] = calls.recorded
     assert row.outcome is LlmCallOutcome.ERROR
     assert row.model == _MODEL
     assert row.cost is None
+
+
+@pytest.mark.parametrize("status", [400, 429, 502])
+async def test_a_4xx_or_5xx_keeps_status_and_provider_error(status: int) -> None:
+    calls = _Calls()
+
+    result = await _generator(
+        lambda request: httpx2.Response(
+            status, json={"error": {"code": status, "message": "Provider returned error"}}
+        ),
+        calls,
+    ).generate(user_id=_ADMIN, prompt=_PROMPT)
+
+    assert result == ImageGenerationFailed(
+        reason="error",
+        cause="http_status",
+        status=status,
+        error_code=str(status),
+        error_message="Provider returned error",
+    )
+
+
+async def test_a_non_json_error_body_keeps_the_status_alone() -> None:
+    calls = _Calls()
+
+    result = await _generator(
+        lambda request: httpx2.Response(502, content=b"<html>bad gateway</html>"), calls
+    ).generate(user_id=_ADMIN, prompt=_PROMPT)
+
+    assert result == ImageGenerationFailed(reason="error", cause="http_status", status=502)
+
+
+async def test_an_error_body_with_a_string_code_and_no_message() -> None:
+    result = await _generator(
+        lambda request: httpx2.Response(400, json={"error": {"code": "invalid_prompt"}}), _Calls()
+    ).generate(user_id=_ADMIN, prompt=_PROMPT)
+
+    assert result == ImageGenerationFailed(
+        reason="error", cause="http_status", status=400, error_code="invalid_prompt"
+    )
+
+
+async def test_a_provider_message_echoing_prompt_and_key_is_redacted(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level("DEBUG")
+    message = f"bad  prompt {_PROMPT} for key sk-or-v1-test\n" + "x" * 400
+
+    result = await _generator(
+        lambda request: httpx2.Response(400, json={"error": {"code": 400, "message": message}}),
+        _Calls(),
+    ).generate(user_id=_ADMIN, prompt=_PROMPT)
+
+    assert isinstance(result, ImageGenerationFailed)
+    assert result.error_message is not None
+    assert result.error_message.startswith("bad prompt [redacted] for key [redacted] xxx")
+    assert len(result.error_message) == 200
+    assert _PROMPT not in caplog.text
+    assert "sk-or-v1-test" not in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("reply", "cause"),
+    [
+        (httpx2.Response(200, content=b"not json"), "malformed_body"),
+        (httpx2.Response(200, json={"data": [], "usage": {"cost": 0.0336}}), "empty_data"),
+        (
+            httpx2.Response(200, json={"data": [{"b64_json": "%%%", "media_type": "image/jpeg"}]}),
+            "bad_base64",
+        ),
+        (ok_response(media_type="image/svg+xml"), "unsupported_type"),
+    ],
+    ids=["malformed_body", "empty_data", "bad_base64", "unsupported_type"],
+)
+async def test_each_unusable_200_names_its_cause(reply: httpx2.Response, cause: str) -> None:
+    result = await _generator(lambda request: reply, _Calls()).generate(
+        user_id=_ADMIN, prompt=_PROMPT
+    )
+
+    assert isinstance(result, ImageGenerationFailed)
+    assert (result.cause, result.status) == (cause, 200)
+
+
+async def test_a_raising_transport_names_the_exception_class_and_nothing_else() -> None:
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        raise httpx2.ConnectError("no route to sk-or-v1-test", request=request)
+
+    result = await _generator(handler, _Calls()).generate(user_id=_ADMIN, prompt=_PROMPT)
+
+    assert result == ImageGenerationFailed(
+        reason="error", cause="transport", error_code="ConnectError"
+    )
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        httpx2.Response(502, json={"error": {"message": "x"}}),
+        httpx2.Response(502, content=b"nope"),
+        httpx2.Response(200, content=b"not json"),
+        httpx2.Response(200, json={"data": []}),
+        httpx2.Response(200, json={"data": [{"b64_json": "%%%"}]}),
+        ok_response(media_type="image/svg+xml"),
+        "transport",
+    ],
+    ids=["http", "http_plain", "malformed", "empty", "base64", "type", "transport"],
+)
+async def test_every_failure_cause_writes_one_error_row(reply: httpx2.Response | str) -> None:
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        if isinstance(reply, str):
+            raise httpx2.ConnectError("no route", request=request)
+        return reply
+
+    calls = _Calls()
+
+    result = await _generator(handler, calls).generate(user_id=_ADMIN, prompt=_PROMPT)
+
+    assert isinstance(result, ImageGenerationFailed)
+    assert [row.outcome for row in calls.recorded] == [LlmCallOutcome.ERROR]
 
 
 async def test_malformed_json_no_image_or_an_unknown_type_is_an_error_row() -> None:
@@ -203,7 +326,9 @@ async def test_malformed_json_no_image_or_an_unknown_type_is_an_error_row() -> N
 
         result = await _generator(answer, calls).generate(user_id=_ADMIN, prompt=_PROMPT)
 
-        assert result == ImageGenerationFailed(reason="error")
+        assert isinstance(result, ImageGenerationFailed)
+
+        assert result.reason == "error"
         [row] = calls.recorded
         assert row.outcome is LlmCallOutcome.ERROR
 
@@ -227,7 +352,9 @@ async def test_a_raising_transport_is_an_error_row() -> None:
 
     result = await _generator(handler, calls).generate(user_id=_ADMIN, prompt=_PROMPT)
 
-    assert result == ImageGenerationFailed(reason="error")
+    assert isinstance(result, ImageGenerationFailed)
+
+    assert result.reason == "error"
     assert [row.outcome for row in calls.recorded] == [LlmCallOutcome.ERROR]
 
 
@@ -248,3 +375,56 @@ async def test_timeout_is_a_timeout_row() -> None:
     [row] = calls.recorded
     assert row.outcome is LlmCallOutcome.TIMEOUT
     assert row.cost is None
+
+
+async def test_an_unexpected_exception_is_an_error_row_with_an_unexpected_cause() -> None:
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        raise RuntimeError("boom")
+
+    calls = _Calls()
+
+    result = await _generator(handler, calls).generate(user_id=_ADMIN, prompt=_PROMPT)
+
+    assert result == ImageGenerationFailed(reason="error", cause="unexpected")
+    assert [row.outcome for row in calls.recorded] == [LlmCallOutcome.ERROR]
+
+
+async def test_a_client_timeout_keeps_its_error_row_and_names_its_class() -> None:
+    """The accountant reads only the adapter's own `timeout_seconds` as a timeout; an httpx2
+    timeout was an `error` row before #543 and still is (accounting unchanged)."""
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        raise httpx2.ReadTimeout("slow", request=request)
+
+    calls = _Calls()
+
+    result = await _generator(handler, calls).generate(user_id=_ADMIN, prompt=_PROMPT)
+
+    assert result == ImageGenerationFailed(
+        reason="error", cause="transport", error_code="ReadTimeout"
+    )
+    assert [row.outcome for row in calls.recorded] == [LlmCallOutcome.ERROR]
+
+
+async def test_a_provider_code_echoing_prompt_or_key_is_redacted() -> None:
+    code = f"bad {_PROMPT} sk-or-v1-test"
+
+    result = await _generator(
+        lambda request: httpx2.Response(400, json={"error": {"code": code}}), _Calls()
+    ).generate(user_id=_ADMIN, prompt=_PROMPT)
+
+    assert isinstance(result, ImageGenerationFailed)
+    assert result.error_code == "bad [redacted] [redacted]"
+
+
+async def test_a_message_echoing_part_of_the_prompt_is_dropped_whole() -> None:
+    message = f'Prompt blocked: "{_PROMPT[:40]}..."'
+
+    result = await _generator(
+        lambda request: httpx2.Response(403, json={"error": {"code": 403, "message": message}}),
+        _Calls(),
+    ).generate(user_id=_ADMIN, prompt=_PROMPT)
+
+    assert isinstance(result, ImageGenerationFailed)
+    assert result.error_message == "[redacted]"
+    assert result.error_code == "403"
