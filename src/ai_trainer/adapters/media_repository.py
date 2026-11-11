@@ -1,7 +1,8 @@
 from collections.abc import Callable, Sequence
 from uuid import UUID, uuid4
 
-from sqlalchemy import ColumnElement, exists, false, or_, select
+from sqlalchemy import ColumnElement, exists, false, func, or_, select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai_trainer.adapters.orm import ExerciseMediaOrm, MediaAssetOrm
@@ -11,6 +12,7 @@ from ai_trainer.domain.media import (
     MediaDelivery,
     MediaKind,
     MediaLinkStatus,
+    MediaRepositoryError,
     MediaRights,
 )
 
@@ -61,6 +63,33 @@ class SqlAlchemyExerciseMediaRepository:
                 )
             )
             await session.commit()
+
+    async def has_sha256(self, sha256: str) -> bool:
+        statement = select(exists().where(MediaAssetOrm.sha256 == sha256))
+        async with self._session_factory() as session:
+            return bool((await session.execute(statement)).scalar_one())
+
+    async def add_suggested(self, asset: MediaAsset, exercise_id: UUID) -> UUID:
+        asset_id = uuid4()
+        positions = select(func.count()).where(ExerciseMediaOrm.exercise_id == exercise_id)
+        try:
+            async with self._session_factory() as session:
+                position = (await session.execute(positions)).scalar_one()
+                session.add(MediaAssetOrm(**asset.model_dump(exclude={"id"}), id=asset_id))
+                # The asset must exist before the link that points at it.
+                await session.flush()
+                session.add(
+                    ExerciseMediaOrm(
+                        exercise_id=exercise_id,
+                        asset_id=asset_id,
+                        position=position,
+                        status=MediaLinkStatus.SUGGESTED.value,
+                    )
+                )
+                await session.commit()
+        except SQLAlchemyError as error:
+            raise MediaRepositoryError from error
+        return asset_id
 
     async def approved_for(self, exercise_id: UUID) -> Sequence[ExerciseMediaItem]:
         statement = (

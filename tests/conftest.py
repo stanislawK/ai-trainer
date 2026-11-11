@@ -123,6 +123,8 @@ _XDIST_GROUPS = {
         "tests/integration/test_rebuild_knowledge_index_cli.py",
         # Commits an admin and a catalogue exercise for the picture command (#533).
         "tests/integration/test_generate_exercise_picture_cli.py",
+        # Commits a catalogue exercise and its media rows for storing a picture (#535).
+        "tests/integration/test_store_exercise_picture.py",
     ),
     # `test_xdist_groups` runs this group in a subprocess, so it must not overlap the outer one.
     "src_tree": (

@@ -1,11 +1,17 @@
 """`ai-trainer generate-exercise-picture` (ADR-0031 *Picture generation*, #533).
 
-    uv run ai-trainer generate-exercise-picture "<exercise name>" --out <dir> [--admin <email>]
+    uv run ai-trainer generate-exercise-picture "<exercise name>" [--out <dir>] [--store] \\
+        [--admin <email>]
 
 An admin generates one picture of one catalogue exercise, to look at before anything is linked:
 the brief is written from the exercise's public texts and its `search_knowledge` passages, then
-the image model draws it. It writes `<dir>/<slug>.brief.json` and `<dir>/<slug>.jpg` (or `.png`,
-`.webp`), both or neither, and nothing to the media tables. Every call is an `llm_calls` row
+the image model draws it. With `--out` it writes `<dir>/<slug>.brief.json` and
+`<dir>/<slug>.jpg` (or `.png`, `.webp`), both or neither. With `--store` (#535) it also uploads
+the picture to the media bucket and writes its asset and a `suggested` link in one transaction
+(`StoreExercisePicture`): a storage or database failure leaves no row, and the picture shows
+only once an admin approves it. Neither flag is refused (`reason=no_destination`), and `--store`
+with no media bucket configured is refused (`reason=storage_not_configured`), both before any
+call. Without `--store` it writes nothing to the media tables. Every call is an `llm_calls` row
 under the admin; the run stops before a call that would take it past
 `IMAGE_GENERATION_SPEND_CAP_USD`, and when a call's cost is unknown. A name in more than one
 sport is refused (`reason=ambiguous_name`) before any call. It costs money, so it is run on
@@ -14,8 +20,12 @@ purpose, never from a test.
 `--admin` defaults to the one `ADMIN_EMAILS` entry; the email must be listed there and belong to
 an active account. It prints one line and never the prompt, the brief or the email:
 `generate-exercise-picture: result=written brief=<path> picture=<path> spent_usd=<x>` with exit
-code 0, or `result=skipped|refused|cap_reached|failed reason=<...> spent_usd=<x|unknown>` with
-exit code 1, and then no file is written (a failed write is `result=failed reason=write_error`).
+code 0 (`result=stored asset=<id> exercise=<id> link=suggested spent_usd=<x>` for `--store`, with
+the two paths appended when `--out` is given too), or
+`result=skipped|refused|cap_reached|failed reason=<...> spent_usd=<x|unknown>` with exit code 1,
+and then no file is written (a failed write is `result=failed reason=write_error`, a failed
+upload `reason=storage_error`, a failed row write `reason=database_error`, and the same bytes
+already catalogued `reason=already_stored`).
 """
 
 import argparse
@@ -34,7 +44,9 @@ from uuid import UUID
 import httpx2
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ai_trainer.application.exercise_picture_store import StoreExercisePicture
 from ai_trainer.application.ports.media_generation import PictureBriefWriterPort
+from ai_trainer.application.ports.object_storage import ObjectStoragePort
 from ai_trainer.domain.media_generation import (
     ImageMediaType,
     PictureFailed,
@@ -42,9 +54,14 @@ from ai_trainer.domain.media_generation import (
     PictureRefused,
     PictureResult,
     PictureSkipped,
+    PictureStoreFailed,
     SpendCapReached,
 )
-from ai_trainer.main import build_exercise_picture_service
+from ai_trainer.main import (
+    build_exercise_picture_service,
+    build_exercise_picture_store,
+    build_media_storage,
+)
 from ai_trainer.settings import Settings
 
 GENERATE_EXERCISE_PICTURE = "generate-exercise-picture"
@@ -60,11 +77,12 @@ _UNSPLIT = str.maketrans({"ł": "l", "ø": "o", "đ": "d", "ß": "ss", "æ": "ae
 
 @dataclass(frozen=True, slots=True)
 class PictureHooks:
-    """For tests: the transport every OpenRouter HTTP call goes through, and a brief writer in
-    place of the text model."""
+    """For tests: the transport every OpenRouter HTTP call goes through, a brief writer in
+    place of the text model, and a media bucket in place of the configured one."""
 
     transport: httpx2.AsyncBaseTransport | None = None
     brief_writer: PictureBriefWriterPort | None = None
+    storage: ObjectStoragePort | None = None
 
 
 def add_parser(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
@@ -73,7 +91,12 @@ def add_parser(commands: argparse._SubParsersAction[argparse.ArgumentParser]) ->
         help="Generate one catalogue exercise's brief and picture into a directory (costs money).",
     )
     picture.add_argument("name", help="The catalogue exercise's name, e.g. 'Pull-Up'.")
-    picture.add_argument("--out", type=Path, required=True, help="Directory to write into.")
+    picture.add_argument("--out", type=Path, default=None, help="Directory to write into.")
+    picture.add_argument(
+        "--store",
+        action="store_true",
+        help="Upload the picture to the media bucket and save it as suggested media.",
+    )
     picture.add_argument(
         "--admin", default=None, help="The admin's email (default: the one ADMIN_EMAILS entry)."
     )
@@ -130,12 +153,57 @@ async def generate_exercise_picture(
         output.write(f"{GENERATE_EXERCISE_PICTURE}: result=refused reason=admin_required\n")
         return 1
     hooks = hooks or PictureHooks()
+    if args.out is None and not args.store:
+        output.write(f"{GENERATE_EXERCISE_PICTURE}: result=refused reason=no_destination\n")
+        return 1
+    store: StoreExercisePicture | None = None
+    if args.store:
+        storage = hooks.storage or build_media_storage(settings)
+        if storage is None:
+            output.write(
+                f"{GENERATE_EXERCISE_PICTURE}: result=refused reason=storage_not_configured\n"
+            )
+            return 1
+        store = build_exercise_picture_store(settings, session_factory, storage=storage)
     async with httpx2.AsyncClient(transport=hooks.transport) as http_client:
         service = build_exercise_picture_service(
             settings, session_factory, http_client=http_client, brief_writer=hooks.brief_writer
         )
         result = await service.generate(admin_email=admin, exercise_name=args.name)
+    if store is not None and isinstance(result, PictureMade):
+        return await _store_made(result, store, out=args.out, name=args.name, output=output)
     return write_result(result, out=args.out, name=args.name, output=output)
+
+
+async def _store_made(
+    made: PictureMade,
+    store: StoreExercisePicture,
+    *,
+    out: Path | None,
+    name: str,
+    output: TextIO,
+) -> int:
+    """Writes the files when `--out` is given, then stores the picture as suggested media."""
+    prefix = f"{GENERATE_EXERCISE_PICTURE}: result="
+    files = ""
+    if out is not None:
+        try:
+            brief_path, picture_path = _write_pair(
+                made, out=out, stem=slug(name, exercise_id=made.exercise_id)
+            )
+        except OSError:
+            output.write(f"{prefix}failed reason=write_error spent_usd={_usd(made.spent_usd)}\n")
+            return 1
+        files = f" brief={brief_path} picture={picture_path}"
+    stored = await store.store(made)
+    if isinstance(stored, PictureStoreFailed):
+        output.write(f"{prefix}failed reason={stored.reason} spent_usd={_usd(stored.spent_usd)}\n")
+        return 1
+    output.write(
+        f"{prefix}stored asset={stored.asset_id} exercise={stored.exercise_id} "
+        f"link=suggested spent_usd={_usd(stored.spent_usd)}{files}\n"
+    )
+    return 0
 
 
 def write_result(result: PictureResult, *, out: Path, name: str, output: TextIO) -> int:

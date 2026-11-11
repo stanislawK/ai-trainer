@@ -30,6 +30,7 @@ from ai_trainer.domain.media_generation import (
 from ai_trainer.domain.users import NewUser, UserStatus
 from ai_trainer.settings import Settings
 from tests.ingestion_support import spread_vector
+from tests.picture_support import InMemoryBucket
 
 _ADMIN_EMAIL = "zz-pic-cli-admin@example.com"
 _NAME = "Zz Pic Cli Pull-Up"
@@ -92,7 +93,18 @@ async def admin_id(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[UUID]:
         yield admin.id
     finally:
         async with engine.begin() as connection:
+            assets = await connection.execute(
+                text(
+                    "SELECT em.asset_id FROM exercise_media em "
+                    "JOIN exercises e ON e.id = em.exercise_id WHERE e.source = 'zz-pic-cli'"
+                )
+            )
+            asset_ids = [row[0] for row in assets]
             await connection.execute(text("DELETE FROM exercises WHERE source = 'zz-pic-cli'"))
+            if asset_ids:
+                await connection.execute(
+                    text("DELETE FROM media_assets WHERE id = ANY(:ids)"), {"ids": asset_ids}
+                )
             await connection.execute(text("DELETE FROM users WHERE id = :id"), {"id": admin.id})
         await engine.dispose()
 
@@ -268,3 +280,138 @@ async def test_a_name_in_more_than_one_sport_is_refused_before_any_call(
     assert seen == []
     assert briefs.seen == []
     assert not out.exists()
+
+
+async def _links(exercise_name: str) -> list[dict[str, object]]:
+    engine = build_engine(str(Settings().database_url))
+    try:
+        async with engine.connect() as connection:
+            rows = await connection.execute(
+                text(
+                    "SELECT em.id AS link_id, em.status, em.position, a.id AS asset_id, "
+                    "a.storage_key, a.sha256, a.embed_url, a.rights, a.delivery, a.source_ref "
+                    "FROM exercise_media em JOIN exercises e ON e.id = em.exercise_id "
+                    "JOIN media_assets a ON a.id = em.asset_id WHERE e.name = :name "
+                    "ORDER BY em.position"
+                ),
+                {"name": exercise_name},
+            )
+            return [dict(row) for row in rows.mappings()]
+    finally:
+        await engine.dispose()
+
+
+async def test_store_writes_a_suggested_link(admin_id: UUID) -> None:
+    """AC (#535): `--store` uploads the picture and writes a licensed, stored asset with a
+    `suggested` link; the card query doesn't return it."""
+    output = io.StringIO()
+    bucket = InMemoryBucket()
+
+    code = await cli.run(
+        [GENERATE_EXERCISE_PICTURE, _NAME, "--store"],
+        output=output,
+        picture=PictureHooks(
+            transport=_openrouter(_picture, []), brief_writer=FakeBriefs(), storage=bucket
+        ),
+    )
+
+    assert code == 0
+    [link] = await _links(_NAME)
+    assert link["status"] == "suggested"
+    assert (link["rights"], link["delivery"], link["embed_url"]) == ("licensed", "stored", None)
+    assert link["source_ref"] == Settings().image_generation_model
+    assert bucket.objects == {str(link["storage_key"]): _PICTURE}
+    assert output.getvalue().startswith(
+        f"generate-exercise-picture: result=stored asset={link['asset_id']} exercise="
+    )
+    assert output.getvalue().endswith(" link=suggested spent_usd=0.0336004\n")
+
+
+async def test_store_with_out_writes_the_files_too(admin_id: UUID, tmp_path: Path) -> None:
+    out = tmp_path / "pictures"
+
+    code = await cli.run(
+        [GENERATE_EXERCISE_PICTURE, _NAME, "--store", "--out", str(out)],
+        output=io.StringIO(),
+        picture=PictureHooks(
+            transport=_openrouter(_picture, []), brief_writer=FakeBriefs(), storage=InMemoryBucket()
+        ),
+    )
+
+    assert code == 0
+    assert (out / "zz-pic-cli-pull-up.jpg").read_bytes() == _PICTURE
+    assert len(await _links(_NAME)) == 1
+
+
+async def test_a_failed_file_write_writes_no_rows(admin_id: UUID, tmp_path: Path) -> None:
+    blocked = tmp_path / "blocked"
+    blocked.write_text("a file, not a directory")
+
+    code = await cli.run(
+        [GENERATE_EXERCISE_PICTURE, _NAME, "--store", "--out", str(blocked / "pictures")],
+        output=io.StringIO(),
+        picture=PictureHooks(
+            transport=_openrouter(_picture, []), brief_writer=FakeBriefs(), storage=InMemoryBucket()
+        ),
+    )
+
+    assert code == 1
+    assert await _links(_NAME) == []
+
+
+async def test_a_storage_failure_prints_the_reason_and_writes_no_row(admin_id: UUID) -> None:
+    output = io.StringIO()
+
+    code = await cli.run(
+        [GENERATE_EXERCISE_PICTURE, _NAME, "--store"],
+        output=output,
+        picture=PictureHooks(
+            transport=_openrouter(_picture, []),
+            brief_writer=FakeBriefs(),
+            storage=InMemoryBucket(fail_put=True),
+        ),
+    )
+
+    assert code == 1
+    assert output.getvalue() == (
+        "generate-exercise-picture: result=failed reason=storage_error spent_usd=0.0336004\n"
+    )
+    assert await _links(_NAME) == []
+
+
+async def test_store_without_a_media_bucket_is_refused_before_any_call(
+    admin_id: UUID, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("OBJECT_STORAGE_MEDIA_BUCKET", raising=False)
+    monkeypatch.delenv("OBJECT_STORAGE_ENDPOINT", raising=False)
+    output = io.StringIO()
+    seen: list[str] = []
+    briefs = FakeBriefs()
+
+    code = await cli.run(
+        [GENERATE_EXERCISE_PICTURE, _NAME, "--store"],
+        output=output,
+        picture=PictureHooks(transport=_openrouter(_picture, seen), brief_writer=briefs),
+    )
+
+    assert code == 1
+    assert output.getvalue() == (
+        "generate-exercise-picture: result=refused reason=storage_not_configured\n"
+    )
+    assert seen == []
+    assert briefs.seen == []
+
+
+async def test_no_out_and_no_store_is_refused(admin_id: UUID) -> None:
+    output = io.StringIO()
+    seen: list[str] = []
+
+    code = await cli.run(
+        [GENERATE_EXERCISE_PICTURE, _NAME],
+        output=output,
+        picture=PictureHooks(transport=_openrouter(_picture, seen), brief_writer=FakeBriefs()),
+    )
+
+    assert code == 1
+    assert output.getvalue() == "generate-exercise-picture: result=refused reason=no_destination\n"
+    assert seen == []

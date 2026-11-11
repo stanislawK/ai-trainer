@@ -9,7 +9,7 @@ from uuid import UUID
 
 import pytest
 
-from ai_trainer.cli_media import generate_exercise_picture, slug, write_result
+from ai_trainer.cli_media import add_parser, generate_exercise_picture, slug, write_result
 from ai_trainer.domain.media_generation import (
     GeneratedImage,
     ImageMediaType,
@@ -170,6 +170,17 @@ def test_a_failed_write_leaves_no_partial_pair(tmp_path: Path) -> None:
 )
 def test_slug(name: str, expected: str) -> None:
     assert slug(name, exercise_id=_EXERCISE_ID) == expected
+
+
+def test_store_and_out_are_both_optional_flags() -> None:
+    parser = argparse.ArgumentParser()
+    add_parser(parser.add_subparsers(dest="command"))
+
+    both = parser.parse_args(["generate-exercise-picture", "Pull-Up", "--store", "--out", "d"])
+    neither = parser.parse_args(["generate-exercise-picture", "Pull-Up"])
+
+    assert (both.store, both.out) == (True, Path("d"))
+    assert (neither.store, neither.out) == (False, None)
 
 
 @pytest.mark.parametrize(
