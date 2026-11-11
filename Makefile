@@ -176,7 +176,7 @@ backfill-gym-sessions: ## Write gym sessions logged before the typed tables into
 	uv run ai-trainer backfill-gym-sessions
 
 storage-check: ## Put, read back and delete a probe object in the local uploads bucket, check it is private and try a short presigned link, then read a media probe anonymously (ADR-0033, #553); runs in the app container, needs `make start` and no R2 account
-	docker compose -f compose.yaml -f compose.dev.yaml exec -T app ai-trainer storage-check
+	docker compose -f compose.yaml -f compose.dev.yaml exec -T -e MEDIA_PUBLIC_BASE_URL=http://storage:7070/ai-trainer-media app ai-trainer storage-check
 
 ingest-once: ## Drain the knowledge sources waiting as `uploaded` by hand, then exit (ADR-0036, #423); `make start`'s `ingest` container does this on its own, and this runs in it, never in `app` (#462); each embedding batch is a real OpenRouter call (costs fractions of a cent)
 	docker compose -f compose.yaml -f compose.dev.yaml exec -T ingest ai-trainer ingest-worker --once
