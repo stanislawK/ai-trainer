@@ -112,6 +112,22 @@ async def test_the_request_names_the_model_and_prompt_and_nothing_about_the_admi
     assert json.loads(request.content) == {"model": _MODEL, "prompt": _PROMPT}
 
 
+async def test_image_request_carries_image_generation_timeout() -> None:
+    """#547 AC 1: the request's read timeout is the adapter's timeout, whatever the client's."""
+    seen: list[httpx2.Request] = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        seen.append(request)
+        return ok_response()
+
+    await _generator(handler, _Calls(), timeout_seconds=77.0).generate(
+        user_id=_ADMIN, prompt=_PROMPT
+    )
+
+    [request] = seen
+    assert request.extensions["timeout"]["read"] == 77.0
+
+
 async def test_a_png_is_returned_as_png() -> None:
     result = await _generator(
         lambda request: ok_response(media_type="image/png"), _Calls()
