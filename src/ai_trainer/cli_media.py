@@ -51,6 +51,7 @@ import httpx2
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai_trainer.application.exercise_picture_store import StoreExercisePicture
+from ai_trainer.application.operator_admin import default_admin_email
 from ai_trainer.application.ports.media_generation import PictureBriefWriterPort
 from ai_trainer.application.ports.object_storage import ObjectStoragePort
 from ai_trainer.domain.media_generation import (
@@ -156,7 +157,7 @@ async def generate_exercise_picture(
     output: TextIO,
     hooks: PictureHooks | None = None,
 ) -> int:
-    admin = args.admin or (settings.admin_emails[0] if len(settings.admin_emails) == 1 else None)
+    admin = default_admin_email(args.admin, settings.admin_emails)
     if admin is None:
         output.write(f"{GENERATE_EXERCISE_PICTURE}: result=refused reason=admin_required\n")
         return 1

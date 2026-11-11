@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from uuid import UUID
 
+from ai_trainer.application.operator_admin import resolve_active_admin
 from ai_trainer.application.ports.llm_calls import LlmCallsRepositoryPort
 from ai_trainer.application.ports.media_generation import (
     ImageGenerationPort,
@@ -40,7 +41,6 @@ from ai_trainer.domain.media_generation import (
     needs_no_model,
     picture_brief_deps,
 )
-from ai_trainer.domain.users import is_admin_email
 
 # The template's locale (`media.picture_brief` v1 is English), so its text is read in English
 # first, else in any language.
@@ -128,10 +128,9 @@ class ExercisePictureService:
     async def _admin(self, email: str) -> UUID | None:
         """The admin's user ID: the email is in `ADMIN_EMAILS` (ADR-0005) and an active account
         has it, so no unverified `user_id` is written to `llm_calls` (ADR-0031)."""
-        if not is_admin_email(email, self._admin_emails):
-            return None
-        user = await self._ports.admins.active_by_email(email)
-        return None if user is None else user.id
+        return await resolve_active_admin(
+            email, admin_emails=self._admin_emails, users=self._ports.admins
+        )
 
     async def _brief(
         self, admin: UUID, subject: PictureSubject

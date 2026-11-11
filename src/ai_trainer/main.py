@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from datetime import timedelta
 from pathlib import Path
 from urllib.parse import urlsplit
+from uuid import UUID
 
 import httpx2
 from authlib.integrations.starlette_client import OAuth
@@ -94,6 +95,7 @@ from ai_trainer.application.knowledge_sources import KnowledgeSources
 from ai_trainer.application.knowledge_staging import KnowledgeStaging
 from ai_trainer.application.metered_calls import MeteredLlmCallsRepository
 from ai_trainer.application.model_budget import ModelCallBudget
+from ai_trainer.application.operator_admin import resolve_active_admin
 from ai_trainer.application.pmc_source_file import PmcSourceFile
 from ai_trainer.application.ports.clock import ClockPort
 from ai_trainer.application.ports.conversation import ConversationModelPort
@@ -113,7 +115,7 @@ from ai_trainer.application.session_history import (
     GymSessionHistory,
 )
 from ai_trainer.application.training_history import ExerciseTrainingHistory, TrainingHistory
-from ai_trainer.application.wger_picture_import import ImportWgerPictures
+from ai_trainer.application.wger_picture_import import ImportWgerPictures, ShortlistLimits
 from ai_trainer.domain.media_generation import PictureSpendLimits
 from ai_trainer.domain.pmc import PMC_JATS_MAX_BYTES
 from ai_trainer.domain.sports.gym.names import GYM_SPORT_ID
@@ -453,10 +455,18 @@ def build_wger_picture_import(
     storage: ObjectStoragePort,
     http_client: httpx2.AsyncClient,
     sport_id: str = GYM_SPORT_ID,
+    decisions: DecisionGatewayPort | None = None,
 ) -> ImportWgerPictures:
-    """`import-wger-pictures` (ADR-0031's #552 amendment): wger's gym pictures, matched against
-    the shared catalogue at `EXERCISE_NEAR_MATCH_THRESHOLD`, stored in the media bucket `storage`
-    as `suggested` media. `sport_id` is for tests, which match against their own rows only."""
+    """`import-wger-pictures` (ADR-0031's #552 and #555 amendments): wger's gym pictures,
+    shortlisted against the shared catalogue at `EXERCISE_CANDIDATE_FLOOR` (at most
+    `EXERCISE_SHORTLIST_SIZE`), linked only on Jev's pick at `EXERCISE_PICK_THRESHOLD`, stored in
+    the media bucket `storage` as `suggested` media. Admin-run, so the decision gateway is not
+    wrapped in ADR-0029's budget; `--limit` bounds its calls, each written to `llm_calls` under the
+    admin. `http_client`, owned and closed by the caller, carries wger and Jev. `sport_id` and
+    `decisions` are for tests."""
+    gateway = decisions or OpenRouterDecisionGateway(
+        settings, SqlAlchemyLlmCallsRepository(session_factory), http_client=http_client
+    )
     return ImportWgerPictures(
         wger=HttpxWgerImages(
             http_client=http_client,
@@ -464,10 +474,25 @@ def build_wger_picture_import(
             timeout_seconds=settings.wger_timeout_seconds,
         ),
         catalogue=SqlAlchemyCatalogueMatch(session_factory),
+        picker=JevExercisePicker(gateway, threshold=settings.exercise_pick_threshold),
         media=SqlAlchemyExerciseMediaRepository(session_factory),
         storage=storage,
         sport_id=sport_id,
-        threshold=settings.exercise_near_match_threshold,
+        limits=ShortlistLimits(
+            floor=settings.exercise_candidate_floor, size=settings.exercise_shortlist_size
+        ),
+    )
+
+
+async def resolve_operator_admin(
+    settings: Settings, session_factory: Callable[[], AsyncSession], email: str
+) -> UUID | None:
+    """The user ID of the admin an operator command names: listed in `ADMIN_EMAILS` and active
+    (ADR-0031, #533, #555); `None` otherwise."""
+    return await resolve_active_admin(
+        email,
+        admin_emails=settings.admin_emails,
+        users=SqlAlchemyUsersRepository(session_factory),
     )
 
 

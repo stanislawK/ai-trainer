@@ -9,7 +9,7 @@
     uv run ai-trainer ingest-worker [--once]
     uv run ai-trainer rebuild-knowledge-index [--memory-mb N]
     uv run ai-trainer generate-exercise-picture <name> [--out <dir>] [--store] [--admin <email>]
-    uv run ai-trainer import-wger-pictures [--limit N]
+    uv run ai-trainer import-wger-pictures [--limit N] [--admin <email>]
 
 `purge-conversations` hard-deletes every conversation last active more than
 `CONVERSATION_RETENTION_DAYS` ago, across users, with its messages by cascade. It prints the
@@ -73,8 +73,8 @@ failure (ADR-0036's #462 amendment). It prints
 and, with `--store`, saves the picture as `suggested` media (ADR-0031, #533, #535); `cli_media`
 describes it. It costs money, so it is run on purpose.
 
-`import-wger-pictures` stores wger's pictures that match a gym catalogue exercise as `suggested`
-media (ADR-0031, #552); `cli_media_wger` describes it.
+`import-wger-pictures` stores wger's pictures whose gym catalogue exercise Jev picks as `suggested`
+media (ADR-0031, #552, #555); `cli_media_wger` describes it. Its Jev calls cost cents.
 """
 
 import argparse

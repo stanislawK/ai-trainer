@@ -1,26 +1,50 @@
-"""`ai-trainer import-wger-pictures` wired end to end (ADR-0031 *First media source*, #552): real
-PostgreSQL, an in-memory media bucket, and wger replayed from `tests/fixtures/wger/` through a
-mock transport, so nothing leaves the machine. The command commits, so the catalogue exercises it
-matches are real rows in their own sport, and every row it writes is removed after."""
+"""`ai-trainer import-wger-pictures` wired end to end (ADR-0031 *First media source*, #552, #555):
+real PostgreSQL, an in-memory media bucket, wger replayed from `tests/fixtures/wger/` through a
+mock transport, and Jev faked behind `DecisionGatewayPort` (or behind the real gateway as a fake
+`DecisionModel`), so nothing leaves the machine. The command commits, so the admin and the
+catalogue exercises it matches are real rows, in their own sport, and every row it writes is
+removed after."""
 
+import asyncio
 import hashlib
 import io
 from collections.abc import AsyncIterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from uuid import UUID, uuid4
 
+import httpx2
 import pytest
+from pydantic import BaseModel
+from pydantic_ai import models
+from pydantic_ai.models.decision import (
+    ChoiceAnswer,
+    DecisionAnswer,
+    DecisionModel,
+    DecisionModelSettings,
+    DecisionRequest,
+    DecisionResponse,
+)
+from pydantic_ai.usage import RequestUsage
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from ai_trainer import cli
-from ai_trainer.adapters.db import build_engine
+from ai_trainer.adapters.db import build_engine, build_session_factory
+from ai_trainer.adapters.llm_calls_repository import SqlAlchemyLlmCallsRepository
+from ai_trainer.adapters.users_repository import SqlAlchemyUsersRepository
+from ai_trainer.application.ports.decision_gateway import DecisionResult
 from ai_trainer.cli_media_wger import IMPORT_WGER_PICTURES, WgerHooks
+from ai_trainer.domain.llm_calls import LlmCallOutcome
+from ai_trainer.domain.users import NewUser, UserStatus
+from ai_trainer.llm.decision_gateway import OpenRouterDecisionGateway
+from ai_trainer.llm.exercise_shortlist import EXERCISE_SHORTLIST_ID, EXERCISE_SHORTLIST_VERSION
 from ai_trainer.settings import Settings
 from tests.picture_support import InMemoryBucket
 from tests.wger_support import BENCH_PRESS_FILE, VACUUM_FILE, FakeWgerSite
 
 _SOURCE = "zz-wger-cli"
+_ADMIN_EMAIL = "zz-wger-cli-admin@example.com"
+_PENDING_EMAIL = "zz-wger-cli-pending@example.com"
 _SHAS = [hashlib.sha256(path.read_bytes()).hexdigest() for path in (BENCH_PRESS_FILE, VACUUM_FILE)]
 
 
@@ -29,6 +53,37 @@ class Catalogue:
     sport: str
     bench: UUID
     vacuum: UUID
+    close_grip: UUID
+
+
+@dataclass
+class FakeDecisions:
+    """A `DecisionGatewayPort` that picks, for each wger name, the option `picks` names at 0.97,
+    and "none" for any other name. It records each call's user and state."""
+
+    picks: dict[str, UUID] = field(default_factory=dict)
+    calls: list[tuple[UUID, str, list[str]]] = field(default_factory=list)
+
+    async def decide[OutputT: BaseModel](
+        self,
+        *,
+        user_id: UUID,
+        decision_id: str,
+        decision_version: int,
+        output_type: type[OutputT],
+        state: str,
+    ) -> DecisionResult[OutputT]:
+        options = [
+            option["const"]
+            for option in output_type.model_json_schema()["properties"]["exercise"]["anyOf"]
+        ]
+        self.calls.append((user_id, state, options))
+        option = str(self.picks[state]) if state in self.picks else "none"
+        return DecisionResult(
+            output=output_type.model_validate({"exercise": option}),
+            outcome=LlmCallOutcome.SUCCESS,
+            probabilities={"exercise": {option: 0.97}},
+        )
 
 
 async def _clean(engine: AsyncEngine) -> None:
@@ -44,6 +99,11 @@ async def _clean(engine: AsyncEngine) -> None:
             text("DELETE FROM media_assets WHERE sha256 = ANY(:shas)"), {"shas": _SHAS}
         )
         await connection.execute(text("DELETE FROM exercises WHERE source = :s"), {"s": _SOURCE})
+        # Their `llm_calls` rows go by cascade.
+        await connection.execute(
+            text("DELETE FROM users WHERE email = ANY(:emails)"),
+            {"emails": [_ADMIN_EMAIL, _PENDING_EMAIL]},
+        )
 
 
 @pytest.fixture
@@ -57,13 +117,27 @@ async def engine() -> AsyncIterator[AsyncEngine]:
         await engine.dispose()
 
 
+async def _user(engine: AsyncEngine, email: str, status: UserStatus) -> UUID:
+    user = await SqlAlchemyUsersRepository(build_session_factory(engine)).create(
+        NewUser(sub=f"zz-wger-cli-{uuid4()}", email=email, name=None, locale="en", status=status)
+    )
+    return user.id
+
+
 @pytest.fixture
-async def catalogue(engine: AsyncEngine) -> Catalogue:
+async def admin(engine: AsyncEngine, monkeypatch: pytest.MonkeyPatch) -> UUID:
+    monkeypatch.setenv("ADMIN_EMAILS", _ADMIN_EMAIL)
+    return await _user(engine, _ADMIN_EMAIL, UserStatus.ACTIVE)
+
+
+@pytest.fixture
+async def catalogue(engine: AsyncEngine, admin: UUID) -> Catalogue:
     sport = f"zz-wger-{uuid4()}"
     ids: dict[str, UUID] = {}
     async with engine.begin() as connection:
-        # Exactly wger's English names; "Biceps Curl With Cable" has no catalogue row.
-        for name in ("Bench Press Narrow Grip", "Stomach Vacuum"):
+        # Two of wger's English names exactly, and a near name for the bench press; "Biceps Curl
+        # With Cable" has no catalogue row near it.
+        for name in ("Bench Press Narrow Grip", "Stomach Vacuum", "Close-Grip Bench Press"):
             ids[name] = uuid4()
             await connection.execute(
                 text(
@@ -78,7 +152,16 @@ async def catalogue(engine: AsyncEngine) -> Catalogue:
                     "name": name,
                 },
             )
-    return Catalogue(sport, ids["Bench Press Narrow Grip"], ids["Stomach Vacuum"])
+    return Catalogue(
+        sport, ids["Bench Press Narrow Grip"], ids["Stomach Vacuum"], ids["Close-Grip Bench Press"]
+    )
+
+
+def _exact(catalogue: Catalogue) -> FakeDecisions:
+    """Jev picking each exact catalogue name."""
+    return FakeDecisions(
+        picks={"Bench Press Narrow Grip": catalogue.bench, "Stomach Vacuum": catalogue.vacuum}
+    )
 
 
 async def _run(
@@ -87,10 +170,14 @@ async def _run(
     *,
     site: FakeWgerSite | None = None,
     args: tuple[str, ...] = (),
+    decisions: FakeDecisions | OpenRouterDecisionGateway | None = None,
 ) -> tuple[int, str]:
     output = io.StringIO()
     hooks = WgerHooks(
-        transport=(site or FakeWgerSite()).transport(), storage=bucket, sport_id=catalogue.sport
+        transport=(site or FakeWgerSite()).transport(),
+        storage=bucket,
+        sport_id=catalogue.sport,
+        decisions=decisions or _exact(catalogue),
     )
     code = await cli.run([IMPORT_WGER_PICTURES, *args], output=output, wger=hooks)
     return code, output.getvalue()
@@ -241,6 +328,152 @@ async def test_report_counts_stored_skipped_unmatched(
     assert "exercises/" not in output
     assert "http" not in output
     assert "Everkinetic" not in output
+
+
+async def test_cli_links_the_exercise_jev_picked(engine: AsyncEngine, catalogue: Catalogue) -> None:
+    """ "Bench Press Narrow Grip" is its own trigram top; Jev picks the close-grip press from the
+    shortlist instead, and that is the link (#555)."""
+    decisions = FakeDecisions(
+        picks={"Bench Press Narrow Grip": catalogue.close_grip, "Stomach Vacuum": catalogue.vacuum}
+    )
+
+    code, output = await _run(catalogue, InMemoryBucket(), decisions=decisions)
+
+    assert code == 0
+    bench_call = next(call for call in decisions.calls if call[1] == "Bench Press Narrow Grip")
+    assert bench_call[2][:2] == [str(catalogue.bench), str(catalogue.close_grip)]
+    assert f"import-wger-pictures: stored image=15 exercise={catalogue.close_grip} asset=" in output
+    linked = {
+        row["source_ref"]: row["exercise_id"] for row in await _media(engine, catalogue.sport)
+    }
+    assert linked["https://wger.de/api/v2/exerciseimage/15/"] == catalogue.close_grip
+
+
+async def test_jev_abstaining_leaves_the_image_unmatched(
+    engine: AsyncEngine, catalogue: Catalogue
+) -> None:
+    bucket = InMemoryBucket()
+
+    code, output = await _run(catalogue, bucket, decisions=FakeDecisions())
+
+    assert code == 0
+    assert output.splitlines()[-1] == (
+        "import-wger-pictures: result=done stored=0 skipped=1 unmatched=3"
+    )
+    assert bucket.objects == {}
+    assert await _media(engine, catalogue.sport) == []
+
+
+async def _llm_calls(engine: AsyncEngine, user_ids: list[UUID]) -> list[dict[str, object]]:
+    async with engine.connect() as connection:
+        rows = await connection.execute(
+            text("SELECT * FROM llm_calls WHERE user_id = ANY(:ids)"), {"ids": user_ids}
+        )
+        return [dict(row) for row in rows.mappings()]
+
+
+@pytest.mark.parametrize(
+    ("admin_emails", "args", "reason"),
+    [
+        (_ADMIN_EMAIL, ("--admin", "zz-wger-cli-someone@example.com"), "not_admin"),
+        (f"{_ADMIN_EMAIL},{_PENDING_EMAIL}", ("--admin", _PENDING_EMAIL), "not_admin"),
+        (f"{_ADMIN_EMAIL},{_PENDING_EMAIL}", (), "admin_required"),
+    ],
+    ids=["unlisted", "listed_but_pending", "no_flag_two_admins"],
+)
+async def test_non_admin_is_refused_before_any_request(
+    engine: AsyncEngine,
+    catalogue: Catalogue,
+    admin: UUID,
+    monkeypatch: pytest.MonkeyPatch,
+    admin_emails: str,
+    args: tuple[str, ...],
+    reason: str,
+) -> None:
+    monkeypatch.setenv("ADMIN_EMAILS", admin_emails)
+    pending = await _user(engine, _PENDING_EMAIL, UserStatus.PENDING)
+    site = FakeWgerSite()
+    decisions = _exact(catalogue)
+
+    code, output = await _run(
+        catalogue, InMemoryBucket(), site=site, args=args, decisions=decisions
+    )
+
+    assert code == 1
+    assert output == f"import-wger-pictures: result=refused reason={reason}\n"
+    assert site.requests == []
+    assert decisions.calls == []
+    assert await _llm_calls(engine, [admin, pending]) == []
+
+
+class FakeJev(DecisionModel[None]):
+    """Jev behind the real gateway, no network: it picks the option `picks` names for a state,
+    else "none"."""
+
+    max_choice_options = 255
+    max_score_levels = 10
+
+    def __init__(self, picks: dict[str, UUID]) -> None:
+        super().__init__()
+        self._picks = picks
+        self.requests: list[DecisionRequest] = []
+
+    @property
+    def model_name(self) -> str:
+        return "typesafe/jev-1.13-20260917"
+
+    @property
+    def system(self) -> str:
+        return "fake"
+
+    @property
+    def base_url(self) -> str:
+        return "https://jev.invalid"
+
+    async def decide(
+        self, request: DecisionRequest, model_settings: DecisionModelSettings
+    ) -> DecisionResponse:
+        self.requests.append(request)
+        await asyncio.sleep(0)
+        choice = str(self._picks[request.state]) if request.state in self._picks else "none"
+        answers: dict[str, DecisionAnswer] = {
+            "exercise": ChoiceAnswer(choice=choice, confidence=0.97, probabilities={choice: 0.97})
+        }
+        return DecisionResponse(
+            answers=answers, model_name=self.model_name, usage=RequestUsage(input_tokens=120)
+        )
+
+
+async def test_one_llm_calls_row_per_jev_call_under_the_admin(
+    engine: AsyncEngine, catalogue: Catalogue, admin: UUID, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(models, "ALLOW_MODEL_REQUESTS", True)
+
+    def refuse(request: httpx2.Request) -> httpx2.Response:
+        raise AssertionError(f"a test reached the network: {request.url}")
+
+    jev = FakeJev({"Bench Press Narrow Grip": catalogue.bench})
+    async with httpx2.AsyncClient(transport=httpx2.MockTransport(refuse)) as client:
+        gateway = OpenRouterDecisionGateway(
+            Settings(),
+            SqlAlchemyLlmCallsRepository(build_session_factory(engine)),
+            http_client=client,
+        )
+        with gateway.agent.override(model=jev):
+            code, output = await _run(catalogue, InMemoryBucket(), decisions=gateway)
+
+    assert code == 0
+    assert "import-wger-pictures: stored image=15 exercise=" in output
+    rows = await _llm_calls(engine, [admin])
+    assert len(jev.requests) >= 2
+    assert len(rows) == len(jev.requests)
+    assert {(row["user_id"], row["template_id"], row["template_version"]) for row in rows} == {
+        (admin, EXERCISE_SHORTLIST_ID, EXERCISE_SHORTLIST_VERSION)
+    }
+    # The state is the wger name alone: no email, no user ID.
+    states = [str(request.state) for request in jev.requests]
+    assert "Bench Press Narrow Grip" in states
+    assert all("@" not in state and str(admin) not in state for state in states)
 
 
 async def test_no_media_bucket_is_refused_before_any_request(
