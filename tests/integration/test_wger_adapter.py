@@ -82,6 +82,33 @@ async def test_limit_stops_the_listing_early(
     assert request.url.params.get("limit") == "1"
 
 
+async def test_limit_at_a_page_end_reads_no_further_page(
+    site: FakeWgerSite, client: httpx2.AsyncClient
+) -> None:
+    # The first recorded page holds two images and links a second one.
+    images = await _all(_adapter(client), limit=2)
+
+    assert [image.id for image in images] == [3, 15]
+    [request] = site.requests
+    assert request.url.params.get("limit") == "2"
+
+
+async def test_a_body_over_the_cap_is_an_error(client: httpx2.AsyncClient) -> None:
+    listing = _adapter(client)
+    bench = (await _all(listing))[1]
+    capped = HttpxWgerImages(
+        http_client=client,
+        base_url=WGER,
+        timeout_seconds=1.0,
+        max_body_bytes=BENCH_PRESS_FILE.stat().st_size - 1,
+    )
+
+    with pytest.raises(MediaSourceError) as raised:
+        await capped.download(bench)
+
+    assert raised.value.problem == "wger_error"
+
+
 async def test_download_returns_the_bytes_as_served(client: httpx2.AsyncClient) -> None:
     adapter = _adapter(client)
     bench = (await _all(adapter))[1]
