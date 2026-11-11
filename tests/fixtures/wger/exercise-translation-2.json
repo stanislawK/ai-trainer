@@ -1,0 +1,23 @@
+{
+  "count": 4,
+  "next": null,
+  "previous": "https://wger.de/api/v2/exercise-translation/?language=2&limit=100",
+  "results": [
+    {
+      "id": 91,
+      "uuid": "d325dd5c-6833-41c7-8eea-6b95c4871133",
+      "name": "Crunches",
+      "exercise": 167,
+      "language": 2,
+      "license_author": "wger.de"
+    },
+    {
+      "id": 5105,
+      "uuid": "c29994fa-bb0a-4711-8857-e17efacc7f7a",
+      "name": "Stomach Vacuum",
+      "exercise": 2673,
+      "language": 2,
+      "license_author": "TimoteoG"
+    }
+  ]
+}

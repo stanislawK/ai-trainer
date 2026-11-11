@@ -1,6 +1,6 @@
 .PHONY: install css test test-fast test-ops test-unit test-integration coverage lint format format-check \
 	typecheck import-lint squawk uv-pins-check suppressions-check openapi openapi-check check up up-build start stop down logs ps \
-	health smoke-setup smoke-up smoke-down alloy-check cloud-init-check backup-check migrate purge-conversations import-exercises backfill-gym-sessions storage-check ingest-once rebuild-knowledge-index search-knowledge llm-report latency-scenario evals e2e-install e2e worktree worktree-rm worktree-prune stack-owner
+	health smoke-setup smoke-up smoke-down alloy-check cloud-init-check backup-check migrate purge-conversations import-exercises backfill-gym-sessions storage-check import-wger-pictures ingest-once rebuild-knowledge-index search-knowledge llm-report latency-scenario evals e2e-install e2e worktree worktree-rm worktree-prune stack-owner
 
 # The checkout's own database (ADR-0035): the last path segment of DATABASE_URL in its .env,
 # read by compose.yaml, so `make start` in a ticket's worktree serves `ai_trainer_wt<n>`.
@@ -177,6 +177,9 @@ backfill-gym-sessions: ## Write gym sessions logged before the typed tables into
 
 storage-check: ## Put, read back and delete a probe object in the local uploads bucket and try a short presigned link (ADR-0033); runs in the app container, needs `make start` and no R2 account
 	docker compose -f compose.yaml -f compose.dev.yaml exec -T app ai-trainer storage-check
+
+import-wger-pictures: ## Import wger's authored pictures into the local media bucket as `suggested` links on matched catalogue exercises; [limit=N] reads only the first N images (ADR-0031, #552); runs in the app container, needs `make start` and the imported catalogue; real requests to wger.de, no model calls
+	docker compose -f compose.yaml -f compose.dev.yaml exec -T app ai-trainer import-wger-pictures $(if $(limit),--limit $(limit))
 
 ingest-once: ## Drain the knowledge sources waiting as `uploaded` by hand, then exit (ADR-0036, #423); `make start`'s `ingest` container does this on its own, and this runs in it, never in `app` (#462); each embedding batch is a real OpenRouter call (costs fractions of a cent)
 	docker compose -f compose.yaml -f compose.dev.yaml exec -T ingest ai-trainer ingest-worker --once
