@@ -7,7 +7,15 @@ from decimal import Decimal
 from typing import Annotated, Any, Self
 from urllib.parse import urlsplit
 
-from pydantic import BaseModel, BeforeValidator, Field, SecretStr, field_validator, model_validator
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    BeforeValidator,
+    Field,
+    SecretStr,
+    field_validator,
+    model_validator,
+)
 from pydantic_settings import NoDecode
 
 from ai_trainer.domain.llm_calls import ProviderPreferences, ReasoningEffort
@@ -127,6 +135,17 @@ def http_origin(value: str) -> str | None:
     ):
         return None
     return f"{parts.scheme}://{parts.netloc.lower()}"
+
+
+def _public_origin(value: str) -> str:
+    origin = http_origin(value)
+    if origin is None:
+        raise ValueError("must be an http(s) origin without a path, such as https://wger.de")
+    return origin
+
+
+# A public service's base URL (PMC's bucket, wger.de), kept as its lower-case origin.
+PublicOrigin = Annotated[str, AfterValidator(_public_origin)]
 
 
 class ObjectStorageSettings(BaseModel):

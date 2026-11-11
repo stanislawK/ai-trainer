@@ -9,6 +9,7 @@
     uv run ai-trainer ingest-worker [--once]
     uv run ai-trainer rebuild-knowledge-index [--memory-mb N]
     uv run ai-trainer generate-exercise-picture <name> [--out <dir>] [--store] [--admin <email>]
+    uv run ai-trainer import-wger-pictures [--limit N]
 
 `purge-conversations` hard-deletes every conversation last active more than
 `CONVERSATION_RETENTION_DAYS` ago, across users, with its messages by cascade. It prints the
@@ -71,6 +72,9 @@ failure (ADR-0036's #462 amendment). It prints
 `generate-exercise-picture` writes one catalogue exercise's brief and picture into `--out`
 and, with `--store`, saves the picture as `suggested` media (ADR-0031, #533, #535); `cli_media`
 describes it. It costs money, so it is run on purpose.
+
+`import-wger-pictures` stores wger's pictures that match a gym catalogue exercise as `suggested`
+media (ADR-0031, #552); `cli_media_wger` describes it.
 """
 
 import argparse
@@ -83,7 +87,7 @@ from typing import TextIO
 import httpx2
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ai_trainer import cli_media
+from ai_trainer import cli_media, cli_media_wger
 from ai_trainer.adapters.catalogue_knowledge_repository import SqlAlchemyCatalogueSources
 from ai_trainer.adapters.clock import UtcClock
 from ai_trainer.adapters.conversation_repository import SqlAlchemyConversationRepository
@@ -190,6 +194,7 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
         help="maintenance_work_mem for the build (default KNOWLEDGE_INDEX_BUILD_MEMORY_MB).",
     )
     cli_media.add_parser(commands)
+    cli_media_wger.add_parser(commands)
     return parser.parse_args(argv)
 
 
@@ -302,9 +307,11 @@ async def run(
     embedding_transport: httpx2.AsyncBaseTransport | None = None,
     pmc_transport: httpx2.AsyncBaseTransport | None = None,
     picture: cli_media.PictureHooks | None = None,
+    wger: cli_media_wger.WgerHooks | None = None,
 ) -> int:
     """Runs one command and returns its exit code. `dataset_transport`, `sleep`,
-    `embedding_transport`, `pmc_transport` and `picture` are for tests."""
+    `embedding_transport`, `pmc_transport`, `picture` and `wger` are for
+    tests."""
     args = parse_args(argv)
     settings = Settings()
     if args.command == LLM_DEBUG_REPORT:
@@ -352,6 +359,10 @@ async def run(
         if args.command == cli_media.GENERATE_EXERCISE_PICTURE:
             return await cli_media.generate_exercise_picture(
                 settings, build_session_factory(engine), args, output=output, hooks=picture
+            )
+        if args.command == cli_media_wger.IMPORT_WGER_PICTURES:
+            return await cli_media_wger.import_wger_pictures(
+                settings, build_session_factory(engine), args, output=output, hooks=wger
             )
         if args.command == FEEDBACK_REPORT:
             return await feedback_report(

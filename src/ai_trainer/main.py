@@ -33,6 +33,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from ai_trainer.adapters.activity_stores import ActivityStores
 from ai_trainer.adapters.admin_token_repository import SqlAlchemyAdminTokensRepository
 from ai_trainer.adapters.catalogue_knowledge_repository import SqlAlchemyCatalogueChunks
+from ai_trainer.adapters.catalogue_match import SqlAlchemyCatalogueMatch
 from ai_trainer.adapters.chat_repository import SqlAlchemyChatRepository
 from ai_trainer.adapters.clarification_repository import SqlAlchemyClarificationRepository
 from ai_trainer.adapters.clock import UtcClock
@@ -67,6 +68,7 @@ from ai_trainer.adapters.training_session_editor import (
 from ai_trainer.adapters.training_session_repository import SqlAlchemyTrainingSessionRepository
 from ai_trainer.adapters.user_status_changer import SqlAlchemyUserStatusChanger
 from ai_trainer.adapters.users_repository import SqlAlchemyUsersRepository
+from ai_trainer.adapters.wger import HttpxWgerImages
 from ai_trainer.application.admin_tokens import AdminTokens, TokenAuthenticator
 from ai_trainer.application.background_reads import BackgroundReads
 from ai_trainer.application.budgeted_gateways import (
@@ -111,8 +113,10 @@ from ai_trainer.application.session_history import (
     GymSessionHistory,
 )
 from ai_trainer.application.training_history import ExerciseTrainingHistory, TrainingHistory
+from ai_trainer.application.wger_picture_import import ImportWgerPictures
 from ai_trainer.domain.media_generation import PictureSpendLimits
 from ai_trainer.domain.pmc import PMC_JATS_MAX_BYTES
+from ai_trainer.domain.sports.gym.names import GYM_SPORT_ID
 from ai_trainer.domain.sports.registry import SportRegistry, default_sport_registry
 from ai_trainer.knowledge.chunker import Chunker
 from ai_trainer.knowledge.readers import DocumentReaders
@@ -439,6 +443,31 @@ def build_exercise_picture_store(
         media=SqlAlchemyExerciseMediaRepository(session_factory),
         clock=UtcClock(),
         model=image_model_source_ref(settings.image_generation_model),
+    )
+
+
+def build_wger_picture_import(
+    settings: Settings,
+    session_factory: Callable[[], AsyncSession],
+    *,
+    storage: ObjectStoragePort,
+    http_client: httpx2.AsyncClient,
+    sport_id: str = GYM_SPORT_ID,
+) -> ImportWgerPictures:
+    """`import-wger-pictures` (ADR-0031's #552 amendment): wger's gym pictures, matched against
+    the shared catalogue at `EXERCISE_NEAR_MATCH_THRESHOLD`, stored in the media bucket `storage`
+    as `suggested` media. `sport_id` is for tests, which match against their own rows only."""
+    return ImportWgerPictures(
+        wger=HttpxWgerImages(
+            http_client=http_client,
+            base_url=settings.wger_base_url,
+            timeout_seconds=settings.wger_timeout_seconds,
+        ),
+        catalogue=SqlAlchemyCatalogueMatch(session_factory),
+        media=SqlAlchemyExerciseMediaRepository(session_factory),
+        storage=storage,
+        sport_id=sport_id,
+        threshold=settings.exercise_near_match_threshold,
     )
 
 

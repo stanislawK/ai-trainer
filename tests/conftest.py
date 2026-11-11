@@ -125,6 +125,9 @@ _XDIST_GROUPS = {
         "tests/integration/test_generate_exercise_picture_cli.py",
         # Commits a catalogue exercise and its media rows for storing a picture (#535).
         "tests/integration/test_store_exercise_picture.py",
+        # Commits catalogue exercises and media rows for the recorded wger images, whose fixed
+        # bytes are one `sha256` across every test here (#552).
+        "tests/integration/test_import_wger_pictures_cli.py",
     ),
     # `test_xdist_groups` runs this group in a subprocess, so it must not overlap the outer one.
     "src_tree": (

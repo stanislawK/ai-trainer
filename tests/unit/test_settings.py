@@ -260,6 +260,39 @@ def test_the_pmc_bucket_defaults_to_pmcs_cloud_service(monkeypatch: pytest.Monke
     assert settings.pmc_jats_timeout_seconds == 30.0
 
 
+def test_wger_defaults_to_wger_de(monkeypatch: pytest.MonkeyPatch) -> None:
+    _set_required_keys(monkeypatch)
+    monkeypatch.setenv("WGER_BASE_URL", "HTTPS://Wger.Example/")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.wger_base_url == "https://wger.example"
+    assert Settings.model_fields["wger_base_url"].default == "https://wger.de"
+    assert settings.wger_timeout_seconds == 20.0
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("WGER_BASE_URL", "https://wger.de/api/v2"),
+        ("WGER_BASE_URL", "wger.de"),
+        ("WGER_TIMEOUT_SECONDS", "0"),
+        ("WGER_TIMEOUT_SECONDS", "121"),
+    ],
+    ids=["path", "no-scheme", "zero-timeout", "long-timeout"],
+)
+def test_the_wger_settings_are_checked(
+    monkeypatch: pytest.MonkeyPatch, key: str, value: str
+) -> None:
+    _set_required_keys(monkeypatch)
+    monkeypatch.setenv(key, value)
+
+    with pytest.raises(ValidationError) as excinfo:
+        Settings(_env_file=None)
+
+    assert [error["loc"] for error in excinfo.value.errors()] == [(key.lower(),)]
+
+
 @pytest.mark.parametrize(
     ("key", "value"),
     [

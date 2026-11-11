@@ -1,0 +1,49 @@
+{
+  "count": 4,
+  "next": "https://wger.de/api/v2/exerciseimage/?limit=100&offset=2",
+  "previous": null,
+  "results": [
+    {
+      "id": 3,
+      "uuid": "ef0b00e2-3323-4e7f-88fe-d71ef34b3384",
+      "exercise": 167,
+      "exercise_uuid": "b186f1f8-4957-44dc-bf30-d0b00064ce6f",
+      "image": "https://wger.de/media/exercise-images/91/Crunches-1.png",
+      "thumbnails": {
+        "small": "https://wger.de/media/exercise-images/91/Crunches-1.png.200x200_q85.png",
+        "medium": "https://wger.de/media/exercise-images/91/Crunches-1.png.400x400_q85.png"
+      },
+      "is_main": true,
+      "style": "1",
+      "license": 1,
+      "license_title": "",
+      "license_object_url": "",
+      "license_author": "",
+      "license_author_url": "",
+      "license_derivative_source_url": "",
+      "author_history": [],
+      "is_ai_generated": false
+    },
+    {
+      "id": 15,
+      "uuid": "1c37e4e1-5144-4a50-8294-16180a9bc767",
+      "exercise": 76,
+      "exercise_uuid": "3db63138-a047-4a4d-b616-1a0b7dfca105",
+      "image": "https://wger.de/media/exercise-images/88/Narrow-grip-bench-press-1.png",
+      "thumbnails": {
+        "small": "https://wger.de/media/exercise-images/88/Narrow-grip-bench-press-1.png.200x200_q85.png",
+        "medium": "https://wger.de/media/exercise-images/88/Narrow-grip-bench-press-1.png.400x400_q85.png"
+      },
+      "is_main": true,
+      "style": "1",
+      "license": 1,
+      "license_title": "",
+      "license_object_url": "",
+      "license_author": "Everkinetic",
+      "license_author_url": "",
+      "license_derivative_source_url": "",
+      "author_history": [],
+      "is_ai_generated": false
+    }
+  ]
+}

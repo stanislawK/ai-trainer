@@ -1,0 +1,23 @@
+{
+  "count": 4,
+  "next": "https://wger.de/api/v2/exercise-translation/?language=2&limit=100&offset=2",
+  "previous": null,
+  "results": [
+    {
+      "id": 88,
+      "uuid": "03d821e7-e1ac-4026-903b-d406381cbf76",
+      "name": "Bench Press Narrow Grip",
+      "exercise": 76,
+      "language": 2,
+      "license_author": "wger.de"
+    },
+    {
+      "id": 129,
+      "uuid": "8c6c1544-cbf8-403c-ae12-b27b392702f8",
+      "name": "Biceps Curl With Cable",
+      "exercise": 95,
+      "language": 2,
+      "license_author": "wger.de"
+    }
+  ]
+}
