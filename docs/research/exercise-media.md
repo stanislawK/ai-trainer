@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Ticket | #416 |
-| Read on | 2026-11-02; finding 7 added 2026-11-07 |
+| Read on | 2026-11-02; finding 7 added 2026-11-07; finding 10 added 2026-11-11 |
 | Feeds | ADR-0031 (media links); the M2m "Show me" milestone and its licensed-media-source ticket (PRD 0010 F24). Used at #514 (2026-11-07): the pick is recorded in ADR-0031, "First media source (#514)". Used at #524 (2026-11-08): the fallback pick is recorded in ADR-0031, "Fallback media source (#524)" |
 
 This document decides nothing. It compares where exercise pictures could come from, so the owner can pick one and M2m can be ticketed. Reads were free: no paid model call was made and no athlete data left the project.
@@ -19,6 +19,7 @@ This document decides nothing. It compares where exercise pictures could come fr
 5. How many of the exercises in the first gym session does each option cover?
 6. What is the form-accuracy risk of each option, as the owner sees it?
 7. Under EU law, when may the app link to or embed media it holds no licence for? (added 2026-11-07)
+9. Why does the picture call fail through our command when the MCP drew with the same model? (added 2026-11-11, #544; answered in finding 10)
 
 ## Findings
 
@@ -141,6 +142,44 @@ Output terms, read 2026-11-08:
 - **OpenAI.** **Unread.** `openai.com/policies/service-terms/` and `openai.com/policies/row-terms-of-use/` returned HTTP 403 to an automated fetch on 2026-11-08, as `terms-of-use` did on 2026-11-02 (finding 4). Nothing is claimed about output ownership for `gpt-image-2.6-sunburst`, which was also not run.
 - Whether such pictures can be copyrighted at all is still not settled by any page read (finding 4).
 
+### 10. Why the picture call fails (#544)
+
+Read on 2026-11-11. The picture command (`generate-exercise-picture`, #533) failed its image call twice on 2026-11-11, at #534 and again at #544, while the MCP `generate-image` tool drew six pictures with the same model on 2026-11-08 (finding 8). The cause is in our wiring, not at OpenRouter or Google. The command's HTTP client has no timeout, so httpx2's 5 s default applies, and the image model takes about 5.4 s or longer. Paid calls were made in this ticket with the owner's yes and a cap of $0.10 (the command once, and two direct adapter probes, no athlete data). Their outputs were recorded in the ticket's state file; this finding reads them and runs nothing.
+
+**The failing call.** The command's last line was `generate-exercise-picture: result=cap_reached reason=cost_unknown template=knowledge.query spent_usd=unknown price_usd=0.0336 cap_usd=0.1` (exit 1, `Pull-Up`, 2026-11-11 12:49 UTC, the `ai_trainer_wt544` database). So the run did not reach the image call: it stopped on the search call's row (see "The `cost_unknown` row"). The image call itself was probed twice through the same adapter (`OpenRouterImageGenerator`) with finding 8's Pull-Up prompt (2026-11-11):
+
+| Client | Elapsed | Result | Row in `llm_calls` |
+|---|---|---|---|
+| `httpx2.AsyncClient()` as the command builds it | 5.04 s | `ImageGenerationFailed(reason='error', cause='transport', status=None, error_code='ReadTimeout', error_message=None)`; the command would print `result=failed step=image reason=error cause=transport error=ReadTimeout` | `outcome=error`, tokens 0/0, cost NULL, latency 5043 ms |
+| `httpx2.AsyncClient(timeout=120.0)` | 5.37 s | `image/jpeg`, 253,797 bytes | `outcome=success`, cost $0.0336035, tokens 14/1120, latency 5369 ms |
+
+There is no HTTP status and no error body, because the client gave up before the response came. #534's run on the same day shows the same: `media.picture` on `google/gemini-3.1-flash-lite-image`, `outcome=error`, 5003 ms, cost NULL (`ai_trainer_wt534`, read-only SQL, 2026-11-11).
+
+**Why 5 s.** The command builds its client as `httpx2.AsyncClient(transport=hooks.transport)` with no timeout (`src/ai_trainer/cli_media.py:175`). httpx2 2.16.0's default is `Timeout(timeout=5.0)` (`.venv/.../httpx2/_config.py:212`; the same default as [httpx's timeout docs](https://www.python-httpx.org/advanced/timeouts/), read 2026-11-11, which describe the read timeout as per chunk, not a total). The adapter's own timeout is `IMAGE_GENERATION_TIMEOUT_SECONDS`, 120 s (`src/ai_trainer/settings.py:139`), but `CallAccountant` applies it with `asyncio.wait_for` (`src/ai_trainer/llm/call_accounting.py:44-68`), so it never fires before the client's 5 s. `_post` turns the `httpx2.ReadTimeout` into `_failed("transport", error_code="ReadTimeout")` and returns `CallUsage()` (`src/ai_trainer/llm/images.py:211-224`). The web app builds its query client with `timeout=settings.knowledge_query_timeout_seconds` (`src/ai_trainer/main.py:508-510`) and the embedding gateway with `embedding_call_timeout_seconds` (`main.py:533-534`); only this command forgot to.
+
+The model is slower than 5 s on most calls. `list-model-endpoints` (2026-11-11): Google Vertex p50 6,862 ms, p75 8,759, p90 10,935, p99 17,971 over 1,813 requests; Google AI Studio p50 5,394 ms over 21 requests. Our one success took 5.37 s. `get-endpoint-uptime-history` (2026-11-11, 10:00 to 12:00 UTC): Vertex 100.0% each hour, AI Studio too little traffic. The failures at 11:59 and 12:49 UTC are not explained by an outage in that data. The OpenRouter and Google status pages are rendered by script and returned no incident text to a fetch (`status.openrouter.ai` and `aistudio.google.com/status`, 2026-11-11), so they were not checked in a way that could rule an incident out.
+
+**Why the brief survived 13.4 s on that client.** The brief goes through `OpenRouterGateway` and Pydantic AI, which passes our client to the OpenAI SDK (`src/ai_trainer/llm/gateway.py:104-105`). The SDK ignores a client whose timeout equals httpx's default and sends its own timeout on each request: `DEFAULT_TIMEOUT = Timeout(timeout=600, connect=5.0)` (`openai/_constants.py:7`; the check is in `openai/_base_client.py:1017-1029`, and the request uses it at `:682`). So the brief had a 600 s read timeout. The embedding adapter and the image adapter call `client.post` directly with no timeout argument (`src/ai_trainer/llm/images.py:213-217`, `src/ai_trainer/llm/embeddings.py:167`), so they get the client's 5 s. The brief took 13,407 ms and succeeded (`media.picture_brief`, `z-ai/glm-5.3-flash`, cost $0.000383), which fits. This was read from the installed library source, not run.
+
+**Request comparison.** Our request and the MCP tool's, as far as the docs and schema show (`search-docs` and the [image-generation guide](https://openrouter.ai/docs/guides/overview/multimodal/image-generation), 2026-11-11; `generate-image` schema through ToolSearch, not called):
+
+| | Our adapter | MCP `generate-image` | OpenRouter docs |
+|---|---|---|---|
+| Route | `POST https://openrouter.ai/api/v1/images` (`images.py`) | Not visible in the schema | `POST /api/v1/images`; `get-model` lists `/api/v1/images` for this model |
+| Body | `{"model", "prompt"}` | `model`, `prompt`, optional `aspect_ratio`, `resolution`, `reference_image_urls` (1:1 was set at #523) | `model` and `prompt` required; `n`, `resolution`, `aspect_ratio`, `size`, `quality`, `output_format`, `seed`, `stream`, `provider.*` and more optional |
+| Headers | `Authorization: Bearer`, JSON body | Not visible | `Authorization: Bearer`, `Content-Type: application/json` |
+| Client timeout | 5 s (httpx2 default) | **Not visible**: the tool's own client timeout cannot be read from its schema or the docs | None documented. The guide's example took 94 s |
+
+The body is valid per the docs, and the same body drew a picture once the timeout was raised. The one difference that matters is the client timeout.
+
+**The `cost_unknown` row.** The row is `knowledge.query`, `qwen/qwen3-embedding-8b`, `outcome=error`, tokens 0/0, cost NULL, 5065 ms, at 12:49:13 UTC in `ai_trainer_wt544`. It is the search for the exercise's description, which runs before the brief (`src/ai_trainer/main.py:391-402`). Its embedding call has the same 5 s client; it normally takes about 5 s (a success at #534 took 4,970 ms), so it sits on the limit and sometimes crosses it. A transport failure returns `CallUsage()`, which has no cost, and the row is written with cost NULL. `RunSpend.record` sets `cost_unknown` and remembers the template on any row with no cost (`src/ai_trainer/application/exercise_picture.py:66-73`), and `_stop_before` runs before the brief (`:150-151`) and before the image (`:114`). So the run stops with `reason=cost_unknown template=knowledge.query` before any other call. #534's retry at 12:01 UTC stopped the same way: its `knowledge.query` row was `outcome=error`, cost NULL, 5049 ms. The `template=` field is what #543 added to the output, which is how this was seen.
+
+**Billing of a timed-out call is unknown.** A call that timed out has no generation ID and no cost row. OpenRouter's guide says a generation that does not complete returns 502 with no charge, and that if a client disconnects the upstream may still finish and charge OpenRouter but the user is not billed ([image-generation guide](https://openrouter.ai/docs/guides/overview/multimodal/image-generation), 2026-11-11). We did not verify that for our key. The MCP's `get-current-key` is not the app's key: the $0.000383 brief at #534 never showed on it, so it cannot confirm the app's spend (2026-11-11). The app's own spend is only what its `llm_calls` rows say.
+
+**Who owns the fix.** Our wiring. The failing calls never reached an OpenRouter or Google error: the client closed first, the route and body are valid, the model answers in about 5 to 11 s by `list-model-endpoints`, and one run with a long timeout drew the picture. Nothing here needs OpenRouter or Google to change. Two things are not settled by this finding: whether the MCP's own client has a longer timeout (not visible), and what a timed-out call costs upstream.
+
+**Next ticket (named, not created).** `backend: give the picture command's HTTP client the configured timeouts` (area backend, size S). Build the client in `cli_media.py:175` with a timeout from `Settings` (at least `image_generation_timeout_seconds` for the image call and `knowledge_query_timeout_seconds` for the search), or pass the timeout per call in the adapters as the web app already does. Add a test that a call slower than 5 s on a fake transport is not cut off, and that a transport failure is shown. A second, separate question for that ticket: whether a failed search should stop the whole run on `cost_unknown` (ADR-0031 Consequences, `docs/adr/0031-…md:173-175`), since a search that never reached the provider has no cost to fear. That would need `/update-docs` first, so it is only named here.
+
 ## Recommendations for this project
 
 > Decision, 2026-11-07 (#514): the owner picked `wger` and rejected Gym visual on cost. See "Decision" below and ADR-0031. The inputs that follow are kept as written.
@@ -202,3 +241,9 @@ Not needed for the pick (they concern options not chosen):
 | [Gemini API additional terms](https://aistudio.google.com/docs/terms) | Provider's own terms | effective 2026-03-23, read 2026-11-08 |
 | OpenRouter `generate-image` and `get-current-key` (12 sample pictures, $0.681621) | OpenRouter MCP, paid, owner-approved with a $1 cap | 2026-11-08 |
 | [Generated exercise pictures](https://claude.ai/artifact/BgoG9dnEuAkhsxVU9sJwut) | Private Artifact page, this ticket | 2026-11-08 |
+| OpenRouter `get-model`, `list-model-endpoints`, `get-endpoint-uptime-history` (`google/gemini-3.1-flash-lite-image`), `search-docs`, and the `generate-image` schema (not called) | OpenRouter MCP, read-only | 2026-11-11 |
+| [OpenRouter image generation guide](https://openrouter.ai/docs/guides/overview/multimodal/image-generation) | Official documentation | 2026-11-11 |
+| [httpx timeouts](https://www.python-httpx.org/advanced/timeouts/) | Official documentation | 2026-11-11 |
+| OpenRouter status page and Google AI Studio status page | Status pages (script-rendered; no incident text returned) | 2026-11-11 |
+| httpx2 2.16.0 and openai SDK sources in `.venv` | Installed library source | 2026-11-11 |
+| `llm_calls` rows and two adapter probes for #544 (`ai_trainer_wt544`, `ai_trainer_wt534`) | Project data, owner-approved $0.10 cap | 2026-11-11 |
