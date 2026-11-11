@@ -313,7 +313,7 @@ def test_main_builds_the_real_decision_model_and_never_reaches_a_real_one(
 # --- the committed set -------------------------------------------------------------------------
 
 
-def test_the_committed_set_has_five_cases_with_an_easy_a_tie_and_a_none() -> None:
+def test_the_committed_set_has_ten_cases_with_an_easy_a_tie_and_a_none() -> None:
     smoke_set = read_smoke_set(
         "exercise_shortlist", smoke_root=SMOKE_ROOT, known_templates={EXERCISE_SHORTLIST_ID: 1}
     )
@@ -321,7 +321,7 @@ def test_the_committed_set_has_five_cases_with_an_easy_a_tie_and_a_none() -> Non
     picks = [case for case in cases if not case["inputs"]["deps"].get("live")]
     labels = [case["expected_output"]["pick"] for case in picks]
 
-    assert len(picks) == 5
+    assert len(picks) == 10
     assert len(smoke_set.cases) == len(cases)
     assert "none" in labels
     assert any(label != "none" for label in labels)
@@ -330,6 +330,21 @@ def test_the_committed_set_has_five_cases_with_an_easy_a_tie_and_a_none() -> Non
     assert set(smoke_set.known_gaps) <= live
     assert set(smoke_set.known_gaps.values()) == {"#508"}
     assert not smoke_set.has_judge
+
+
+def test_the_wger_cases_pick_one_not_the_top_and_abstain_on_a_tie_and_a_miss() -> None:
+    """The wger import's names (#555): each case is a wger English name and the catalogue-only
+    shortlist recorded for it, best first; one pick is the trigram top, one is not, and two are
+    "none" (a near tie, and a shortlist with no right exercise)."""
+    cases = yaml.safe_load((SMOKE_ROOT / "exercise_shortlist.yaml").read_text())["cases"]
+    wger = [case for case in cases if str(case["metadata"]["source"]).startswith("wger exercise")]
+    tops = [case["inputs"]["deps"]["candidates"][0]["name"] for case in wger]
+    labels = [case["expected_output"]["pick"] for case in wger]
+
+    assert len(wger) >= 4
+    assert any(label == top for label, top in zip(labels, tops, strict=True))
+    assert any(label not in {"none", top} for label, top in zip(labels, tops, strict=True))
+    assert labels.count("none") >= 2
 
 
 def test_every_committed_label_names_one_of_its_candidates() -> None:
