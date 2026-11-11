@@ -87,7 +87,10 @@ cases:
 - name: wger dumbbell shrugs
   metadata:
     source: wger exercise 572
-    note: easy, the trigram top
+    note: >-
+      the name doesn't say flat, incline or decline, so no variant is clearly the one; relabelled
+      from Dumbbell Shrug to none by the owner at #555 after Jev abstained (an unmatched picture
+      costs nothing, a wrong link costs an admin's rejection)
   inputs:
     prompt: Shrugs, Dumbbells
     deps:
@@ -97,7 +100,7 @@ cases:
       - {name: Dumbbell Incline Shrug, equipment: dumbbell, target: traps}
       - {name: Dumbbell Decline Shrug v. 2, equipment: dumbbell, target: traps}
   expected_output:
-    pick: Dumbbell Shrug
+    pick: none
 - name: wger barbell biceps curls
   metadata:
     source: wger exercise 91
