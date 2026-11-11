@@ -117,11 +117,22 @@ class GeneratedImage:
     media_type: ImageMediaType
 
 
+type ImageFailureCause = Literal[
+    "http_status", "transport", "malformed_body", "empty_data", "bad_base64", "unsupported_type"
+]
+
+
 @dataclass(frozen=True, slots=True)
 class ImageGenerationFailed:
-    """The image call ended without a picture; its `llm_calls` row is written either way."""
+    """The image call ended without a picture; its `llm_calls` row is written either way.
+    `cause` and what follows say why an `error` failed (#543): the HTTP status and the
+    provider's own error code and message, never the prompt or a key. A timeout has no cause."""
 
     reason: Literal["timeout", "error"]
+    cause: ImageFailureCause | None = None
+    status: int | None = None
+    error_code: str | None = None
+    error_message: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -176,6 +187,7 @@ class SpendCapReached:
     spent_usd: Decimal | None
     price_usd: Decimal
     cap_usd: Decimal
+    unknown_cost_template: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -183,6 +195,7 @@ class PictureFailed:
     step: Literal["brief", "image"]
     reason: Literal["timeout", "error"]
     spent_usd: Decimal | None
+    image: ImageGenerationFailed | None = None
 
 
 type PictureResult = PictureMade | PictureSkipped | PictureRefused | SpendCapReached | PictureFailed

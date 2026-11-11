@@ -297,8 +297,26 @@ async def test_null_cost_stops_the_run() -> None:
 
     result = await run.service.generate(admin_email=_ADMIN_EMAIL, exercise_name="pull-up")
 
-    assert result == SpendCapReached(spent_usd=None, price_usd=_PRICE, cap_usd=Decimal("0.25"))
+    assert result == SpendCapReached(
+        spent_usd=None,
+        price_usd=_PRICE,
+        cap_usd=Decimal("0.25"),
+        unknown_cost_template="media.picture_brief",
+    )
     assert run.images.prompts == []
+
+
+async def test_cost_unknown_names_the_template_of_the_row_without_cost() -> None:
+    """AC 3 (#543): the first row with no cost names the stop; a later one doesn't replace it."""
+    run = _run()
+    run.search.cost = None
+    run.briefs.cost = None
+
+    result = await run.service.generate(admin_email=_ADMIN_EMAIL, exercise_name="pull-up")
+
+    assert isinstance(result, SpendCapReached)
+    assert result.unknown_cost_template == "knowledge.query"
+    assert run.briefs.written == []
 
 
 async def test_a_search_with_an_unknown_cost_stops_the_run_before_the_brief() -> None:
@@ -391,7 +409,26 @@ async def test_a_failed_image_fails_the_run() -> None:
 
     result = await run.service.generate(admin_email=_ADMIN_EMAIL, exercise_name="pull-up")
 
-    assert result == PictureFailed(step="image", reason="error", spent_usd=Decimal("0.03381"))
+    assert result == PictureFailed(
+        step="image",
+        reason="error",
+        spent_usd=Decimal("0.03381"),
+        image=ImageGenerationFailed(reason="error"),
+    )
+
+
+async def test_a_failed_image_carries_its_cause_into_the_result() -> None:
+    """AC 1 (#543): the image failure's detail reaches the result."""
+    run = _run()
+    failed = ImageGenerationFailed(
+        reason="error", cause="http_status", status=429, error_code="429", error_message="slow"
+    )
+    run.images.reply = failed
+
+    result = await run.service.generate(admin_email=_ADMIN_EMAIL, exercise_name="pull-up")
+
+    assert isinstance(result, PictureFailed)
+    assert result.image == failed
 
 
 async def test_a_failed_image_with_no_billed_cost_reports_the_spend_as_unknown() -> None:
@@ -402,7 +439,12 @@ async def test_a_failed_image_with_no_billed_cost_reports_the_spend_as_unknown()
 
     result = await run.service.generate(admin_email=_ADMIN_EMAIL, exercise_name="pull-up")
 
-    assert result == PictureFailed(step="image", reason="timeout", spent_usd=None)
+    assert result == PictureFailed(
+        step="image",
+        reason="timeout",
+        spent_usd=None,
+        image=ImageGenerationFailed(reason="timeout"),
+    )
 
 
 async def test_a_failed_or_empty_brief_with_no_billed_cost_reports_the_spend_as_unknown() -> None:

@@ -12,6 +12,8 @@ import pytest
 from ai_trainer.cli_media import add_parser, generate_exercise_picture, slug, write_result
 from ai_trainer.domain.media_generation import (
     GeneratedImage,
+    ImageFailureCause,
+    ImageGenerationFailed,
     ImageMediaType,
     PictureBrief,
     PictureFailed,
@@ -86,6 +88,66 @@ def test_anything_but_a_picture_exits_1_and_writes_nothing(
     assert code == 1
     assert output.getvalue() == f"generate-exercise-picture: {line}\n"
     assert not (tmp_path / "out").exists()
+
+
+def _failed_line(failed: ImageGenerationFailed) -> str:
+    output = io.StringIO()
+    write_result(
+        PictureFailed(step="image", reason="error", spent_usd=None, image=failed),
+        out=Path("unused"),
+        name="Pull-Up",
+        output=output,
+    )
+    return output.getvalue()
+
+
+def test_a_failed_image_line_prints_status_and_error() -> None:
+    failed = ImageGenerationFailed(
+        reason="error",
+        cause="http_status",
+        status=429,
+        error_code="429",
+        error_message='Rate "limited"',
+    )
+
+    assert _failed_line(failed) == (
+        "generate-exercise-picture: result=failed step=image reason=error cause=http_status "
+        'status=429 error=429 message="Rate \\"limited\\"" spent_usd=unknown\n'
+    )
+
+
+@pytest.mark.parametrize(
+    "cause", ["empty_data", "bad_base64", "unsupported_type", "malformed_body"]
+)
+def test_each_image_cause_is_printed(cause: ImageFailureCause) -> None:
+    failed = ImageGenerationFailed(reason="error", cause=cause, status=200)
+
+    assert f" cause={cause} status=200 spent_usd=unknown" in _failed_line(failed)
+
+
+def test_a_status_only_failure_prints_no_error_part() -> None:
+    line = _failed_line(ImageGenerationFailed(reason="error", cause="http_status", status=502))
+
+    assert line.endswith("reason=error cause=http_status status=502 spent_usd=unknown\n")
+    assert " error=" not in line
+    assert "message=" not in line
+
+
+def test_cap_reached_cost_unknown_prints_the_template() -> None:
+    output = io.StringIO()
+    result = SpendCapReached(
+        spent_usd=None,
+        price_usd=Decimal("0.0336"),
+        cap_usd=Decimal("0.25"),
+        unknown_cost_template="media.picture_brief",
+    )
+
+    write_result(result, out=Path("unused"), name="Pull-Up", output=output)
+
+    assert output.getvalue() == (
+        "generate-exercise-picture: result=cap_reached reason=cost_unknown "
+        "template=media.picture_brief spent_usd=unknown price_usd=0.0336 cap_usd=0.25\n"
+    )
 
 
 def _made(
