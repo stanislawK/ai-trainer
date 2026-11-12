@@ -87,6 +87,19 @@ class MediaAsset(BaseModel):
         return self
 
 
+class ExerciseMediaReviewRow(BaseModel):
+    """One link on a catalogue exercise, as the admin's F24 review lists it (#554)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    link_id: UUID
+    exercise_id: UUID
+    exercise_name: str
+    position: int = Field(ge=0)
+    status: MediaLinkStatus
+    asset: MediaAsset
+
+
 class ExerciseMediaItem(BaseModel):
     """An approved asset on an exercise's card, in its `position` order."""
 

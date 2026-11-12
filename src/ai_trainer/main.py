@@ -83,6 +83,7 @@ from ai_trainer.application.exercise_candidates import (
     SearchedExerciseNames,
 )
 from ai_trainer.application.exercise_lookup import ExerciseFinder
+from ai_trainer.application.exercise_media_review import ExerciseMediaReview
 from ai_trainer.application.exercise_picture import ExercisePictureService, PicturePorts, RunSpend
 from ai_trainer.application.exercise_picture_store import StoreExercisePicture
 from ai_trainer.application.exercise_progress import ExerciseProgress
@@ -846,6 +847,10 @@ def create_app(  # noqa: PLR0915 -- composition root: objects are built only her
             status_changer=status_changer,
             knowledge=knowledge,
             tokens=AdminTokens(tokens=admin_tokens, clock=clock),
+            exercise_media=ExerciseMediaReview(
+                media=SqlAlchemyExerciseMediaRepository(session_factory),
+                public_base_url=settings.media_public_base_url,
+            ),
             sports=sport_registry,
             max_upload_mb=settings.knowledge_max_upload_mb,
         )

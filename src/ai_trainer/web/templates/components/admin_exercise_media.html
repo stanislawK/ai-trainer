@@ -1,0 +1,188 @@
+{% from "components/icon.html" import icon %}
+{#- Exercise media under Admin (F24, ADR-0031, #554; the Exercise Media mock, options A1, B2, C1
+    and D1): the filter chips, one `mat-content` card per exercise with its pictures as rows, the
+    toast after an approval and the empty card. Every word the admin reads is here (G5). No row
+    has a checkbox: "Approve all from wger" is the only bulk action, and a generated picture is
+    approved on its own (ADR-0031, #524). Remove, Restore and the Removed filter come with #556. -#}
+
+{% set view_labels = {"suggested": "Suggested", "approved": "Approved"} %}
+
+{% macro filter_chips(current, views, counts) -%}
+<div class="flex gap-2 flex-wrap" role="group" aria-label="Show">
+  {% for id, status in views %}
+  <button
+    type="button"
+    class="lg lg-chip relative {{ 'lg-clear' if status == current else 'lg-ghost' }}"
+    aria-pressed="{{ 'true' if status == current else 'false' }}"
+    hx-get="/admin/exercises?view={{ id }}"
+    hx-target="#exercise-media"
+    hx-swap="outerHTML"
+    hx-push-url="true"
+  ><span class="absolute inset-x-0 -inset-y-1.5" aria-hidden="true"></span>{{ view_labels[id] }} · {{ counts[status] }}</button>
+  {% endfor %}
+</div>
+{%- endmacro %}
+
+{% macro approve_button(picture) -%}
+<button
+  type="button"
+  class="lg lg-clear lg-sm relative"
+  hx-post="/admin/exercises/links/{{ picture.link_id }}/approve"
+  hx-target="#exercise-media"
+  hx-swap="outerHTML"
+  data-media-approve
+><span class="absolute inset-x-0 -inset-y-1" aria-hidden="true"></span>{{ icon("check", "size-4") }}Approve</button>
+{%- endmacro %}
+
+{% macro link_chip(href, label, arrow=false) -%}
+<a href="{{ href }}" class="lg lg-clear lg-chip relative" target="_blank" rel="noopener noreferrer"><span class="absolute inset-x-0 -inset-y-1.5" aria-hidden="true"></span>{{ label }}{% if arrow %}{{ icon("arrow-up-right", "size-3.5 lbl-2") }}{% endif %}</a>
+{%- endmacro %}
+
+{% macro thumbnail(picture) -%}
+<span class="shrink-0 size-16 lg:size-20 rounded-xl overflow-hidden grid place-items-center {{ 'bg-primary/10' if picture.origin == 'generated' else 'bg-base-content/10' }}">
+  {%- if picture.public_url %}
+  <img src="{{ picture.public_url }}" alt="" class="size-full object-contain" loading="lazy" decoding="async">
+  {%- elif picture.origin == "embedded" %}
+  {{ icon("image", "size-7 lbl-2") }}
+  {%- else %}
+  <span class="flex flex-col items-center gap-0.5 px-1 text-center">{{ icon("image", "size-6 lbl-2") }}<span class="text-[10px] leading-3 lbl-2">No public URL</span></span>
+  {%- endif %}
+</span>
+{%- endmacro %}
+
+{% macro credit(picture) -%}
+{%- if picture.origin == "wger" %}
+<span class="flex items-center gap-x-1.5 gap-y-3 flex-wrap text-[13px] leading-[18px]" data-credit="wger">
+  {%- if picture.credit %}
+  <span>{{ picture.credit.author }} ·</span>
+  {{ link_chip(picture.credit.licence_url, picture.credit.licence) }}
+  {%- else %}
+  <span>{{ picture.attribution }}</span>
+  {%- endif %}
+  <span class="lbl-2">via</span>
+  {{ link_chip(picture.page_url, "wger.de", arrow=true) }}
+  {%- if picture.ai_flagged %}
+  <span class="badge badge-soft badge-sm" data-mark="ai">AI generated</span>
+  {%- endif %}
+</span>
+{%- elif picture.origin == "embedded" %}
+<span class="flex items-center gap-x-1.5 gap-y-3 flex-wrap text-[13px] leading-[18px]" data-credit="unstated">
+  {{ link_chip(picture.page_url, picture.source, arrow=true) }}
+  <span class="lbl-2">· rights not confirmed</span>
+</span>
+{%- else %}
+<span class="text-[13px] leading-[18px]" data-credit="{{ picture.origin }}">{{ picture.attribution }}</span>
+{%- endif %}
+{%- endmacro %}
+
+{% macro picture_row(picture) -%}
+{%- set suggested = picture.status.value == "suggested" %}
+<li class="flex gap-3 px-4 py-3 border-t border-base-content/10" data-kind="{{ picture.origin }}" data-status="{{ picture.status.value }}" data-link="{{ picture.link_id }}">
+  {{ thumbnail(picture) }}
+  <span class="flex flex-col gap-2 flex-1 min-w-0">
+    <span class="flex items-center gap-2 flex-wrap">
+      {%- if suggested %}
+      <span class="badge badge-soft badge-info">Suggested</span>
+      {%- else %}
+      <span class="badge badge-success">Approved</span>
+      {%- endif %}
+      {%- if picture.origin == "generated" %}
+      <span class="text-[13px] lbl-2">Generated · approve on its own</span>
+      {%- elif picture.origin == "embedded" %}
+      <span class="text-[13px] lbl-2">Embedded</span>
+      {%- endif %}
+    </span>
+    {{ credit(picture) }}
+    {%- if picture.origin == "generated" and suggested %}
+    <span class="flex items-start gap-1.5 text-[13px] leading-[18px]">{{ icon("circle-alert", "size-4 text-warning shrink-0") }}Check the printed labels before approving: the model sometimes prints wrong words. It is approved on its own, never with Approve all.</span>
+    {%- endif %}
+    {%- if suggested %}
+    <span class="flex gap-2 flex-wrap lg:hidden">{{ approve_button(picture) }}</span>
+    {%- endif %}
+  </span>
+  {%- if suggested %}
+  <span class="hidden lg:flex gap-2 items-start shrink-0">{{ approve_button(picture) }}</span>
+  {%- endif %}
+</li>
+{%- endmacro %}
+
+{% macro exercise_group(group, view) -%}
+{%- set n = group.pictures | length %}
+<section class="mat-content rounded-box p-0 flex flex-col" aria-label="{{ group.name }}" data-exercise="{{ group.exercise_id }}">
+  <div class="flex flex-col items-start lg:flex-row lg:items-center gap-x-3 gap-y-2 px-4 pt-3 pb-2">
+    <span class="flex flex-col min-w-0 self-stretch lg:flex-1">
+      <span class="text-[17px] font-semibold leading-6">{{ group.name }}</span>
+      <span class="text-[13px] lbl-2">{{ n }} {{ "picture" if n == 1 else "pictures" }} {{ "suggested" if view.value == "suggested" else "approved" }}</span>
+    </span>
+    {%- if view.value == "suggested" and group.wger_suggested %}
+    {#- The IDs drawn here are the ones approved: a picture imported since stays suggested. A POST
+        carries its enclosing form's values (htmx 4). #}
+    <form class="contents">
+    {%- for picture in group.pictures if picture.origin == "wger" and picture.status.value == "suggested" %}
+    <input type="hidden" name="link_id" value="{{ picture.link_id }}">
+    {%- endfor %}
+    <button
+      type="button"
+      class="lg lg-clear lg-sm relative shrink-0"
+      hx-post="/admin/exercises/{{ group.exercise_id }}/approve-wger"
+      hx-target="#exercise-media"
+      hx-swap="outerHTML"
+      data-media-approve-all
+    ><span class="absolute inset-x-0 -inset-y-1" aria-hidden="true"></span>{{ icon("check-check", "size-4") }}Approve all from wger · {{ group.wger_suggested }}</button>
+    </form>
+    {%- endif %}
+  </div>
+  <ul class="flex flex-col">
+    {% for picture in group.pictures %}
+    {{ picture_row(picture) }}
+    {% endfor %}
+  </ul>
+</section>
+{%- endmacro %}
+
+{% macro empty_card(view) -%}
+<div class="mat-content rounded-box p-8 flex flex-col items-center text-center gap-3" data-media-empty>
+  <span class="size-14 rounded-full bg-base-content/10 grid place-items-center">{{ icon("image", "size-7 lbl-2") }}</span>
+  {%- if view.value == "suggested" %}
+  <span class="text-[17px] font-semibold">No media waiting for review</span>
+  <span class="text-[14px] leading-5 lbl-2 max-w-[44ch]">New pictures from wger and generated pictures show up here. Approved ones stay under their filter.</span>
+  {%- else %}
+  <span class="text-[17px] font-semibold">No approved media yet</span>
+  <span class="text-[14px] leading-5 lbl-2 max-w-[44ch]">Pictures you approve show here, grouped by exercise, and on the exercise card.</span>
+  {%- endif %}
+</div>
+{%- endmacro %}
+
+{#- B2: above the dock on the phone, bottom right on desktop. `kind` is `approved`,
+    `not_suggested` or `bulk` (`web/admin/exercises.py`). -#}
+{% macro toast(outcome, kind) -%}
+{%- if outcome %}
+{%- set done = kind == "approved" or (kind == "bulk" and outcome.count) %}
+<div class="alert lgs lgs-thick fixed z-50 items-start gap-3 rounded-box p-4 flex bottom-[96px] inset-x-4 lg:inset-x-auto lg:bottom-8 lg:right-8 lg:w-[440px]" role="status" data-media-toast>
+  {%- set toast_icon = ("check-check" if kind == "bulk" else "check") if done else "info" %}
+  {{ icon(toast_icon, "size-5 shrink-0 mt-0.5 lbl-2") }}
+  <span class="flex flex-col gap-0.5 text-[14px] leading-5 flex-1 min-w-0">
+    {%- if kind == "approved" %}
+    <span class="font-semibold">Approved for {{ outcome.exercise_name }}.</span>
+    <span>Shown on the exercise card now.</span>
+    {%- elif kind == "not_suggested" and outcome.status.value == "approved" %}
+    <span class="font-semibold">Already approved — nothing changed.</span>
+    <span>{{ outcome.exercise_name }}: it was approved in another tab.</span>
+    {%- elif kind == "not_suggested" %}
+    <span class="font-semibold">It was removed — nothing changed.</span>
+    <span>{{ outcome.exercise_name }}: it stays hidden from the exercise card.</span>
+    {%- elif outcome.count %}
+    <span class="font-semibold">Approved {{ outcome.count }} {{ "picture" if outcome.count == 1 else "pictures" }} from wger.</span>
+    {%- if outcome.generated_left == 1 %}
+    <span>The generated picture still needs its own Approve.</span>
+    {%- elif outcome.generated_left %}
+    <span>The {{ outcome.generated_left }} generated pictures still need their own Approve.</span>
+    {%- endif %}
+    {%- else %}
+    <span class="font-semibold">No wger pictures were waiting — nothing changed.</span>
+    {%- endif %}
+  </span>
+  <button type="button" class="lg lg-ghost lg-icon lg-sm relative shrink-0 -mr-1 -my-1" aria-label="Dismiss" data-media-dismiss><span class="absolute -inset-1" aria-hidden="true"></span>{{ icon("x", "size-4") }}</button>
+</div>
+{%- endif %}
+{%- endmacro %}

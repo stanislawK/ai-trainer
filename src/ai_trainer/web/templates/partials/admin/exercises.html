@@ -1,0 +1,26 @@
+{% from "components/admin_tabs.html" import admin_tabs %}
+{% from "components/admin_exercise_media.html" import filter_chips, exercise_group, empty_card, toast with context %}
+{#- The exercise media page's region (F24, ADR-0031, #554; the Exercise Media mock). Every action
+    renders it whole: the filtered list and the toast after an approval.
+    `static/js/admin_exercises.js` dismisses the toast. -#}
+<div class="flex flex-col gap-4 px-4 pt-14 pb-28 lg:pt-2 lg:pb-8 lg:w-[960px] lg:mx-auto" id="exercise-media">
+  {{ admin_tabs("media") }}
+  <div class="flex flex-col gap-1">
+    <h1 class="text-[34px]/[40px] lg:text-[28px]/[34px] font-semibold tracking-tight px-1">Exercise media</h1>
+    <p class="text-[14px] lbl-2 px-1 max-w-[60ch]">Pictures suggested for catalogue exercises. Only approved ones show on the exercise card.</p>
+  </div>
+
+  {{ filter_chips(review.view, views, review.counts) }}
+
+  {%- if review.groups %}
+  <div class="flex flex-col gap-4">
+    {% for group in review.groups %}
+    {{ exercise_group(group, review.view) }}
+    {% endfor %}
+  </div>
+  {%- else %}
+  {{ empty_card(review.view) }}
+  {%- endif %}
+
+  {{ toast(outcome, outcome_kind) }}
+</div>

@@ -27,6 +27,7 @@ from ai_trainer.web.admin import build_admin_router
 from ai_trainer.web.auth import SESSION_COOKIE_NAME
 from ai_trainer.web.csrf import CSRF_HEADER_NAME, CsrfMiddleware
 from ai_trainer.web.templating import build_templates
+from tests.exercise_media_support import memory_exercise_media_review
 from tests.knowledge_support import knowledge_wiring
 
 SECRET = b"integration-test-secret"
@@ -83,6 +84,7 @@ async def _page(factory: Callable[[], AsyncSession], sub: str, *, admin: bool = 
             sessions=sessions,
             status_changer=SqlAlchemyUserStatusChanger(factory),
             tokens=AdminTokens(tokens=SqlAlchemyAdminTokensRepository(factory), clock=clock),
+            exercise_media=memory_exercise_media_review(),
             **knowledge_wiring(),
         )
     )
