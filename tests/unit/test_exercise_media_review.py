@@ -1,22 +1,31 @@
 """The admin's F24 review of exercise media (ADR-0031 *Media links*, #554): pictures grouped
 per exercise, their credit and public URL, one Approve, and Approve all from wger only."""
 
-from uuid import uuid4
+from uuid import UUID, uuid4
+
+import pytest
 
 from ai_trainer.application.exercise_media_review import (
     Approved,
     BulkApproved,
+    ExerciseMediaReview,
     NotSuggested,
+    Removed,
+    Restored,
+    RestoreFailed,
     WgerCredit,
 )
-from ai_trainer.domain.media import MediaLinkStatus
+from ai_trainer.domain.media import MediaAsset, MediaLinkStatus
+from ai_trainer.domain.object_storage import ObjectStorageOperation
 from tests.exercise_media_support import (
+    REVIEW_NOW,
     MemoryExerciseMedia,
     embedded_asset,
     generated_asset,
     memory_exercise_media_review,
     wger_asset,
 )
+from tests.knowledge_support import MemoryStorage
 
 BASE = "https://media.example.org/"
 
@@ -170,3 +179,260 @@ async def test_approve_all_from_wger_approves_only_the_posted_links() -> None:
         count=1, generated_left=0
     )
     assert media.status_of(late) is MediaLinkStatus.SUGGESTED
+
+
+class _Takedown:
+    """A review over memory links and two memory buckets, with one stored picture in place."""
+
+    def __init__(
+        self,
+        status: MediaLinkStatus = MediaLinkStatus.APPROVED,
+        asset: MediaAsset | None = None,
+        *,
+        buckets: bool = True,
+        media: MemoryExerciseMedia | None = None,
+    ) -> None:
+        self.media = media or MemoryExerciseMedia()
+        self.exercise = self.media.exercise("Dumbbell Lateral Raise")
+        self.asset = asset or wger_asset()
+        self.link = self.media.put(self.exercise, self.asset, status)
+        self.public = MemoryStorage()
+        self.private = MemoryStorage()
+        if self.asset.storage_key is not None:
+            self.public.objects[self.key] = b"png-bytes"
+            self.public.content_types[self.key] = "image/png"
+        self.review: ExerciseMediaReview = memory_exercise_media_review(
+            self.media,
+            base_url=BASE,
+            media_bucket=self.public if buckets else None,
+            uploads_bucket=self.private if buckets else None,
+        )
+
+    @property
+    def key(self) -> str:
+        assert self.asset.storage_key is not None
+        return self.asset.storage_key
+
+    @property
+    def quarantined(self) -> str:
+        return f"quarantine/{self.key}"
+
+    def is_public(self) -> bool:
+        return self.key in self.public.objects
+
+
+async def test_remove_moves_stored_object_to_quarantine() -> None:
+    t = _Takedown()
+
+    outcome = await t.review.remove(t.link)
+
+    assert outcome == Removed(
+        exercise_name="Dumbbell Lateral Raise", still_public=False, shared=False
+    )
+    assert t.media.status_of(t.link) is MediaLinkStatus.REMOVED
+    assert await t.media.approved_for(t.exercise) == []
+    assert not t.is_public()
+    assert t.private.objects == {t.quarantined: b"png-bytes"}
+    assert t.private.content_types[t.quarantined] == "image/png"
+
+
+async def test_removed_page_lists_when_and_from_what_without_a_public_url() -> None:
+    t = _Takedown()
+    await t.review.remove(t.link)
+
+    page = await t.review.page(MediaLinkStatus.REMOVED)
+
+    [group] = page.groups
+    [picture] = group.pictures
+    assert (picture.status, picture.removed_at, picture.removed_from) == (
+        MediaLinkStatus.REMOVED,
+        REVIEW_NOW,
+        MediaLinkStatus.APPROVED,
+    )
+    assert picture.public_url is None
+    assert page.counts[MediaLinkStatus.REMOVED] == 1
+
+
+@pytest.mark.parametrize("status", [MediaLinkStatus.APPROVED, MediaLinkStatus.SUGGESTED])
+async def test_restore_moves_object_back_and_restores_earlier_status(
+    status: MediaLinkStatus,
+) -> None:
+    t = _Takedown(status)
+    await t.review.remove(t.link)
+
+    outcome = await t.review.restore(t.link)
+
+    assert outcome == Restored(exercise_name="Dumbbell Lateral Raise", status=status)
+    assert t.media.status_of(t.link) is status
+    assert t.public.objects == {t.key: b"png-bytes"}
+    assert t.public.content_types[t.key] == "image/png"
+    assert t.private.objects == {}
+
+
+@pytest.mark.parametrize("failing", ["get", "put", "delete"])
+async def test_remove_keeps_link_removed_when_move_fails(failing: ObjectStorageOperation) -> None:
+    t = _Takedown()
+    bucket = t.private if failing == "put" else t.public
+    bucket.failing.add(failing)
+
+    outcome = await t.review.remove(t.link)
+
+    assert outcome == Removed(
+        exercise_name="Dumbbell Lateral Raise", still_public=True, shared=False
+    )
+    assert t.media.status_of(t.link) is MediaLinkStatus.REMOVED
+    assert t.is_public()
+
+
+async def test_remove_without_buckets_hides_the_link_and_says_the_file_is_still_public() -> None:
+    t = _Takedown(buckets=False)
+
+    outcome = await t.review.remove(t.link)
+
+    assert isinstance(outcome, Removed)
+    assert outcome.still_public
+    assert t.media.status_of(t.link) is MediaLinkStatus.REMOVED
+
+
+async def test_remove_again_retries_the_move_and_keeps_the_first_removal() -> None:
+    t = _Takedown()
+    t.public.failing.add("delete")
+    await t.review.remove(t.link)
+    t.public.failing.clear()
+
+    outcome = await t.review.remove(t.link)
+
+    assert isinstance(outcome, Removed)
+    assert not outcome.still_public
+    assert not t.is_public()
+    [picture] = (await t.review.page(MediaLinkStatus.REMOVED)).groups[0].pictures
+    assert picture.removed_from is MediaLinkStatus.APPROVED
+
+
+async def test_remove_of_an_object_already_moved_succeeds() -> None:
+    t = _Takedown()
+    await t.review.remove(t.link)
+
+    outcome = await t.review.remove(t.link)
+
+    assert isinstance(outcome, Removed)
+    assert not outcome.still_public
+    assert t.private.objects == {t.quarantined: b"png-bytes"}
+
+
+async def test_remove_leaves_object_public_while_another_link_shows_it() -> None:
+    t = _Takedown()
+    other = t.media.exercise("Cable Lateral Raise")
+    shown = t.media.share(other, t.link)
+
+    outcome = await t.review.remove(t.link)
+
+    assert outcome == Removed(
+        exercise_name="Dumbbell Lateral Raise", still_public=False, shared=True
+    )
+    assert t.is_public()
+    assert t.media.status_of(shown) is MediaLinkStatus.APPROVED
+
+
+async def test_remove_of_embedded_media_only_hides_the_link() -> None:
+    t = _Takedown(asset=embedded_asset())
+
+    outcome = await t.review.remove(t.link)
+
+    assert outcome == Removed(
+        exercise_name="Dumbbell Lateral Raise", still_public=False, shared=False
+    )
+    assert t.private.objects == {}
+    assert await t.review.restore(t.link) == Restored(
+        exercise_name="Dumbbell Lateral Raise", status=MediaLinkStatus.APPROVED
+    )
+
+
+@pytest.mark.parametrize("failing", ["get", "put"])
+async def test_restore_leaves_the_link_removed_when_the_move_back_fails(
+    failing: ObjectStorageOperation,
+) -> None:
+    t = _Takedown()
+    await t.review.remove(t.link)
+    bucket = t.private if failing == "get" else t.public
+    bucket.failing.add(failing)
+
+    outcome = await t.review.restore(t.link)
+
+    assert outcome == RestoreFailed(exercise_name="Dumbbell Lateral Raise")
+    assert t.media.status_of(t.link) is MediaLinkStatus.REMOVED
+    assert not t.is_public()
+
+
+async def test_restore_whose_quarantine_copy_cannot_be_deleted_still_restores() -> None:
+    t = _Takedown()
+    await t.review.remove(t.link)
+    t.private.failing.add("delete")
+
+    outcome = await t.review.restore(t.link)
+
+    assert isinstance(outcome, Restored)
+    assert t.is_public()
+
+
+async def test_restore_of_a_file_that_never_left_the_public_bucket() -> None:
+    t = _Takedown()
+    t.public.failing.add("delete")
+    await t.review.remove(t.link)
+    t.public.failing.clear()
+    t.private.objects.clear()
+
+    outcome = await t.review.restore(t.link)
+
+    assert isinstance(outcome, Restored)
+    assert t.is_public()
+
+
+async def test_restore_of_a_file_gone_from_both_buckets_fails() -> None:
+    t = _Takedown()
+    await t.review.remove(t.link)
+    t.private.objects.clear()
+
+    assert await t.review.restore(t.link) == RestoreFailed(exercise_name="Dumbbell Lateral Raise")
+    assert t.media.status_of(t.link) is MediaLinkStatus.REMOVED
+
+
+async def test_restore_without_buckets_fails_for_stored_media() -> None:
+    t = _Takedown(MediaLinkStatus.REMOVED, buckets=False)
+
+    assert isinstance(await t.review.restore(t.link), RestoreFailed)
+
+
+async def test_restore_of_a_link_that_is_not_removed_says_its_status() -> None:
+    t = _Takedown(MediaLinkStatus.SUGGESTED)
+
+    assert await t.review.restore(t.link) == Restored(
+        exercise_name="Dumbbell Lateral Raise", status=MediaLinkStatus.SUGGESTED
+    )
+    assert t.is_public()
+
+
+class _RestoredInAnotherTab(MemoryExerciseMedia):
+    """Another tab's Restore lands between the review's read and its own update."""
+
+    async def restore(self, link_id: UUID) -> MediaLinkStatus | None:
+        await super().restore(link_id)
+        return None
+
+
+async def test_restore_that_another_tab_got_to_first_says_the_status_now() -> None:
+    t = _Takedown(media=_RestoredInAnotherTab())
+    await t.review.remove(t.link)
+
+    assert await t.review.restore(t.link) == Restored(
+        exercise_name="Dumbbell Lateral Raise", status=MediaLinkStatus.APPROVED
+    )
+    assert t.is_public()
+
+
+async def test_remove_and_restore_of_an_unknown_link_are_none() -> None:
+    review = memory_exercise_media_review()
+    unknown: UUID = uuid4()
+
+    assert await review.remove(unknown) is None
+    assert await review.restore(unknown) is None

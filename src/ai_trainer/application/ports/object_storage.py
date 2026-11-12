@@ -1,6 +1,8 @@
 from datetime import timedelta
 from typing import Protocol
 
+from ai_trainer.domain.object_storage import StoredObject
+
 
 class ObjectStoragePort(Protocol):
     """One private bucket (ADR-0033). Every method raises `ObjectStorageError` on failure."""
@@ -9,6 +11,11 @@ class ObjectStoragePort(Protocol):
 
     async def get(self, key: str) -> bytes:
         """The object's bytes. Raises `ObjectNotFoundError` when it isn't there."""
+        ...
+
+    async def read(self, key: str) -> StoredObject:
+        """The object's bytes and stored content type, for a move between buckets (#556).
+        Raises `ObjectNotFoundError` when it isn't there."""
         ...
 
     async def size(self, key: str) -> int:

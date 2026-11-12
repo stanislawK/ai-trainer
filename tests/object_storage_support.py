@@ -110,6 +110,9 @@ def _handler(state: S3State) -> type[BaseHTTPRequestHandler]:
                 return
             self.send_response(200)
             self.send_header("Content-Length", str(len(body)))
+            content_type = state.content_types.get(self._key())
+            if content_type is not None:
+                self.send_header("Content-Type", content_type)
             self.send_header("ETag", '"probe"')
             self.send_header("Last-Modified", "Mon, 02 Nov 2026 10:00:00 GMT")
             self.end_headers()

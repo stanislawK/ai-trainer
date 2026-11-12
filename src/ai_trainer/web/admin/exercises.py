@@ -3,7 +3,9 @@ mock): `GET /admin/exercises?view=suggested|approved` lists the pictures per exe
 `POST /admin/exercises/links/{link_id}/approve` approves one, and
 `POST /admin/exercises/{exercise_id}/approve-wger` approves the exercise's suggested wger pictures
 the page drew, posted back as `link_id` fields, never a generated one nor one imported since.
-Every response renders the whole `#exercise-media` region.
+`POST /admin/exercises/links/{link_id}/remove` hides a picture at once and `.../restore` puts it
+back (#556); `?view=removed` lists the removed ones. Remove and Restore redraw the filter named in
+their own `?view=`. Every response renders the whole `#exercise-media` region.
 
 As on the other admin pages, the admin check comes before anything from the request is parsed,
 so a non-admin gets 403, never a 422 or 404. CSRF is checked by `CsrfMiddleware` before this.
@@ -22,12 +24,20 @@ from ai_trainer.application.exercise_media_review import (
     BulkApproved,
     ExerciseMediaReview,
     NotSuggested,
+    Removed,
+    Restored,
+    RestoreFailed,
+    RestoreOutcome,
 )
 from ai_trainer.domain.media import MediaLinkStatus
 from ai_trainer.web.admin.access import forbidden, is_admin, is_htmx, not_found
 
-# The filters this page builds; Removed comes with the removal ticket (#556).
-_VIEWS = {"suggested": MediaLinkStatus.SUGGESTED, "approved": MediaLinkStatus.APPROVED}
+# The filters this page builds, in the order the chips show them.
+_VIEWS = {
+    "suggested": MediaLinkStatus.SUGGESTED,
+    "approved": MediaLinkStatus.APPROVED,
+    "removed": MediaLinkStatus.REMOVED,
+}
 # The bulk form posts one `link_id` per suggested wger picture on one exercise; far more than any
 # exercise carries, and a flood is refused by the form parser (400).
 _MAX_BULK_FIELDS = 200
@@ -46,7 +56,10 @@ def _link_ids(form: FormData) -> list[UUID] | None:
     return None if any(i is None for i in ids) else [i for i in ids if i is not None]
 
 
-def _kind(outcome: ApproveOutcome | BulkApproved | None) -> str | None:
+type _Outcome = ApproveOutcome | BulkApproved | Removed | RestoreOutcome
+
+
+def _kind(outcome: _Outcome | None) -> str | None:
     """Which toast the template draws."""
     match outcome:
         case Approved():
@@ -55,8 +68,22 @@ def _kind(outcome: ApproveOutcome | BulkApproved | None) -> str | None:
             return "not_suggested"
         case BulkApproved():
             return "bulk"
+        case Removed(shared=True):
+            return "removed_shared"
+        case Removed(still_public=True):
+            return "still_public"
+        case Removed():
+            return "removed"
+        case Restored():
+            return "restored"
+        case RestoreFailed():
+            return "restore_failed"
         case None:
             return None
+
+
+def _view(request: Request) -> MediaLinkStatus:
+    return _VIEWS.get(request.query_params.get("view", ""), MediaLinkStatus.SUGGESTED)
 
 
 class _ExerciseMediaRoutes:
@@ -70,9 +97,12 @@ class _ExerciseMediaRoutes:
         view: MediaLinkStatus,
         *,
         status_code: int = 200,
-        outcome: ApproveOutcome | BulkApproved | None = None,
+        outcome: _Outcome | None = None,
+        link_id: UUID | None = None,
     ) -> HTMLResponse:
         context = {
+            # The link Undo, Restore and Try again post back to.
+            "link_id": link_id,
             "review": await self._review.page(view),
             "outcome": outcome,
             "outcome_kind": _kind(outcome),
@@ -90,8 +120,7 @@ class _ExerciseMediaRoutes:
     async def page(self, request: Request) -> Response:
         if not is_admin(request):
             return forbidden(request, self._templates)
-        view = _VIEWS.get(request.query_params.get("view", ""), MediaLinkStatus.SUGGESTED)
-        return await self._region(request, view)
+        return await self._region(request, _view(request))
 
     async def approve(self, request: Request, link_id: str) -> Response:
         if not is_admin(request):
@@ -104,6 +133,24 @@ class _ExerciseMediaRoutes:
         return await self._region(
             request, MediaLinkStatus.SUGGESTED, status_code=status_code, outcome=outcome
         )
+
+    async def remove(self, request: Request, link_id: str) -> Response:
+        if not is_admin(request):
+            return forbidden(request, self._templates)
+        parsed = _uuid(link_id)
+        outcome = None if parsed is None else await self._review.remove(parsed)
+        if outcome is None:
+            return not_found(request, self._templates)
+        return await self._region(request, _view(request), outcome=outcome, link_id=parsed)
+
+    async def restore(self, request: Request, link_id: str) -> Response:
+        if not is_admin(request):
+            return forbidden(request, self._templates)
+        parsed = _uuid(link_id)
+        outcome = None if parsed is None else await self._review.restore(parsed)
+        if outcome is None:
+            return not_found(request, self._templates)
+        return await self._region(request, _view(request), outcome=outcome, link_id=parsed)
 
     async def approve_wger(self, request: Request, exercise_id: str) -> Response:
         if not is_admin(request):
@@ -126,6 +173,18 @@ def build_exercises_router(*, templates: Jinja2Templates, review: ExerciseMediaR
     router.add_api_route(
         "/admin/exercises/links/{link_id}/approve",
         routes.approve,
+        methods=["POST"],
+        response_class=HTMLResponse,
+    )
+    router.add_api_route(
+        "/admin/exercises/links/{link_id}/remove",
+        routes.remove,
+        methods=["POST"],
+        response_class=HTMLResponse,
+    )
+    router.add_api_route(
+        "/admin/exercises/links/{link_id}/restore",
+        routes.restore,
         methods=["POST"],
         response_class=HTMLResponse,
     )

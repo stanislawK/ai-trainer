@@ -1,4 +1,5 @@
 import re
+from datetime import datetime
 from enum import StrEnum
 from typing import Self
 from uuid import UUID
@@ -88,7 +89,8 @@ class MediaAsset(BaseModel):
 
 
 class ExerciseMediaReviewRow(BaseModel):
-    """One link on a catalogue exercise, as the admin's F24 review lists it (#554)."""
+    """One link on a catalogue exercise, as the admin's F24 review lists it (#554). A `removed`
+    link carries when it was removed and the status it was removed from (#556)."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -98,6 +100,8 @@ class ExerciseMediaReviewRow(BaseModel):
     position: int = Field(ge=0)
     status: MediaLinkStatus
     asset: MediaAsset
+    removed_at: datetime | None = None
+    removed_from: MediaLinkStatus | None = None
 
 
 class ExerciseMediaItem(BaseModel):

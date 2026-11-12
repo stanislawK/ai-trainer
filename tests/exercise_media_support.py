@@ -2,9 +2,12 @@
 
 from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 from ai_trainer.application.exercise_media_review import ExerciseMediaReview
+from ai_trainer.application.media_quarantine import MediaQuarantine
+from ai_trainer.application.ports.object_storage import ObjectStoragePort
 from ai_trainer.domain.media import (
     ExerciseMediaItem,
     ExerciseMediaReviewRow,
@@ -68,6 +71,17 @@ class _Link:
     position: int
     status: MediaLinkStatus
     asset: MediaAsset
+    removed_at: datetime | None = None
+    removed_from: MediaLinkStatus | None = None
+
+
+_LIVE = (MediaLinkStatus.SUGGESTED, MediaLinkStatus.APPROVED)
+REVIEW_NOW = datetime(2026, 11, 12, 9, 30, tzinfo=UTC)
+
+
+class ReviewClock:
+    def now(self) -> datetime:
+        return REVIEW_NOW
 
 
 class MemoryExerciseMedia:
@@ -96,8 +110,23 @@ class MemoryExerciseMedia:
         )
         return link_id
 
+    def share(
+        self,
+        exercise_id: UUID,
+        link_id: UUID,
+        status: MediaLinkStatus = MediaLinkStatus.APPROVED,
+    ) -> UUID:
+        """Link the asset `link_id` shows to another exercise too: one file, two links."""
+        asset = self._link(link_id).asset
+        new_id = uuid4()
+        self.links.append(_Link(new_id, exercise_id, 0, status, asset))
+        return new_id
+
+    def _link(self, link_id: UUID) -> _Link:
+        return next(link for link in self.links if link.link_id == link_id)
+
     def status_of(self, link_id: UUID) -> MediaLinkStatus:
-        return next(link.status for link in self.links if link.link_id == link_id)
+        return self._link(link_id).status
 
     def _row(self, link: _Link) -> ExerciseMediaReviewRow:
         return ExerciseMediaReviewRow(
@@ -107,6 +136,30 @@ class MemoryExerciseMedia:
             position=link.position,
             status=link.status,
             asset=link.asset,
+            removed_at=link.removed_at,
+            removed_from=link.removed_from,
+        )
+
+    async def remove(self, link_id: UUID, *, at: datetime) -> MediaLinkStatus | None:
+        link = self._link(link_id)
+        if link.status not in _LIVE:
+            return None
+        link.removed_from, link.removed_at = link.status, at
+        link.status = MediaLinkStatus.REMOVED
+        return link.removed_from
+
+    async def restore(self, link_id: UUID) -> MediaLinkStatus | None:
+        link = self._link(link_id)
+        if link.status is not MediaLinkStatus.REMOVED:
+            return None
+        link.status = link.removed_from or MediaLinkStatus.SUGGESTED
+        link.removed_from = link.removed_at = None
+        return link.status
+
+    async def has_live_link_besides(self, asset_id: UUID, link_id: UUID) -> bool:
+        return any(
+            link.asset.id == asset_id and link.link_id != link_id and link.status in _LIVE
+            for link in self.links
         )
 
     async def approved_for(self, exercise_id: UUID) -> Sequence[ExerciseMediaItem]:
@@ -160,7 +213,16 @@ class MemoryExerciseMedia:
 
 
 def memory_exercise_media_review(
-    media: MemoryExerciseMedia | None = None, *, base_url: str | None = None
+    media: MemoryExerciseMedia | None = None,
+    *,
+    base_url: str | None = None,
+    media_bucket: ObjectStoragePort | None = None,
+    uploads_bucket: ObjectStoragePort | None = None,
 ) -> ExerciseMediaReview:
     """`build_admin_router`'s `exercise_media`, for a test about the rest of the admin view."""
-    return ExerciseMediaReview(media=media or MemoryExerciseMedia(), public_base_url=base_url)
+    return ExerciseMediaReview(
+        media=media or MemoryExerciseMedia(),
+        public_base_url=base_url,
+        quarantine=MediaQuarantine(media=media_bucket, uploads=uploads_bucket),
+        clock=ReviewClock(),
+    )

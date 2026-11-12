@@ -18,6 +18,7 @@ from ai_trainer.adapters.sessions_repository import SqlAlchemySessionsRepository
 from ai_trainer.adapters.user_status_changer import SqlAlchemyUserStatusChanger
 from ai_trainer.adapters.users_repository import SqlAlchemyUsersRepository
 from ai_trainer.application.exercise_media_review import ExerciseMediaReview
+from ai_trainer.application.media_quarantine import MediaQuarantine
 from ai_trainer.domain.media import MediaAsset, MediaLinkStatus
 from ai_trainer.domain.sessions import NewSession
 from ai_trainer.domain.users import NewUser, UserStatus
@@ -28,7 +29,7 @@ from ai_trainer.web.csrf import CSRF_HEADER_NAME, CsrfMiddleware
 from ai_trainer.web.templating import build_templates
 from tests.admin_tokens_support import memory_admin_tokens
 from tests.exercise_media_support import embedded_asset, generated_asset, wger_asset
-from tests.knowledge_support import knowledge_wiring
+from tests.knowledge_support import MemoryStorage, knowledge_wiring
 
 SECRET = b"integration-test-secret"
 BASE = "https://media.example.org"
@@ -47,6 +48,14 @@ class Page:
     media: SqlAlchemyExerciseMediaRepository
     factory: Callable[[], AsyncSession]
     csrf: str
+    public: MemoryStorage
+    private: MemoryStorage
+
+    def store(self, asset: MediaAsset) -> None:
+        """Put the stored picture's file in the public media bucket."""
+        assert asset.storage_key is not None
+        self.public.objects[asset.storage_key] = b"png-bytes"
+        self.public.content_types[asset.storage_key] = "image/png"
 
     def headers(self) -> Mapping[str, str]:
         return {CSRF_HEADER_NAME: self.csrf, "HX-Request": "true"}
@@ -105,6 +114,7 @@ async def _page(
         NewSession(user_id=user.id, expires_at=clock.now() + timedelta(days=1))
     )
     media = SqlAlchemyExerciseMediaRepository(factory)
+    public, private = MemoryStorage(), MemoryStorage()
     templates = build_templates()
     app = FastAPI()
     app.include_router(
@@ -114,7 +124,12 @@ async def _page(
             sessions=sessions,
             status_changer=SqlAlchemyUserStatusChanger(factory),
             tokens=memory_admin_tokens(),
-            exercise_media=ExerciseMediaReview(media=media, public_base_url=base_url),
+            exercise_media=ExerciseMediaReview(
+                media=media,
+                public_base_url=base_url,
+                quarantine=MediaQuarantine(media=public, uploads=private),
+                clock=clock,
+            ),
             **knowledge_wiring(),
         )
     )
@@ -132,7 +147,14 @@ async def _page(
     # Any signed-in page carries the CSRF token; the forbidden page does too.
     match = _CSRF_TOKEN_IN_HTML.search(client.get("/admin/exercises").text)
     assert match is not None
-    return Page(client=client, media=media, factory=factory, csrf=match.group(1))
+    return Page(
+        client=client,
+        media=media,
+        factory=factory,
+        csrf=match.group(1),
+        public=public,
+        private=private,
+    )
 
 
 def _group(html: str, exercise_id: UUID) -> str:
@@ -381,3 +403,213 @@ async def test_the_full_page_and_the_htmx_region(
     assert re.search(r'aria-pressed="true"[^>]*>.*?Approved ·', full.text, flags=re.DOTALL)
     assert re.search(r'aria-pressed="true"[^>]*>.*?Suggested ·', region.text, flags=re.DOTALL)
     assert full.headers["cache-control"] == "no-store"
+
+
+async def test_remove_renders_removed_toast_with_undo(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    page = await _page(db_session_factory, "media-remove")
+    name = f"Lateral Raise {uuid4().hex[:6]}"
+    exercise_id = await page.exercise(name)
+    picture = wger_asset()
+    page.store(picture)
+    link_id = await page.put(exercise_id, picture, MediaLinkStatus.APPROVED)
+    approved_view = _group(page.client.get("/admin/exercises?view=approved").text, exercise_id)
+    remove_url = f"/admin/exercises/links/{link_id}/remove?view=approved"
+    assert f'hx-post="{remove_url}"' in approved_view
+
+    response = page.client.post(remove_url, headers=page.headers())
+
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
+    assert f"Removed from {name}." in response.text
+    assert "Hidden from the exercise card now." in response.text
+    assert f'hx-post="/admin/exercises/links/{link_id}/restore?view=approved"' in response.text
+    assert ">Undo<" in response.text
+    assert re.search(r'aria-pressed="true"[^>]*>.*?Approved ·', response.text, flags=re.DOTALL)
+    assert await page.status(link_id) is MediaLinkStatus.REMOVED
+    assert await page.media.approved_for(exercise_id) == []
+    assert picture.storage_key not in page.public.objects
+    assert page.private.objects == {f"quarantine/{picture.storage_key}": b"png-bytes"}
+
+
+async def test_removed_view_lists_when_with_restore_and_no_picture(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    page = await _page(db_session_factory, "media-removed-view")
+    exercise_id = await page.exercise(f"Lateral Raise {uuid4().hex[:6]}")
+    picture = wger_asset(author="T. Weber")
+    page.store(picture)
+    link_id = await page.put(exercise_id, picture, MediaLinkStatus.APPROVED)
+    page.client.post(f"/admin/exercises/links/{link_id}/remove", headers=page.headers())
+
+    response = page.client.get("/admin/exercises?view=removed")
+
+    group = _group(response.text, exercise_id)
+    assert "Removed 11 Nov · was approved" in group
+    assert "1 picture removed" in group
+    assert f'hx-post="/admin/exercises/links/{link_id}/restore?view=removed"' in group
+    assert "/remove" not in group
+    assert "/approve" not in group
+    assert "<img" not in group
+    assert "No public URL" not in group
+    assert "T. Weber" in group
+    assert re.search(r'aria-pressed="true"[^>]*>.*?Removed ·', response.text, flags=re.DOTALL)
+
+
+async def test_restore_from_the_removed_view_puts_the_picture_back(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    page = await _page(db_session_factory, "media-restore")
+    name = f"Lateral Raise {uuid4().hex[:6]}"
+    exercise_id = await page.exercise(name)
+    picture = wger_asset()
+    page.store(picture)
+    link_id = await page.put(exercise_id, picture)
+    page.client.post(f"/admin/exercises/links/{link_id}/remove", headers=page.headers())
+
+    response = page.client.post(
+        f"/admin/exercises/links/{link_id}/restore?view=removed", headers=page.headers()
+    )
+
+    assert response.status_code == 200
+    assert f"Restored to {name}." in response.text
+    assert "Back under Suggested." in response.text
+    assert await page.status(link_id) is MediaLinkStatus.SUGGESTED
+    assert page.public.objects == {str(picture.storage_key): b"png-bytes"}
+    assert page.private.objects == {}
+    assert str(exercise_id) not in response.text
+
+
+async def test_remove_says_still_public_when_move_fails(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    page = await _page(db_session_factory, "media-still-public")
+    exercise_id = await page.exercise(f"Lateral Raise {uuid4().hex[:6]}")
+    picture = wger_asset()
+    page.store(picture)
+    link_id = await page.put(exercise_id, picture, MediaLinkStatus.APPROVED)
+    page.public.failing.add("delete")
+
+    response = page.client.post(
+        f"/admin/exercises/links/{link_id}/remove?view=approved", headers=page.headers()
+    )
+
+    assert response.status_code == 200
+    assert "Hidden from the exercise card, but the file is still public." in response.text
+    assert f'hx-post="/admin/exercises/links/{link_id}/remove?view=approved"' in response.text
+    assert "Try again" in response.text
+    assert await page.status(link_id) is MediaLinkStatus.REMOVED
+    assert await page.media.approved_for(exercise_id) == []
+    assert picture.storage_key in page.public.objects
+
+
+async def test_remove_of_a_shared_picture_says_it_stays_public(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    page = await _page(db_session_factory, "media-shared")
+    exercise_id = await page.exercise(f"Lateral Raise {uuid4().hex[:6]}")
+    other_id = await page.exercise(f"Cable Raise {uuid4().hex[:6]}")
+    picture = wger_asset()
+    page.store(picture)
+    link_id = await page.put(exercise_id, picture, MediaLinkStatus.APPROVED)
+    [row] = await page.media.review_links(MediaLinkStatus.APPROVED, exercise_id=exercise_id)
+    assert row.asset.id is not None
+    await page.media.link(other_id, row.asset.id, position=0, status=MediaLinkStatus.APPROVED)
+
+    response = page.client.post(f"/admin/exercises/links/{link_id}/remove", headers=page.headers())
+
+    assert "another exercise still shows it" in response.text
+    assert picture.storage_key in page.public.objects
+    assert len(await page.media.approved_for(other_id)) == 1
+
+
+async def test_restore_that_cannot_move_the_file_back_says_nothing_changed(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    page = await _page(db_session_factory, "media-restore-failed")
+    exercise_id = await page.exercise(f"Lateral Raise {uuid4().hex[:6]}")
+    picture = wger_asset()
+    page.store(picture)
+    link_id = await page.put(exercise_id, picture, MediaLinkStatus.APPROVED)
+    page.client.post(f"/admin/exercises/links/{link_id}/remove", headers=page.headers())
+    page.public.failing.add("put")
+
+    response = page.client.post(
+        f"/admin/exercises/links/{link_id}/restore?view=removed", headers=page.headers()
+    )
+
+    assert response.status_code == 200
+    assert "Couldn't restore — nothing changed." in response.text
+    assert f'hx-post="/admin/exercises/links/{link_id}/restore?view=removed"' in response.text
+    assert await page.status(link_id) is MediaLinkStatus.REMOVED
+
+
+async def test_remove_and_restore_refuse_non_admin(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    page = await _page(db_session_factory, "media-remove-not-admin", admin=False)
+    exercise_id = await page.exercise(f"Lateral Raise {uuid4().hex[:6]}")
+    approved = await page.put(exercise_id, wger_asset(), MediaLinkStatus.APPROVED)
+    removed = await page.put(exercise_id, wger_asset(), MediaLinkStatus.REMOVED)
+
+    responses = [
+        page.client.post(f"/admin/exercises/links/{approved}/remove", headers=page.headers()),
+        page.client.post(f"/admin/exercises/links/{removed}/restore", headers=page.headers()),
+        page.client.post("/admin/exercises/links/nope/remove", headers=page.headers()),
+        page.client.get("/admin/exercises?view=removed"),
+    ]
+
+    assert [response.status_code for response in responses] == [403] * 4
+    assert await page.status(approved) is MediaLinkStatus.APPROVED
+    assert await page.status(removed) is MediaLinkStatus.REMOVED
+
+
+async def test_remove_and_restore_refuse_without_csrf(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    page = await _page(db_session_factory, "media-remove-no-csrf")
+    exercise_id = await page.exercise(f"Lateral Raise {uuid4().hex[:6]}")
+    approved = await page.put(exercise_id, wger_asset(), MediaLinkStatus.APPROVED)
+    removed = await page.put(exercise_id, wger_asset(), MediaLinkStatus.REMOVED)
+
+    remove = page.client.post(
+        f"/admin/exercises/links/{approved}/remove", headers={"HX-Request": "true"}
+    )
+    restore = page.client.post(f"/admin/exercises/links/{removed}/restore")
+
+    assert (remove.status_code, restore.status_code) == (403, 403)
+    assert await page.status(approved) is MediaLinkStatus.APPROVED
+    assert await page.status(removed) is MediaLinkStatus.REMOVED
+
+
+async def test_remove_or_restore_of_an_unknown_link_is_not_found(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    page = await _page(db_session_factory, "media-remove-unknown")
+
+    responses = [
+        page.client.post(f"/admin/exercises/links/{uuid4()}/remove", headers=page.headers()),
+        page.client.post("/admin/exercises/links/nope/restore", headers=page.headers()),
+    ]
+
+    assert [response.status_code for response in responses] == [404] * 2
+
+
+async def test_removed_view_with_nothing_removed_shows_its_empty_card(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    page = await _page(db_session_factory, "media-removed-empty")
+    async with page.factory() as session:
+        removed = (
+            await session.execute(
+                text("SELECT count(*) FROM exercise_media WHERE status = 'removed'")
+            )
+        ).scalar_one()
+
+    response = page.client.get("/admin/exercises?view=removed", headers={"HX-Request": "true"})
+
+    # The shared test database may hold another test's removed rows.
+    if removed == 0:
+        assert "Nothing removed" in response.text
+    assert "Removed ·" in response.text

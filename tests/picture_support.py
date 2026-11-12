@@ -4,7 +4,11 @@ that never reads the wall clock."""
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
-from ai_trainer.domain.object_storage import ObjectNotFoundError, ObjectStorageError
+from ai_trainer.domain.object_storage import (
+    ObjectNotFoundError,
+    ObjectStorageError,
+    StoredObject,
+)
 
 FROZEN = datetime(2026, 11, 11, 23, 59, tzinfo=UTC)
 
@@ -33,6 +37,9 @@ class InMemoryBucket:
         if key not in self.objects:
             raise ObjectNotFoundError("get")
         return self.objects[key]
+
+    async def read(self, key: str) -> StoredObject:
+        return StoredObject(data=await self.get(key), content_type=self.content_types[key])
 
     async def size(self, key: str) -> int:
         return len(await self.get(key))
