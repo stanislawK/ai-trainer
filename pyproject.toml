@@ -48,7 +48,7 @@ build-backend = "uv_build"
 [dependency-groups]
 dev = [
     "httpx2>=2.16.0",
-    "import-linter>=2.15",
+    "import-linter>=2.16",
     "mypy>=2.4.0",
     "pillow>=13.0.0",
     "pytest>=9.2.0",
