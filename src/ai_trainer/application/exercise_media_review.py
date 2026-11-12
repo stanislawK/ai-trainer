@@ -238,15 +238,20 @@ class ExerciseMediaReview:
             generated_left=sum(1 for row in left if _origin(row) == "generated"),
         )
 
-    async def remove(self, link_id: UUID) -> Removed | None:
+    async def remove(self, link_id: UUID) -> Removed | Restored | None:
         """Hide the link at once, then move a stored picture's object to quarantine. A link
-        already removed keeps its first removal and has the move retried. None when there is no
-        such link on a catalogue exercise."""
+        already removed keeps its first removal and has the move retried. A link restored in
+        another tab since is left live with its file public, and says its status. None when
+        there is no such link on a catalogue exercise."""
         row = await self._media.review_link(link_id)
         if row is None:
             return None
-        await self._media.remove(link_id, at=self._clock.now())
         name = row.exercise_name
+        if await self._media.remove(link_id, at=self._clock.now()) is None:
+            # Nothing changed: read again, so a link that is live by now keeps its file.
+            now = await self._media.review_link(link_id)
+            if now is not None and now.status is not MediaLinkStatus.REMOVED:
+                return Restored(exercise_name=name, status=now.status)
         key = row.asset.storage_key
         if key is None:
             return Removed(exercise_name=name, still_public=False, shared=False)
@@ -269,7 +274,13 @@ class ExerciseMediaReview:
         key = row.asset.storage_key
         if key is not None and not await self._quarantine.release(key):
             return RestoreFailed(exercise_name=name)
-        status = await self._media.restore(link_id)
+        try:
+            status = await self._media.restore(link_id)
+        except BaseException:
+            # The link is still `removed`, so its file must not stay public.
+            if key is not None:
+                await self._quarantine.hide(key)
+            raise
         if status is None:
             # Restored in another tab between the read above and the update.
             now = await self._media.review_link(link_id)

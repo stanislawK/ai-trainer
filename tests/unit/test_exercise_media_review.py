@@ -1,6 +1,7 @@
 """The admin's F24 review of exercise media (ADR-0031 *Media links*, #554): pictures grouped
 per exercise, their credit and public URL, one Approve, and Approve all from wger only."""
 
+from datetime import datetime
 from uuid import UUID, uuid4
 
 import pytest
@@ -15,7 +16,7 @@ from ai_trainer.application.exercise_media_review import (
     RestoreFailed,
     WgerCredit,
 )
-from ai_trainer.domain.media import MediaAsset, MediaLinkStatus
+from ai_trainer.domain.media import MediaAsset, MediaLinkStatus, MediaRepositoryError
 from ai_trainer.domain.object_storage import ObjectStorageOperation
 from tests.exercise_media_support import (
     REVIEW_NOW,
@@ -428,6 +429,47 @@ async def test_restore_that_another_tab_got_to_first_says_the_status_now() -> No
         exercise_name="Dumbbell Lateral Raise", status=MediaLinkStatus.APPROVED
     )
     assert t.is_public()
+
+
+class _RestoredAroundTheRemove(MemoryExerciseMedia):
+    """A stale tab posts Remove on a removed link, and another tab's Restore lands around its
+    update, so the update changes nothing and the link is live again (#556 review)."""
+
+    async def remove(self, link_id: UUID, *, at: datetime) -> MediaLinkStatus | None:
+        await super().restore(link_id)
+        return None
+
+
+async def test_remove_that_changed_nothing_on_a_live_link_leaves_its_file_public() -> None:
+    t = _Takedown(media=_RestoredAroundTheRemove())
+    t.media.links[0].status = MediaLinkStatus.REMOVED
+    t.media.links[0].removed_from = MediaLinkStatus.APPROVED
+
+    outcome = await t.review.remove(t.link)
+
+    assert outcome == Restored(
+        exercise_name="Dumbbell Lateral Raise", status=MediaLinkStatus.APPROVED
+    )
+    assert t.media.status_of(t.link) is MediaLinkStatus.APPROVED
+    assert t.is_public()
+    assert t.private.objects == {}
+
+
+class _RestoreThatFails(MemoryExerciseMedia):
+    async def restore(self, link_id: UUID) -> MediaLinkStatus | None:
+        raise MediaRepositoryError
+
+
+async def test_restore_whose_status_update_fails_hides_the_file_again() -> None:
+    t = _Takedown(media=_RestoreThatFails())
+    await t.review.remove(t.link)
+
+    with pytest.raises(MediaRepositoryError):
+        await t.review.restore(t.link)
+
+    assert t.media.status_of(t.link) is MediaLinkStatus.REMOVED
+    assert not t.is_public()
+    assert t.quarantined in t.private.objects
 
 
 async def test_remove_and_restore_of_an_unknown_link_are_none() -> None:
