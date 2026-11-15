@@ -38,7 +38,12 @@ from ai_trainer.llm.conversation import (
     session_id,
 )
 from ai_trainer.llm.extract import build_extract_deps
-from ai_trainer.llm.router import ChatTurn, build_router_deps, router_output_type
+from ai_trainer.llm.router import (
+    ACTIVE_ROUTER_VERSION,
+    ChatTurn,
+    build_router_deps,
+    router_output_type,
+)
 from ai_trainer.main import build_llm_conversation
 from ai_trainer.settings import Settings
 from tests.chat_support import UNLOGGABLE_SPORT, sports_with_rowing
@@ -197,7 +202,7 @@ async def test_route_runs_the_router_template_and_returns_its_intents_in_order()
         history_turns=10,
     )
     expected = build_prompt_registry(_PROMPTS_ROOT, default_sport_registry()).render_instructions(
-        "router", 3, deps
+        "router", ACTIVE_ROUTER_VERSION, deps
     )
     assert call["instructions"] == expected
     # No persona (ADR-0026 step 6).
