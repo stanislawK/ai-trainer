@@ -16,11 +16,14 @@ from ai_trainer.llm.prompts.template import PromptTemplate
 ROUTER_TEMPLATE_ID = "router"
 # Every version with a body file stays registered so evals can compare them (ADR-0008
 # invariant 2); the app runs the active one.
-ROUTER_VERSIONS = (1, 2, 3)
-ACTIVE_ROUTER_VERSION = 3
+ROUTER_VERSIONS = (1, 2, 3, 4)
+ACTIVE_ROUTER_VERSION = 4
 # From this version the router names one flat intent object and does without the persona
 # (ADR-0026 steps 6-7); earlier versions keep their union and persona for comparison.
 _LEAN_ROUTER_VERSION = 3
+# From this version the flat intent's `sport` is required and nullable, so the model must write
+# it on every intent; v3 left it optional and the model could drop a log's sport (#577).
+_REQUIRED_SPORT_VERSION = 4
 
 
 _SPORT_INTENT_KIND = "log_session"
@@ -84,7 +87,8 @@ def _intent_model(kind: str, **fields: Any) -> type[BaseModel]:  # noqa: ANN401 
 
 class _FlatIntent(BaseModel):
     """The checks the flat intent's schema cannot carry: only `log_session` names a sport,
-    and it must. A reply that breaks them fails validation, so the model is asked again."""
+    and it must. Any other kind's sport is cleared to null. A log without one fails
+    validation, so the model is asked again."""
 
     @model_validator(mode="before")
     @classmethod
@@ -92,18 +96,20 @@ class _FlatIntent(BaseModel):
         if not isinstance(data, dict):
             return data
         if data.get("kind") != _SPORT_INTENT_KIND:
-            return {key: value for key, value in data.items() if key != "sport"}
+            return data | {"sport": None}
         if data.get("sport") is None:
             raise ValueError("a log_session needs its sport")
         return data
 
 
-def _flat_intent(sport_ids: tuple[str, ...]) -> Any:  # noqa: ANN401 -- the model's output type is built at runtime
+def _flat_intent(sport_ids: tuple[str, ...], *, sport_required: bool) -> Any:  # noqa: ANN401 -- the model's output type is built at runtime
+    """With `sport_required`, the schema lists `sport` in `required` with no default: the model
+    writes it on every intent, null for anything but a log (#577)."""
     return create_model(
         "Intent",
         __base__=_FlatIntent,
         kind=(Literal[INTENT_KINDS], ...),
-        sport=(Literal[sport_ids] | None, None),
+        sport=(Literal[sport_ids] | None, ... if sport_required else None),
         span=(str, ...),
         confidence=(float, Field(ge=0, le=1)),
     )
@@ -124,11 +130,12 @@ def router_output_type(
 ) -> type[BaseModel]:
     """`RouterOutput(intents: list[Intent])`. From v3, `Intent` is one object with a `kind` enum
     and a `sport` only a `log_session` carries (ADR-0026 step 7); before, a union discriminated
-    on `kind`. `sport` is the registry's ids, so a new sport needs no code or template edit
+    on `kind`. From v4 the model must write `sport` on every intent, null but on a log (#577).
+    `sport` is the registry's ids, so a new sport needs no code or template edit
     (ADR-0006, ADR-0008)."""
     sport_ids = tuple(plugin.id for plugin in registry.all())
     intent: Any = (
-        _flat_intent(sport_ids)
+        _flat_intent(sport_ids, sport_required=version >= _REQUIRED_SPORT_VERSION)
         if version >= _LEAN_ROUTER_VERSION
         else _discriminated_intent(sport_ids)
     )
