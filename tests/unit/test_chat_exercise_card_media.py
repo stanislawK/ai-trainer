@@ -272,6 +272,8 @@ async def test_generated_picture_credit_says_ai_generated() -> None:
     )
     # Its credit already says so: no extra mark (#551).
     assert 'data-mark="ai"' not in block
+    # The mock draws a generated picture on the primary tint, as the admin page does.
+    assert "bg-primary/10" in block
 
 
 async def test_ai_flagged_wger_picture_shows_ai_generated_badge() -> None:
