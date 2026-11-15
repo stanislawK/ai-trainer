@@ -1,0 +1,31 @@
+{#- A catalogue picture's credit (ADR-0031 *First media source*, *Fallback media source*; the Exercise Media and Exercise Card mocks, #551), shared by the admin's review (#554) and the exercise card (#558). A wger picture's licence and image page are `lg-chip` links with an invisible 44 px tap target, and one its uploader flagged as AI-made has the `badge-soft` "AI generated" mark; a generated picture's credit already says "AI generated with …", so it has no mark. An embedded video shows its source and "rights not confirmed". `line` styles the credit's wrapping line, and `plain` a credit that is its text alone. Import with `{% from "components/media_credit.html" import credit %}`. -#}
+{%- from "components/icon.html" import icon -%}
+
+{% macro link_chip(href, label, arrow=false) -%}
+<a href="{{ href }}" class="lg lg-clear lg-chip relative" target="_blank" rel="noopener noreferrer"><span class="absolute inset-x-0 -inset-y-1.5" aria-hidden="true"></span>{{ label }}{% if arrow %}{{ icon("arrow-up-right", "size-3.5 lbl-2") }}{% endif %}</a>
+{%- endmacro %}
+
+{% macro credit(picture, line, plain) -%}
+{%- if picture.origin == "wger" %}
+<span class="{{ line }}" data-credit="wger">
+  {%- if picture.credit %}
+  <span>{{ picture.credit.author }} ·</span>
+  {{ link_chip(picture.credit.licence_url, picture.credit.licence) }}
+  {%- else %}
+  <span>{{ picture.attribution }}</span>
+  {%- endif %}
+  <span class="lbl-2">via</span>
+  {{ link_chip(picture.page_url, "wger.de", arrow=true) }}
+  {%- if picture.ai_flagged %}
+  <span class="badge badge-soft badge-sm" data-mark="ai">AI generated</span>
+  {%- endif %}
+</span>
+{%- elif picture.origin == "embedded" %}
+<span class="{{ line }}" data-credit="unstated">
+  {{ link_chip(picture.page_url, picture.source, arrow=true) }}
+  <span class="lbl-2">· rights not confirmed</span>
+</span>
+{%- else %}
+<span class="{{ plain }}" data-credit="{{ picture.origin }}">{{ picture.attribution }}</span>
+{%- endif %}
+{%- endmacro %}

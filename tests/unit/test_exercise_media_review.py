@@ -14,8 +14,8 @@ from ai_trainer.application.exercise_media_review import (
     Removed,
     Restored,
     RestoreFailed,
-    WgerCredit,
 )
+from ai_trainer.application.media_credit import WgerCredit
 from ai_trainer.domain.media import MediaAsset, MediaLinkStatus, MediaRepositoryError
 from ai_trainer.domain.object_storage import ObjectStorageOperation
 from tests.exercise_media_support import (
