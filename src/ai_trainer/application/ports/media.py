@@ -94,3 +94,15 @@ class ExerciseMediaReviewPort(Protocol):
         """Whether a link other than `link_id` still shows the asset: `suggested` or
         `approved` on any exercise, so its file must stay public (#556)."""
         ...
+
+
+class ExerciseCardMediaPort(Protocol):
+    """The exercise card's pictures (F23, F24, ADR-0031, #558). Catalogue media holds no user
+    data; the exercise IDs come from the athlete's own, user-scoped question."""
+
+    async def first_approved_pictures(
+        self, exercise_ids: Collection[UUID]
+    ) -> Mapping[UUID, MediaAsset]:
+        """Each catalogue exercise's first `approved` stored picture by `position`, in one query;
+        an exercise without one is left out (invariant 5). No IDs reads nothing."""
+        ...

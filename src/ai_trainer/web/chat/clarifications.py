@@ -79,6 +79,7 @@ class _ClarificationRoutes:
                     questions=questions,
                     labels=await ctx.draft_labels(user, reply.drafts, questions),
                     answers=ctx.draft_answers(reply.drafts, questions),
+                    pictures=await ctx.exercise_pictures(questions),
                 ),
             },
         )
@@ -148,11 +149,13 @@ class _ClarificationRoutes:
         return self._name_field(request, await self._open_question(request, clarification_id))
 
     async def exercise_card(self, request: Request, clarification_id: str) -> HTMLResponse:
-        """The name field's Back: the exercise card again. Nothing is written (ticket #402)."""
+        """The name field's Back: the exercise card again, with its pictures (#558). Nothing is
+        written (ticket #402)."""
+        question = await self._open_question(request, clarification_id)
         return self._ctx.templates.TemplateResponse(
             request,
             "partials/chat/exercise_card.html",
-            {"question": await self._open_question(request, clarification_id)},
+            {"question": question, "pictures": await self._ctx.exercise_pictures([question])},
         )
 
     async def keep_name(self, request: Request, clarification_id: str) -> HTMLResponse:

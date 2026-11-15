@@ -7,6 +7,7 @@ message, draft or question is a 404."""
 from fastapi import APIRouter
 from starlette.templating import Jinja2Templates
 
+from ai_trainer.application.exercise_card_media import ExerciseCardMedia
 from ai_trainer.application.ports.chat import ChatRepositoryPort
 from ai_trainer.application.reply import ReplyServices
 from ai_trainer.domain.sports.registry import SportRegistry
@@ -26,6 +27,7 @@ def build_chat_router(
     replies: ReplyServices,
     sports: SportRegistry,
     retention_days: int,
+    card_media: ExerciseCardMedia | None = None,
 ) -> APIRouter:
     templates.env.globals["reply_glyph"] = build_reply_glyph(sports)
     templates.env.globals["failed_draft_sport"] = build_failed_draft_sport(sports)
@@ -35,6 +37,7 @@ def build_chat_router(
         replies=replies,
         sports=sports,
         retention_days=retention_days,
+        card_media=card_media,
     )
     router = APIRouter()
     # In this order, so the routes and the OpenAPI document stay as they were.

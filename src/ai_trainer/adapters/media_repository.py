@@ -62,7 +62,8 @@ def _on_catalogue() -> ColumnElement[bool]:
 
 
 class SqlAlchemyExerciseMediaRepository:
-    """Implements `ExerciseMediaRepositoryPort`. Catalogue media holds no user data, so it takes
+    """Implements `ExerciseMediaRepositoryPort`, `ExerciseMediaReviewPort` and
+    `ExerciseCardMediaPort`. Catalogue media holds no user data, so it takes
     no `user_id`; the exercise ID it is given comes from a user-scoped lookup (ADR-0031)."""
 
     def __init__(self, session_factory: Callable[[], AsyncSession]) -> None:
@@ -133,6 +134,28 @@ class SqlAlchemyExerciseMediaRepository:
         async with self._session_factory() as session:
             rows = (await session.execute(statement)).all()
         return [ExerciseMediaItem(asset=_to_domain(asset), position=pos) for asset, pos in rows]
+
+    async def first_approved_pictures(
+        self, exercise_ids: Collection[UUID]
+    ) -> Mapping[UUID, MediaAsset]:
+        if not exercise_ids:
+            return {}
+        # PostgreSQL's DISTINCT ON keeps the first row per exercise in the ORDER BY's order.
+        statement = (
+            select(ExerciseMediaOrm.exercise_id, MediaAssetOrm)
+            .join(MediaAssetOrm, ExerciseMediaOrm.asset_id == MediaAssetOrm.id)
+            .where(
+                ExerciseMediaOrm.exercise_id.in_(exercise_ids),
+                ExerciseMediaOrm.status == MediaLinkStatus.APPROVED.value,
+                MediaAssetOrm.delivery == MediaDelivery.STORED.value,
+                _on_catalogue(),
+            )
+            .distinct(ExerciseMediaOrm.exercise_id)
+            .order_by(ExerciseMediaOrm.exercise_id, ExerciseMediaOrm.position, ExerciseMediaOrm.id)
+        )
+        async with self._session_factory() as session:
+            rows = (await session.execute(statement)).all()
+        return {exercise_id: _to_domain(asset) for exercise_id, asset in rows}
 
     def _review_select(self) -> Select[tuple[ExerciseMediaOrm, MediaAssetOrm, str]]:
         return (

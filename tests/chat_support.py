@@ -13,6 +13,7 @@ from fastapi import FastAPI, Request, Response
 from pydantic import JsonValue
 from starlette.templating import Jinja2Templates
 
+from ai_trainer.application.exercise_card_media import ExerciseCardMedia
 from ai_trainer.application.feedback import FeedbackRecorder
 from ai_trainer.application.ports.band_order import BandOrderPort
 from ai_trainer.application.ports.clock import ClockPort
@@ -987,9 +988,10 @@ def include_chat(
     settlers: Mapping[str, DraftSettlerPort] | None = None,
     question_sport: ScriptedQuestionSport | None = None,
     band_orders: Mapping[str, BandOrderPort] | None = None,
+    card_media: ExerciseCardMedia | None = None,
 ) -> InMemoryChatRepository:
     """Mounts the chat router on an in-memory repository and a scripted conversation, and
-    returns the repository."""
+    returns the repository. Without `card_media` the exercise card is text only (#558)."""
     repository = chat or InMemoryChatRepository()
     services = reply_services(
         repository,
@@ -1011,6 +1013,7 @@ def include_chat(
             replies=services,
             sports=sports_with_rowing(),
             retention_days=14,
+            card_media=card_media,
         )
     )
     return repository
