@@ -438,7 +438,8 @@ def test_every_new_smoke_case_names_its_dataset_origin() -> None:
             if case.metadata.get("synthetic") == "reported bug":
                 # A synthetic case only for a reported bug, named by its ticket (ADR-0034, #577).
                 ticket = case.metadata["ticket"]
-                assert type(ticket) is int and ticket > 0, (smoke_id, case.name)
+                assert type(ticket) is int, (smoke_id, case.name)
+                assert ticket > 0, (smoke_id, case.name)
                 continue
             if "dataset" not in case.metadata:
                 # Worded by the Approved PRD until field chats replace it (ADR-0034, #421).
