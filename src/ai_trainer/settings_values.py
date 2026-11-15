@@ -166,6 +166,11 @@ class ObjectStorageSettings(BaseModel):
     # production, versitygw's path-style URL under `make start`. A path is allowed; unset means no
     # picture URL. No trailing slash once validated.
     media_public_base_url: str | None = None
+    # Purging a removed picture from Cloudflare's cache (ADR-0031 `removed`, #557): the media
+    # zone's ID and a custom token scoped to Cache Purge on that zone only. Both or neither.
+    cloudflare_zone_id: str | None = None
+    cloudflare_purge_token: SecretStr | None = None
+    cloudflare_purge_timeout_seconds: float = Field(default=8.0, gt=0, le=30)
 
     @field_validator("media_public_base_url")
     @classmethod
@@ -218,5 +223,13 @@ class ObjectStorageSettings(BaseModel):
                 f"OBJECT_STORAGE_MEDIA_BUCKET needs every OBJECT_STORAGE_* key, the uploads bucket "
                 f"included; missing "
                 f"{', '.join(missing)}"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _cloudflare_purge_is_all_or_nothing(self) -> Self:
+        if (self.cloudflare_zone_id is None) != (self.cloudflare_purge_token is None):
+            raise ValueError(
+                "CLOUDFLARE_ZONE_ID and CLOUDFLARE_PURGE_TOKEN must be set together or not at all"
             )
         return self

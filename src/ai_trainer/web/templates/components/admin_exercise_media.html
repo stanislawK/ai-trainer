@@ -230,7 +230,7 @@
     <span>{{ outcome.exercise_name }}: it stays hidden from the exercise card.</span>
     {%- elif kind == "removed" %}
     <span class="font-semibold">Removed from {{ outcome.exercise_name }}.</span>
-    <span>Hidden from the exercise card now. A cached copy may still show for a while.</span>
+    <span>Hidden from the exercise card now.{% if outcome.cache_stale %} A cached copy may still show for a while.{% endif %}</span>
     {%- elif kind == "removed_shared" %}
     <span class="font-semibold">Removed from {{ outcome.exercise_name }}.</span>
     <span>Hidden from this exercise's card. The file stays public: another exercise still shows it.</span>

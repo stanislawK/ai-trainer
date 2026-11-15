@@ -718,6 +718,21 @@ MEDIA_PUBLIC_BASE_URL=https://<media domain>
 
 It needs the whole `OBJECT_STORAGE_*` set from 14.2, the uploads bucket included. Set without it, the app refuses to start and names the missing keys. After recreating, run `storage-check` (14.3): its `media=ok` line proves a probe put in the media bucket is readable through the custom domain with no credentials, and its `private` step proves `uploads` is still refused.
 
+#### Cache purge token (ticket #557)
+
+Remove on `/admin/exercises` moves a picture out of the bucket, but Cloudflare keeps serving its cached copy until the entry expires. With a purge token the app asks Cloudflare to drop that one URL as soon as the file has moved.
+
+1. Cloudflare dashboard, the media domain's zone, Overview: copy the **Zone ID** (right-hand column).
+2. My Profile, API Tokens, **Create Token**, *Create Custom Token*. Permission: **Zone, Cache Purge, Purge**. Zone Resources: *Include, Specific zone*, the media zone. Nothing else, no other permission or zone.
+3. Add both to `/opt/ai-trainer/.env` and recreate as in 14.2:
+
+```sh
+CLOUDFLARE_ZONE_ID=<zone id>
+CLOUDFLARE_PURGE_TOKEN=<token>
+```
+
+Set both or neither; the app refuses to start on one. Unset, Remove still works and logs `cache purge skipped`. If Cloudflare refuses a purge, the removal stands, the toast says a cached copy may still show for a while, and the journal has `cache purge failed: ...` with the status only, never the token. To check: remove a test picture, then request its custom-domain URL; it must stop serving.
+
 ## 15. Ingest container
 
 Source: ADR-0036 (invariant 6 and its #462 amendment). Ticket #462.

@@ -3,8 +3,8 @@
 A removed picture's object goes to the private uploads bucket under `quarantine/<storage_key>`,
 so its public URL stops serving it; Undo or Restore moves it back. Each move copies first and
 deletes after, so a failure never loses the object: at worst it is in both buckets. Every move
-can be retried, and finds the state a failed one left. Purging Cloudflare's cached copy is left
-to a follow-up ticket (ADR-0031's #556 amendment)."""
+can be retried, and finds the state a failed one left. Purging Cloudflare's cached copy is the
+review's step after the move (#557)."""
 
 import logging
 

@@ -38,6 +38,7 @@ from ai_trainer.adapters.catalogue_match import SqlAlchemyCatalogueMatch
 from ai_trainer.adapters.chat_repository import SqlAlchemyChatRepository
 from ai_trainer.adapters.clarification_repository import SqlAlchemyClarificationRepository
 from ai_trainer.adapters.clock import UtcClock
+from ai_trainer.adapters.cloudflare_cache import CloudflareCdnCache
 from ai_trainer.adapters.conversation_repository import SqlAlchemyConversationRepository
 from ai_trainer.adapters.db import build_engine, build_session_factory
 from ai_trainer.adapters.exercise_history import SqlAlchemyExerciseHistory
@@ -320,6 +321,21 @@ def build_media_storage(settings: Settings) -> ObstoreObjectStorage | None:
     """The `media` bucket for catalogue pictures (ADR-0031, ADR-0033), on the same service and
     keys as `uploads`, or None while `OBJECT_STORAGE_MEDIA_BUCKET` is unset."""
     return _bucket_storage(settings, settings.object_storage_media_bucket)
+
+
+def build_cdn_cache(settings: Settings) -> CloudflareCdnCache | None:
+    """The Cloudflare purge for a removed picture (ADR-0031, #557), or None while
+    `CLOUDFLARE_ZONE_ID` and `CLOUDFLARE_PURGE_TOKEN` are unset (`make start`): Remove then
+    skips the purge and logs it."""
+    zone_id = settings.cloudflare_zone_id
+    token = settings.cloudflare_purge_token
+    if zone_id is None or token is None:
+        return None
+    return CloudflareCdnCache(
+        zone_id=zone_id,
+        token=token.get_secret_value(),
+        timeout_seconds=settings.cloudflare_purge_timeout_seconds,
+    )
 
 
 def _bucket_storage(settings: Settings, bucket: str | None) -> ObstoreObjectStorage | None:
@@ -855,6 +871,7 @@ def create_app(  # noqa: PLR0915 -- composition root: objects are built only her
                     media=build_media_storage(settings), uploads=build_uploads_storage(settings)
                 ),
                 clock=clock,
+                cdn=build_cdn_cache(settings),
             ),
             sports=sport_registry,
             max_upload_mb=settings.knowledge_max_upload_mb,

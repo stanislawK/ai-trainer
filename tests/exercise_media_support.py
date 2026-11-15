@@ -7,7 +7,9 @@ from uuid import UUID, uuid4
 
 from ai_trainer.application.exercise_media_review import ExerciseMediaReview
 from ai_trainer.application.media_quarantine import MediaQuarantine
+from ai_trainer.application.ports.cdn_cache import CdnCachePort
 from ai_trainer.application.ports.object_storage import ObjectStoragePort
+from ai_trainer.domain.cdn_cache import CdnCacheError
 from ai_trainer.domain.media import (
     ExerciseMediaItem,
     ExerciseMediaReviewRow,
@@ -212,9 +214,23 @@ class MemoryExerciseMedia:
         return changed
 
 
+class FakeCdn:
+    """A `CdnCachePort` that records the URLs purged, and fails when told to."""
+
+    def __init__(self, *, failing: bool = False) -> None:
+        self.purged: list[str] = []
+        self.failing = failing
+
+    async def purge(self, url: str) -> None:
+        self.purged.append(url)
+        if self.failing:
+            raise CdnCacheError("cache purge refused: HTTP 403")
+
+
 def memory_exercise_media_review(
     media: MemoryExerciseMedia | None = None,
     *,
+    cdn: CdnCachePort | None = None,
     base_url: str | None = None,
     media_bucket: ObjectStoragePort | None = None,
     uploads_bucket: ObjectStoragePort | None = None,
@@ -225,4 +241,5 @@ def memory_exercise_media_review(
         public_base_url=base_url,
         quarantine=MediaQuarantine(media=media_bucket, uploads=uploads_bucket),
         clock=ReviewClock(),
+        cdn=cdn,
     )
