@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from typing import Literal
 from urllib.parse import quote
 
@@ -22,6 +23,14 @@ class ObjectStorageError(Exception):
 class ObjectNotFoundError(ObjectStorageError):
     def __init__(self, operation: ObjectStorageOperation) -> None:
         super().__init__(operation, "not_found")
+
+
+@dataclass(frozen=True, slots=True)
+class StoredObject:
+    """An object's bytes with the content type it was stored with, so a move keeps both."""
+
+    data: bytes
+    content_type: str
 
 
 def media_public_url(base_url: str | None, storage_key: str) -> str | None:

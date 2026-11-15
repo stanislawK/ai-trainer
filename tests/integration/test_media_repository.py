@@ -2,6 +2,7 @@
 (ADR-0031 "Media links", invariant 5, F24, G10)."""
 
 from collections.abc import Callable
+from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 import pytest
@@ -18,6 +19,7 @@ from ai_trainer.domain.media import (
 )
 
 SessionFactory = Callable[[], AsyncSession]
+REMOVED_AT = datetime(2026, 11, 12, 9, 30, tzinfo=UTC)
 
 
 @pytest.fixture
@@ -316,3 +318,120 @@ async def test_status_counts_count_catalogue_links_per_status(
         MediaLinkStatus.APPROVED: 1,
         MediaLinkStatus.REMOVED: 0,
     }
+
+
+async def _link_id(
+    repository: SqlAlchemyExerciseMediaRepository, exercise_id: UUID, asset_id: UUID
+) -> UUID:
+    rows = [
+        row
+        for status in MediaLinkStatus
+        for row in await repository.review_links(status, exercise_id=exercise_id)
+    ]
+    return next(row.link_id for row in rows if row.asset.id == asset_id)
+
+
+@pytest.mark.parametrize("status", [MediaLinkStatus.APPROVED, MediaLinkStatus.SUGGESTED])
+async def test_remove_hides_link_from_approved_for_and_records_earlier_status(
+    db_session_factory: SessionFactory,
+    repository: SqlAlchemyExerciseMediaRepository,
+    status: MediaLinkStatus,
+) -> None:
+    exercise_id = await _exercise(db_session_factory)
+    asset_id = await _linked(repository, exercise_id, _stored(), status)
+    link_id = await _link_id(repository, exercise_id, asset_id)
+
+    assert await repository.remove(link_id, at=REMOVED_AT) is status
+
+    assert await repository.approved_for(exercise_id) == []
+    row = await repository.review_link(link_id)
+    assert row is not None
+    assert (row.status, row.removed_from, row.removed_at) == (
+        MediaLinkStatus.REMOVED,
+        status,
+        REMOVED_AT,
+    )
+    [listed] = await repository.review_links(MediaLinkStatus.REMOVED, exercise_id=exercise_id)
+    assert listed.removed_at == REMOVED_AT
+    # Removing it again changes nothing: the first removal's time and status are kept.
+    assert await repository.remove(link_id, at=datetime(2026, 11, 13, tzinfo=UTC)) is None
+    again = await repository.review_link(link_id)
+    assert again is not None
+    assert (again.removed_from, again.removed_at) == (status, REMOVED_AT)
+
+
+async def test_a_removed_pictures_sha256_stays_known_to_the_importers(
+    db_session_factory: SessionFactory, repository: SqlAlchemyExerciseMediaRepository
+) -> None:
+    exercise_id = await _exercise(db_session_factory)
+    picture = _stored()
+    asset_id = await _linked(repository, exercise_id, picture, MediaLinkStatus.APPROVED)
+
+    await repository.remove(await _link_id(repository, exercise_id, asset_id), at=REMOVED_AT)
+
+    assert picture.sha256 is not None
+    assert await repository.has_sha256(picture.sha256)
+    assert await repository.is_removed(sha256=picture.sha256, embed_url=None)
+
+
+@pytest.mark.parametrize("status", [MediaLinkStatus.APPROVED, MediaLinkStatus.SUGGESTED])
+async def test_restore_puts_back_removed_from_and_clears_removal(
+    db_session_factory: SessionFactory,
+    repository: SqlAlchemyExerciseMediaRepository,
+    status: MediaLinkStatus,
+) -> None:
+    exercise_id = await _exercise(db_session_factory)
+    asset_id = await _linked(repository, exercise_id, _stored(), status)
+    link_id = await _link_id(repository, exercise_id, asset_id)
+    await repository.remove(link_id, at=REMOVED_AT)
+
+    assert await repository.restore(link_id) is status
+
+    row = await repository.review_link(link_id)
+    assert row is not None
+    assert (row.status, row.removed_from, row.removed_at) == (status, None, None)
+    assert await repository.restore(link_id) is None
+
+
+async def test_restore_of_a_removed_link_without_its_earlier_status_makes_it_suggested(
+    db_session_factory: SessionFactory, repository: SqlAlchemyExerciseMediaRepository
+) -> None:
+    exercise_id = await _exercise(db_session_factory)
+    asset_id = await _linked(repository, exercise_id, _stored(), MediaLinkStatus.REMOVED)
+    link_id = await _link_id(repository, exercise_id, asset_id)
+
+    assert await repository.restore(link_id) is MediaLinkStatus.SUGGESTED
+
+
+async def test_remove_and_restore_leave_an_athletes_own_exercise_alone(
+    db_session_factory: SessionFactory, repository: SqlAlchemyExerciseMediaRepository
+) -> None:
+    exercise_id = await _custom_exercise(db_session_factory)
+    approved = await _linked(repository, exercise_id, _stored(), MediaLinkStatus.APPROVED)
+    removed = await _linked(repository, exercise_id, _stored(), MediaLinkStatus.REMOVED, position=1)
+    async with db_session_factory() as session:
+        result = await session.execute(
+            text("SELECT asset_id, id FROM exercise_media WHERE exercise_id = :id"),
+            {"id": exercise_id},
+        )
+        ids: dict[UUID, UUID] = {asset: link for asset, link in result.all()}
+
+    assert await repository.remove(ids[approved], at=REMOVED_AT) is None
+    assert await repository.restore(ids[removed]) is None
+    assert len(await repository.approved_for(exercise_id)) == 1
+
+
+async def test_has_live_link_besides_counts_other_suggested_or_approved_links(
+    db_session_factory: SessionFactory, repository: SqlAlchemyExerciseMediaRepository
+) -> None:
+    first = await _exercise(db_session_factory)
+    second = await _exercise(db_session_factory)
+    asset_id = await repository.add_asset(_stored())
+    await repository.link(first, asset_id, position=0, status=MediaLinkStatus.APPROVED)
+    await repository.link(second, asset_id, position=0, status=MediaLinkStatus.SUGGESTED)
+    link_id = await _link_id(repository, first, asset_id)
+    other_id = await _link_id(repository, second, asset_id)
+
+    assert await repository.has_live_link_besides(asset_id, link_id)
+    await repository.remove(other_id, at=REMOVED_AT)
+    assert not await repository.has_live_link_besides(asset_id, link_id)

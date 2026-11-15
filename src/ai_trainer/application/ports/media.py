@@ -1,4 +1,5 @@
 from collections.abc import Collection, Mapping, Sequence
+from datetime import datetime
 from typing import Protocol
 from uuid import UUID
 
@@ -75,4 +76,21 @@ class ExerciseMediaReviewPort(Protocol):
         from `source`, in one conditional update; any other ID is ignored. Returns how many
         changed (ADR-0031: a generated picture is never bulk-approved, so the caller names the
         source; the IDs are the ones the admin saw, so a later suggestion is never swept in)."""
+        ...
+
+    async def remove(self, link_id: UUID, *, at: datetime) -> MediaLinkStatus | None:
+        """Set the link `removed` at `at`, keeping the status it had, only if it is `suggested`
+        or `approved`, in one conditional update. Returns that earlier status, or None when
+        nothing changed (#556)."""
+        ...
+
+    async def restore(self, link_id: UUID) -> MediaLinkStatus | None:
+        """Put a `removed` link back to the status it was removed from (`suggested` when none
+        is kept) and clear its removal, in one conditional update. Returns the status it now
+        has, or None when it wasn't `removed` (#556)."""
+        ...
+
+    async def has_live_link_besides(self, asset_id: UUID, link_id: UUID) -> bool:
+        """Whether a link other than `link_id` still shows the asset: `suggested` or
+        `approved` on any exercise, so its file must stay public (#556)."""
         ...

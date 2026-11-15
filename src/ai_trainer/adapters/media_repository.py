@@ -1,9 +1,11 @@
 from collections.abc import Callable, Collection, Mapping, Sequence
+from datetime import datetime
 from uuid import UUID, uuid4
 
 from sqlalchemy import ColumnElement, Select, exists, false, func, or_, select, update
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql import Executable
 
 from ai_trainer.adapters.orm import ExerciseMediaOrm, ExerciseOrm, MediaAssetOrm
 from ai_trainer.domain.media import (
@@ -44,6 +46,18 @@ def _review_row(link: ExerciseMediaOrm, asset: MediaAssetOrm, name: str) -> Exer
         position=link.position,
         status=MediaLinkStatus(link.status),
         asset=_to_domain(asset),
+        removed_at=link.removed_at,
+        removed_from=None if link.removed_from is None else MediaLinkStatus(link.removed_from),
+    )
+
+
+_LIVE = (MediaLinkStatus.SUGGESTED.value, MediaLinkStatus.APPROVED.value)
+
+
+def _on_catalogue() -> ColumnElement[bool]:
+    """A link on a shared catalogue exercise, never on an athlete's own one."""
+    return ExerciseMediaOrm.exercise_id.in_(
+        select(ExerciseOrm.id).where(ExerciseOrm.owner_user_id.is_(None))
     )
 
 
@@ -185,9 +199,7 @@ class SqlAlchemyExerciseMediaRepository:
             .where(
                 *conditions,
                 ExerciseMediaOrm.status == MediaLinkStatus.SUGGESTED.value,
-                ExerciseMediaOrm.exercise_id.in_(
-                    select(ExerciseOrm.id).where(ExerciseOrm.owner_user_id.is_(None))
-                ),
+                _on_catalogue(),
             )
             .values(status=MediaLinkStatus.APPROVED.value)
             .returning(ExerciseMediaOrm.id)
@@ -196,6 +208,61 @@ class SqlAlchemyExerciseMediaRepository:
             changed = len((await session.execute(statement)).all())
             await session.commit()
         return changed
+
+    async def remove(self, link_id: UUID, *, at: datetime) -> MediaLinkStatus | None:
+        # `removed_from = status` reads the row's status before this update sets it.
+        statement = (
+            update(ExerciseMediaOrm)
+            .where(
+                ExerciseMediaOrm.id == link_id,
+                ExerciseMediaOrm.status.in_(_LIVE),
+                _on_catalogue(),
+            )
+            .values(
+                status=MediaLinkStatus.REMOVED.value,
+                removed_from=ExerciseMediaOrm.status,
+                removed_at=at,
+            )
+            .returning(ExerciseMediaOrm.removed_from)
+        )
+        return await self._changed_status(statement)
+
+    async def restore(self, link_id: UUID) -> MediaLinkStatus | None:
+        statement = (
+            update(ExerciseMediaOrm)
+            .where(
+                ExerciseMediaOrm.id == link_id,
+                ExerciseMediaOrm.status == MediaLinkStatus.REMOVED.value,
+                _on_catalogue(),
+            )
+            .values(
+                # A row removed before #556 has no earlier status: `suggested` is the safe one.
+                status=func.coalesce(
+                    ExerciseMediaOrm.removed_from, MediaLinkStatus.SUGGESTED.value
+                ),
+                removed_from=None,
+                removed_at=None,
+            )
+            .returning(ExerciseMediaOrm.status)
+        )
+        return await self._changed_status(statement)
+
+    async def _changed_status(self, statement: Executable) -> MediaLinkStatus | None:
+        async with self._session_factory() as session:
+            status = (await session.execute(statement)).scalar_one_or_none()
+            await session.commit()
+        return None if status is None else MediaLinkStatus(status)
+
+    async def has_live_link_besides(self, asset_id: UUID, link_id: UUID) -> bool:
+        statement = select(
+            exists().where(
+                ExerciseMediaOrm.asset_id == asset_id,
+                ExerciseMediaOrm.id != link_id,
+                ExerciseMediaOrm.status.in_(_LIVE),
+            )
+        )
+        async with self._session_factory() as session:
+            return bool((await session.execute(statement)).scalar_one())
 
     async def is_removed(self, *, sha256: str | None, embed_url: str | None) -> bool:
         matches: list[ColumnElement[bool]] = []

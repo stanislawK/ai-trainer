@@ -22,6 +22,7 @@ from ai_trainer.domain.object_storage import (
     ObjectNotFoundError,
     ObjectStorageError,
     ObjectStorageOperation,
+    StoredObject,
 )
 from ai_trainer.domain.source_template import LicenceTerms
 from ai_trainer.domain.sports.registry import SportRegistry, default_sport_registry
@@ -88,6 +89,10 @@ class MemoryStorage:
         if key not in self.objects:
             raise ObjectNotFoundError("get")
         return self.objects[key]
+
+    async def read(self, key: str) -> StoredObject:
+        data = await self.get(key)
+        return StoredObject(data=data, content_type=self.content_types[key])
 
     async def size(self, key: str) -> int:
         self._check("head")

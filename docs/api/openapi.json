@@ -819,6 +819,84 @@
         "summary": "Approve"
       }
     },
+    "/admin/exercises/links/{link_id}/remove": {
+      "post": {
+        "operationId": "remove_admin_exercises_links__link_id__remove_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "link_id",
+            "required": true,
+            "schema": {
+              "title": "Link Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Remove"
+      }
+    },
+    "/admin/exercises/links/{link_id}/restore": {
+      "post": {
+        "operationId": "restore_admin_exercises_links__link_id__restore_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "link_id",
+            "required": true,
+            "schema": {
+              "title": "Link Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Restore"
+      }
+    },
     "/admin/exercises/{exercise_id}/approve-wger": {
       "post": {
         "operationId": "approve_wger_admin_exercises__exercise_id__approve_wger_post",

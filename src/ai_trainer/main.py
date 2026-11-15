@@ -94,6 +94,7 @@ from ai_trainer.application.knowledge_ingestion import KnowledgeIngestion
 from ai_trainer.application.knowledge_search import KnowledgeSearch
 from ai_trainer.application.knowledge_sources import KnowledgeSources
 from ai_trainer.application.knowledge_staging import KnowledgeStaging
+from ai_trainer.application.media_quarantine import MediaQuarantine
 from ai_trainer.application.metered_calls import MeteredLlmCallsRepository
 from ai_trainer.application.model_budget import ModelCallBudget
 from ai_trainer.application.operator_admin import resolve_active_admin
@@ -850,6 +851,10 @@ def create_app(  # noqa: PLR0915 -- composition root: objects are built only her
             exercise_media=ExerciseMediaReview(
                 media=SqlAlchemyExerciseMediaRepository(session_factory),
                 public_base_url=settings.media_public_base_url,
+                quarantine=MediaQuarantine(
+                    media=build_media_storage(settings), uploads=build_uploads_storage(settings)
+                ),
+                clock=clock,
             ),
             sports=sport_registry,
             max_upload_mb=settings.knowledge_max_upload_mb,

@@ -92,6 +92,7 @@ The draft carries `exercise_id` per activity. The typed name always stays as `na
   - Unique `sha256` where set, unique `embed_url` where set.
 - **`exercise_media`**
   - `exercise_id`, `asset_id`, `position`, `status` (`suggested`, `approved`, `removed`)
+  - `removed_at` and `removed_from` (`suggested` or `approved`), both nullable: set when a link becomes `removed`, cleared when it is restored (#556).
   - Unique `(exercise_id, asset_id)`.
 
 Media is linked to the catalogue exercise, never to a name. Every alias, history entry and custom exercise mapped to that exercise gets it for free.
@@ -106,6 +107,10 @@ No media is imported from a source PRD 0012 G16 puts *out*, without permission. 
 - **`unstated`** (published freely by its owner, no licence stated) is only `embedded`: the card uses the source's own embed, such as YouTube's player, or a link to its page. Nothing is downloaded or re-hosted, and the source's own measures against framing or hotlinking are respected; where they apply, the card links out instead. The card shows "rights not confirmed" in place of a licence.
 - Media G16 puts *out* is not imported, as either kind, without permission.
 - **`removed`** is the takedown path. It hides the link at once. For `stored` media it also moves the object out of the public bucket to a private quarantine key and purges its Cloudflare cache entry, so the public URL stops serving it. The row is kept, so a removal can be audited and undone, and an importer skips a `sha256` or `embed_url` that is `removed`.
+  - The row records when it was removed (`removed_at`, from the `Clock` port) and the status it had (`removed_from`). Undo and Restore move the object back first and put that status back only once the object is public again; a row with no `removed_from` goes back to `suggested`. If the object can't be moved, the link stays `removed` and the admin is told the file is still public, and Remove retries the move (#556).
+  - The quarantine key is `quarantine/<storage_key>` in the private uploads bucket (ADR-0033). Each move copies first and deletes after, so a failure never loses the object.
+  - Remove acts on one link. When another link of the same asset is still `suggested` or `approved`, the object stays public, and the admin is told another exercise still shows it (#556).
+  - The Cloudflare cache purge is deferred to a follow-up ticket. Until it lands, a cached copy may still be served after Remove until its cache entry expires (#556).
 
 #### First media source (#514)
 
@@ -178,6 +183,7 @@ Owner-directed 2026-11-08, at #531. Evidence: [exercise-media.md](../research/ex
 - The F23 card needs a Claude Design mock with a media slot before its web ticket (ADR-0019).
 - ⚠ The media source is `wger` (see "First media source (#514)", 2026-11-07). The import is the M2m ticket's work. Until it lands, cards show text only.
 - ⚠ A fallback source fills `wger`'s gaps (see "Fallback media source (#524)", 2026-11-08). The generation flow, the brief rules against printed text, and the spend cap are recorded in "Picture generation (#531)", 2026-11-08. The import and the code are M2m's work.
+- Owner-directed amendment, 2026-11-12, at #556, approved by the owner at its plan gate: `exercise_media` gains the nullable `removed_at` and `removed_from` (expand only, ADR-0024), the `removed` bullet records how a removal is undone, the quarantine key, the shared-asset rule, and that the Cloudflare cache purge is deferred to a follow-up ticket. It changes no other Decision or Invariant.
 - Owner-directed amendment, 2026-11-11, at #555, approved by the owner at its plan gate: in "The import (#552)" the **Matching** and **Jev is deferred** bullets are replaced by a catalogue-only shortlist, Jev's pick at `EXERCISE_PICK_THRESHOLD` with unmatched as its fallback, and `--admin` with `llm_calls` rows under the admin, outside ADR-0029's budget and bounded by `--limit`. It changes no other Decision or Invariant.
 - Owner-directed amendment, 2026-11-11, at #552: it adds "The import (#552)" under "First media source (#514)" and changes no other Decision or Invariant.
 - Owner-directed amendment, 2026-11-08, at #531: it adds "Picture generation (#531)" and changes no Decision or Invariant.

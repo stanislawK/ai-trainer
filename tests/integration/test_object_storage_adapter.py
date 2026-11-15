@@ -323,3 +323,27 @@ async def test_a_refused_head_raises_a_domain_error(server: S3State) -> None:
         await _storage(server.endpoint).size(KEY)
 
     assert excinfo.value.reason == "denied"
+
+
+async def test_read_returns_the_bytes_and_their_content_type(server: S3State) -> None:
+    storage = _storage(server.endpoint)
+    await storage.put(KEY, b"\x89PNG", content_type="image/png")
+
+    stored = await storage.read(KEY)
+
+    assert (stored.data, stored.content_type) == (b"\x89PNG", "image/png")
+
+
+async def test_read_of_a_missing_object_raises_not_found(server: S3State) -> None:
+    with pytest.raises(ObjectNotFoundError) as excinfo:
+        await _storage(server.endpoint).read(KEY)
+
+    assert excinfo.value.operation == "get"
+
+
+async def test_read_without_a_stored_content_type_falls_back_to_bytes(server: S3State) -> None:
+    server.objects[KEY] = b"content"
+
+    stored = await _storage(server.endpoint).read(KEY)
+
+    assert stored.content_type == "application/octet-stream"

@@ -16,6 +16,7 @@ from ai_trainer.domain.object_storage import (
     ObjectNotFoundError,
     ObjectStorageError,
     ObjectStorageOperation,
+    StoredObject,
 )
 
 if TYPE_CHECKING:
@@ -27,6 +28,8 @@ logger = logging.getLogger(__name__)
 _CONNECT_TIMEOUT = timedelta(seconds=5)
 # obstore's defaults are 10 retries over 3 minutes, which an admin's upload would sit through.
 _MAX_RETRIES = 2
+# What S3 serves an object stored without a content type as.
+_UNKNOWN_CONTENT_TYPE = "application/octet-stream"
 # R2's and SigV4's own bounds on a presigned link (ADR-0033).
 _SHORTEST_LINK = timedelta(seconds=1)
 _LONGEST_LINK = timedelta(days=7)
@@ -112,6 +115,18 @@ class ObstoreObjectStorage:
             return bytes(await result.bytes_async())
         except Exception as exc:
             raise _domain_error("get", exc) from None
+
+    async def read(self, key: str) -> StoredObject:
+        try:
+            result = await self._store.get_async(key)
+            data = bytes(await result.bytes_async())
+        except Exception as exc:
+            raise _domain_error("get", exc) from None
+        content_type = result.attributes.get("Content-Type")
+        return StoredObject(
+            data=data,
+            content_type=content_type if isinstance(content_type, str) else _UNKNOWN_CONTENT_TYPE,
+        )
 
     async def size(self, key: str) -> int:
         try:
