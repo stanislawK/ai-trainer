@@ -232,8 +232,12 @@ async def test_remove_moves_stored_object_to_quarantine() -> None:
 
     outcome = await t.review.remove(t.link)
 
+    # No CDN adapter in this fixture, so the cache was not purged.
     assert outcome == Removed(
-        exercise_name="Dumbbell Lateral Raise", still_public=False, shared=False
+        exercise_name="Dumbbell Lateral Raise",
+        still_public=False,
+        shared=False,
+        cache_stale=True,
     )
     assert t.media.status_of(t.link) is MediaLinkStatus.REMOVED
     assert await t.media.approved_for(t.exercise) == []
@@ -550,5 +554,6 @@ async def test_remove_with_unset_cdn_skips_and_logs(caplog: pytest.LogCaptureFix
         outcome = await t.review.remove(t.link)
 
     assert isinstance(outcome, Removed)
-    assert not outcome.cache_stale
+    # Nothing purged the cache, so the page must still warn that a cached copy may show.
+    assert outcome.cache_stale
     assert "cache purge skipped" in caplog.text

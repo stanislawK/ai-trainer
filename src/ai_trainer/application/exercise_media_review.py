@@ -275,13 +275,15 @@ class ExerciseMediaReview:
         return Removed(exercise_name=name, still_public=not hidden, shared=False, cache_stale=stale)
 
     async def _purge(self, key: str) -> bool:
-        """Purge the picture's public URL; True only when a purge was tried and failed."""
+        """Purge the picture's public URL; True when a cached copy may still be served: the
+        purge failed, or no Cloudflare settings are set so none was tried. False when there is
+        no public URL (no `MEDIA_PUBLIC_BASE_URL`) or the purge succeeded."""
         url = media_public_url(self._base_url, key)
         if url is None:
             return False
         if self._cdn is None:
             logger.info("cache purge skipped: no Cloudflare purge settings")
-            return False
+            return True
         try:
             await self._cdn.purge(url)
         except CdnCacheError as error:

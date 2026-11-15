@@ -50,7 +50,11 @@ def _failures() -> dict[str, httpx2.MockTransport]:
     def connect_error(request: httpx2.Request) -> httpx2.Response:
         raise httpx2.ConnectError(f"no route {TOKEN}", request=request)
 
+    def unexpected(request: httpx2.Request) -> httpx2.Response:
+        raise RuntimeError(f"boom {TOKEN}")
+
     return {
+        "unexpected_exception": httpx2.MockTransport(unexpected),
         "forbidden": httpx2.MockTransport(forbidden),
         "success_false": httpx2.MockTransport(refused),
         "not_json": httpx2.MockTransport(not_json),

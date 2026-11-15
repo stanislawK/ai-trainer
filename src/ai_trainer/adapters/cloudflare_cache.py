@@ -47,7 +47,7 @@ class CloudflareCdnCache:
                 )
         except TimeoutError, httpx2.TimeoutException:
             raise CdnCacheError("cache purge timed out") from None
-        except httpx2.HTTPError as error:
+        except Exception as error:  # a purge never fails Remove; the class name only
             raise CdnCacheError(f"cache purge failed: {type(error).__name__}") from None
         if response.status_code >= httpx2.codes.BAD_REQUEST:
             raise CdnCacheError(f"cache purge refused: HTTP {response.status_code}")
