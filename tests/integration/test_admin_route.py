@@ -24,6 +24,7 @@ from ai_trainer.web.auth import SESSION_COOKIE_NAME
 from ai_trainer.web.csrf import CSRF_HEADER_NAME, CsrfMiddleware
 from ai_trainer.web.templating import build_templates
 from tests.admin_tokens_support import memory_admin_tokens
+from tests.exercise_media_support import memory_exercise_media_review
 from tests.knowledge_support import knowledge_wiring
 
 FROZEN_NOW = datetime(2026, 9, 25, 12, 0, tzinfo=UTC)
@@ -53,6 +54,7 @@ def _client(
             sessions=sessions,
             status_changer=status_changer,
             tokens=memory_admin_tokens(),
+            exercise_media=memory_exercise_media_review(),
             **knowledge_wiring(),
         )
     )

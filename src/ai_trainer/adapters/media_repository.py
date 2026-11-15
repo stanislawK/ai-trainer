@@ -1,13 +1,16 @@
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
+from datetime import datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import ColumnElement, exists, false, func, or_, select
+from sqlalchemy import ColumnElement, Select, exists, false, func, or_, select, update
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql import Executable
 
-from ai_trainer.adapters.orm import ExerciseMediaOrm, MediaAssetOrm
+from ai_trainer.adapters.orm import ExerciseMediaOrm, ExerciseOrm, MediaAssetOrm
 from ai_trainer.domain.media import (
     ExerciseMediaItem,
+    ExerciseMediaReviewRow,
     MediaAsset,
     MediaDelivery,
     MediaKind,
@@ -32,6 +35,29 @@ def _to_domain(row: MediaAssetOrm) -> MediaAsset:
         sha256=row.sha256,
         width=row.width,
         height=row.height,
+    )
+
+
+def _review_row(link: ExerciseMediaOrm, asset: MediaAssetOrm, name: str) -> ExerciseMediaReviewRow:
+    return ExerciseMediaReviewRow(
+        link_id=link.id,
+        exercise_id=link.exercise_id,
+        exercise_name=name,
+        position=link.position,
+        status=MediaLinkStatus(link.status),
+        asset=_to_domain(asset),
+        removed_at=link.removed_at,
+        removed_from=None if link.removed_from is None else MediaLinkStatus(link.removed_from),
+    )
+
+
+_LIVE = (MediaLinkStatus.SUGGESTED.value, MediaLinkStatus.APPROVED.value)
+
+
+def _on_catalogue() -> ColumnElement[bool]:
+    """A link on a shared catalogue exercise, never on an athlete's own one."""
+    return ExerciseMediaOrm.exercise_id.in_(
+        select(ExerciseOrm.id).where(ExerciseOrm.owner_user_id.is_(None))
     )
 
 
@@ -107,6 +133,136 @@ class SqlAlchemyExerciseMediaRepository:
         async with self._session_factory() as session:
             rows = (await session.execute(statement)).all()
         return [ExerciseMediaItem(asset=_to_domain(asset), position=pos) for asset, pos in rows]
+
+    def _review_select(self) -> Select[tuple[ExerciseMediaOrm, MediaAssetOrm, str]]:
+        return (
+            select(ExerciseMediaOrm, MediaAssetOrm, ExerciseOrm.name)
+            .join(MediaAssetOrm, ExerciseMediaOrm.asset_id == MediaAssetOrm.id)
+            .join(ExerciseOrm, ExerciseMediaOrm.exercise_id == ExerciseOrm.id)
+            .where(ExerciseOrm.owner_user_id.is_(None))
+        )
+
+    async def review_links(
+        self, status: MediaLinkStatus, *, exercise_id: UUID | None = None
+    ) -> Sequence[ExerciseMediaReviewRow]:
+        statement = (
+            self._review_select()
+            .where(ExerciseMediaOrm.status == status.value)
+            .order_by(
+                ExerciseOrm.name, ExerciseOrm.id, ExerciseMediaOrm.position, ExerciseMediaOrm.id
+            )
+        )
+        if exercise_id is not None:
+            statement = statement.where(ExerciseMediaOrm.exercise_id == exercise_id)
+        async with self._session_factory() as session:
+            rows = (await session.execute(statement)).all()
+        return [_review_row(link, asset, name) for link, asset, name in rows]
+
+    async def review_link(self, link_id: UUID) -> ExerciseMediaReviewRow | None:
+        statement = self._review_select().where(ExerciseMediaOrm.id == link_id)
+        async with self._session_factory() as session:
+            row = (await session.execute(statement)).one_or_none()
+        return None if row is None else _review_row(*row)
+
+    async def status_counts(self) -> Mapping[MediaLinkStatus, int]:
+        statement = (
+            select(ExerciseMediaOrm.status, func.count())
+            .join(ExerciseOrm, ExerciseMediaOrm.exercise_id == ExerciseOrm.id)
+            .where(ExerciseOrm.owner_user_id.is_(None))
+            .group_by(ExerciseMediaOrm.status)
+        )
+        async with self._session_factory() as session:
+            found = {status: count for status, count in (await session.execute(statement)).all()}
+        return {status: found.get(status.value, 0) for status in MediaLinkStatus}
+
+    async def approve(self, link_id: UUID) -> bool:
+        return bool(await self._approve_where(ExerciseMediaOrm.id == link_id))
+
+    async def approve_suggested_from(
+        self, exercise_id: UUID, source: str, link_ids: Collection[UUID]
+    ) -> int:
+        if not link_ids:
+            return 0
+        return await self._approve_where(
+            ExerciseMediaOrm.id.in_(link_ids),
+            ExerciseMediaOrm.exercise_id == exercise_id,
+            ExerciseMediaOrm.asset_id.in_(
+                select(MediaAssetOrm.id).where(MediaAssetOrm.source == source)
+            ),
+        )
+
+    async def _approve_where(self, *conditions: ColumnElement[bool]) -> int:
+        # Conditional on `suggested` in the same statement, so a link approved or removed since
+        # the page was drawn is left as it is.
+        statement = (
+            update(ExerciseMediaOrm)
+            .where(
+                *conditions,
+                ExerciseMediaOrm.status == MediaLinkStatus.SUGGESTED.value,
+                _on_catalogue(),
+            )
+            .values(status=MediaLinkStatus.APPROVED.value)
+            .returning(ExerciseMediaOrm.id)
+        )
+        async with self._session_factory() as session:
+            changed = len((await session.execute(statement)).all())
+            await session.commit()
+        return changed
+
+    async def remove(self, link_id: UUID, *, at: datetime) -> MediaLinkStatus | None:
+        # `removed_from = status` reads the row's status before this update sets it.
+        statement = (
+            update(ExerciseMediaOrm)
+            .where(
+                ExerciseMediaOrm.id == link_id,
+                ExerciseMediaOrm.status.in_(_LIVE),
+                _on_catalogue(),
+            )
+            .values(
+                status=MediaLinkStatus.REMOVED.value,
+                removed_from=ExerciseMediaOrm.status,
+                removed_at=at,
+            )
+            .returning(ExerciseMediaOrm.removed_from)
+        )
+        return await self._changed_status(statement)
+
+    async def restore(self, link_id: UUID) -> MediaLinkStatus | None:
+        statement = (
+            update(ExerciseMediaOrm)
+            .where(
+                ExerciseMediaOrm.id == link_id,
+                ExerciseMediaOrm.status == MediaLinkStatus.REMOVED.value,
+                _on_catalogue(),
+            )
+            .values(
+                # A row removed before #556 has no earlier status: `suggested` is the safe one.
+                status=func.coalesce(
+                    ExerciseMediaOrm.removed_from, MediaLinkStatus.SUGGESTED.value
+                ),
+                removed_from=None,
+                removed_at=None,
+            )
+            .returning(ExerciseMediaOrm.status)
+        )
+        return await self._changed_status(statement)
+
+    async def _changed_status(self, statement: Executable) -> MediaLinkStatus | None:
+        async with self._session_factory() as session:
+            status = (await session.execute(statement)).scalar_one_or_none()
+            await session.commit()
+        return None if status is None else MediaLinkStatus(status)
+
+    async def has_live_link_besides(self, asset_id: UUID, link_id: UUID) -> bool:
+        statement = select(
+            exists().where(
+                ExerciseMediaOrm.asset_id == asset_id,
+                ExerciseMediaOrm.id != link_id,
+                ExerciseMediaOrm.status.in_(_LIVE),
+            )
+        )
+        async with self._session_factory() as session:
+            return bool((await session.execute(statement)).scalar_one())
 
     async def is_removed(self, *, sha256: str | None, embed_url: str | None) -> bool:
         matches: list[ColumnElement[bool]] = []

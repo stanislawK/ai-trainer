@@ -349,6 +349,8 @@ class Settings(ExerciseSearchSettings, ObjectStorageSettings, BaseSettings):
         "object_storage_uploads_bucket",
         "object_storage_media_bucket",
         "media_public_base_url",
+        "cloudflare_zone_id",
+        "cloudflare_purge_token",
         mode="before",
     )
     @classmethod

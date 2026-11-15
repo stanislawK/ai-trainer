@@ -1,6 +1,16 @@
 import uuid
+from datetime import datetime
 
-from sqlalchemy import BigInteger, CheckConstraint, ForeignKey, Index, Text, UniqueConstraint, text
+from sqlalchemy import (
+    BigInteger,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    Text,
+    UniqueConstraint,
+    text,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ai_trainer.adapters.orm.base import Base
@@ -71,7 +81,8 @@ class MediaAssetOrm(Base):
 
 class ExerciseMediaOrm(Base):
     """A media asset on a catalogue exercise, never on a name (ADR-0031). Only `approved` is
-    shown; `removed` hides it at once and keeps the row."""
+    shown; `removed` hides it at once and keeps the row, with when and from which status, so
+    Undo and Restore put that status back (#556)."""
 
     __tablename__ = "exercise_media"
     __table_args__ = (
@@ -81,6 +92,9 @@ class ExerciseMediaOrm(Base):
             "status IN ('suggested', 'approved', 'removed')", name="exercise_media_status"
         ),
         CheckConstraint("position >= 0", name="exercise_media_position"),
+        CheckConstraint(
+            "removed_from IN ('suggested', 'approved')", name="exercise_media_removed_from"
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -93,3 +107,6 @@ class ExerciseMediaOrm(Base):
     )
     position: Mapped[int] = mapped_column(BigInteger, nullable=False)
     status: Mapped[str] = mapped_column(Text, nullable=False)
+    # Set when the link becomes `removed`, cleared on restore (#556).
+    removed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    removed_from: Mapped[str | None] = mapped_column(Text, nullable=True)

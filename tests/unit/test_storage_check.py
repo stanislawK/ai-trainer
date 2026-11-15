@@ -11,7 +11,11 @@ from ai_trainer.application.storage_check import (
     check_media_public,
     check_storage,
 )
-from ai_trainer.domain.object_storage import ObjectNotFoundError, ObjectStorageError
+from ai_trainer.domain.object_storage import (
+    ObjectNotFoundError,
+    ObjectStorageError,
+    StoredObject,
+)
 
 KEY = "storage-check/probe"
 PLAIN_URL = "http://storage/uploads/storage-check/probe"
@@ -42,6 +46,9 @@ class FakeStorage:
         if key not in self.objects:
             raise ObjectNotFoundError("get")
         return b"something else" if self.corrupt else self.objects[key]
+
+    async def read(self, key: str) -> StoredObject:
+        raise AssertionError("storage-check moves no objects")
 
     async def size(self, key: str) -> int:
         raise AssertionError("storage-check reads no sizes")
