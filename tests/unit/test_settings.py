@@ -1029,3 +1029,61 @@ def test_media_public_base_url_rejects_the_wrong_shape_without_echoing_it(
         Settings(_env_file=None)
 
     assert "secret" not in str(raised.value)
+
+
+CLOUDFLARE_KEYS = {
+    "CLOUDFLARE_ZONE_ID": "zone-id-value-0123",
+    "CLOUDFLARE_PURGE_TOKEN": "purge-token-value-secret",
+}
+
+
+def test_settings_cloudflare_is_unset_when_absent_or_blank(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _set_required_keys(monkeypatch)
+    for key in CLOUDFLARE_KEYS:
+        monkeypatch.setenv(key, " ")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.cloudflare_zone_id is None
+    assert settings.cloudflare_purge_token is None
+
+
+def test_settings_cloudflare_token_stays_out_of_repr(monkeypatch: pytest.MonkeyPatch) -> None:
+    _set_required_keys(monkeypatch)
+    for key, value in CLOUDFLARE_KEYS.items():
+        monkeypatch.setenv(key, value)
+
+    settings = Settings(_env_file=None)
+
+    assert settings.cloudflare_zone_id == "zone-id-value-0123"
+    assert "purge-token-value-secret" not in repr(settings)
+
+
+@pytest.mark.parametrize("only", list(CLOUDFLARE_KEYS))
+def test_settings_cloudflare_partial_set_is_refused_without_echoing_values(
+    monkeypatch: pytest.MonkeyPatch, only: str
+) -> None:
+    _set_required_keys(monkeypatch)
+    for key in CLOUDFLARE_KEYS:
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv(only, CLOUDFLARE_KEYS[only])
+
+    with pytest.raises(ValueError, match="CLOUDFLARE_ZONE_ID and CLOUDFLARE_PURGE_TOKEN") as raised:
+        Settings(_env_file=None)
+
+    assert CLOUDFLARE_KEYS[only] not in str(raised.value)
+
+
+def test_build_cdn_cache_is_none_unset_and_built_when_set(monkeypatch: pytest.MonkeyPatch) -> None:
+    from ai_trainer.main import build_cdn_cache
+
+    _set_required_keys(monkeypatch)
+    for key in CLOUDFLARE_KEYS:
+        monkeypatch.delenv(key, raising=False)
+    assert build_cdn_cache(Settings(_env_file=None)) is None
+
+    for key, value in CLOUDFLARE_KEYS.items():
+        monkeypatch.setenv(key, value)
+    assert build_cdn_cache(Settings(_env_file=None)) is not None

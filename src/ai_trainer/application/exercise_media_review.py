@@ -10,8 +10,11 @@ is left as it is and the admin is told.
 Any suggested or approved picture can be removed at once (#556): the link becomes `removed` first,
 so the card stops showing it whatever happens next, and then a stored picture's object moves to
 quarantine, unless another link still shows the same asset. Undo and Restore move it back first,
-and put the earlier status back only once the object is public again."""
+and put the earlier status back only once the object is public again. Once the object has
+moved, the picture's public URL is purged from Cloudflare's cache (#557); a failed purge never
+fails Remove, the page says a cached copy may still show."""
 
+import logging
 import re
 from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
@@ -21,8 +24,10 @@ from typing import Literal
 from uuid import UUID
 
 from ai_trainer.application.media_quarantine import MediaQuarantine
+from ai_trainer.application.ports.cdn_cache import CdnCachePort
 from ai_trainer.application.ports.clock import ClockPort
 from ai_trainer.application.ports.media import ExerciseMediaReviewPort
+from ai_trainer.domain.cdn_cache import CdnCacheError
 from ai_trainer.domain.media import (
     ExerciseMediaReviewRow,
     MediaDelivery,
@@ -31,6 +36,8 @@ from ai_trainer.domain.media import (
 from ai_trainer.domain.media_generation import GENERATED_PICTURE_SOURCE
 from ai_trainer.domain.media_sources import AI_GENERATED_FRAGMENT, WGER_SOURCE
 from ai_trainer.domain.object_storage import media_public_url
+
+logger = logging.getLogger(__name__)
 
 type PictureOrigin = Literal["wger", "generated", "embedded", "other"]
 
@@ -110,6 +117,8 @@ class Removed:
     still_public: bool
     # Another link still shows the same asset, so its file was left public on purpose.
     shared: bool
+    # The cache purge failed, so a cached copy may still be served for a while.
+    cache_stale: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -156,7 +165,9 @@ class ExerciseMediaReview:
         public_base_url: str | None,
         quarantine: MediaQuarantine,
         clock: ClockPort,
+        cdn: CdnCachePort | None = None,
     ) -> None:
+        self._cdn = cdn
         self._media = media
         self._base_url = public_base_url
         self._quarantine = quarantine
@@ -260,7 +271,25 @@ class ExerciseMediaReview:
         if asset_id is not None and await self._media.has_live_link_besides(asset_id, link_id):
             return Removed(exercise_name=name, still_public=False, shared=True)
         hidden = await self._quarantine.hide(key)
-        return Removed(exercise_name=name, still_public=not hidden, shared=False)
+        stale = hidden and await self._purge(key)
+        return Removed(exercise_name=name, still_public=not hidden, shared=False, cache_stale=stale)
+
+    async def _purge(self, key: str) -> bool:
+        """Purge the picture's public URL; True when a cached copy may still be served: the
+        purge failed, or no Cloudflare settings are set so none was tried. False when there is
+        no public URL (no `MEDIA_PUBLIC_BASE_URL`) or the purge succeeded."""
+        url = media_public_url(self._base_url, key)
+        if url is None:
+            return False
+        if self._cdn is None:
+            logger.info("cache purge skipped: no Cloudflare purge settings")
+            return True
+        try:
+            await self._cdn.purge(url)
+        except CdnCacheError as error:
+            logger.warning("cache purge failed: %s", error)
+            return True
+        return False
 
     async def restore(self, link_id: UUID) -> RestoreOutcome | None:
         """Move a stored picture's object back, then put the link's earlier status back; if

@@ -20,6 +20,7 @@ from ai_trainer.domain.media import MediaAsset, MediaLinkStatus, MediaRepository
 from ai_trainer.domain.object_storage import ObjectStorageOperation
 from tests.exercise_media_support import (
     REVIEW_NOW,
+    FakeCdn,
     MemoryExerciseMedia,
     embedded_asset,
     generated_asset,
@@ -192,7 +193,10 @@ class _Takedown:
         *,
         buckets: bool = True,
         media: MemoryExerciseMedia | None = None,
+        cdn: FakeCdn | None = None,
+        base_url: str | None = BASE,
     ) -> None:
+        self.cdn = cdn
         self.media = media or MemoryExerciseMedia()
         self.exercise = self.media.exercise("Dumbbell Lateral Raise")
         self.asset = asset or wger_asset()
@@ -204,7 +208,8 @@ class _Takedown:
             self.public.content_types[self.key] = "image/png"
         self.review: ExerciseMediaReview = memory_exercise_media_review(
             self.media,
-            base_url=BASE,
+            base_url=base_url,
+            cdn=cdn,
             media_bucket=self.public if buckets else None,
             uploads_bucket=self.private if buckets else None,
         )
@@ -227,8 +232,12 @@ async def test_remove_moves_stored_object_to_quarantine() -> None:
 
     outcome = await t.review.remove(t.link)
 
+    # No CDN adapter in this fixture, so the cache was not purged.
     assert outcome == Removed(
-        exercise_name="Dumbbell Lateral Raise", still_public=False, shared=False
+        exercise_name="Dumbbell Lateral Raise",
+        still_public=False,
+        shared=False,
+        cache_stale=True,
     )
     assert t.media.status_of(t.link) is MediaLinkStatus.REMOVED
     assert await t.media.approved_for(t.exercise) == []
@@ -478,3 +487,73 @@ async def test_remove_and_restore_of_an_unknown_link_are_none() -> None:
 
     assert await review.remove(unknown) is None
     assert await review.restore(unknown) is None
+
+
+async def test_remove_purges_the_pictures_public_url() -> None:
+    t = _Takedown(cdn=FakeCdn())
+    assert t.cdn is not None
+
+    outcome = await t.review.remove(t.link)
+
+    assert t.cdn.purged == [f"https://media.example.org/{t.key}"]
+    assert outcome == Removed(
+        exercise_name="Dumbbell Lateral Raise", still_public=False, shared=False
+    )
+
+
+async def test_remove_does_not_purge_a_shared_embedded_unmoved_or_unlinked_picture() -> None:
+    shared = _Takedown(cdn=FakeCdn())
+    shared.media.share(shared.media.exercise("Cable Lateral Raise"), shared.link)
+    await shared.review.remove(shared.link)
+    embedded = _Takedown(asset=embedded_asset(), cdn=FakeCdn())
+    await embedded.review.remove(embedded.link)
+    stuck = _Takedown(cdn=FakeCdn())
+    stuck.public.failing.add("delete")
+    await stuck.review.remove(stuck.link)
+    no_base = _Takedown(cdn=FakeCdn(), base_url=None)
+    await no_base.review.remove(no_base.link)
+
+    for case in (shared, embedded, stuck, no_base):
+        assert case.cdn is not None
+        assert case.cdn.purged == []
+
+
+async def test_restore_never_purges() -> None:
+    t = _Takedown(cdn=FakeCdn())
+    assert t.cdn is not None
+    await t.review.remove(t.link)
+    t.cdn.purged.clear()
+
+    await t.review.restore(t.link)
+
+    assert t.cdn.purged == []
+
+
+async def test_remove_with_a_failed_purge_stays_removed_and_flags_the_cache(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    t = _Takedown(cdn=FakeCdn(failing=True))
+
+    outcome = await t.review.remove(t.link)
+
+    assert outcome == Removed(
+        exercise_name="Dumbbell Lateral Raise",
+        still_public=False,
+        shared=False,
+        cache_stale=True,
+    )
+    assert t.media.status_of(t.link) is MediaLinkStatus.REMOVED
+    assert not t.is_public()
+    assert "cache purge refused: HTTP 403" in caplog.text
+
+
+async def test_remove_with_unset_cdn_skips_and_logs(caplog: pytest.LogCaptureFixture) -> None:
+    t = _Takedown()
+
+    with caplog.at_level("INFO"):
+        outcome = await t.review.remove(t.link)
+
+    assert isinstance(outcome, Removed)
+    # Nothing purged the cache, so the page must still warn that a cached copy may show.
+    assert outcome.cache_stale
+    assert "cache purge skipped" in caplog.text

@@ -110,7 +110,7 @@ No media is imported from a source PRD 0012 G16 puts *out*, without permission. 
   - The row records when it was removed (`removed_at`, from the `Clock` port) and the status it had (`removed_from`). Undo and Restore move the object back first and put that status back only once the object is public again; a row with no `removed_from` goes back to `suggested`. If the object can't be moved, the link stays `removed` and the admin is told the file is still public, and Remove retries the move (#556).
   - The quarantine key is `quarantine/<storage_key>` in the private uploads bucket (ADR-0033). Each move copies first and deletes after, so a failure never loses the object.
   - Remove acts on one link. When another link of the same asset is still `suggested` or `approved`, the object stays public, and the admin is told another exercise still shows it (#556).
-  - The Cloudflare cache purge is deferred to a follow-up ticket. Until it lands, a cached copy may still be served after Remove until its cache entry expires (#556).
+  - Remove purges the picture's public URL from Cloudflare's cache once the object has moved (#557), through `CdnCachePort` and a purge-only API token (`CLOUDFLARE_ZONE_ID`, `CLOUDFLARE_PURGE_TOKEN`); unset, the purge is skipped and logged. A failed purge leaves the link `removed` and the page says a cached copy may still show for a while. Undo needs no purge.
 
 #### First media source (#514)
 

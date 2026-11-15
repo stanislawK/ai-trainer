@@ -19,6 +19,7 @@ from ai_trainer.adapters.user_status_changer import SqlAlchemyUserStatusChanger
 from ai_trainer.adapters.users_repository import SqlAlchemyUsersRepository
 from ai_trainer.application.exercise_media_review import ExerciseMediaReview
 from ai_trainer.application.media_quarantine import MediaQuarantine
+from ai_trainer.application.ports.cdn_cache import CdnCachePort
 from ai_trainer.domain.media import MediaAsset, MediaLinkStatus
 from ai_trainer.domain.sessions import NewSession
 from ai_trainer.domain.users import NewUser, UserStatus
@@ -28,7 +29,7 @@ from ai_trainer.web.auth import SESSION_COOKIE_NAME
 from ai_trainer.web.csrf import CSRF_HEADER_NAME, CsrfMiddleware
 from ai_trainer.web.templating import build_templates
 from tests.admin_tokens_support import memory_admin_tokens
-from tests.exercise_media_support import embedded_asset, generated_asset, wger_asset
+from tests.exercise_media_support import FakeCdn, embedded_asset, generated_asset, wger_asset
 from tests.knowledge_support import MemoryStorage, knowledge_wiring
 
 SECRET = b"integration-test-secret"
@@ -101,6 +102,7 @@ async def _page(
     *,
     admin: bool = True,
     base_url: str | None = BASE,
+    cdn: CdnCachePort | None = None,
 ) -> Page:
     users = SqlAlchemyUsersRepository(factory)
     sessions = SqlAlchemySessionsRepository(factory)
@@ -129,6 +131,7 @@ async def _page(
                 public_base_url=base_url,
                 quarantine=MediaQuarantine(media=public, uploads=private),
                 clock=clock,
+                cdn=cdn,
             ),
             **knowledge_wiring(),
         )
@@ -616,3 +619,26 @@ async def test_removed_view_with_nothing_removed_shows_its_empty_card(
     if removed == 0:
         assert "Nothing removed" in response.text
     assert "Removed ·" in response.text
+
+
+async def test_removed_toast_mentions_the_cache_only_after_a_failed_purge(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    texts = {}
+    for label, cdn in (("ok", FakeCdn()), ("failed", FakeCdn(failing=True))):
+        page = await _page(db_session_factory, f"media-purge-{label}", cdn=cdn)
+        exercise_id = await page.exercise(f"Lateral Raise {uuid4().hex[:6]}")
+        picture = wger_asset()
+        page.store(picture)
+        link_id = await page.put(exercise_id, picture, MediaLinkStatus.APPROVED)
+
+        response = page.client.post(
+            f"/admin/exercises/links/{link_id}/remove?view=approved", headers=page.headers()
+        )
+
+        texts[label] = response.text
+        assert await page.status(link_id) is MediaLinkStatus.REMOVED
+
+    assert "Hidden from the exercise card now." in texts["ok"]
+    assert "cached copy" not in texts["ok"]
+    assert "A cached copy may still show for a while." in texts["failed"]
