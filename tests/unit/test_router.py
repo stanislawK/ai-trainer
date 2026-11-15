@@ -27,9 +27,11 @@ from ai_trainer.llm.router import (
     router_template,
 )
 
-# v1 and v2 route with a union discriminated on `kind`; v3 with one flat intent (ADR-0026 step 7).
-_EVERY_SHAPE = pytest.mark.parametrize("version", [2, 3])
+# v1 and v2 route with a union discriminated on `kind`; v3 with one flat intent (ADR-0026 step 7);
+# v4 with the same flat intent whose `sport` the model must write, null but on a log (#577).
+_EVERY_SHAPE = pytest.mark.parametrize("version", [2, 3, 4])
 _FLAT_VERSION = 3
+_REQUIRED_SPORT_VERSION = 4
 
 _PROMPTS_ROOT = Path(__file__).parents[2] / "src" / "ai_trainer" / "llm" / "prompts"
 _FIXTURES_ROOT = Path(__file__).parent.parent / "fixtures" / "prompts"
@@ -311,8 +313,8 @@ def test_build_router_deps_resolves_today_and_now_local_in_the_user_timezone() -
     assert deps.athlete_sports == ["gym"]
 
 
-def test_the_active_router_version_is_three() -> None:
-    assert ACTIVE_ROUTER_VERSION == 3
+def test_the_active_router_version_is_four() -> None:
+    assert ACTIVE_ROUTER_VERSION == 4
     assert router_template(default_sport_registry()).version == ACTIVE_ROUTER_VERSION
 
 
@@ -323,7 +325,7 @@ def test_an_earlier_router_version_can_still_be_built_for_comparison() -> None:
 def test_the_prompt_registry_holds_every_router_version_with_a_body() -> None:
     registry = build_prompt_registry(_PROMPTS_ROOT, default_sport_registry())
 
-    for version in (1, 2, 3):
+    for version in (1, 2, 3, 4):
         assert registry.get(ROUTER_TEMPLATE_ID, version).version == version
         assert registry.build_agent(ROUTER_TEMPLATE_ID, version) is not None
 
@@ -443,3 +445,85 @@ def test_two_v3_renders_share_the_static_prefix() -> None:
         assert heading in static
     for value in ("Went bouldering", "climbing", "Did 5x5 squats at 100 kg", "2026-09-30"):
         assert value in dynamic
+
+
+def test_v3_schema_is_unchanged() -> None:
+    """v3 has a committed baseline, so its schema keeps `sport` optional (ADR-0008 invariant 2)."""
+    schema = router_output_type(default_sport_registry(), version=_FLAT_VERSION).model_json_schema()
+
+    intent = schema["$defs"]["Intent"]
+    assert "sport" not in intent["required"]
+    assert intent["properties"]["sport"]["default"] is None
+
+
+def test_v4_schema_requires_sport_on_every_intent() -> None:
+    """The model must write `sport`, null for anything but a log, so it can't leave a gym log's
+    sport out (#577)."""
+    schema = router_output_type(
+        default_sport_registry(), version=_REQUIRED_SPORT_VERSION
+    ).model_json_schema()
+
+    intent = schema["$defs"]["Intent"]
+    assert list(intent["properties"]) == ["kind", "sport", "span", "confidence"]
+    assert sorted(intent["required"]) == ["confidence", "kind", "span", "sport"]
+    assert "default" not in intent["properties"]["sport"]
+    sport_ids = [plugin.id for plugin in default_sport_registry().all()]
+    assert intent["properties"]["sport"]["anyOf"] == [
+        {"enum": sport_ids, "type": "string"},
+        {"type": "null"},
+    ]
+
+
+def test_v4_rejects_a_log_session_whose_sport_is_null() -> None:
+    with pytest.raises(ValidationError, match="log_session needs its sport"):
+        router_output_type(
+            default_sport_registry(), version=_REQUIRED_SPORT_VERSION
+        ).model_validate(
+            {"intents": [{"kind": "log_session", "sport": None, "confidence": 1, "span": "x"}]}
+        )
+
+
+def test_v4_accepts_a_gym_log_with_its_sport_and_a_question_with_sport_null() -> None:
+    output = router_output_type(
+        default_sport_registry(), version=_REQUIRED_SPORT_VERSION
+    ).model_validate(
+        {
+            "intents": [
+                {"kind": "log_session", "sport": "gym", "confidence": 0.9, "span": "3x10"},
+                {"kind": "ask_training_question", "sport": None, "confidence": 0.9, "span": "?"},
+            ]
+        }
+    )
+
+    assert [intent.sport for intent in output.intents] == ["gym", None]  # type: ignore[attr-defined]
+
+
+async def test_v4_retries_a_log_session_without_a_sport() -> None:
+    registry = build_prompt_registry(_PROMPTS_ROOT, default_sport_registry())
+    agent = registry.build_agent(ROUTER_TEMPLATE_ID, _REQUIRED_SPORT_VERSION)
+    replies = [
+        {"kind": "log_session", "confidence": 0.9, "span": "3x10 goblet squat"},
+        {"kind": "log_session", "sport": None, "confidence": 0.9, "span": "3x10 goblet squat"},
+        {"kind": "log_session", "sport": "gym", "confidence": 0.9, "span": "3x10 goblet squat"},
+    ]
+    calls = 0
+
+    def respond(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        nonlocal calls
+        intent = replies[calls]
+        calls += 1
+        return ModelResponse(parts=[ToolCallPart(info.output_tools[0].name, {"intents": [intent]})])
+
+    result = await agent.run(
+        "x", deps=_deps(message="3x10 goblet squat"), model=FunctionModel(respond)
+    )
+
+    assert calls == 3
+    assert result.output.intents[0].sport == "gym"  # type: ignore[union-attr]
+
+
+def test_v4_body_is_v3_word_for_word() -> None:
+    """The fix is in the schema, not the wording (#577)."""
+    router_dir = _PROMPTS_ROOT / ROUTER_TEMPLATE_ID
+    v3 = (router_dir / "v3.en.md").read_text(encoding="utf-8")
+    assert (router_dir / "v4.en.md").read_text(encoding="utf-8") == v3

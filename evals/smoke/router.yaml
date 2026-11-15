@@ -1,6 +1,7 @@
 # Smoke set for router (ADR-0034, #374): 5 cases taken from
 # evals/datasets/router.yaml, named in each case's `metadata.dataset`, until real chats
-# arrive in evals/field/. Graded in code, run once, no judge.
+# arrive in evals/field/, plus #421's two and #577's one below (8 cases). Graded in code, run
+# once, no judge.
 name: router
 cases:
 - name: log gym with units
@@ -151,6 +152,30 @@ cases:
       span: ''
   metadata:
     prd: PRD 0011 flow 15
+# #577: a reported bug with no field transcript (ADR-0034 allows a synthetic case for one). v3's
+# schema let the model leave a gym log's sport out, three times, so the call failed.
+- name: gym log, sport left out (#577)
+  inputs:
+    prompt: 3x10 goblet squat
+    deps:
+      message: 3x10 goblet squat
+      history: []
+      athlete_sports:
+      - gym
+      today: '2026-11-15'
+      now_local: '2026-11-15T18:30:00+01:00'
+      timezone: Europe/Warsaw
+  expected_output:
+    intents:
+    - kind: log_session
+      confidence: 0.9
+      span: ''
+      sport: gym
+  metadata:
+    ticket: 577
+    synthetic: reported bug
+    plausible_sports:
+    - gym
 evaluators:
 - IntentKindsMatch
 - LogSessionSportMatch
