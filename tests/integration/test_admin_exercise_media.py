@@ -433,7 +433,7 @@ async def test_remove_renders_removed_toast_with_undo(
     assert page.private.objects == {f"quarantine/{picture.storage_key}": b"png-bytes"}
 
 
-async def test_removed_view_lists_when_with_restore_and_no_picture(
+async def test_removed_view_lists_when_with_undo_and_no_picture(
     db_session_factory: Callable[[], AsyncSession],
 ) -> None:
     page = await _page(db_session_factory, "media-removed-view")
@@ -449,6 +449,9 @@ async def test_removed_view_lists_when_with_restore_and_no_picture(
     assert "Removed 11 Nov · was approved" in group
     assert "1 picture removed" in group
     assert f'hx-post="/admin/exercises/links/{link_id}/restore?view=removed"' in group
+    # Named as the toast's Undo, owner-chosen at #556's acceptance gate.
+    assert re.search(r"data-media-restore\s*>.*?</span>.*?</svg>\s*Undo</button>", group, re.S)
+    assert "Restore</button>" not in group
     assert "/remove" not in group
     assert "/approve" not in group
     assert "<img" not in group
