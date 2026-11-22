@@ -2,12 +2,14 @@
 how-to*, #589, #591)."""
 
 from collections.abc import Collection, Mapping
+from datetime import datetime
 from typing import Protocol
 from uuid import UUID
 
 from ai_trainer.domain.exercise_simple_texts import (
     CardHowtoSource,
     FailedCheckOutcome,
+    FlaggedText,
     HowtoCallFailed,
     HowtoCheck,
     HowtoCheckRefused,
@@ -48,6 +50,14 @@ class ExerciseSimpleTextsPort(Protocol):
         """Counts a failed Jev check of `text` (#591). The first for its source keeps no text;
         the second stores the row `rejected` with `text`, for the admin list. A row with a text
         from the same source, or an edited row, is never changed."""
+        ...
+
+    async def flag(
+        self, exercise_id: UUID, *, lang: str, flagged_at: datetime
+    ) -> FlaggedText | None:
+        """Sets a `shown` row with a text `flagged` at `flagged_at` (ADR-0031 *The flag*, #593)
+        and returns what wrote it. A flagged, `rejected`, text-less or missing row is left as it
+        is and gives `None`, so of two concurrent flags only one returns the row."""
         ...
 
 

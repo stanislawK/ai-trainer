@@ -845,6 +845,9 @@ def create_app(  # noqa: PLR0915 -- composition root: objects are built only her
         decisions=decisions,
         clock=clock,
     )
+    # Content-free feedback events from the athlete's edits, discards, undos, taps and how-to
+    # flags (ADR-0034, #593).
+    feedback = FeedbackRecorder(SqlAlchemyFeedbackEventsRepository(session_factory), clock=clock)
     replies = ReplyServices(
         chat=chat,
         conversations=SqlAlchemyConversationRepository(
@@ -881,9 +884,7 @@ def create_app(  # noqa: PLR0915 -- composition root: objects are built only her
         max_clarification_options=settings.max_clarification_options,
         recent_sessions=settings.extract_recent_sessions,
         metrics=metrics,
-        # Content-free feedback events from the athlete's edits, discards, undos and taps
-        # (ADR-0034).
-        feedback=FeedbackRecorder(SqlAlchemyFeedbackEventsRepository(session_factory), clock=clock),
+        feedback=feedback,
         settlers=build_draft_settlers(
             settings,
             session_factory,
@@ -911,6 +912,8 @@ def create_app(  # noqa: PLR0915 -- composition root: objects are built only her
             card_howtos=CardHowtos(
                 texts=SqlAlchemyExerciseSimpleTextRepository(session_factory),
                 write=app.state.simple_howto,
+                feedback=feedback,
+                clock=clock,
             ),
         )
     )

@@ -39,7 +39,8 @@ read or write, never its content, then `backfill-gym-sessions: result=ok ...` (o
 `result=skipped` with exit code 1 when any was skipped); the others still run.
 
 `feedback-report` prints the content-free feedback events (ADR-0034, #394) as one line per kind,
-template and field with its count, `<kind> <template|-> <field|-> <count>`, largest first, or
+template version and field with its count, `<kind> <template|-> <field|-> <count>`, largest first,
+the template as `<id>@v<N>` when the row has a version (#593), or
 `no feedback events` when there are none. It reads every user's rows without who made them, and
 a `--since` without a timezone is UTC. It exits 0 either way.
 
@@ -166,7 +167,7 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     )
     feedback = commands.add_parser(
         FEEDBACK_REPORT,
-        help="Count the content-free feedback events per kind, template and field.",
+        help="Count the content-free feedback events per kind, template version and field.",
     )
     feedback.add_argument(
         "--since",
@@ -255,7 +256,7 @@ async def feedback_report(
         output.write("no feedback events\n")
         return 0
     for row in counts:
-        output.write(f"{row.kind.value} {row.template_id or '-'} {row.field or '-'} {row.count}\n")
+        output.write(f"{row.kind.value} {row.template or '-'} {row.field or '-'} {row.count}\n")
     return 0
 
 

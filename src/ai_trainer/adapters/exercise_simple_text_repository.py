@@ -1,8 +1,9 @@
 from collections.abc import Callable, Collection, Mapping
+from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import ColumnElement, and_, case, literal, null, or_, select
+from sqlalchemy import ColumnElement, and_, case, literal, null, or_, select, update
 from sqlalchemy.dialects.postgresql import Insert, insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -10,6 +11,7 @@ from ai_trainer.adapters.orm import ExerciseOrm, ExerciseSimpleTextOrm, Exercise
 from ai_trainer.domain.exercise_simple_texts import (
     CardHowtoSource,
     FailedCheckOutcome,
+    FlaggedText,
     HowtoSource,
     NewSimpleText,
     SimpleTextStatus,
@@ -133,6 +135,33 @@ class SqlAlchemyExerciseSimpleTextRepository:
         if status is None:
             return "present"
         return "rejected" if status == SimpleTextStatus.REJECTED.value else "counted"
+
+    async def flag(
+        self, exercise_id: UUID, *, lang: str, flagged_at: datetime
+    ) -> FlaggedText | None:
+        """One guarded UPDATE (#593): only a `shown` row with a text changes, so of two
+        concurrent flags one returns the row and the other `None`. An admin's edit is flagged
+        like any shown text; the card hides any flagged row."""
+        row = ExerciseSimpleTextOrm
+        statement = (
+            update(row)
+            .where(
+                row.exercise_id == exercise_id,
+                row.lang == lang,
+                row.status == SimpleTextStatus.SHOWN.value,
+                row.text.is_not(None),
+            )
+            .values(status=SimpleTextStatus.FLAGGED.value, flagged_at=flagged_at)
+            .returning(row.template_id, row.template_version)
+        )
+        async with self._session_factory() as session:
+            flagged = (await session.execute(statement)).one_or_none()
+            await session.commit()
+        if flagged is None:
+            return None
+        return FlaggedText(
+            template_id=flagged.template_id, template_version=flagged.template_version
+        )
 
 
 def _stored(row: ExerciseSimpleTextOrm) -> StoredSimpleText:

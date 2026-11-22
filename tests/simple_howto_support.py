@@ -1,6 +1,7 @@
 """Fakes for the beginner how-to (ADR-0031 *Beginner how-to*, #589, #591, #592): the shared
-texts table with the repository's conditional upserts, a scripted writer and a scripted Jev check,
-for the service's unit tests and the exercise card's route tests."""
+texts table with the repository's conditional upserts and its guarded flag (#593), a scripted
+writer and a scripted Jev check, for the service's unit tests and the exercise card's route
+tests."""
 
 from collections.abc import Collection, Mapping
 from dataclasses import dataclass, field
@@ -10,6 +11,7 @@ from uuid import UUID
 from ai_trainer.domain.exercise_simple_texts import (
     CardHowtoSource,
     FailedCheckOutcome,
+    FlaggedText,
     HowtoCallFailed,
     HowtoCheck,
     HowtoCheckRefused,
@@ -38,6 +40,7 @@ class StoredRow:
     body: str | None
     status: SimpleTextStatus = SimpleTextStatus.SHOWN
     check_failures: int = 0
+    flagged_at: datetime | None = None
 
 
 @dataclass
@@ -110,6 +113,20 @@ class InMemorySimpleTexts:
             return "rejected"
         self.rows[text.exercise_id] = StoredRow(text, None, check_failures=1)
         return "counted"
+
+    async def flag(
+        self, exercise_id: UUID, *, lang: str, flagged_at: datetime
+    ) -> FlaggedText | None:
+        """As the repository's guarded UPDATE: only a `shown` row with a text is flagged."""
+        assert lang == "en"
+        row = self.rows.get(exercise_id)
+        if row is None or row.status is not SimpleTextStatus.SHOWN or row.body is None:
+            return None
+        row.status = SimpleTextStatus.FLAGGED
+        row.flagged_at = flagged_at
+        return FlaggedText(
+            template_id=row.text.template_id, template_version=row.text.template_version
+        )
 
 
 @dataclass

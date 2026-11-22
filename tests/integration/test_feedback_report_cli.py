@@ -1,6 +1,6 @@
 """`ai-trainer feedback-report` output and exit code (ADR-0034, ticket #394): counts per kind,
-template and field, and "no feedback events" with exit 0 for an empty table. Rows hold no text,
-so the report prints none."""
+template version and field, and "no feedback events" with exit 0 for an empty table. Rows hold
+no text, so the report prints none."""
 
 import io
 from collections.abc import Callable
@@ -73,9 +73,9 @@ async def test_prints_a_count_per_kind_template_and_field(
 
     assert code == 0
     assert output.getvalue().splitlines() == [
-        "draft_edited gym.extract reps 2",
+        "draft_edited gym.extract@v3 reps 2",
         "draft_discarded - - 1",
-        "draft_edited gym.extract sets 1",
+        "draft_edited gym.extract@v3 sets 1",
     ]
     assert str(user_id) not in output.getvalue()
 
