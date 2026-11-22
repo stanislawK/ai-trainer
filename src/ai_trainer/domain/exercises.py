@@ -96,7 +96,8 @@ class Exercise(BaseModel):
 
 class ExerciseCandidate(BaseModel):
     """A shortlisted exercise for a typed name (ADR-0031): what a choice card tells it apart by.
-    `how` is how it's done, from `exercise_texts` and never from a model (invariant 6, F23)."""
+    `how` is how it's done, the whole English text from `exercise_texts` on one line and never
+    from a model (invariant 6, F23); the card clamps it and its More shows the rest (#581)."""
 
     model_config = ConfigDict(frozen=True)
 

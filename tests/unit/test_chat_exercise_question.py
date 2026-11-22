@@ -180,7 +180,11 @@ async def test_exercise_card_candidates_show_catalogue_how_to() -> None:
     _, _, body = await app.card()
 
     html = _flat(body)
-    assert f'<span class="text-[13px] leading-[18px] lbl-2 line-clamp-2">{_HOW}</span>' in html
+    assert re.search(
+        r'<span id="[^"]+" class="text-\[13px\] leading-\[18px\] lbl-2 line-clamp-2 [^"]*"'
+        rf" data-howto>{re.escape(_HOW)}</span>",
+        html,
+    )
     assert "barbell, pectorals" not in html
 
 
