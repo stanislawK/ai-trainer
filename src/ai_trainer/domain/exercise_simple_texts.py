@@ -5,7 +5,9 @@ shared table with no user column.
 Its input is public catalogue text only: the name, the English instructions, the target and the
 equipment, never athlete data. An exercise with no English text gets no call. A text is checked in
 code before it is stored: non-empty, at most `EXERCISE_SIMPLE_HOWTO_MAX_CHARS`, and no digit the
-source lacks."""
+source lacks. A text that passes them is checked by Jev before it is stored (#591): a failed
+check stores no text and counts, and the second failed check of the same source stores the row
+`rejected`, after which no call is made."""
 
 import hashlib
 import re
@@ -88,12 +90,15 @@ class HowtoSource:
 
 @dataclass(frozen=True, slots=True)
 class StoredSimpleText:
-    """What decides whether a stored row still stands: the source it was written from, and
-    whether an admin edited it."""
+    """What decides whether a stored row still stands: the source it was written from, whether
+    an admin edited it, and whether it holds a text. A row with no text has failed Jev's check
+    once for its source (#591)."""
 
     source_sha256: str
     status: SimpleTextStatus
     edited_at: datetime | None
+    has_text: bool
+    check_failures: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,7 +110,30 @@ class NewSimpleText:
     template_version: int
     model: str
     source_sha256: str
+    # The pinned version of the Jev set that checked it (#591).
+    check_version: int
     created_at: datetime
+
+
+type FailedCheckOutcome = Literal["counted", "rejected", "present"]
+"""What recording a failed check did: the first of its source counted, with no text kept; the
+second stored the row `rejected`; or a row with a text from the same source, or an edited row,
+already stood (another athlete's write passed), so nothing changed."""
+
+
+@dataclass(frozen=True, slots=True)
+class HowtoCheck:
+    """Jev's check of a summary (ADR-0031 *Jev check*): `passed` only when both questions are at
+    or above the threshold. A timeout or an error is a failed check."""
+
+    passed: bool
+    version: int
+
+
+@dataclass(frozen=True, slots=True)
+class HowtoCheckRefused:
+    """The athlete's budget refused the check, so it never ran: nothing is stored or counted
+    (ADR-0029; owner's plan-gate decision at #591)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -138,10 +166,15 @@ def source_sha256(instructions: str) -> str:
     return hashlib.sha256(instructions.encode("utf-8")).hexdigest()
 
 
-def is_current(stored: StoredSimpleText, sha256: str) -> bool:
-    """A row stands when it was written from these instructions, or when an admin edited it: an
-    edit is a human's text and is never rewritten."""
-    return stored.edited_at is not None or stored.source_sha256 == sha256
+def needs_writing(stored: StoredSimpleText | None, sha256: str) -> bool:
+    """Whether a card should write the how-to: no row, a row written from other instructions, or
+    a row with no text (one failed check of these instructions). An admin's edit is a human's
+    text and is never rewritten; a `rejected` row keeps its text and is not written again."""
+    if stored is None:
+        return True
+    if stored.edited_at is not None:
+        return False
+    return stored.source_sha256 != sha256 or not stored.has_text
 
 
 def has_new_digit(text: str, deps: SimpleHowtoDeps) -> bool:
@@ -186,7 +219,13 @@ class HowtoSkipped:
     reason: Literal["no_english_text"]
 
 
-type HowtoFailure = HowtoCallFailure | InvalidReason | Literal["refused"]
+@dataclass(frozen=True, slots=True)
+class HowtoRejected:
+    """The current source's summary failed Jev's check twice: the card keeps the original and no
+    call is made until an admin clears it or an import changes the source (ADR-0031)."""
+
+
+type HowtoFailure = HowtoCallFailure | InvalidReason | Literal["refused", "check_failed"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -196,4 +235,4 @@ class HowtoFailed:
     reason: HowtoFailure
 
 
-type HowtoResult = HowtoStored | HowtoPresent | HowtoSkipped | HowtoFailed
+type HowtoResult = HowtoStored | HowtoPresent | HowtoSkipped | HowtoFailed | HowtoRejected

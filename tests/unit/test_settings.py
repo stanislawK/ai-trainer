@@ -1150,6 +1150,54 @@ def test_simple_howto_defaults_match_the_measured_cap_and_pinned_upstream(
 
 
 @pytest.mark.parametrize(
+    ("variable", "field", "default"),
+    [
+        ("EXERCISE_SIMPLE_HOWTO_CHECK_THRESHOLD", "exercise_simple_howto_check_threshold", 0.12),
+        (
+            "EXERCISE_SIMPLE_HOWTO_CHECK_ADDS_THRESHOLD",
+            "exercise_simple_howto_check_adds_threshold",
+            0.5,
+        ),
+    ],
+    ids=["keeps_cues", "adds_nothing"],
+)
+def test_simple_howto_check_thresholds_default_to_the_calibration(
+    monkeypatch: pytest.MonkeyPatch, variable: str, field: str, default: float
+) -> None:
+    # The Jev check on a beginner how-to, one threshold per question (ADR-0031, #591), set at
+    # calibration on 2026-11-22.
+    _set_required_keys(monkeypatch)
+
+    assert getattr(Settings(_env_file=None), field) == default
+
+    monkeypatch.setenv(variable, "0.65")
+
+    assert getattr(Settings(_env_file=None), field) == 0.65
+
+
+@pytest.mark.parametrize(
+    ("variable", "field"),
+    [
+        ("EXERCISE_SIMPLE_HOWTO_CHECK_THRESHOLD", "exercise_simple_howto_check_threshold"),
+        (
+            "EXERCISE_SIMPLE_HOWTO_CHECK_ADDS_THRESHOLD",
+            "exercise_simple_howto_check_adds_threshold",
+        ),
+    ],
+    ids=["keeps_cues", "adds_nothing"],
+)
+@pytest.mark.parametrize("value", ["-0.1", "1.1"])
+def test_simple_howto_check_thresholds_are_probabilities(
+    monkeypatch: pytest.MonkeyPatch, variable: str, field: str, value: str
+) -> None:
+    _set_required_keys(monkeypatch)
+    monkeypatch.setenv(variable, value)
+
+    with pytest.raises(ValidationError, match=field):
+        Settings(_env_file=None)
+
+
+@pytest.mark.parametrize(
     "variable", ["EXERCISE_SIMPLE_HOWTO_MAX_CHARS", "EXERCISE_SIMPLE_HOWTO_TIMEOUT_SECONDS"]
 )
 def test_simple_howto_limits_must_be_positive(
