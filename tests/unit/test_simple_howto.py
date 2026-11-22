@@ -353,12 +353,15 @@ def test_the_committed_smoke_set_is_judged_and_its_references_pass_the_code_chec
     for case in raw["cases"]:
         [judge] = [entry["LLMJudge"] for entry in case["evaluators"]]
         assert judge["include_input"] is True, case["name"]
-        assert "keeps every safety and form cue" in judge["rubric"], case["name"]
+        assert "keeps each of these safety and form cues" in judge["rubric"], case["name"]
         assert "adds nothing the instructions don't say" in judge["rubric"], case["name"]
         deps = SimpleHowtoDeps.model_validate(case["inputs"]["deps"])
         assert case["inputs"]["prompt"] == deps.exercise_name
         reference = case["expected_output"]["text"]
-        assert invalid_reason(reference, deps, max_chars=160) is None, case["name"]
+        assert (
+            invalid_reason(reference, deps, max_chars=DEFAULT_EXERCISE_SIMPLE_HOWTO_MAX_CHARS)
+            is None
+        ), case["name"]
     assert any(
         any(c.isdigit() for c in case["inputs"]["deps"]["instructions"]) for case in raw["cases"]
     )
