@@ -1,8 +1,8 @@
 """The `exercise_simple_howto_check` smoke set (ADR-0034, #591):
 `evals/smoke/exercise_simple_howto_check.yaml` holds catalogue instructions and beginner
 summaries, each labelled with whether the app should store it. Each is asked of Jev once, with the
-state the app builds, and graded at the `Settings` threshold through the app's own `check_passes`.
-No judge and no `llm_calls` row: no user is acting."""
+state the app builds, and graded at each question's own `Settings` threshold through the app's own
+`check_passes`. No judge and no `llm_calls` row: no user is acting."""
 
 from pydantic import BaseModel, ValidationError
 from pydantic_ai import Agent
@@ -12,6 +12,7 @@ from ai_trainer.llm.decisions.loader import DecisionSetLoader
 from ai_trainer.llm.evals.smoke import SmokeCaseResult, SmokeError, SmokeSet
 from ai_trainer.llm.simple_howto_check import (
     HowtoCheckState,
+    HowtoCheckThresholds,
     check_passes,
     simple_howto_check_set,
 )
@@ -46,7 +47,7 @@ async def run_simple_howto_check_smoke(
     smoke_set: SmokeSet,
     model: Model,
     *,
-    threshold: float,
+    thresholds: HowtoCheckThresholds,
     loader: DecisionSetLoader | None = None,
 ) -> list[SmokeCaseResult]:
     """Asks each case once, in order. A case whose call fails fails alone."""
@@ -59,7 +60,7 @@ async def run_simple_howto_check_smoke(
         except Exception as error:
             results.append(_result(smoke_set, case.name, f"the call failed: {error}"))
             continue
-        got = check_passes(result.output, threshold=threshold)
+        got = check_passes(result.output, thresholds=thresholds)
         wanted = case.expected_output.passes
         detail = (
             ""

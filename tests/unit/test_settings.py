@@ -1116,27 +1116,51 @@ def test_simple_howto_settings_default_and_blank_keeps_them(
     assert settings.simple_howto_provider_preferences == ProviderPreferences(sort="latency")
 
 
-def test_simple_howto_check_threshold_defaults_conservative(
-    monkeypatch: pytest.MonkeyPatch,
+@pytest.mark.parametrize(
+    ("variable", "field", "default"),
+    [
+        ("EXERCISE_SIMPLE_HOWTO_CHECK_THRESHOLD", "exercise_simple_howto_check_threshold", 0.12),
+        (
+            "EXERCISE_SIMPLE_HOWTO_CHECK_ADDS_THRESHOLD",
+            "exercise_simple_howto_check_adds_threshold",
+            0.5,
+        ),
+    ],
+    ids=["keeps_cues", "adds_nothing"],
+)
+def test_simple_howto_check_thresholds_default_to_the_calibration(
+    monkeypatch: pytest.MonkeyPatch, variable: str, field: str, default: float
 ) -> None:
-    # The Jev check on a beginner how-to (ADR-0031, #591): a probability, 0.8 until calibrated.
+    # The Jev check on a beginner how-to, one threshold per question (ADR-0031, #591), set at
+    # calibration on 2026-11-22.
     _set_required_keys(monkeypatch)
 
-    assert Settings(_env_file=None).exercise_simple_howto_check_threshold == 0.8
+    assert getattr(Settings(_env_file=None), field) == default
 
-    monkeypatch.setenv("EXERCISE_SIMPLE_HOWTO_CHECK_THRESHOLD", "0.65")
+    monkeypatch.setenv(variable, "0.65")
 
-    assert Settings(_env_file=None).exercise_simple_howto_check_threshold == 0.65
+    assert getattr(Settings(_env_file=None), field) == 0.65
 
 
+@pytest.mark.parametrize(
+    ("variable", "field"),
+    [
+        ("EXERCISE_SIMPLE_HOWTO_CHECK_THRESHOLD", "exercise_simple_howto_check_threshold"),
+        (
+            "EXERCISE_SIMPLE_HOWTO_CHECK_ADDS_THRESHOLD",
+            "exercise_simple_howto_check_adds_threshold",
+        ),
+    ],
+    ids=["keeps_cues", "adds_nothing"],
+)
 @pytest.mark.parametrize("value", ["-0.1", "1.1"])
-def test_simple_howto_check_threshold_is_a_probability(
-    monkeypatch: pytest.MonkeyPatch, value: str
+def test_simple_howto_check_thresholds_are_probabilities(
+    monkeypatch: pytest.MonkeyPatch, variable: str, field: str, value: str
 ) -> None:
     _set_required_keys(monkeypatch)
-    monkeypatch.setenv("EXERCISE_SIMPLE_HOWTO_CHECK_THRESHOLD", value)
+    monkeypatch.setenv(variable, value)
 
-    with pytest.raises(ValidationError, match="exercise_simple_howto_check_threshold"):
+    with pytest.raises(ValidationError, match=field):
         Settings(_env_file=None)
 
 

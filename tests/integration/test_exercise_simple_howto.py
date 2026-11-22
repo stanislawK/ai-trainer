@@ -62,6 +62,7 @@ from ai_trainer.llm.decision_gateway import OpenRouterDecisionGateway
 from ai_trainer.llm.simple_howto_check import (
     SIMPLE_HOWTO_CHECK_ID,
     SIMPLE_HOWTO_CHECK_VERSION,
+    HowtoCheckThresholds,
     JevSimpleHowtoCheck,
 )
 from ai_trainer.main import build_simple_howto
@@ -630,7 +631,9 @@ async def test_check_writes_one_llm_calls_row_for_the_athlete(
     jev = _Jev(0.95)
     async with httpx2.AsyncClient(transport=httpx2.MockTransport(_refuse)) as client:
         gateway = OpenRouterDecisionGateway(Settings(), calls, http_client=client)
-        check = JevSimpleHowtoCheck(gateway, threshold=0.8)
+        check = JevSimpleHowtoCheck(
+            gateway, thresholds=HowtoCheckThresholds(keeps_cues=0.12, adds_nothing=0.5)
+        )
         service = WriteSimpleHowto(
             texts=SqlAlchemyExerciseSimpleTextRepository(db_session_factory),
             writer=ScriptedWriter(["Lower the bar slowly, elbows tucked."]),

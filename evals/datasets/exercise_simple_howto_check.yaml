@@ -6,8 +6,9 @@
 # copied verbatim (pinned dataset commit 7455efae). The summaries are written by hand. `metadata.kind`
 # names each case's kind: `good` (faithful), or broken by a `dropped_cue`, an `added_cue`, a
 # `changed_number` (added or changed) or `another_movement` (mostly the lateral-raise family). The
-# labels are P(yes) at EXERCISE_SIMPLE_HOWTO_CHECK_THRESHOLD: both questions are phrased so that
-# "yes" is good, and a summary passes only when both are true.
+# labels are P(yes) at each question's own threshold (EXERCISE_SIMPLE_HOWTO_CHECK_THRESHOLD for
+# keeps_cues, EXERCISE_SIMPLE_HOWTO_CHECK_ADDS_THRESHOLD for adds_nothing): both questions are
+# phrased so that "yes" is good, and a summary passes only when both are true.
 name: exercise_simple_howto_check
 cases:
 - name: 'dumbbell lateral raise: good'

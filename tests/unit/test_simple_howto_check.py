@@ -1,4 +1,4 @@
-"""`JevSimpleHowtoCheck` (ADR-0031 *Jev check*, #591): both questions must be at or above the
+"""`JevSimpleHowtoCheck` (ADR-0031 *Jev check*, #591): each question must be at or above its own
 threshold from `Settings`; a timeout, an error, a missing output or a raising gateway fails closed;
 a budget refusal is its own result, since no check ran. The state is the original and the summary
 only."""
@@ -16,12 +16,16 @@ from ai_trainer.llm.simple_howto_check import (
     SIMPLE_HOWTO_CHECK_ID,
     SIMPLE_HOWTO_CHECK_VERSION,
     HowtoCheckState,
+    HowtoCheckThresholds,
     JevSimpleHowtoCheck,
     simple_howto_check_set,
 )
 
 _USER = uuid4()
-_THRESHOLD = 0.8
+# The calibrated defaults' shape (2026-11-22): `keeps_cues` low, `adds_nothing` at the midpoint.
+_KEEPS = 0.12
+_ADDS = 0.5
+_THRESHOLDS = HowtoCheckThresholds(keeps_cues=_KEEPS, adds_nothing=_ADDS)
 _ORIGINAL = "Lie flat on a bench. Lower the bar slowly, keeping your elbows tucked in."
 _SUMMARY = "Lie on the bench and lower the bar slowly, elbows tucked in."
 
@@ -71,7 +75,7 @@ class _Decisions:
 
 
 async def _check(decisions: _Decisions) -> HowtoCheck | HowtoCheckRefused:
-    return await JevSimpleHowtoCheck(decisions, threshold=_THRESHOLD).check(
+    return await JevSimpleHowtoCheck(decisions, thresholds=_THRESHOLDS).check(
         user_id=_USER, original=_ORIGINAL, summary=_SUMMARY
     )
 
@@ -109,20 +113,27 @@ def test_state_refuses_any_other_field() -> None:
         HowtoCheckState.model_validate({"original": "a", "summary": "b", "user_id": str(_USER)})
 
 
-# AC 3: at the threshold on both passes; below it on either fails.
-async def test_at_threshold_on_both_passes() -> None:
-    assert await _check(_Decisions(_THRESHOLD, _THRESHOLD)) == _PASSED
+# AC 3: at each question's own threshold passes; below its own on either fails.
+async def test_at_both_thresholds_passes() -> None:
+    assert await _check(_Decisions(_KEEPS, _ADDS)) == _PASSED
 
 
 @pytest.mark.parametrize(
     ("keeps_cues", "adds_nothing"),
-    [(_THRESHOLD - 0.01, 0.99), (0.99, _THRESHOLD - 0.01), (0.1, 0.1)],
+    [(_KEEPS - 0.01, 0.99), (0.99, _ADDS - 0.01), (0.01, 0.01)],
     ids=["drops_a_cue", "adds_something", "both"],
 )
-async def test_below_threshold_on_either_question_fails(
+async def test_below_its_own_threshold_on_either_question_fails(
     keeps_cues: float, adds_nothing: float
 ) -> None:
     assert await _check(_Decisions(keeps_cues, adds_nothing)) == _FAILED
+
+
+async def test_each_question_is_read_at_its_own_threshold() -> None:
+    """0.3 is above `keeps_cues`'s threshold but below `adds_nothing`'s: it passes as one and
+    fails as the other, so neither question borrows the other's threshold."""
+    assert await _check(_Decisions(0.3, _ADDS)) == _PASSED
+    assert await _check(_Decisions(_KEEPS, 0.3)) == _FAILED
 
 
 # AC 3: a Jev timeout or error counts as a fail.

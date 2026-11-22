@@ -143,7 +143,7 @@ from ai_trainer.llm.question_sport import JevQuestionSport
 from ai_trainer.llm.router_fast import JevFastRouter, RouterFastThresholds
 from ai_trainer.llm.safety_screen import JevSafetyScreen
 from ai_trainer.llm.simple_howto import LlmSimpleHowtoWriter, SimpleHowtoCall
-from ai_trainer.llm.simple_howto_check import JevSimpleHowtoCheck
+from ai_trainer.llm.simple_howto_check import HowtoCheckThresholds, JevSimpleHowtoCheck
 from ai_trainer.mcp.citations import cited_sources
 from ai_trainer.mcp.server import build_mcp_server
 from ai_trainer.mcp.toolset import build_toolset
@@ -344,7 +344,11 @@ def build_simple_howto(
             ),
         ),
         check=JevSimpleHowtoCheck(
-            decisions, threshold=settings.exercise_simple_howto_check_threshold
+            decisions,
+            thresholds=HowtoCheckThresholds(
+                keeps_cues=settings.exercise_simple_howto_check_threshold,
+                adds_nothing=settings.exercise_simple_howto_check_adds_threshold,
+            ),
         ),
         clock=clock,
         max_chars=settings.exercise_simple_howto_max_chars,

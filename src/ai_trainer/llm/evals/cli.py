@@ -103,8 +103,8 @@ from ai_trainer.llm.simple_howto import (
 )
 from ai_trainer.llm.simple_howto_check import (
     SIMPLE_HOWTO_CHECK_ID,
-    SIMPLE_HOWTO_CHECK_QUESTIONS,
     SIMPLE_HOWTO_CHECK_VERSION,
+    HowtoCheckThresholds,
 )
 from ai_trainer.settings import Settings
 
@@ -121,10 +121,11 @@ type DecisionSmokeRunner = Callable[[SmokeSet, Model], Awaitable[list[SmokeCaseR
 # its label is graded at (ADR-0020); the baseline records the values.
 _DECISION_THRESHOLDS: dict[str, dict[str, str]] = {
     "safety_screen": {"pain": "safety_screen_pain_threshold"},
-    # Both questions at one threshold: a summary passes only when both do (ADR-0031, #591).
-    SIMPLE_HOWTO_CHECK_ID: dict.fromkeys(
-        SIMPLE_HOWTO_CHECK_QUESTIONS, "exercise_simple_howto_check_threshold"
-    ),
+    # Each question at its own threshold: a summary passes only when both do (ADR-0031, #591).
+    SIMPLE_HOWTO_CHECK_ID: {
+        "keeps_cues": "exercise_simple_howto_check_threshold",
+        "adds_nothing": "exercise_simple_howto_check_adds_threshold",
+    },
 }
 
 
@@ -595,7 +596,12 @@ def _own_runners(
 
     async def simple_howto_check(smoke_set: SmokeSet, model: Model) -> list[SmokeCaseResult]:
         return await run_simple_howto_check_smoke(
-            smoke_set, model, threshold=settings.exercise_simple_howto_check_threshold
+            smoke_set,
+            model,
+            thresholds=HowtoCheckThresholds(
+                keeps_cues=settings.exercise_simple_howto_check_threshold,
+                adds_nothing=settings.exercise_simple_howto_check_adds_threshold,
+            ),
         )
 
     async def answer(smoke_set: SmokeSet, model: Model) -> list[SmokeCaseResult]:

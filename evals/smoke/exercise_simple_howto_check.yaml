@@ -3,7 +3,7 @@
 # evals/datasets/exercise_simple_howto_check.yaml (no field transcript covers the card yet). Each
 # case's deps are the catalogue instructions (`original`, verbatim from
 # evals/smoke/exercise.simple_howto.yaml) and a hand-written `summary`; `passes` is what the app
-# would decide at the Settings threshold, through its own `check_passes`. `metadata.kind` names the
+# would decide at each question's Settings threshold, through its own `check_passes`. `metadata.kind` names the
 # case's kind. A false pass shows a wrong how-to; a false fail keeps the original on the card.
 name: exercise_simple_howto_check
 cases:

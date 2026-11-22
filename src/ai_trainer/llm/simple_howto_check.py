@@ -1,9 +1,10 @@
 """`SimpleHowtoCheckPort` on Jev (ADR-0031 *Jev check*, ADR-0020, #591): the
 `exercise_simple_howto_check` set asks whether a beginner summary keeps every safety and form cue
 of the catalogue instructions it was written from, and whether everything it says is in them.
-Both are probability questions phrased so that "yes" is good, read at one threshold from
-`Settings`. The check fails closed."""
+Both are probability questions phrased so that "yes" is good, each read at its own threshold
+from `Settings`. The check fails closed."""
 
+from dataclasses import dataclass
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
@@ -15,8 +16,18 @@ from ai_trainer.llm.decisions.loader import DecisionSet, DecisionSetLoader
 
 SIMPLE_HOWTO_CHECK_ID = "exercise_simple_howto_check"
 SIMPLE_HOWTO_CHECK_VERSION = 1
-# Both must be at or above the threshold for the summary to pass.
+# Each must be at or above its own threshold for the summary to pass.
 SIMPLE_HOWTO_CHECK_QUESTIONS = ("keeps_cues", "adds_nothing")
+
+
+@dataclass(frozen=True, slots=True)
+class HowtoCheckThresholds:
+    """One threshold per question, named as the questions are. Two, because Jev scores them on
+    different scales: it reads "every cue" strictly, so good summaries score low on `keeps_cues`
+    while `adds_nothing` separates widely (calibration, 2026-11-22, ADR-0031)."""
+
+    keeps_cues: float
+    adds_nothing: float
 
 
 class HowtoCheckState(BaseModel):
@@ -33,10 +44,13 @@ def simple_howto_check_set(loader: DecisionSetLoader | None = None) -> DecisionS
     return (loader or DecisionSetLoader()).load(SIMPLE_HOWTO_CHECK_ID, SIMPLE_HOWTO_CHECK_VERSION)
 
 
-def check_passes(output: BaseModel, *, threshold: float) -> bool:
-    """Whether every question's P(yes) is at or above `threshold`, read from the bounded float,
-    never the library's 0.5 `bool` cut (ADR-0020). The smoke runner grades with this too."""
-    return all(float(getattr(output, name)) >= threshold for name in SIMPLE_HOWTO_CHECK_QUESTIONS)
+def check_passes(output: BaseModel, *, thresholds: HowtoCheckThresholds) -> bool:
+    """Whether every question's P(yes) is at or above its own threshold, read from the bounded
+    float, never the library's 0.5 `bool` cut (ADR-0020). The smoke runner grades with this too."""
+    return all(
+        float(getattr(output, name)) >= getattr(thresholds, name)
+        for name in SIMPLE_HOWTO_CHECK_QUESTIONS
+    )
 
 
 class JevSimpleHowtoCheck:
@@ -47,11 +61,11 @@ class JevSimpleHowtoCheck:
         self,
         decisions: DecisionGatewayPort,
         *,
-        threshold: float,
+        thresholds: HowtoCheckThresholds,
         loader: DecisionSetLoader | None = None,
     ) -> None:
         self._decisions = decisions
-        self._threshold = threshold
+        self._thresholds = thresholds
         self._set = simple_howto_check_set(loader)
 
     async def check(
@@ -76,6 +90,6 @@ class JevSimpleHowtoCheck:
         if result.outcome is not LlmCallOutcome.SUCCESS or result.output is None:
             return failed
         return HowtoCheck(
-            passed=check_passes(result.output, threshold=self._threshold),
+            passed=check_passes(result.output, thresholds=self._thresholds),
             version=self._set.version,
         )

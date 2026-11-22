@@ -1,6 +1,7 @@
 """The `exercise_simple_howto_check` dataset, smoke set and smoke runner (ADR-0020 invariant 6,
 ADR-0034, #591). The real separation at the threshold (AC 4) is a run on Jev in phase C; here the
-runner is proven to grade with the app's own `check_passes` at the threshold, on a fake Jev."""
+runner is proven to grade with the app's own `check_passes` at each question's threshold, on a fake
+Jev."""
 
 import json
 from pathlib import Path
@@ -29,6 +30,7 @@ from ai_trainer.llm.simple_howto_check import (
     SIMPLE_HOWTO_CHECK_ID,
     SIMPLE_HOWTO_CHECK_QUESTIONS,
     HowtoCheckState,
+    HowtoCheckThresholds,
 )
 from ai_trainer.settings import Settings
 
@@ -37,7 +39,9 @@ _DATASET = _REPO / "evals" / "datasets" / f"{SIMPLE_HOWTO_CHECK_ID}.yaml"
 _SMOKE = _REPO / "evals" / "smoke"
 _HOWTO_SMOKE = _SMOKE / "exercise.simple_howto.yaml"
 _BROKEN = {"dropped_cue", "added_cue", "changed_number", "another_movement"}
-_THRESHOLD = 0.8
+_KEEPS = 0.12
+_ADDS = 0.5
+_THRESHOLDS = HowtoCheckThresholds(keeps_cues=_KEEPS, adds_nothing=_ADDS)
 
 
 def _cases() -> list[Case[EvalCaseInputs, object, object]]:
@@ -97,13 +101,14 @@ def test_smoke_set_is_cut_from_the_dataset_with_every_broken_kind() -> None:
     assert kinds == {"good", *_BROKEN}
 
 
-def test_the_full_run_grades_both_questions_at_the_settings_threshold(
+def test_the_full_run_grades_each_question_at_its_own_settings_threshold(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("EXERCISE_SIMPLE_HOWTO_CHECK_THRESHOLD", "0.73")
+    monkeypatch.setenv("EXERCISE_SIMPLE_HOWTO_CHECK_THRESHOLD", "0.23")
+    monkeypatch.setenv("EXERCISE_SIMPLE_HOWTO_CHECK_ADDS_THRESHOLD", "0.73")
 
     assert cli_module._decision_thresholds(SIMPLE_HOWTO_CHECK_ID, Settings()) == {
-        "keeps_cues": 0.73,
+        "keeps_cues": 0.23,
         "adds_nothing": 0.73,
     }
 
@@ -172,19 +177,26 @@ def _smoke_file(tmp_path: Path, *, passes: bool) -> Path:
     return tmp_path
 
 
-# AC 4: graded with the app's `check_passes` at the threshold.
+# AC 4: graded with the app's `check_passes` at each question's threshold.
 @pytest.mark.usefixtures("_allow_fake_decisions")
 @pytest.mark.parametrize(
     ("keeps_cues", "adds_nothing", "passes", "graded_pass"),
     [
-        (_THRESHOLD, _THRESHOLD, True, True),
-        (_THRESHOLD - 0.01, 0.99, True, False),
-        (0.99, _THRESHOLD - 0.01, False, True),
-        (0.2, 0.2, False, True),
+        (_KEEPS, _ADDS, True, True),
+        (_KEEPS - 0.01, 0.99, True, False),
+        (0.99, _ADDS - 0.01, False, True),
+        (0.05, 0.05, False, True),
+        (0.3, 0.3, False, True),
     ],
-    ids=["good_at_threshold", "good_dropped", "broken_caught", "broken_caught_both"],
+    ids=[
+        "good_at_thresholds",
+        "good_dropped",
+        "broken_caught",
+        "broken_caught_both",
+        "caught_at_its_own_threshold",
+    ],
 )
-async def test_runner_grades_with_check_passes_at_threshold(
+async def test_runner_grades_with_check_passes_at_thresholds(
     tmp_path: Path, keeps_cues: float, adds_nothing: float, passes: bool, graded_pass: bool
 ) -> None:
     smoke_set = read_smoke_set(
@@ -192,7 +204,7 @@ async def test_runner_grades_with_check_passes_at_threshold(
     )
     jev = _Jev({"keeps_cues": keeps_cues, "adds_nothing": adds_nothing})
 
-    (result,) = await run_simple_howto_check_smoke(smoke_set, jev, threshold=_THRESHOLD)
+    (result,) = await run_simple_howto_check_smoke(smoke_set, jev, thresholds=_THRESHOLDS)
 
     assert result.passed is graded_pass
     assert json.loads(str(jev.states[0])) == {
@@ -202,20 +214,30 @@ async def test_runner_grades_with_check_passes_at_threshold(
 
 
 @pytest.mark.usefixtures("_allow_fake_decisions")
-async def test_the_cli_smoke_runner_reads_the_settings_threshold(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize(
+    ("keeps_cues", "adds_nothing", "graded_pass"),
+    [(0.6, 0.6, True), (0.6, 0.55, False), (0.25, 0.6, False)],
+    ids=["both_above", "adds_below_its_own", "keeps_below_its_own"],
+)
+async def test_the_cli_smoke_runner_reads_both_settings_thresholds(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    keeps_cues: float,
+    adds_nothing: float,
+    graded_pass: bool,
 ) -> None:
-    monkeypatch.setenv("EXERCISE_SIMPLE_HOWTO_CHECK_THRESHOLD", "0.5")
+    monkeypatch.setenv("EXERCISE_SIMPLE_HOWTO_CHECK_THRESHOLD", "0.3")
+    monkeypatch.setenv("EXERCISE_SIMPLE_HOWTO_CHECK_ADDS_THRESHOLD", "0.58")
     decision_runners, _ = cli_module._own_runners(
         Settings(), PromptRegistry(root=_REPO), {SIMPLE_HOWTO_CHECK_ID: 1}, None
     )
     smoke_set = read_smoke_set(SIMPLE_HOWTO_CHECK_ID, smoke_root=_smoke_file(tmp_path, passes=True))
 
     (result,) = await decision_runners[SIMPLE_HOWTO_CHECK_ID](
-        smoke_set, _Jev({"keeps_cues": 0.6, "adds_nothing": 0.6})
+        smoke_set, _Jev({"keeps_cues": keeps_cues, "adds_nothing": adds_nothing})
     )
 
-    assert result.passed
+    assert result.passed is graded_pass
 
 
 @pytest.mark.usefixtures("_allow_fake_decisions")
@@ -223,7 +245,7 @@ async def test_a_failed_call_fails_its_case_alone(tmp_path: Path) -> None:
     smoke_set = read_smoke_set(SIMPLE_HOWTO_CHECK_ID, smoke_root=_smoke_file(tmp_path, passes=True))
 
     (result,) = await run_simple_howto_check_smoke(
-        smoke_set, _Jev({}, fail=True), threshold=_THRESHOLD
+        smoke_set, _Jev({}, fail=True), thresholds=_THRESHOLDS
     )
 
     assert not result.passed
