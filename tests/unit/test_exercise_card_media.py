@@ -78,3 +78,19 @@ async def test_no_candidates_read_nothing() -> None:
 
     assert await ExerciseCardMedia(media=media, public_base_url=_BASE).pictures([]) == {}
     assert media.calls == []
+
+
+async def test_embedded_media_has_no_picture() -> None:
+    """The adapter reads stored pictures only; an embedded video slipping through draws none."""
+    exercise = uuid4()
+    video = MediaAsset(
+        kind=MediaKind.VIDEO,
+        rights=MediaRights.UNSTATED,
+        delivery=MediaDelivery.EMBEDDED,
+        embed_url="https://www.youtube.com/watch?v=abc",
+        source="youtube",
+        source_ref="https://www.youtube.com/watch?v=abc",
+    )
+    media = _Media({exercise: video})
+
+    assert await ExerciseCardMedia(media=media, public_base_url=_BASE).pictures([exercise]) == {}

@@ -54,9 +54,10 @@ class ExerciseCardMedia:
         if self._base_url is None or not exercise_ids:
             return {}
         found = await self._media.first_approved_pictures(exercise_ids)
-        # The adapter reads only stored pictures, which always have a key.
+        # The adapter reads only stored pictures, which a CHECK makes carry a key.
         return {
             exercise_id: self._picture(asset, url)
             for exercise_id, asset in found.items()
-            if (url := media_public_url(self._base_url, asset.storage_key or "")) is not None
+            if asset.storage_key is not None
+            and (url := media_public_url(self._base_url, asset.storage_key)) is not None
         }
