@@ -91,9 +91,9 @@ def test_template_renders_from_public_text_with_no_identity() -> None:
     assert "Target: pectorals" in rendered
     assert "Equipment: barbell" in rendered
     # The prompt states the limit the code enforces, from `EXERCISE_SIMPLE_HOWTO_MAX_CHARS`.
-    assert "under 160 characters" in rendered
+    assert "under 160" in rendered
     shorter = _DEPS.model_copy(update={"max_chars": 120})
-    assert "under 120 characters" in _registry().render_instructions(
+    assert "under 120" in _registry().render_instructions(
         SIMPLE_HOWTO_TEMPLATE_ID, SIMPLE_HOWTO_VERSION, shorter
     )
     assert set(SimpleHowtoDeps.model_fields) == {
@@ -293,7 +293,7 @@ def test_simple_howto_match_grades_length_and_digits() -> None:
         "length": True,
         "no_new_digit": True,
     }
-    long = evaluator.evaluate(_ctx(SimpleHowto(text="x" * 161), good))
+    long = evaluator.evaluate(_ctx(SimpleHowto(text="x" * (DEFAULT_EXERCISE_SIMPLE_HOWTO_MAX_CHARS + 1)), good))
     assert long["length"] is False  # type: ignore[index]
     empty = evaluator.evaluate(_ctx(SimpleHowto(text="  "), good))
     assert empty["length"] is False  # type: ignore[index]
@@ -361,7 +361,6 @@ def test_smoke_cases_state_the_settings_cap() -> None:
         assert len(reference) <= DEFAULT_EXERCISE_SIMPLE_HOWTO_MAX_CHARS, case["name"]
 
 
-@pytest.mark.xfail(strict=True, reason="#600 phase C clears the gaps")
 def test_smoke_set_has_no_known_gaps_for_600() -> None:
     known_gaps: dict[str, str] = _smoke_yaml().get("known_gaps") or {}
     assert [name for name, ticket in known_gaps.items() if ticket == "#600"] == []

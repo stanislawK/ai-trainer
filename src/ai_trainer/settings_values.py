@@ -77,26 +77,29 @@ DEFAULT_ANSWER_REASONING_EFFORT: ReasoningEffort = "low"
 # `media.picture_brief` (ADR-0031, #532): what the other read templates run on; its smoke set
 # confirms it.
 DEFAULT_PICTURE_BRIEF_MODEL = "z-ai/glm-5.3-flash"
-# `exercise.simple_howto` (ADR-0031 *Beginner how-to*, #589): what the other read templates run
-# on. Its upstream is the model author's own fp8 endpoint: under price routing some calls ran out
-# of tokens before answering (public endpoints API, 2026-11-22, #589). The cap is a length cap,
-# not two card lines (ADR-0031's #600 amendment): measured 2026-11-22 with the real
-# `exercise_card` macro at 390 px, two lines hold about 45 characters on a picture row and 65
-# text-only, too few for the cues. 160 fits the longest cue-complete smoke reference (the
-# deadlift's, 153 characters); the card keeps its two-line clamp and "More" shows the rest.
+# `exercise.simple_howto` (ADR-0031 *Beginner how-to*, #589, tuned at #600): what the other read
+# templates run on, on the model author's own fp8 endpoint (`list-model-endpoints`, 2026-11-22:
+# structured outputs, 100% uptime, p50 1.4 s; under price routing some calls ran out of tokens,
+# #589). Reasoning is mandatory and defaults to `max` (`get-model`, 2026-11-22), so the effort is
+# set: `high` passed the smoke set where `low` passed 1 of 7. The cap is a length cap, not two
+# card lines (ADR-0031's #600 amendment): measured 2026-11-22 with the real `exercise_card`
+# macro at 390 px, two lines hold about 45 characters on a picture row and 65 text-only, too few
+# for the cues. 180 fits the longest cue-complete output of #600's runs (the deadlift's, 165
+# characters); the card keeps its two-line clamp and "More" shows the rest.
 DEFAULT_SIMPLE_HOWTO_MODEL = "z-ai/glm-5.3-flash"
 DEFAULT_SIMPLE_HOWTO_PROVIDER = ProviderPreferences(only=["z-ai/fp8"])
-DEFAULT_EXERCISE_SIMPLE_HOWTO_MAX_CHARS = 160
+DEFAULT_SIMPLE_HOWTO_REASONING_EFFORT: ReasoningEffort = "high"
+DEFAULT_EXERCISE_SIMPLE_HOWTO_MAX_CHARS = 180
 
 
 class SimpleHowtoSettings(BaseModel):
     """`exercise.simple_howto`'s model, upstream routing, reasoning effort and timeout (ADR-0026),
-    and the longest text it may store (ADR-0031). A blank model or blank preferences keep the
-    default; a blank effort leaves the model's own."""
+    and the longest text it may store (ADR-0031). A blank model, preferences or effort keeps the
+    default."""
 
     simple_howto_model: str = DEFAULT_SIMPLE_HOWTO_MODEL
     simple_howto_provider_preferences: ProviderPreferencesSetting = DEFAULT_SIMPLE_HOWTO_PROVIDER
-    simple_howto_reasoning_effort: ReasoningEffort | None = None
+    simple_howto_reasoning_effort: ReasoningEffort | None = DEFAULT_SIMPLE_HOWTO_REASONING_EFFORT
     exercise_simple_howto_max_chars: int = Field(
         default=DEFAULT_EXERCISE_SIMPLE_HOWTO_MAX_CHARS, gt=0
     )
@@ -120,8 +123,11 @@ class SimpleHowtoSettings(BaseModel):
 
     @field_validator("simple_howto_reasoning_effort", mode="before")
     @classmethod
-    def _blank_effort_is_unset(cls, value: object) -> object:
-        return value.strip() or None if isinstance(value, str) else value
+    def _blank_effort_is_the_default(cls, value: object) -> object:
+        # Unset, the model reasons at its own `max` (#600).
+        if isinstance(value, str) and not value.strip():
+            return DEFAULT_SIMPLE_HOWTO_REASONING_EFFORT
+        return value
 
 
 # The fallback media source's model and its tool-printed price per picture (ADR-0031 #524,

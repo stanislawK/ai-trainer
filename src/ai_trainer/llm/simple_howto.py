@@ -28,7 +28,7 @@ from ai_trainer.llm.prompts.template import PromptTemplate
 from ai_trainer.settings_values import DEFAULT_EXERCISE_SIMPLE_HOWTO_MAX_CHARS
 
 SIMPLE_HOWTO_TEMPLATE_ID = "exercise.simple_howto"
-SIMPLE_HOWTO_VERSION = 1
+SIMPLE_HOWTO_VERSION = 2
 
 
 def simple_howto_template() -> PromptTemplate[SimpleHowtoDeps, SimpleHowto | NoHowto]:

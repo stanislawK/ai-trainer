@@ -191,7 +191,15 @@ async def run_smoke_set(
         if errors:
             detail = "evaluator crashed: " + "; ".join(errors)
         elif failed:
+            # A judge's reason, when its assertion sets `include_reason` (#600).
+            reasons = [
+                f"{name}: {result.reason}"
+                for name, result in case.assertions.items()
+                if not result.value and result.reason
+            ]
             detail = f"failed {', '.join(failed)}; got {case.output!r}"
+            if reasons:
+                detail += "; " + "; ".join(reasons)
         elif not case.assertions:
             detail = "no evaluator asserted on this case"
         else:
