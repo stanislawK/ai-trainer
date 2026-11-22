@@ -68,7 +68,7 @@
   document.addEventListener("htmx:after:swap", function (event) {
     // An exercise card's how-to line swaps in on its own while the athlete reads the card (#592):
     // it must neither take their focus nor scroll the thread.
-    if (event.target.closest && event.target.closest("[data-howto]")) {
+    if (event.target.closest && event.target.closest("[data-howto], [data-howto-load]")) {
       return;
     }
     var input = document.querySelector("[data-chat-input]");

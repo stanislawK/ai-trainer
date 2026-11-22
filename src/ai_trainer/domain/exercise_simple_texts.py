@@ -236,8 +236,6 @@ class HowtoFailed:
 
 
 type HowtoResult = HowtoStored | HowtoPresent | HowtoSkipped | HowtoFailed | HowtoRejected
-"""What writing one exercise's beginner how-to reads, calls, checks and stores (ADR-0031 *Beginner
-how-to*, #589, #591)."""
 
 
 @dataclass(frozen=True, slots=True)
