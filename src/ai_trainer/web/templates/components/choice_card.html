@@ -5,6 +5,7 @@
 {%- from "components/climbing_copy.html" import climbing_readings -%}
 {%- from "components/gym_copy.html" import gym_readings -%}
 {%- from "components/cycling_copy.html" import cycling_readings -%}
+{%- from "components/media_credit.html" import credit -%}
 {% macro option_label(option) -%}
 {%- set copy = sport_copy.get(option.copy_key) or session_copy.get(option.copy_key) or climbing_readings.get(option.copy_key) or gym_readings.get(option.copy_key) or cycling_readings.get(option.copy_key) or {} -%}
 {%- set label = copy.get("label", option.id).format(**option.params) -%}
@@ -28,22 +29,38 @@
   {%- endfor %}
 </div>
 {%- endmacro %}
-{#- The exercise card (F23, ADR-0031, ticket #402; the Exercise Card mock, layout A): asked in the draft's place, one name at a time, with up to 4 candidates, each with its how-to text from `exercise_texts` clamped to two lines, then "Keep my name" and "Let me type instead". With no candidate only those two remain. No approved media exists until M2m, so a row has no picture and no empty slot. -#}
-{% macro exercise_card(question) -%}
+{#- The exercise card (F23, F24, ADR-0031, tickets #402 and #558; the Exercise Card mock, layout A): asked in the draft's place, one name at a time, with up to 4 candidates, each with its how-to text from `exercise_texts` clamped to two lines, then "Keep my name" and "Let me type instead". With no candidate only those two remain. `pictures` holds each candidate's first approved picture by option ID: such a row is the mock's media row, with the picture on a `bg-base-content/10` fill (`bg-primary/10` for a generated one, as the mock and the admin page draw it), 48 px on the phone, where the how-to clamps at one line, and 64 px wider, scaled by CSS only, and no chevron; its credit sits just below the row button, inside the card, and wraps rather than truncates (#551). A row without one has no picture and no empty slot. -#}
+{#- One candidate's row button, or, as `keep`, "Keep my name". -#}
+{% macro exercise_option(question, option, picture=none, keep=false) -%}
+<button type="button" class="lg lg-clear lg-row{% if picture %} items-start{% endif %}" hx-post="/clarifications/{{ question.id }}/answer" hx-vals='{{ {"option_ids": option.id} | tojson }}' hx-target="closest [data-choice-card]" hx-swap="outerHTML" hx-disable="[data-choice-card='{{ question.id }}'] button" hx-status:4xx="swap:none" data-choice-option="{{ option.id }}">
+      {%- if picture %}
+      <span class="shrink-0 size-12 sm:size-16 rounded-xl overflow-hidden grid place-items-center {{ 'bg-primary/10' if picture.origin == 'generated' else 'bg-base-content/10' }}"><img src="{{ picture.public_url }}" alt="" class="size-full object-contain" loading="lazy" decoding="async"></span>
+      <span class="flex flex-col flex-1 min-w-0 gap-0.5"><span class="text-[16px] font-medium leading-5">{{ option_label(option) }}</span>{% if option.params.get("how") %}<span class="text-[13px] leading-[18px] lbl-2 line-clamp-1 sm:line-clamp-2">{{ option.params.how }}</span>{% endif %}</span>
+      {%- elif keep %}
+      <span class="flex flex-col flex-1 min-w-0"><span class="text-[16px] font-medium">{{ option_label(option) }}</span><span class="text-[13px] lbl-2">{{ option_hint(option) }}</span></span>
+      {{ icon("chevron-right", "size-4 lbl-2") }}
+      {%- else %}
+      <span class="flex flex-col flex-1 min-w-0 gap-0.5"><span class="text-[16px] font-medium leading-5">{{ option_label(option) }}</span>{% if option.params.get("how") %}<span class="text-[13px] leading-[18px] lbl-2 line-clamp-2">{{ option.params.how }}</span>{% endif %}</span>
+      {{ icon("chevron-right", "size-4 lbl-2") }}
+      {%- endif %}
+    </button>
+{%- endmacro %}
+{% macro exercise_card(question, pictures={}) -%}
 {%- set subject = question.clarification.subject -%}
 {%- set options = question.clarification.options -%}
 <div class="mat-content rounded-box p-4 flex flex-col gap-3" role="group" aria-labelledby="choice-{{ question.id }}-question" data-choice-card="{{ question.id }}">
   <p id="choice-{{ question.id }}-question" class="text-[16px] leading-6">{% if options | length > 1 %}Which exercise is “{{ subject }}”?{% else %}I don't have “{{ subject }}” in my list.{% endif %}</p>
   <div class="flex flex-col gap-2">
     {%- for option in options %}
-    <button type="button" class="lg lg-clear lg-row" hx-post="/clarifications/{{ question.id }}/answer" hx-vals='{{ {"option_ids": option.id} | tojson }}' hx-target="closest [data-choice-card]" hx-swap="outerHTML" hx-disable="[data-choice-card='{{ question.id }}'] button" hx-status:4xx="swap:none" data-choice-option="{{ option.id }}">
-      {%- if loop.last %}
-      <span class="flex flex-col flex-1 min-w-0"><span class="text-[16px] font-medium">{{ option_label(option) }}</span><span class="text-[13px] lbl-2">{{ option_hint(option) }}</span></span>
-      {%- else %}
-      <span class="flex flex-col flex-1 min-w-0 gap-0.5"><span class="text-[16px] font-medium leading-5">{{ option_label(option) }}</span>{% if option.params.get("how") %}<span class="text-[13px] leading-[18px] lbl-2 line-clamp-2">{{ option.params.how }}</span>{% endif %}</span>
-      {%- endif %}
-      {{ icon("chevron-right", "size-4 lbl-2") }}
-    </button>
+    {%- set picture = pictures.get(option.id) if not loop.last else none %}
+    {%- if picture %}
+    <div class="flex flex-col gap-1" data-candidate="{{ option.id }}">
+    {{ exercise_option(question, option, picture) }}
+    {{ credit(picture, "flex items-center gap-x-1.5 gap-y-3 flex-wrap px-2 text-[12px] leading-4 lbl-2", "flex items-center gap-x-1.5 gap-y-3 flex-wrap px-2 text-[12px] leading-4 lbl-2") }}
+    </div>
+    {%- else %}
+    {{ exercise_option(question, option, keep=loop.last) }}
+    {%- endif %}
     {%- endfor %}
   </div>
   <button type="button" class="lg lg-ghost self-start" hx-get="/clarifications/{{ question.id }}/name" hx-target="closest [data-choice-card]" hx-swap="outerHTML" hx-status:4xx="swap:none">Let me type instead</button>

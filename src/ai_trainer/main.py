@@ -83,6 +83,7 @@ from ai_trainer.application.exercise_candidates import (
     KnowledgeExerciseSearch,
     SearchedExerciseNames,
 )
+from ai_trainer.application.exercise_card_media import ExerciseCardMedia
 from ai_trainer.application.exercise_lookup import ExerciseFinder
 from ai_trainer.application.exercise_media_review import ExerciseMediaReview
 from ai_trainer.application.exercise_picture import ExercisePictureService, PicturePorts, RunSpend
@@ -852,6 +853,10 @@ def create_app(  # noqa: PLR0915 -- composition root: objects are built only her
             replies=replies,
             sports=app.state.sport_registry,
             retention_days=settings.conversation_retention_days,
+            card_media=ExerciseCardMedia(
+                media=SqlAlchemyExerciseMediaRepository(session_factory),
+                public_base_url=settings.media_public_base_url,
+            ),
         )
     )
     knowledge = build_knowledge_sources(settings, session_factory, clock, sport_registry)

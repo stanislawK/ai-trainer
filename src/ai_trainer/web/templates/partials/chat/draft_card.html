@@ -4,7 +4,7 @@
 {%- from "components/sport_copy.html" import sport_copy -%}
 {#- A name the app couldn't settle asks on the exercise card in this card's place, until it's answered (F23, #402, the Exercise Card mock). -#}
 {%- if card.asks_name -%}
-{{ exercise_card(card.question) }}
+{{ exercise_card(card.question, card.pictures) }}
 {%- else -%}
 {#- A rename or a sport change leaves answered rows above this card that no longer hold; only this card is swapped, so they go out of band (#402). -#}
 {%- for answer in card.dropped %}

@@ -1,4 +1,5 @@
 {% from "components/icon.html" import icon %}
+{% from "components/media_credit.html" import credit as media_credit %}
 {#- Exercise media under Admin (F24, ADR-0031, #554; the Exercise Media mock, options A1, B2, C1
     and D1): the filter chips, one `mat-content` card per exercise with its pictures as rows, the
     toast after an approval and the empty card. Every word the admin reads is here (G5). No row
@@ -69,10 +70,6 @@
 {%- endif %}
 {%- endmacro %}
 
-{% macro link_chip(href, label, arrow=false) -%}
-<a href="{{ href }}" class="lg lg-clear lg-chip relative" target="_blank" rel="noopener noreferrer"><span class="absolute inset-x-0 -inset-y-1.5" aria-hidden="true"></span>{{ label }}{% if arrow %}{{ icon("arrow-up-right", "size-3.5 lbl-2") }}{% endif %}</a>
-{%- endmacro %}
-
 {% macro thumbnail(picture) -%}
 <span class="shrink-0 size-16 lg:size-20 rounded-xl overflow-hidden grid place-items-center {{ 'bg-primary/10' if picture.origin == 'generated' else 'bg-base-content/10' }}">
   {%- if picture.public_url %}
@@ -86,28 +83,7 @@
 {%- endmacro %}
 
 {% macro credit(picture) -%}
-{%- if picture.origin == "wger" %}
-<span class="flex items-center gap-x-1.5 gap-y-3 flex-wrap text-[13px] leading-[18px]" data-credit="wger">
-  {%- if picture.credit %}
-  <span>{{ picture.credit.author }} ·</span>
-  {{ link_chip(picture.credit.licence_url, picture.credit.licence) }}
-  {%- else %}
-  <span>{{ picture.attribution }}</span>
-  {%- endif %}
-  <span class="lbl-2">via</span>
-  {{ link_chip(picture.page_url, "wger.de", arrow=true) }}
-  {%- if picture.ai_flagged %}
-  <span class="badge badge-soft badge-sm" data-mark="ai">AI generated</span>
-  {%- endif %}
-</span>
-{%- elif picture.origin == "embedded" %}
-<span class="flex items-center gap-x-1.5 gap-y-3 flex-wrap text-[13px] leading-[18px]" data-credit="unstated">
-  {{ link_chip(picture.page_url, picture.source, arrow=true) }}
-  <span class="lbl-2">· rights not confirmed</span>
-</span>
-{%- else %}
-<span class="text-[13px] leading-[18px]" data-credit="{{ picture.origin }}">{{ picture.attribution }}</span>
-{%- endif %}
+{{ media_credit(picture, "flex items-center gap-x-1.5 gap-y-3 flex-wrap text-[13px] leading-[18px]", "text-[13px] leading-[18px]") }}
 {%- endmacro %}
 
 {% macro picture_row(picture, view) -%}

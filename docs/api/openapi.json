@@ -1646,7 +1646,7 @@
     },
     "/clarifications/{clarification_id}/card": {
       "get": {
-        "description": "The name field's Back: the exercise card again. Nothing is written (ticket #402).",
+        "description": "The name field's Back: the exercise card again, with its pictures (#558). Nothing is\nwritten (ticket #402).",
         "operationId": "exercise_card_clarifications__clarification_id__card_get",
         "parameters": [
           {

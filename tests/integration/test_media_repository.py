@@ -435,3 +435,58 @@ async def test_has_live_link_besides_counts_other_suggested_or_approved_links(
     assert await repository.has_live_link_besides(asset_id, link_id)
     await repository.remove(other_id, at=REMOVED_AT)
     assert not await repository.has_live_link_besides(asset_id, link_id)
+
+
+async def test_first_approved_pictures_takes_lowest_position_per_exercise(
+    db_session_factory: SessionFactory, repository: SqlAlchemyExerciseMediaRepository
+) -> None:
+    exercise_id = await _exercise(db_session_factory)
+    other_id = await _exercise(db_session_factory)
+    first, second, others = _stored(), _stored(), _generated()
+    for asset, position, on in (
+        (second, 3, exercise_id),
+        (first, 1, exercise_id),
+        (others, 0, other_id),
+    ):
+        asset_id = await repository.add_asset(asset)
+        await repository.link(on, asset_id, position=position, status=MediaLinkStatus.APPROVED)
+
+    found = await repository.first_approved_pictures([exercise_id, other_id])
+
+    assert {key: asset.sha256 for key, asset in found.items()} == {
+        exercise_id: first.sha256,
+        other_id: others.sha256,
+    }
+
+
+async def test_first_approved_pictures_skips_suggested_and_removed(
+    db_session_factory: SessionFactory, repository: SqlAlchemyExerciseMediaRepository
+) -> None:
+    exercise_id = await _exercise(db_session_factory)
+    for asset, status in (
+        (_stored(), MediaLinkStatus.SUGGESTED),
+        (_stored(), MediaLinkStatus.REMOVED),
+    ):
+        asset_id = await repository.add_asset(asset)
+        await repository.link(exercise_id, asset_id, position=0, status=status)
+    # An approved embedded video is no picture for the card.
+    video_id = await repository.add_asset(_embedded())
+    await repository.link(exercise_id, video_id, position=1, status=MediaLinkStatus.APPROVED)
+
+    assert await repository.first_approved_pictures([exercise_id]) == {}
+
+
+async def test_first_approved_pictures_reads_only_catalogue_exercises(
+    db_session_factory: SessionFactory, repository: SqlAlchemyExerciseMediaRepository
+) -> None:
+    own_id = await _custom_exercise(db_session_factory)
+    asset_id = await repository.add_asset(_stored())
+    await repository.link(own_id, asset_id, position=0, status=MediaLinkStatus.APPROVED)
+
+    assert await repository.first_approved_pictures([own_id]) == {}
+
+
+async def test_first_approved_pictures_of_no_exercise_is_empty(
+    repository: SqlAlchemyExerciseMediaRepository,
+) -> None:
+    assert await repository.first_approved_pictures([]) == {}

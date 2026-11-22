@@ -13,10 +13,15 @@ from fastapi import HTTPException, Request
 from pydantic import ValidationError
 from starlette.templating import Jinja2Templates
 
+from ai_trainer.application.exercise_card_media import CardPicture, ExerciseCardMedia
 from ai_trainer.application.ports.chat import ChatRepositoryPort, ConversationRepositoryPort
 from ai_trainer.application.ports.clock import ClockPort
 from ai_trainer.application.reply import ReplyDone, ReplyServices, asking_sports
-from ai_trainer.domain.clarification import StoredClarification
+from ai_trainer.domain.clarification import (
+    EXERCISE_PURPOSE,
+    KEEP_NAME_OPTION,
+    StoredClarification,
+)
 from ai_trainer.domain.exercises import ExerciseLabel
 from ai_trainer.domain.sports.registry import SportRegistry
 from ai_trainer.domain.training import StoredDraft
@@ -51,6 +56,21 @@ def is_htmx(request: Request) -> bool:
     )
 
 
+def _exercise_ids(questions: Iterable[StoredClarification | None]) -> set[UUID]:
+    """The exercises the open exercise questions offer: a candidate's option ID is its
+    exercise's ID, and one that isn't an ID ("Keep my name") is skipped."""
+    found: set[UUID] = set()
+    for question in questions:
+        if question is None or question.purpose != EXERCISE_PURPOSE or question.status != "open":
+            continue
+        for option in question.clarification.options:
+            if option.id == KEEP_NAME_OPTION:
+                continue
+            with suppress(ValueError):
+                found.add(UUID(option.id))
+    return found
+
+
 @dataclass(frozen=True, slots=True)
 class ChatContext:
     templates: Jinja2Templates
@@ -58,6 +78,8 @@ class ChatContext:
     replies: ReplyServices
     sports: SportRegistry
     retention_days: int
+    # Approved pictures on the exercise card (#558); without it the card is text only.
+    card_media: ExerciseCardMedia | None = None
 
     @property
     def clock(self) -> ClockPort:
@@ -76,6 +98,16 @@ class ChatContext:
     async def athlete_sports(self, user: User) -> Sequence[str]:
         """The athlete's own sports, the ones a pending card's chip can offer (#163)."""
         return await self.replies.profile.list_sports(user.id)
+
+    async def exercise_pictures(
+        self, questions: Iterable[StoredClarification | None]
+    ) -> Mapping[str, CardPicture]:
+        """The pictures of every open exercise question's candidates, by option ID, read in one
+        call when the card is drawn, so a removed picture never shows (F24, #558)."""
+        if self.card_media is None:
+            return {}
+        found = await self.card_media.pictures(_exercise_ids(questions))
+        return {str(exercise_id): picture for exercise_id, picture in found.items()}
 
     async def draft_labels(
         self,
@@ -143,6 +175,7 @@ class ChatContext:
             questions=done.clarifications,
             labels=await self.draft_labels(user, done.drafts, done.clarifications),
             answers=self.draft_answers(done.drafts, done.clarifications),
+            pictures=await self.exercise_pictures(done.clarifications),
         )
 
     async def shown_card(self, user: User, draft: StoredDraft) -> DraftCard:
@@ -158,12 +191,14 @@ class ChatContext:
         )
         labels = await self.draft_labels(user, [draft], asked)
         current = self.current_answers(draft, asked)
+        question = open_questions(asked).get(draft.id)
         card = draft_card(
             draft,
             sports=self.sports,
             today=self.local_today(user),
             athlete_sports=await self.athlete_sports(user) if pending else (),
-            question=open_questions(asked).get(draft.id),
+            question=question,
+            pictures=await self.exercise_pictures([question]),
             asking=asking_sports(asked, draft.message_id),
             labels=labels.get(draft.id),
             dropped=tuple(

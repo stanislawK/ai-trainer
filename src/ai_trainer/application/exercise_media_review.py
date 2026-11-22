@@ -15,45 +15,30 @@ moved, the picture's public URL is purged from Cloudflare's cache (#557); a fail
 fails Remove, the page says a cached copy may still show."""
 
 import logging
-import re
 from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from itertools import groupby
-from typing import Literal
 from uuid import UUID
 
+from ai_trainer.application.media_credit import (
+    PictureOrigin,
+    WgerCredit,
+    ai_flagged,
+    page_url,
+    picture_origin,
+    wger_credit,
+)
 from ai_trainer.application.media_quarantine import MediaQuarantine
 from ai_trainer.application.ports.cdn_cache import CdnCachePort
 from ai_trainer.application.ports.clock import ClockPort
 from ai_trainer.application.ports.media import ExerciseMediaReviewPort
 from ai_trainer.domain.cdn_cache import CdnCacheError
-from ai_trainer.domain.media import (
-    ExerciseMediaReviewRow,
-    MediaDelivery,
-    MediaLinkStatus,
-)
-from ai_trainer.domain.media_generation import GENERATED_PICTURE_SOURCE
-from ai_trainer.domain.media_sources import AI_GENERATED_FRAGMENT, WGER_SOURCE
+from ai_trainer.domain.media import ExerciseMediaReviewRow, MediaLinkStatus
+from ai_trainer.domain.media_sources import WGER_SOURCE
 from ai_trainer.domain.object_storage import media_public_url
 
 logger = logging.getLogger(__name__)
-
-type PictureOrigin = Literal["wger", "generated", "embedded", "other"]
-
-# ADR-0031 *First media source*: `<author> · <licence name> (<licence URL>) — via wger.de`.
-_WGER_ATTRIBUTION = re.compile(
-    r"^(?P<author>.+) · (?P<licence>.+) \((?P<url>https?://[^\s()]+)\) — via wger\.de$"
-)
-
-
-@dataclass(frozen=True, slots=True)
-class WgerCredit:
-    """A wger picture's credit, split so its licence can be a link."""
-
-    author: str
-    licence: str
-    licence_url: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -138,23 +123,6 @@ type ApproveOutcome = Approved | NotSuggested
 type RestoreOutcome = Restored | RestoreFailed
 
 
-def _origin(row: ExerciseMediaReviewRow) -> PictureOrigin:
-    if row.asset.delivery is MediaDelivery.EMBEDDED:
-        return "embedded"
-    if row.asset.source == WGER_SOURCE:
-        return "wger"
-    if row.asset.source == GENERATED_PICTURE_SOURCE:
-        return "generated"
-    return "other"
-
-
-def _credit(attribution: str | None) -> WgerCredit | None:
-    match = _WGER_ATTRIBUTION.fullmatch(attribution or "")
-    if match is None:
-        return None
-    return WgerCredit(author=match["author"], licence=match["licence"], licence_url=match["url"])
-
-
 class ExerciseMediaReview:
     """Facade for `/admin/exercises`: the caller has already checked the admin (ADR-0005)."""
 
@@ -175,26 +143,23 @@ class ExerciseMediaReview:
 
     def _picture(self, row: ExerciseMediaReviewRow) -> ReviewPicture:
         asset = row.asset
-        origin = _origin(row)
+        origin = picture_origin(asset)
         # A removed picture's public URL stops serving it, so none is drawn (no broken image).
         public_url = (
             media_public_url(self._base_url, asset.storage_key)
             if asset.storage_key is not None and row.status is not MediaLinkStatus.REMOVED
             else None
         )
-        page_url: str | None = asset.embed_url
-        if origin == "wger":
-            page_url = asset.source_ref.removesuffix(AI_GENERATED_FRAGMENT)
         return ReviewPicture(
             link_id=row.link_id,
             status=row.status,
             origin=origin,
             public_url=public_url,
-            page_url=page_url,
-            credit=_credit(asset.attribution) if origin == "wger" else None,
+            page_url=page_url(asset),
+            credit=wger_credit(asset),
             attribution=asset.attribution,
             source=asset.source,
-            ai_flagged=origin == "wger" and asset.source_ref.endswith(AI_GENERATED_FRAGMENT),
+            ai_flagged=ai_flagged(asset),
             removed_at=row.removed_at,
             removed_from=row.removed_from,
         )
@@ -246,7 +211,7 @@ class ExerciseMediaReview:
         left = await self._media.review_links(MediaLinkStatus.SUGGESTED, exercise_id=exercise_id)
         return BulkApproved(
             count=count,
-            generated_left=sum(1 for row in left if _origin(row) == "generated"),
+            generated_left=sum(1 for row in left if picture_origin(row.asset) == "generated"),
         )
 
     async def remove(self, link_id: UUID) -> Removed | Restored | None:
