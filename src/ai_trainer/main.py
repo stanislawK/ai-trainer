@@ -143,6 +143,7 @@ from ai_trainer.llm.question_sport import JevQuestionSport
 from ai_trainer.llm.router_fast import JevFastRouter, RouterFastThresholds
 from ai_trainer.llm.safety_screen import JevSafetyScreen
 from ai_trainer.llm.simple_howto import LlmSimpleHowtoWriter, SimpleHowtoCall
+from ai_trainer.llm.simple_howto_check import JevSimpleHowtoCheck
 from ai_trainer.mcp.citations import cited_sources
 from ai_trainer.mcp.server import build_mcp_server
 from ai_trainer.mcp.toolset import build_toolset
@@ -323,11 +324,13 @@ def build_simple_howto(
     sports: SportRegistry,
     *,
     gateway: LlmGatewayPort,
+    decisions: DecisionGatewayPort,
     clock: ClockPort,
 ) -> WriteSimpleHowto:
     """The beginner how-to, written the first time a card shows a catalogue exercise (ADR-0031,
-    #589). The app passes its budgeted gateway, so the call counts against the athlete's budget
-    (ADR-0029); the card's route is a later ticket."""
+    #589) and checked by Jev before it is stored (#591). The app passes its budgeted gateways, so
+    both calls count against the athlete's budget (ADR-0029); the card's route is a later
+    ticket."""
     return WriteSimpleHowto(
         texts=SqlAlchemyExerciseSimpleTextRepository(session_factory),
         writer=LlmSimpleHowtoWriter(
@@ -339,6 +342,9 @@ def build_simple_howto(
                 reasoning_effort=settings.simple_howto_reasoning_effort,
                 timeout_seconds=settings.exercise_simple_howto_timeout_seconds,
             ),
+        ),
+        check=JevSimpleHowtoCheck(
+            decisions, threshold=settings.exercise_simple_howto_check_threshold
         ),
         clock=clock,
         max_chars=settings.exercise_simple_howto_max_chars,
@@ -824,11 +830,16 @@ def create_app(  # noqa: PLR0915 -- composition root: objects are built only her
         budget,
     )
     conversation = build_llm_conversation(settings, sport_registry, gateway)
-    app.state.simple_howto = build_simple_howto(
-        settings, session_factory, sport_registry, gateway=gateway, clock=clock
-    )
     decisions = BudgetedDecisionGateway(
         OpenRouterDecisionGateway(settings, llm_calls, debug_log=debug_log), budget
+    )
+    app.state.simple_howto = build_simple_howto(
+        settings,
+        session_factory,
+        sport_registry,
+        gateway=gateway,
+        decisions=decisions,
+        clock=clock,
     )
     replies = ReplyServices(
         chat=chat,

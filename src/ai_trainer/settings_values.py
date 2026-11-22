@@ -99,6 +99,11 @@ class SimpleHowtoSettings(BaseModel):
     )
     # The card falls back to the clamped original, so a slow call is cut short.
     exercise_simple_howto_timeout_seconds: float = Field(default=8.0, gt=0)
+    # Jev's check (`exercise_simple_howto_check`, ADR-0031, #591): P(yes) on both of its
+    # questions at or above this stores the text. It starts conservative: a false fail costs
+    # only the clamped original on the card, while a false pass shows a wrong how-to to every
+    # athlete until one flags it. It is calibrated on its dataset and moves via /tune-prompt.
+    exercise_simple_howto_check_threshold: float = Field(default=0.8, ge=0, le=1)
 
     @field_validator("simple_howto_model", mode="before")
     @classmethod

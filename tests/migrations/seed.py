@@ -265,7 +265,9 @@ def _rows() -> dict[str, tuple[Row, ...]]:
                 "steps": ["Row it."] if a else ["Wypchnij.", "Opuść."],
             }
         )
-        # A shared beginner how-to holds no user data; seeded on the exercise above (#589).
+        # A shared beginner how-to holds no user data; seeded on the exercise above (#589). A's
+        # failed its Jev check once and then passed (#591); a text-less row can't be seeded at a
+        # head where `text` is NOT NULL.
         rows.setdefault("exercise_simple_texts", []).append(
             {
                 "exercise_id": exercise,
@@ -277,7 +279,7 @@ def _rows() -> dict[str, tuple[Row, ...]]:
                 "source_sha256": ("a" if a else "b") * 64,
                 "status": "shown" if a else "flagged",
                 "check_version": None if a else 1,
-                "check_failures": 0 if a else 2,
+                "check_failures": 1 if a else 2,
                 "created_at": _at(n, 14),
                 "flagged_at": None if a else _at(n, 15),
                 "edited_at": None if a else _at(n, 16),

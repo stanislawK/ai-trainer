@@ -26,6 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from ai_trainer import main as main_module
+from ai_trainer.application.budgeted_gateways import BudgetedDecisionGateway, BudgetedLlmGateway
 from ai_trainer.application.exercise_simple_howto import WriteSimpleHowto
 from ai_trainer.llm.gateway import OpenRouterGateway
 from ai_trainer.main import _build_tracer_provider, _traces_endpoint, app_factory, create_app
@@ -181,6 +182,27 @@ def test_create_app_exposes_the_beginner_how_to_for_the_card_route() -> None:
     app = create_app(_settings())
 
     assert isinstance(app.state.simple_howto, WriteSimpleHowto)
+
+
+def test_build_simple_howto_checks_through_budgeted_decision_gateway(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """AC 5 (#591): the Jev check goes through the app's budgeted decision gateway, so it writes
+    an `llm_calls` row under the athlete and counts against the same budget as the text call."""
+    built: list[dict[str, Any]] = []
+    real = main_module.build_simple_howto
+
+    def recording(*args: Any, **kwargs: Any) -> WriteSimpleHowto:
+        built.append(kwargs)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(main_module, "build_simple_howto", recording)
+
+    create_app(_settings())
+
+    [kwargs] = built
+    assert isinstance(kwargs["decisions"], BudgetedDecisionGateway)
+    assert isinstance(kwargs["gateway"], BudgetedLlmGateway)
 
 
 def test_create_app_serves_the_ai_onboarding_cards() -> None:

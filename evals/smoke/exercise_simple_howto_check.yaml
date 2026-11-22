@@ -1,0 +1,148 @@
+# Smoke set for the exercise_simple_howto_check decision (ADR-0034, #591): graded in code, run once
+# on Jev, at least one case of each broken kind plus good ones, cut from
+# evals/datasets/exercise_simple_howto_check.yaml (no field transcript covers the card yet). Each
+# case's deps are the catalogue instructions (`original`, verbatim from
+# evals/smoke/exercise.simple_howto.yaml) and a hand-written `summary`; `passes` is what the app
+# would decide at the Settings threshold, through its own `check_passes`. `metadata.kind` names the
+# case's kind. A false pass shows a wrong how-to; a false fail keeps the original on the card.
+name: exercise_simple_howto_check
+cases:
+- name: 'dumbbell lateral raise: good'
+  metadata:
+    kind: good
+    exercise: Dumbbell Lateral Raise
+    instructions_source: exercises-dataset 0334
+  inputs:
+    prompt: Dumbbell Lateral Raise
+    deps:
+      original: Stand with your feet shoulder-width apart and hold a dumbbell in each hand, palms facing
+        your body. Keep your back straight and engage your core. Raise your arms out to the sides until
+        they are parallel to the floor, keeping a slight bend in your elbows. Pause for a moment at the
+        top, then slowly lower your arms back down to the starting position. Repeat for the desired number
+        of repetitions.
+      summary: Hold a dumbbell in each hand, back straight and core tight. Raise your arms out to the
+        sides to shoulder height, elbows slightly bent, then lower slowly.
+  expected_output:
+    passes: true
+- name: 'barbell bench press: good'
+  metadata:
+    kind: good
+    exercise: Barbell Bench Press
+    instructions_source: exercises-dataset 0025
+  inputs:
+    prompt: Barbell Bench Press
+    deps:
+      original: Lie flat on a bench with your feet flat on the ground and your back pressed against the
+        bench. Grasp the barbell with an overhand grip slightly wider than shoulder-width apart. Lift
+        the barbell off the rack and hold it directly above your chest with your arms fully extended.
+        Lower the barbell slowly towards your chest, keeping your elbows tucked in. Pause for a moment
+        when the barbell touches your chest. Push the barbell back up to the starting position by extending
+        your arms. Repeat for the desired number of repetitions.
+      summary: Lie on the bench, feet flat and back pressed down. Lower the bar slowly to your chest,
+        elbows tucked in, then press it back up.
+  expected_output:
+    passes: true
+- name: 'push-up: good'
+  metadata:
+    kind: good
+    exercise: Push-Up
+    instructions_source: exercises-dataset 0662
+  inputs:
+    prompt: Push-Up
+    deps:
+      original: Start in a high plank position with your hands slightly wider than shoulder-width apart
+        and your feet together. Engage your core and lower your body towards the ground by bending your
+        elbows, keeping your body in a straight line. Pause for a moment when your chest is just above
+        the ground, then push yourself back up to the starting position by straightening your arms. Repeat
+        for the desired number of repetitions.
+      summary: From a high plank, hands just wider than your shoulders and core tight, lower your chest
+        near the floor, body straight, then push back up.
+  expected_output:
+    passes: true
+- name: '3/4 sit-up: good'
+  metadata:
+    kind: good
+    exercise: 3/4 Sit-Up
+    instructions_source: exercises-dataset 0001
+  inputs:
+    prompt: 3/4 Sit-Up
+    deps:
+      original: Lie flat on your back with your knees bent and feet flat on the ground. Place your hands
+        behind your head with your elbows pointing outwards. Engaging your abs, slowly lift your upper
+        body off the ground, curling forward until your torso is at a 45-degree angle. Pause for a moment
+        at the top, then slowly lower your upper body back down to the starting position. Repeat for the
+        desired number of repetitions.
+      summary: Lie on your back, knees bent, hands behind your head. Using your abs, slowly curl up to
+        45 degrees, then lower slowly.
+  expected_output:
+    passes: true
+- name: 'barbell deadlift: drops the straight back'
+  metadata:
+    kind: dropped_cue
+    exercise: Barbell Deadlift
+    instructions_source: exercises-dataset 0032
+  inputs:
+    prompt: Barbell Deadlift
+    deps:
+      original: Stand with your feet shoulder-width apart and the barbell on the ground in front of you.
+        Bend your knees and hinge at the hips to lower your torso and grip the barbell with an overhand
+        grip, hands slightly wider than shoulder-width apart. Keep your back straight and chest lifted
+        as you drive through your heels to lift the barbell off the ground, extending your hips and knees.
+        As you stand up straight, squeeze your glutes and keep your core engaged. Lower the barbell back
+        down to the ground by bending at the hips and knees, keeping your back straight. Repeat for the
+        desired number of repetitions.
+      summary: Hinge at the hips to grip the bar, then drive through your heels to stand up. Squeeze your
+        glutes, then lower the bar back to the ground.
+  expected_output:
+    passes: false
+- name: '3/4 sit-up: adds a tucked chin'
+  metadata:
+    kind: added_cue
+    exercise: 3/4 Sit-Up
+    instructions_source: exercises-dataset 0001
+  inputs:
+    prompt: 3/4 Sit-Up
+    deps:
+      original: Lie flat on your back with your knees bent and feet flat on the ground. Place your hands
+        behind your head with your elbows pointing outwards. Engaging your abs, slowly lift your upper
+        body off the ground, curling forward until your torso is at a 45-degree angle. Pause for a moment
+        at the top, then slowly lower your upper body back down to the starting position. Repeat for the
+        desired number of repetitions.
+      summary: Lie on your back, knees bent, hands behind your head. Tuck your chin, and using your abs
+        slowly curl up to 45 degrees, then lower slowly.
+  expected_output:
+    passes: false
+- name: '3/4 sit-up: 45 degrees becomes 90'
+  metadata:
+    kind: changed_number
+    exercise: 3/4 Sit-Up
+    instructions_source: exercises-dataset 0001
+  inputs:
+    prompt: 3/4 Sit-Up
+    deps:
+      original: Lie flat on your back with your knees bent and feet flat on the ground. Place your hands
+        behind your head with your elbows pointing outwards. Engaging your abs, slowly lift your upper
+        body off the ground, curling forward until your torso is at a 45-degree angle. Pause for a moment
+        at the top, then slowly lower your upper body back down to the starting position. Repeat for the
+        desired number of repetitions.
+      summary: Lie on your back, knees bent, hands behind your head. Using your abs, slowly curl up to
+        90 degrees, then lower slowly.
+  expected_output:
+    passes: false
+- name: 'dumbbell lateral raise: describes a front raise'
+  metadata:
+    kind: another_movement
+    exercise: Dumbbell Lateral Raise
+    instructions_source: exercises-dataset 0334
+  inputs:
+    prompt: Dumbbell Lateral Raise
+    deps:
+      original: Stand with your feet shoulder-width apart and hold a dumbbell in each hand, palms facing
+        your body. Keep your back straight and engage your core. Raise your arms out to the sides until
+        they are parallel to the floor, keeping a slight bend in your elbows. Pause for a moment at the
+        top, then slowly lower your arms back down to the starting position. Repeat for the desired number
+        of repetitions.
+      summary: Hold a dumbbell in each hand, back straight and core tight. Raise your arms straight in
+        front of you to shoulder height, elbows slightly bent, then lower slowly.
+  expected_output:
+    passes: false

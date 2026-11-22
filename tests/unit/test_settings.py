@@ -1116,6 +1116,30 @@ def test_simple_howto_settings_default_and_blank_keeps_them(
     assert settings.simple_howto_provider_preferences == ProviderPreferences(sort="latency")
 
 
+def test_simple_howto_check_threshold_defaults_conservative(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The Jev check on a beginner how-to (ADR-0031, #591): a probability, 0.8 until calibrated.
+    _set_required_keys(monkeypatch)
+
+    assert Settings(_env_file=None).exercise_simple_howto_check_threshold == 0.8
+
+    monkeypatch.setenv("EXERCISE_SIMPLE_HOWTO_CHECK_THRESHOLD", "0.65")
+
+    assert Settings(_env_file=None).exercise_simple_howto_check_threshold == 0.65
+
+
+@pytest.mark.parametrize("value", ["-0.1", "1.1"])
+def test_simple_howto_check_threshold_is_a_probability(
+    monkeypatch: pytest.MonkeyPatch, value: str
+) -> None:
+    _set_required_keys(monkeypatch)
+    monkeypatch.setenv("EXERCISE_SIMPLE_HOWTO_CHECK_THRESHOLD", value)
+
+    with pytest.raises(ValidationError, match="exercise_simple_howto_check_threshold"):
+        Settings(_env_file=None)
+
+
 @pytest.mark.parametrize(
     "variable", ["EXERCISE_SIMPLE_HOWTO_MAX_CHARS", "EXERCISE_SIMPLE_HOWTO_TIMEOUT_SECONDS"]
 )

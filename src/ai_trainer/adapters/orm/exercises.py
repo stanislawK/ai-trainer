@@ -128,7 +128,9 @@ class ExerciseSimpleTextOrm(Base):
     """A catalogue exercise's beginner how-to, written by a text model from its own catalogue text
     (ADR-0031 *Beginner how-to*, #589). Shared, with no user column, like the catalogue.
     `source_sha256` is the hash of the instructions it was written from; `check_failures` counts
-    Jev's failed checks of that source; `edited_at` marks an admin's edit, never rewritten."""
+    Jev's failed checks of that source; `edited_at` marks an admin's edit, never rewritten. `text`
+    is NULL only while the current source has failed one check, and such a row is never shown
+    (#591)."""
 
     __tablename__ = "exercise_simple_texts"
     __table_args__ = (
@@ -139,6 +141,10 @@ class ExerciseSimpleTextOrm(Base):
             "char_length(source_sha256) = 64", name="exercise_simple_texts_source_sha256"
         ),
         CheckConstraint("check_failures >= 0", name="exercise_simple_texts_check_failures"),
+        CheckConstraint(
+            "text IS NOT NULL OR (status = 'shown' AND check_failures > 0)",
+            name="exercise_simple_texts_text_or_failed_check",
+        ),
     )
 
     # The key's first column, so it indexes `exercise_id` too.
@@ -146,13 +152,13 @@ class ExerciseSimpleTextOrm(Base):
         ForeignKey("exercises.id", ondelete="CASCADE"), primary_key=True
     )
     lang: Mapped[str] = mapped_column(Text, primary_key=True)
-    text: Mapped[str] = mapped_column(Text, nullable=False)
+    text: Mapped[str | None] = mapped_column(Text, nullable=True)
     template_id: Mapped[str] = mapped_column(Text, nullable=False)
     template_version: Mapped[int] = mapped_column(BigInteger, nullable=False)
     model: Mapped[str] = mapped_column(Text, nullable=False)
     source_sha256: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(Text, nullable=False, server_default="shown")
-    # The Jev check set's pinned version; NULL until the check lands (a later ticket).
+    # The pinned version of the Jev set that checked it; NULL on rows written before #591.
     check_version: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     check_failures: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
