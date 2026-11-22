@@ -124,6 +124,20 @@ class FlaggedText:
     template_version: int
 
 
+@dataclass(frozen=True, slots=True)
+class HowtoReviewRow:
+    """A `flagged` or `rejected` how-to on the admin's list (ADR-0031 *The flag*, #594): the
+    short text, its status, when an athlete flagged it, and the catalogue text it was written
+    from."""
+
+    exercise_id: UUID
+    name: str
+    text: str
+    status: SimpleTextStatus
+    flagged_at: datetime | None
+    original: str
+
+
 type FailedCheckOutcome = Literal["counted", "rejected", "present"]
 """What recording a failed check did: the first of its source counted, with no text kept; the
 second stored the row `rejected`; or a row with a text from the same source, or an edited row,

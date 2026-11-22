@@ -38,6 +38,7 @@ from ai_trainer.web.templating import build_templates
 from tests.admin_tokens_support import memory_admin_tokens
 from tests.exercise_media_support import memory_exercise_media_review
 from tests.knowledge_support import MemoryStorage, answers, pdf_bytes
+from tests.simple_howto_support import memory_howto_review
 
 FROZEN_NOW = datetime(2026, 11, 2, 12, 0, tzinfo=UTC)
 SECRET = b"integration-test-secret"
@@ -108,6 +109,7 @@ async def _page(factory: Callable[[], AsyncSession], sub: str, *, admin: bool = 
             ),
             tokens=memory_admin_tokens(),
             exercise_media=memory_exercise_media_review(),
+            exercise_howtos=memory_howto_review(),
             sports=registry,
             max_upload_mb=MAX_MB,
         )

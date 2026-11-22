@@ -8,20 +8,22 @@
     the Removed filter lists the removed ones with when, and Undo, named as the toast's Undo
     rather than the mock's "Restore" (owner-chosen at #556's acceptance gate). -#}
 
-{% set view_labels = {"suggested": "Suggested", "approved": "Approved", "removed": "Removed"} %}
+{% set view_labels = {"suggested": "Suggested", "approved": "Approved", "removed": "Removed", "howtos": "How-tos"} %}
 
-{% macro filter_chips(current, views, counts) -%}
+{#- `chips` is each filter's ID with its count, the picture filters then How-tos (#594); `current`
+    is the selected one's ID. -#}
+{% macro filter_chips(current, chips) -%}
 <div class="flex gap-2 flex-wrap" role="group" aria-label="Show">
-  {% for id, status in views %}
+  {% for id, count in chips %}
   <button
     type="button"
-    class="lg lg-chip relative {{ 'lg-clear' if status == current else 'lg-ghost' }}"
-    aria-pressed="{{ 'true' if status == current else 'false' }}"
+    class="lg lg-chip relative {{ 'lg-clear' if id == current else 'lg-ghost' }}"
+    aria-pressed="{{ 'true' if id == current else 'false' }}"
     hx-get="/admin/exercises?view={{ id }}"
     hx-target="#exercise-media"
     hx-swap="outerHTML"
     hx-push-url="true"
-  ><span class="absolute inset-x-0 -inset-y-1.5" aria-hidden="true"></span>{{ view_labels[id] }} · {{ counts[status] }}</button>
+  ><span class="absolute inset-x-0 -inset-y-1.5" aria-hidden="true"></span>{{ view_labels[id] }} · {{ count }}</button>
   {% endfor %}
 </div>
 {%- endmacro %}
@@ -181,12 +183,14 @@
 {%- endmacro %}
 
 {#- B2: above the dock on the phone, bottom right on desktop. `kind` is `approved`,
-    `not_suggested`, `bulk`, `removed`, `removed_shared`, `still_public`, `restored` or
-    `restore_failed` (`web/admin/exercises.py`); `link_id` is the link Undo and Try again post
-    back to, and `view` the filter they redraw. -#}
+    `not_suggested`, `bulk`, `removed`, `removed_shared`, `still_public`, `restored`,
+    `restore_failed` or, under How-tos, `cleared` (`web/admin/exercises.py`); `link_id` is the
+    link Undo and Try again post back to, and `view` the filter they redraw. A cleared how-to's
+    row is deleted, so its toast has Dismiss and no Undo (#588). -#}
 {% set toast_icons = {
   "approved": "check", "bulk": "check-check", "removed": "eye-off", "removed_shared": "eye-off",
   "still_public": "circle-alert", "restored": "undo-2", "restore_failed": "circle-alert",
+  "cleared": "eraser",
 } %}
 {% macro toast(outcome, kind, link_id, view) -%}
 {%- if outcome %}
@@ -216,6 +220,9 @@
     {%- elif kind == "restored" %}
     <span class="font-semibold">Restored to {{ outcome.exercise_name }}.</span>
     <span>Back under {{ "Approved" if outcome.status.value == "approved" else "Suggested" }}.</span>
+    {%- elif kind == "cleared" %}
+    <span class="font-semibold">Cleared from {{ outcome.exercise_name }}.</span>
+    <span>The next card rewrites it.</span>
     {%- elif kind == "restore_failed" %}
     <span class="font-semibold">Couldn't restore — nothing changed.</span>
     <span>{{ outcome.exercise_name }}: the file couldn't be moved back, so it stays removed.</span>

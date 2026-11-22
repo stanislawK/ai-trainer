@@ -3,11 +3,12 @@ texts table with the repository's conditional upserts and its guarded flag (#593
 writer and a scripted Jev check, for the service's unit tests and the exercise card's route
 tests."""
 
-from collections.abc import Collection, Mapping
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from uuid import UUID
 
+from ai_trainer.application.exercise_simple_howto import HowtoReview
 from ai_trainer.domain.exercise_simple_texts import (
     CardHowtoSource,
     FailedCheckOutcome,
@@ -15,6 +16,7 @@ from ai_trainer.domain.exercise_simple_texts import (
     HowtoCallFailed,
     HowtoCheck,
     HowtoCheckRefused,
+    HowtoReviewRow,
     HowtoSource,
     NewSimpleText,
     NoHowto,
@@ -130,6 +132,32 @@ class InMemorySimpleTexts:
 
 
 @dataclass
+class MemoryHowtoReview:
+    """Implements `HowtoReviewPort` over listed rows: an edit or a clear takes a row off."""
+
+    rows: dict[UUID, HowtoReviewRow] = field(default_factory=dict)
+    edits: list[tuple[UUID, str, datetime]] = field(default_factory=list)
+
+    async def review_rows(self, *, lang: str) -> Sequence[HowtoReviewRow]:
+        assert lang == "en"
+        return list(self.rows.values())
+
+    async def admin_edit(
+        self, exercise_id: UUID, *, lang: str, text: str, edited_at: datetime
+    ) -> bool:
+        assert lang == "en"
+        if self.rows.pop(exercise_id, None) is None:
+            return False
+        self.edits.append((exercise_id, text, edited_at))
+        return True
+
+    async def clear(self, exercise_id: UUID, *, lang: str) -> str | None:
+        assert lang == "en"
+        row = self.rows.pop(exercise_id, None)
+        return None if row is None else row.name
+
+
+@dataclass
 class ScriptedWriter:
     """Implements `SimpleHowtoWriterPort`; returns `reply` and remembers each call."""
 
@@ -157,3 +185,8 @@ class ScriptedCheck:
     ) -> HowtoCheck | HowtoCheckRefused:
         self.calls.append((user_id, original, summary))
         return self.replies[min(len(self.calls), len(self.replies)) - 1]
+
+
+def memory_howto_review() -> HowtoReview:
+    """`build_admin_router`'s `exercise_howtos`, for a test about the rest of the admin view."""
+    return HowtoReview(texts=MemoryHowtoReview(), clock=FrozenClock(), max_chars=180)

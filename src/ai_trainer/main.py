@@ -93,7 +93,11 @@ from ai_trainer.application.exercise_picture import ExercisePictureService, Pict
 from ai_trainer.application.exercise_picture_store import StoreExercisePicture
 from ai_trainer.application.exercise_progress import ExerciseProgress
 from ai_trainer.application.exercise_resolution import ResolutionLimits, ResolveExercises
-from ai_trainer.application.exercise_simple_howto import CardHowtos, WriteSimpleHowto
+from ai_trainer.application.exercise_simple_howto import (
+    CardHowtos,
+    HowtoReview,
+    WriteSimpleHowto,
+)
 from ai_trainer.application.feedback import FeedbackRecorder
 from ai_trainer.application.knowledge_file_staging import FileStaging
 from ai_trainer.application.knowledge_ingestion import KnowledgeIngestion
@@ -935,6 +939,11 @@ def create_app(  # noqa: PLR0915 -- composition root: objects are built only her
                 ),
                 clock=clock,
                 cdn=build_cdn_cache(settings),
+            ),
+            exercise_howtos=HowtoReview(
+                texts=SqlAlchemyExerciseSimpleTextRepository(session_factory),
+                clock=clock,
+                max_chars=settings.exercise_simple_howto_max_chars,
             ),
             sports=sport_registry,
             max_upload_mb=settings.knowledge_max_upload_mb,
