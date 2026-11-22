@@ -733,6 +733,8 @@ CLOUDFLARE_PURGE_TOKEN=<token>
 
 Set both or neither; the app refuses to start on one. Unset, Remove still works and logs `cache purge skipped`. If Cloudflare refuses a purge, the removal stands, the toast says a cached copy may still show for a while, and the journal has `cache purge failed: ...` with the status only, never the token. To check: remove a test picture, then request its custom-domain URL; it must stop serving.
 
+[Section 16](#16-exercise-media-in-production) walks the whole path in order: import, approve, remove and undo.
+
 ## 15. Ingest container
 
 Source: ADR-0036 (invariant 6 and its #462 amendment). Ticket #462.
@@ -803,6 +805,187 @@ Past 80,000, decide one of these before ingesting more. Each is an owner's decis
 - raise the db limit to 1.5 GiB, which overcommits the CX23's 4 GB;
 - index `halfvec`, which halves the HNSW index;
 - move to a larger host.
+
+## 16. Exercise media in production
+
+Source: ADR-0031, PRD 0012 F24. Ticket #559.
+
+How pictures reach an exercise card: the app stores a picture in the `ai-trainer-media` bucket, an admin approves it at `/admin/exercises`, and only then does the card show it. Remove hides it at once. This section is the whole path in order, written for you, the owner, and every command runs on your laptop or the server. Nobody else connects to production (ADR-0023). Where a step is already written in 14.4, it links there and keeps its own check and failure path here.
+
+Every picture is hidden until you approve it, so a half-done walkthrough never shows anything to athletes. Nothing here blocks a release; the app starts without any of it.
+
+| Step | Runs on | Tickets | What stays off until it is done |
+|---|---|---|---|
+| 16.1 Catalogue present | server | #375 | There are no exercises to attach a picture to |
+| 16.2 Media bucket | laptop, dashboard | #530 | `OBJECT_STORAGE_MEDIA_BUCKET` unset: no picture is stored; the import refuses with `storage_not_configured` |
+| 16.3 Custom domain and cache | dashboard, laptop | #553 | `MEDIA_PUBLIC_BASE_URL` unset: no picture URL, so no picture shows; `storage-check` skips the media step |
+| 16.4 Purge token | dashboard | #557 | Both keys unset: Remove still works but Cloudflare keeps its cached copy until it expires |
+| 16.5 `.env` values | server | #530, #552, #553, #555, #557 | See the table in 16.5 |
+| 16.6 Recreate the app | server | #553 | The new values aren't read until the containers are recreated |
+| 16.7 wger import | server | #552, #555 | No suggested pictures to review |
+| 16.8 Approve | dashboard (the app, as admin) | #554 | Nothing shows on an exercise card |
+| 16.9 Remove and Undo | dashboard (the app, as admin) | #554, #556, #557 | You can't take a picture back down, or put it back |
+
+### 16.1 Catalogue present
+
+**Where:** the server, after `ssh deploy@<ip>`.
+
+**Do:** section 13 has the command and what it prints. If you haven't run it for this release:
+
+```sh
+docker exec ai-trainer-prod-app-1 ai-trainer import-exercises
+```
+
+**You should see:** a last line starting `import-exercises: result=ok`. On a database that already holds the catalogue a later run reports `inserted=0 updated=0 texts_written=0`.
+
+**If it fails:** `import-exercises: result=failed reason=<download|catalogue> detail=<why>` changes no row. Section 13 says what each reason means. Fix the cause and run it again.
+
+**Undo:** nothing to undo; the import is idempotent.
+
+### 16.2 Media bucket
+
+**Where:** your laptop and the Cloudflare dashboard. Skip this step if 14.4 is already done on this account: the bucket is listed under R2.
+
+**Do:** follow the first part of [14.4](#144-media-bucket-tickets-530-553): create the bucket with `npx wrangler r2 bucket create ai-trainer-media --location weur`, then edit the 14.1 token so **Apply to specific buckets only** lists both `ai-trainer-uploads` and `ai-trainer-media`.
+
+**You should see:** `ai-trainer-media` in the dashboard under R2, and both buckets in the token's scope. Leave **Public Development URL** (`r2.dev`) disabled.
+
+**If it fails:** if wrangler says the bucket exists, it is already done. If `storage-check` later says `result=failed step=put reason=denied`, the token doesn't list the media bucket: edit the token again.
+
+**Undo:** the bucket holds only catalogue pictures. Delete it in the dashboard only after emptying it, and blank `OBJECT_STORAGE_MEDIA_BUCKET` and `MEDIA_PUBLIC_BASE_URL` together (16.5).
+
+### 16.3 Custom domain and cache
+
+**Where:** the Cloudflare dashboard, then your laptop for the check.
+
+**Do:** the three clicks in [14.4](#144-media-bucket-tickets-530-553), in short:
+
+1. R2, `ai-trainer-media`, Settings, **Custom Domains**, **Add**, `media.<your domain>`.
+2. The zone's Caching, **Cache Rules**: for that hostname, *Eligible for cache*, Edge TTL *Use cache-control header if present, otherwise 1 day*.
+3. After 16.7 has stored a picture, request one of its URLs twice from your laptop. `<key>` is the storage key `exercises/<exercise id>/<sha256>.<ext>`; the admin page's picture links show it.
+
+```sh
+curl -sI https://media.<your domain>/<key> | grep -i cf-cache-status
+```
+
+**You should see:** the second request prints `cf-cache-status: HIT` (the first may print `MISS`). Before any picture exists, `storage-check` in 16.6 proves the domain reads the bucket.
+
+**If it fails:**
+- `storage-check` prints `result=failed step=media_public reason=status_403` or `status_404`: the domain isn't connected to the media bucket yet, or `MEDIA_PUBLIC_BASE_URL` has the wrong host.
+- The domain's DNS record isn't proxied (grey cloud): turn the orange cloud on.
+- The URL is an `r2.dev` address: don't use it. It is rate-limited and uncached. Disable it and use the custom domain.
+
+**Undo:** remove the domain under Custom Domains and the Cache Rule, and blank `MEDIA_PUBLIC_BASE_URL` (16.5), then recreate (16.6). The app then has no picture URL and shows no picture.
+
+### 16.4 Purge token
+
+**Where:** the Cloudflare dashboard.
+
+**Do:** follow "Cache purge token" in [14.4](#cache-purge-token-ticket-557): copy the **Zone ID** from the media zone's Overview, then My Profile, API Tokens, **Create Token**, *Create Custom Token*, permission **Zone, Cache Purge, Purge**, Zone Resources *Include, Specific zone*, the media zone. Nothing else.
+
+**You should see:** a token listed with one permission and one zone. You see its value once, so paste it straight into the server's `.env` in 16.5 and nowhere else.
+
+**If it fails:**
+- With only one of the pair set, the app refuses to start. `/opt/ai-trainer/compose.sh logs app` ends on `Value error, CLOUDFLARE_ZONE_ID and CLOUDFLARE_PURGE_TOKEN must be set together or not at all`. Set both or neither.
+- `cache purge failed: ...` in the journal after a Remove means Cloudflare refused: the line has the status only, never the token. Check the token and the zone in the dashboard, and make a new token if needed. The removal stands and the toast says a cached copy may still show for a while.
+
+**Undo:** in the dashboard, roll or delete the token, then blank both keys in `.env` and recreate. Remove keeps working and logs `cache purge skipped`.
+
+### 16.5 `.env` values
+
+**Where:** the server, in `/opt/ai-trainer/.env`, unquoted (as in 14.2).
+
+**Do:** add the keys below. Every one is in `.env.example`. No secret appears in this table: `<…>` stands for a value you keep in your password manager.
+
+| Key | Example | Ticket | What stays off while unset |
+|---|---|---|---|
+| `OBJECT_STORAGE_MEDIA_BUCKET` | `ai-trainer-media` | #530 | No picture is stored. `import-wger-pictures` prints `result=refused reason=storage_not_configured` |
+| `MEDIA_PUBLIC_BASE_URL` | `https://media.<your domain>` | #553 | The app has no picture URL, so none shows. `storage-check` prints `media=skipped reason=no_public_url` |
+| `CLOUDFLARE_ZONE_ID` | `<zone id>` | #557 | With the token unset too: Remove works, logs `cache purge skipped`, and the cached copy lives on until it expires |
+| `CLOUDFLARE_PURGE_TOKEN` | `<token>` | #557 | The same; setting only one of the pair stops the app starting |
+| `WGER_BASE_URL` | `https://wger.de` | #552 | Optional; the default is the same host |
+| `WGER_TIMEOUT_SECONDS` | `20` | #552 | Optional; the default is 20 |
+| `EXERCISE_CANDIDATE_FLOOR` | `0.25` | #555 | Optional; the default is 0.25: the least name similarity for a catalogue exercise to be shortlisted |
+| `EXERCISE_PICK_THRESHOLD` | `0.9` | #555 | Optional; the default is 0.9: the least confidence Jev's pick needs to count as a match |
+
+The media bucket and the public base URL need the whole `OBJECT_STORAGE_*` set from 14.2 beside them. Without it the app refuses to start and names the missing keys. The last four rows are tuning: leave them out unless the import matches too few or too many pictures.
+
+**You should see:** `grep -E '^(OBJECT_STORAGE_MEDIA_BUCKET|MEDIA_PUBLIC_BASE_URL)=' /opt/ai-trainer/.env` prints both lines. Don't print the purge token's line on a shared screen.
+
+**If it fails:** a key with quotes or a trailing space reads wrongly: retype it plainly.
+
+**Undo:** delete the line (or blank its value) and recreate in 16.6.
+
+### 16.6 Recreate the app
+
+**Where:** the server.
+
+**Do:**
+
+```sh
+/opt/ai-trainer/compose.sh up -d --no-deps app ingest
+docker exec ai-trainer-prod-app-1 ai-trainer storage-check
+```
+
+**You should see:** `storage-check: media=ok bucket=ai-trainer-media steps=media_put,media_public,media_delete`, then the `result=ok` line. [14.3](#143-checks-ticket-420-acceptance) lists every other line.
+
+**If it fails:** the app doesn't start: `/opt/ai-trainer/compose.sh logs app` ends on a `Value error` that says which keys must be set together (16.4 and 16.5). `media=skipped reason=no_public_url`: `MEDIA_PUBLIC_BASE_URL` isn't in the app's environment, so recreate again. A `result=failed step=media_public reason=status_<n>` line is the domain failure in 16.3. `probe_left=true` means delete the probe under `storage-check/` in the dashboard.
+
+**Undo:** put the previous `.env` back and run the same recreate.
+
+### 16.7 wger import
+
+**Where:** the server. It makes real Jev calls and costs cents, one per distinct wger name, so start small. `<email>` is an address listed in `ADMIN_EMAILS` whose account has signed in.
+
+**Do:**
+
+```sh
+docker exec ai-trainer-prod-app-1 ai-trainer import-wger-pictures --limit 5 --admin <email>
+```
+
+**You should see:** one line per image, `import-wger-pictures: stored image=<id> exercise=<id> asset=<id>`, `skipped reason=no_author|unknown_licence|known_sha256 image=<id>` or `unmatched image=<id>`, then `result=done stored=<n> skipped=<n> unmatched=<n>` with exit code 0. A second run stores nothing: images already catalogued print `skipped reason=known_sha256`.
+
+**If it fails:**
+- `result=refused reason=admin_required` or `reason=not_admin`: `--admin` is missing or isn't in `ADMIN_EMAILS`. Nothing was requested.
+- `result=refused reason=storage_not_configured`: `OBJECT_STORAGE_MEDIA_BUCKET` isn't in the app's environment. Do 16.5 and 16.6.
+- `result=failed reason=wger_error|wger_timeout`: wger didn't answer; wait and run again, or raise `WGER_TIMEOUT_SECONDS`. `storage_error`: run `storage-check`. `database_error`: look in `/opt/ai-trainer/compose.sh logs app`. A failed run leaves no object without its row, so running it again is safe.
+- `unmatched` on most images is normal. Only a pick at `EXERCISE_PICK_THRESHOLD` counts.
+
+**Undo:** Remove the pictures in 16.9. The file stays in the bucket, and its `sha256` is never imported again, so Remove is also how you keep a picture out for good.
+
+### 16.8 Approve
+
+**Where:** your browser, signed in as an admin: `https://<your domain>/admin/exercises`.
+
+**Do:** with the **Suggested** filter, check each picture's credit, then press **Approve** on a picture, or **Approve all from wger** on an exercise's card to approve that exercise's wger pictures at once. A generated picture is approved on its own, never with Approve all.
+
+**You should see:** the toast `Approved for <exercise>.` and `Shown on the exercise card now.` (or `Approved <n> pictures from wger.` for the bulk button). The picture moves under **Approved**, and the exercise's card in the app shows it.
+
+**If it fails:** a thumbnail that says **No public URL** means `MEDIA_PUBLIC_BASE_URL` isn't set (16.5). A blank thumbnail means the domain isn't serving it: see 16.3. `It was removed — nothing changed.` or `Already approved — nothing changed.` means another tab got there first.
+
+**Undo:** **Remove** it (16.9).
+
+### 16.9 Remove and Undo
+
+**Where:** the same page, then your laptop.
+
+**Do:** press **Remove** on an approved picture. Then request its URL from your laptop:
+
+```sh
+curl -sI https://media.<your domain>/<key> | head -n 1
+```
+
+Open the **Removed** filter and press **Undo** (it also sits in the toast).
+
+**You should see:** the toast `Removed from <exercise>.` and `Hidden from the exercise card now.`. The card no longer shows the picture. With the purge token set, the curl must no longer print a 200 line. The toast's **Undo** and the Removed filter's **Undo** put it back: `Restored to <exercise>.` and `Back under Approved.` (or Suggested).
+
+**If it fails:**
+- `A cached copy may still show for a while.` means the purge was skipped or Cloudflare refused it. The card is already clean; the old URL answers until the cache expires. Set the token (16.4), or check the journal for `cache purge failed: ...`.
+- `Hidden from the exercise card, but the file is still public.` with **Try again**: the file couldn't be moved. Press **Try again**.
+- `Hidden from this exercise's card. The file stays public: another exercise still shows it.` is correct, not a failure: the file is shared.
+- `Couldn't restore — nothing changed.` the file couldn't be moved back, so it stays removed. Press **Try again**.
+
+**Undo:** **Undo** is the undo of this step.
 
 ## Provisioning record
 
