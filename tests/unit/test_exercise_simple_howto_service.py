@@ -129,6 +129,7 @@ async def test_valid_howto_is_stored_once_and_a_second_write_makes_no_call() -> 
         instructions=_INSTRUCTIONS,
         target="abs",
         equipment="body weight",
+        max_chars=160,
     )
     assert texts.writes == [
         NewSimpleText(

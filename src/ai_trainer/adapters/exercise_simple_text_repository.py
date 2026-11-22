@@ -26,7 +26,13 @@ class SqlAlchemyExerciseSimpleTextRepository:
         async with self._session_factory() as session:
             row = (
                 await session.execute(
-                    select(ExerciseOrm, ExerciseTextOrm.instructions)
+                    select(
+                        ExerciseOrm.id,
+                        ExerciseOrm.name,
+                        ExerciseTextOrm.instructions,
+                        ExerciseOrm.target,
+                        ExerciseOrm.equipment,
+                    )
                     .join(ExerciseTextOrm, ExerciseTextOrm.exercise_id == ExerciseOrm.id)
                     .where(
                         ExerciseOrm.id == exercise_id,
@@ -37,13 +43,12 @@ class SqlAlchemyExerciseSimpleTextRepository:
             ).one_or_none()
         if row is None:
             return None
-        exercise, instructions = row._tuple()
         return HowtoSource(
-            exercise_id=exercise.id,
-            name=exercise.name,
-            instructions=instructions,
-            target=exercise.target,
-            equipment=exercise.equipment,
+            exercise_id=row.id,
+            name=row.name,
+            instructions=row.instructions,
+            target=row.target,
+            equipment=row.equipment,
         )
 
     async def stored(self, exercise_id: UUID, *, lang: str) -> StoredSimpleText | None:

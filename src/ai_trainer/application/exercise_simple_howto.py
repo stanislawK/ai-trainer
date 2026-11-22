@@ -55,7 +55,7 @@ class WriteSimpleHowto:
         stored = await self._texts.stored(exercise_id, lang=SIMPLE_TEXT_LANG)
         if stored is not None and is_current(stored, sha256):
             return HowtoPresent()
-        deps = source.deps()
+        deps = source.deps(max_chars=self._max_chars)
         draft = await self._writer.write(user_id=user_id, deps=deps)
         if isinstance(draft, HowtoCallFailed):
             return self._failed(draft.reason, exercise_id)

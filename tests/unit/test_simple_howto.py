@@ -56,6 +56,7 @@ _DEPS = SimpleHowtoDeps(
     ),
     target="pectorals",
     equipment="barbell",
+    max_chars=160,
 )
 _CALL = SimpleHowtoCall(
     model="test/howto-model",
@@ -88,11 +89,18 @@ def test_template_renders_from_public_text_with_no_identity() -> None:
     assert _DEPS.instructions in rendered
     assert "Target: pectorals" in rendered
     assert "Equipment: barbell" in rendered
+    # The prompt states the limit the code enforces, from `EXERCISE_SIMPLE_HOWTO_MAX_CHARS`.
+    assert "under 160 characters" in rendered
+    shorter = _DEPS.model_copy(update={"max_chars": 120})
+    assert "under 120 characters" in _registry().render_instructions(
+        SIMPLE_HOWTO_TEMPLATE_ID, SIMPLE_HOWTO_VERSION, shorter
+    )
     assert set(SimpleHowtoDeps.model_fields) == {
         "exercise_name",
         "instructions",
         "target",
         "equipment",
+        "max_chars",
     }
     with pytest.raises(ValidationError):
         SimpleHowtoDeps.model_validate(_DEPS.model_dump() | {"user_id": "x"})
@@ -301,10 +309,13 @@ def test_digits_rule_reads_the_whole_source() -> None:
         instructions="Curl up until your torso is at a 45-degree angle.",
         target="abs",
         equipment="body weight",
+        max_chars=160,
     )
 
     assert not has_new_digit("A 3/4 sit-up: curl up to 45 degrees.", deps)
     assert has_new_digit("Curl up to 90 degrees.", deps)
+    # The length limit is a setting, not source text: it never licenses a number.
+    assert has_new_digit("Curl up 160 times.", deps)
     assert invalid_reason(" Curl up to 45 degrees. ", deps, max_chars=160) is None
 
 

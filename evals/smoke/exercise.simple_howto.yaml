@@ -20,6 +20,7 @@ cases:
         number of repetitions.
       target: delts
       equipment: dumbbell
+      max_chars: 160
   metadata:
     instructions_source: exercises-dataset 0334
   expected_output:
@@ -49,6 +50,7 @@ cases:
         to the starting position. Repeat for the desired number of repetitions.
       target: delts
       equipment: cable
+      max_chars: 160
   metadata:
     instructions_source: exercises-dataset 0178
   expected_output:
@@ -78,6 +80,7 @@ cases:
         of repetitions.
       target: delts
       equipment: leverage machine
+      max_chars: 160
   metadata:
     instructions_source: exercises-dataset 0584
   expected_output:
@@ -110,6 +113,7 @@ cases:
         desired number of repetitions.
       target: glutes
       equipment: barbell
+      max_chars: 160
   metadata:
     instructions_source: exercises-dataset 0032
   expected_output:
@@ -141,6 +145,7 @@ cases:
         your arms. Repeat for the desired number of repetitions.
       target: pectorals
       equipment: barbell
+      max_chars: 160
   metadata:
     instructions_source: exercises-dataset 0025
   expected_output:
@@ -171,6 +176,7 @@ cases:
         Repeat for the desired number of repetitions.
       target: pectorals
       equipment: body weight
+      max_chars: 160
   metadata:
     instructions_source: exercises-dataset 0662
   expected_output:
@@ -201,6 +207,7 @@ cases:
         for the desired number of repetitions.
       target: abs
       equipment: body weight
+      max_chars: 160
   metadata:
     instructions_source: exercises-dataset 0001
   expected_output:

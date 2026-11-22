@@ -15,7 +15,7 @@ from enum import StrEnum
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 # The only language written: the one the exercise card reads (G5).
 SIMPLE_TEXT_LANG = "en"
@@ -33,6 +33,9 @@ class SimpleHowtoDeps(BaseModel):
     instructions: str
     target: str | None
     equipment: str | None
+    # `EXERCISE_SIMPLE_HOWTO_MAX_CHARS`, so the prompt states the limit the code enforces. A
+    # setting, not source text: `has_new_digit` never counts it as a number the source gives.
+    max_chars: int = Field(gt=0)
 
 
 class SimpleHowto(BaseModel):
@@ -63,12 +66,13 @@ class HowtoSource:
     target: str | None
     equipment: str | None
 
-    def deps(self) -> SimpleHowtoDeps:
+    def deps(self, *, max_chars: int) -> SimpleHowtoDeps:
         return SimpleHowtoDeps(
             exercise_name=self.name,
             instructions=self.instructions,
             target=self.target,
             equipment=self.equipment,
+            max_chars=max_chars,
         )
 
 
