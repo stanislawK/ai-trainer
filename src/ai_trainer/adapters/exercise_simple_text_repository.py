@@ -1,4 +1,4 @@
-from collections.abc import Callable
+from collections.abc import Callable, Collection, Mapping
 from typing import Any
 from uuid import UUID
 
@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai_trainer.adapters.orm import ExerciseOrm, ExerciseSimpleTextOrm, ExerciseTextOrm
 from ai_trainer.domain.exercise_simple_texts import (
+    CardHowtoSource,
     FailedCheckOutcome,
     HowtoSource,
     NewSimpleText,
@@ -58,13 +59,39 @@ class SqlAlchemyExerciseSimpleTextRepository:
             row = await session.get(ExerciseSimpleTextOrm, (exercise_id, lang))
         if row is None:
             return None
-        return StoredSimpleText(
-            source_sha256=row.source_sha256,
-            status=SimpleTextStatus(row.status),
-            edited_at=row.edited_at,
-            has_text=row.text is not None,
-            check_failures=row.check_failures,
+        return _stored(row)
+
+    async def card_rows(
+        self, exercise_ids: Collection[UUID], *, lang: str
+    ) -> Mapping[UUID, CardHowtoSource]:
+        """The catalogue's text in `lang` joined to its stored short version, if any, in one
+        query for every candidate of the open cards (#592)."""
+        if not exercise_ids:
+            return {}
+        simple = ExerciseSimpleTextOrm
+        statement = (
+            select(ExerciseTextOrm.exercise_id, ExerciseTextOrm.instructions, simple)
+            .join(ExerciseOrm, ExerciseOrm.id == ExerciseTextOrm.exercise_id)
+            .outerjoin(
+                simple,
+                and_(simple.exercise_id == ExerciseTextOrm.exercise_id, simple.lang == lang),
+            )
+            .where(
+                ExerciseTextOrm.exercise_id.in_(list(exercise_ids)),
+                ExerciseTextOrm.lang == lang,
+                ExerciseOrm.owner_user_id.is_(None),
+            )
         )
+        async with self._session_factory() as session:
+            rows = (await session.execute(statement)).all()
+        return {
+            exercise_id: CardHowtoSource(
+                instructions=instructions,
+                stored=None if stored is None else _stored(stored),
+                text=None if stored is None else stored.text,
+            )
+            for exercise_id, instructions, stored in rows
+        }
 
     async def write(self, text: NewSimpleText) -> bool:
         """`ON CONFLICT DO UPDATE … WHERE`: against a row with a text from the same source, or an
@@ -106,6 +133,16 @@ class SqlAlchemyExerciseSimpleTextRepository:
         if status is None:
             return "present"
         return "rejected" if status == SimpleTextStatus.REJECTED.value else "counted"
+
+
+def _stored(row: ExerciseSimpleTextOrm) -> StoredSimpleText:
+    return StoredSimpleText(
+        source_sha256=row.source_sha256,
+        status=SimpleTextStatus(row.status),
+        edited_at=row.edited_at,
+        has_text=row.text is not None,
+        check_failures=row.check_failures,
+    )
 
 
 # Every column an upsert rewrites from its own values: all but the key and an admin's edit.
