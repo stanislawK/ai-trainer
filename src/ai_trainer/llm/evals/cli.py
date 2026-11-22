@@ -56,6 +56,7 @@ from ai_trainer.llm.evals.runner import (
     JudgeModelMatchesModelUnderTestError,
     run_eval,
 )
+from ai_trainer.llm.evals.simple_howto_check_smoke import run_simple_howto_check_smoke
 from ai_trainer.llm.evals.smoke import (
     SmokeCaseResult,
     SmokeError,
@@ -100,6 +101,11 @@ from ai_trainer.llm.simple_howto import (
     SIMPLE_HOWTO_VERSION,
     SimpleHowtoMatch,
 )
+from ai_trainer.llm.simple_howto_check import (
+    SIMPLE_HOWTO_CHECK_ID,
+    SIMPLE_HOWTO_CHECK_VERSION,
+    HowtoCheckThresholds,
+)
 from ai_trainer.settings import Settings
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
@@ -115,6 +121,11 @@ type DecisionSmokeRunner = Callable[[SmokeSet, Model], Awaitable[list[SmokeCaseR
 # its label is graded at (ADR-0020); the baseline records the values.
 _DECISION_THRESHOLDS: dict[str, dict[str, str]] = {
     "safety_screen": {"pain": "safety_screen_pain_threshold"},
+    # Each question at its own threshold: a summary passes only when both do (ADR-0031, #591).
+    SIMPLE_HOWTO_CHECK_ID: {
+        "keeps_cues": "exercise_simple_howto_check_threshold",
+        "adds_nothing": "exercise_simple_howto_check_adds_threshold",
+    },
 }
 
 
@@ -195,6 +206,7 @@ def _active_versions(sports: SportRegistry) -> dict[str, int]:
         SAFETY_SCREEN_ID: SAFETY_SCREEN_VERSION,
         EXERCISE_SHORTLIST_ID: EXERCISE_SHORTLIST_VERSION,
         QUESTION_SPORT_ID: QUESTION_SPORT_VERSION,
+        SIMPLE_HOWTO_CHECK_ID: SIMPLE_HOWTO_CHECK_VERSION,
     }
 
 
@@ -582,6 +594,16 @@ def _own_runners(
             smoke_set, model, threshold=settings.question_sport_threshold
         )
 
+    async def simple_howto_check(smoke_set: SmokeSet, model: Model) -> list[SmokeCaseResult]:
+        return await run_simple_howto_check_smoke(
+            smoke_set,
+            model,
+            thresholds=HowtoCheckThresholds(
+                keeps_cues=settings.exercise_simple_howto_check_threshold,
+                adds_nothing=settings.exercise_simple_howto_check_adds_threshold,
+            ),
+        )
+
     async def answer(smoke_set: SmokeSet, model: Model) -> list[SmokeCaseResult]:
         return await run_answer_smoke(
             smoke_set,
@@ -595,6 +617,7 @@ def _own_runners(
         EXERCISE_SHORTLIST_ID: exercise_shortlist,
         ROUTER_FAST_ID: router_fast,
         QUESTION_SPORT_ID: question_sport,
+        SIMPLE_HOWTO_CHECK_ID: simple_howto_check,
     }
     answer_runners: dict[str, DecisionSmokeRunner] = {
         plugin.answers.template_id: answer

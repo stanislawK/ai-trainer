@@ -1,0 +1,588 @@
+# Dataset for the exercise_simple_howto_check decision (ADR-0020 invariant 6, ADR-0031 *Jev check*,
+# #591): code-graded, at least 20 cases because the check guards safety and form cues. Each case's
+# state (`prompt`) is exactly what the app sends Jev: `HowtoCheckState(original, summary)` as JSON;
+# `deps` repeats the two texts for reading, and a unit test keeps them in step.
+# The originals are the catalogue instructions quoted in evals/smoke/exercise.simple_howto.yaml,
+# copied verbatim (pinned dataset commit 7455efae). The summaries are written by hand. `metadata.kind`
+# names each case's kind: `good` (faithful), or broken by a `dropped_cue`, an `added_cue`, a
+# `changed_number` (added or changed) or `another_movement` (mostly the lateral-raise family). The
+# labels are P(yes) at each question's own threshold (EXERCISE_SIMPLE_HOWTO_CHECK_THRESHOLD for
+# keeps_cues, EXERCISE_SIMPLE_HOWTO_CHECK_ADDS_THRESHOLD for adds_nothing): both questions are
+# phrased so that "yes" is good, and a summary passes only when both are true.
+name: exercise_simple_howto_check
+cases:
+- name: 'dumbbell lateral raise: good'
+  metadata:
+    kind: good
+    exercise: Dumbbell Lateral Raise
+    instructions_source: exercises-dataset 0334
+  inputs:
+    prompt: '{"original":"Stand with your feet shoulder-width apart and hold a dumbbell in each hand,
+      palms facing your body. Keep your back straight and engage your core. Raise your arms out to the
+      sides until they are parallel to the floor, keeping a slight bend in your elbows. Pause for a moment
+      at the top, then slowly lower your arms back down to the starting position. Repeat for the desired
+      number of repetitions.","summary":"Hold a dumbbell in each hand, back straight and core tight. Raise
+      your arms out to the sides to shoulder height, elbows slightly bent, then lower slowly."}'
+    deps:
+      original: Stand with your feet shoulder-width apart and hold a dumbbell in each hand, palms facing
+        your body. Keep your back straight and engage your core. Raise your arms out to the sides until
+        they are parallel to the floor, keeping a slight bend in your elbows. Pause for a moment at the
+        top, then slowly lower your arms back down to the starting position. Repeat for the desired number
+        of repetitions.
+      summary: Hold a dumbbell in each hand, back straight and core tight. Raise your arms out to the
+        sides to shoulder height, elbows slightly bent, then lower slowly.
+  expected_output:
+    keeps_cues: true
+    adds_nothing: true
+- name: 'dumbbell lateral raise: good, other wording'
+  metadata:
+    kind: good
+    exercise: Dumbbell Lateral Raise
+    instructions_source: exercises-dataset 0334
+  inputs:
+    prompt: '{"original":"Stand with your feet shoulder-width apart and hold a dumbbell in each hand,
+      palms facing your body. Keep your back straight and engage your core. Raise your arms out to the
+      sides until they are parallel to the floor, keeping a slight bend in your elbows. Pause for a moment
+      at the top, then slowly lower your arms back down to the starting position. Repeat for the desired
+      number of repetitions.","summary":"Stand tall with a dumbbell in each hand, back straight and core
+      engaged. Lift your arms out to the sides until level with the floor, elbows a little bent, then
+      lower them slowly."}'
+    deps:
+      original: Stand with your feet shoulder-width apart and hold a dumbbell in each hand, palms facing
+        your body. Keep your back straight and engage your core. Raise your arms out to the sides until
+        they are parallel to the floor, keeping a slight bend in your elbows. Pause for a moment at the
+        top, then slowly lower your arms back down to the starting position. Repeat for the desired number
+        of repetitions.
+      summary: Stand tall with a dumbbell in each hand, back straight and core engaged. Lift your arms
+        out to the sides until level with the floor, elbows a little bent, then lower them slowly.
+  expected_output:
+    keeps_cues: true
+    adds_nothing: true
+- name: 'cable lateral raise: good'
+  metadata:
+    kind: good
+    exercise: Cable Lateral Raise
+    instructions_source: exercises-dataset 0178
+  inputs:
+    prompt: '{"original":"Stand with your feet shoulder-width apart and grasp the cable handles with an
+      overhand grip. Keep your arms straight and your core engaged. Raise your arms out to the sides until
+      they are parallel to the floor. Pause for a moment at the top, then slowly lower your arms back
+      down to the starting position. Repeat for the desired number of repetitions.","summary":"Hold the
+      cable handles, arms straight and core tight. Raise your arms out to the sides to shoulder height,
+      pause, then lower them slowly."}'
+    deps:
+      original: Stand with your feet shoulder-width apart and grasp the cable handles with an overhand
+        grip. Keep your arms straight and your core engaged. Raise your arms out to the sides until they
+        are parallel to the floor. Pause for a moment at the top, then slowly lower your arms back down
+        to the starting position. Repeat for the desired number of repetitions.
+      summary: Hold the cable handles, arms straight and core tight. Raise your arms out to the sides
+        to shoulder height, pause, then lower them slowly.
+  expected_output:
+    keeps_cues: true
+    adds_nothing: true
+- name: 'lever lateral raise: good'
+  metadata:
+    kind: good
+    exercise: Lever Lateral Raise
+    instructions_source: exercises-dataset 0584
+  inputs:
+    prompt: '{"original":"Adjust the seat height and position yourself on the machine with your back against
+      the pad. Grasp the handles with an overhand grip and keep your arms straight. Exhale and raise your
+      arms out to the sides until they are parallel to the floor. Pause for a moment at the top, then
+      inhale and slowly lower your arms back to the starting position. Repeat for the desired number of
+      repetitions.","summary":"Sit on the machine, back against the pad, arms straight. Breathe out as
+      you raise your arms to the sides to shoulder height, then lower slowly."}'
+    deps:
+      original: Adjust the seat height and position yourself on the machine with your back against the
+        pad. Grasp the handles with an overhand grip and keep your arms straight. Exhale and raise your
+        arms out to the sides until they are parallel to the floor. Pause for a moment at the top, then
+        inhale and slowly lower your arms back to the starting position. Repeat for the desired number
+        of repetitions.
+      summary: Sit on the machine, back against the pad, arms straight. Breathe out as you raise your
+        arms to the sides to shoulder height, then lower slowly.
+  expected_output:
+    keeps_cues: true
+    adds_nothing: true
+- name: 'barbell deadlift: good'
+  metadata:
+    kind: good
+    exercise: Barbell Deadlift
+    instructions_source: exercises-dataset 0032
+  inputs:
+    prompt: '{"original":"Stand with your feet shoulder-width apart and the barbell on the ground in front
+      of you. Bend your knees and hinge at the hips to lower your torso and grip the barbell with an overhand
+      grip, hands slightly wider than shoulder-width apart. Keep your back straight and chest lifted as
+      you drive through your heels to lift the barbell off the ground, extending your hips and knees.
+      As you stand up straight, squeeze your glutes and keep your core engaged. Lower the barbell back
+      down to the ground by bending at the hips and knees, keeping your back straight. Repeat for the
+      desired number of repetitions.","summary":"Hinge at the hips to grip the bar, back straight and
+      chest up. Drive through your heels to stand, squeeze your glutes, core tight. Lower it the same
+      way, back straight."}'
+    deps:
+      original: Stand with your feet shoulder-width apart and the barbell on the ground in front of you.
+        Bend your knees and hinge at the hips to lower your torso and grip the barbell with an overhand
+        grip, hands slightly wider than shoulder-width apart. Keep your back straight and chest lifted
+        as you drive through your heels to lift the barbell off the ground, extending your hips and knees.
+        As you stand up straight, squeeze your glutes and keep your core engaged. Lower the barbell back
+        down to the ground by bending at the hips and knees, keeping your back straight. Repeat for the
+        desired number of repetitions.
+      summary: Hinge at the hips to grip the bar, back straight and chest up. Drive through your heels
+        to stand, squeeze your glutes, core tight. Lower it the same way, back straight.
+  expected_output:
+    keeps_cues: true
+    adds_nothing: true
+- name: 'barbell bench press: good'
+  metadata:
+    kind: good
+    exercise: Barbell Bench Press
+    instructions_source: exercises-dataset 0025
+  inputs:
+    prompt: '{"original":"Lie flat on a bench with your feet flat on the ground and your back pressed
+      against the bench. Grasp the barbell with an overhand grip slightly wider than shoulder-width apart.
+      Lift the barbell off the rack and hold it directly above your chest with your arms fully extended.
+      Lower the barbell slowly towards your chest, keeping your elbows tucked in. Pause for a moment when
+      the barbell touches your chest. Push the barbell back up to the starting position by extending your
+      arms. Repeat for the desired number of repetitions.","summary":"Lie on the bench, feet flat and
+      back pressed down. Lower the bar slowly to your chest, elbows tucked in, then press it back up."}'
+    deps:
+      original: Lie flat on a bench with your feet flat on the ground and your back pressed against the
+        bench. Grasp the barbell with an overhand grip slightly wider than shoulder-width apart. Lift
+        the barbell off the rack and hold it directly above your chest with your arms fully extended.
+        Lower the barbell slowly towards your chest, keeping your elbows tucked in. Pause for a moment
+        when the barbell touches your chest. Push the barbell back up to the starting position by extending
+        your arms. Repeat for the desired number of repetitions.
+      summary: Lie on the bench, feet flat and back pressed down. Lower the bar slowly to your chest,
+        elbows tucked in, then press it back up.
+  expected_output:
+    keeps_cues: true
+    adds_nothing: true
+- name: 'barbell bench press: good, other wording'
+  metadata:
+    kind: good
+    exercise: Barbell Bench Press
+    instructions_source: exercises-dataset 0025
+  inputs:
+    prompt: '{"original":"Lie flat on a bench with your feet flat on the ground and your back pressed
+      against the bench. Grasp the barbell with an overhand grip slightly wider than shoulder-width apart.
+      Lift the barbell off the rack and hold it directly above your chest with your arms fully extended.
+      Lower the barbell slowly towards your chest, keeping your elbows tucked in. Pause for a moment when
+      the barbell touches your chest. Push the barbell back up to the starting position by extending your
+      arms. Repeat for the desired number of repetitions.","summary":"Lie flat with your back and feet
+      down. Bring the bar slowly down to your chest, keeping your elbows tucked in, then push it back
+      up."}'
+    deps:
+      original: Lie flat on a bench with your feet flat on the ground and your back pressed against the
+        bench. Grasp the barbell with an overhand grip slightly wider than shoulder-width apart. Lift
+        the barbell off the rack and hold it directly above your chest with your arms fully extended.
+        Lower the barbell slowly towards your chest, keeping your elbows tucked in. Pause for a moment
+        when the barbell touches your chest. Push the barbell back up to the starting position by extending
+        your arms. Repeat for the desired number of repetitions.
+      summary: Lie flat with your back and feet down. Bring the bar slowly down to your chest, keeping
+        your elbows tucked in, then push it back up.
+  expected_output:
+    keeps_cues: true
+    adds_nothing: true
+- name: 'push-up: good'
+  metadata:
+    kind: good
+    exercise: Push-Up
+    instructions_source: exercises-dataset 0662
+  inputs:
+    prompt: '{"original":"Start in a high plank position with your hands slightly wider than shoulder-width
+      apart and your feet together. Engage your core and lower your body towards the ground by bending
+      your elbows, keeping your body in a straight line. Pause for a moment when your chest is just above
+      the ground, then push yourself back up to the starting position by straightening your arms. Repeat
+      for the desired number of repetitions.","summary":"From a high plank, hands just wider than your
+      shoulders and core tight, lower your chest near the floor, body straight, then push back up."}'
+    deps:
+      original: Start in a high plank position with your hands slightly wider than shoulder-width apart
+        and your feet together. Engage your core and lower your body towards the ground by bending your
+        elbows, keeping your body in a straight line. Pause for a moment when your chest is just above
+        the ground, then push yourself back up to the starting position by straightening your arms. Repeat
+        for the desired number of repetitions.
+      summary: From a high plank, hands just wider than your shoulders and core tight, lower your chest
+        near the floor, body straight, then push back up.
+  expected_output:
+    keeps_cues: true
+    adds_nothing: true
+- name: '3/4 sit-up: good'
+  metadata:
+    kind: good
+    exercise: 3/4 Sit-Up
+    instructions_source: exercises-dataset 0001
+  inputs:
+    prompt: '{"original":"Lie flat on your back with your knees bent and feet flat on the ground. Place
+      your hands behind your head with your elbows pointing outwards. Engaging your abs, slowly lift your
+      upper body off the ground, curling forward until your torso is at a 45-degree angle. Pause for a
+      moment at the top, then slowly lower your upper body back down to the starting position. Repeat
+      for the desired number of repetitions.","summary":"Lie on your back, knees bent, hands behind your
+      head. Using your abs, slowly curl up to 45 degrees, then lower slowly."}'
+    deps:
+      original: Lie flat on your back with your knees bent and feet flat on the ground. Place your hands
+        behind your head with your elbows pointing outwards. Engaging your abs, slowly lift your upper
+        body off the ground, curling forward until your torso is at a 45-degree angle. Pause for a moment
+        at the top, then slowly lower your upper body back down to the starting position. Repeat for the
+        desired number of repetitions.
+      summary: Lie on your back, knees bent, hands behind your head. Using your abs, slowly curl up to
+        45 degrees, then lower slowly.
+  expected_output:
+    keeps_cues: true
+    adds_nothing: true
+- name: 'dumbbell lateral raise: drops the back and elbow cues'
+  metadata:
+    kind: dropped_cue
+    exercise: Dumbbell Lateral Raise
+    instructions_source: exercises-dataset 0334
+  inputs:
+    prompt: '{"original":"Stand with your feet shoulder-width apart and hold a dumbbell in each hand,
+      palms facing your body. Keep your back straight and engage your core. Raise your arms out to the
+      sides until they are parallel to the floor, keeping a slight bend in your elbows. Pause for a moment
+      at the top, then slowly lower your arms back down to the starting position. Repeat for the desired
+      number of repetitions.","summary":"Hold a dumbbell in each hand and raise your arms out to the sides
+      to shoulder height, then lower them slowly."}'
+    deps:
+      original: Stand with your feet shoulder-width apart and hold a dumbbell in each hand, palms facing
+        your body. Keep your back straight and engage your core. Raise your arms out to the sides until
+        they are parallel to the floor, keeping a slight bend in your elbows. Pause for a moment at the
+        top, then slowly lower your arms back down to the starting position. Repeat for the desired number
+        of repetitions.
+      summary: Hold a dumbbell in each hand and raise your arms out to the sides to shoulder height, then
+        lower them slowly.
+  expected_output:
+    keeps_cues: false
+    adds_nothing: true
+- name: 'barbell deadlift: drops the straight back'
+  metadata:
+    kind: dropped_cue
+    exercise: Barbell Deadlift
+    instructions_source: exercises-dataset 0032
+  inputs:
+    prompt: '{"original":"Stand with your feet shoulder-width apart and the barbell on the ground in front
+      of you. Bend your knees and hinge at the hips to lower your torso and grip the barbell with an overhand
+      grip, hands slightly wider than shoulder-width apart. Keep your back straight and chest lifted as
+      you drive through your heels to lift the barbell off the ground, extending your hips and knees.
+      As you stand up straight, squeeze your glutes and keep your core engaged. Lower the barbell back
+      down to the ground by bending at the hips and knees, keeping your back straight. Repeat for the
+      desired number of repetitions.","summary":"Hinge at the hips to grip the bar, then drive through
+      your heels to stand up. Squeeze your glutes, then lower the bar back to the ground."}'
+    deps:
+      original: Stand with your feet shoulder-width apart and the barbell on the ground in front of you.
+        Bend your knees and hinge at the hips to lower your torso and grip the barbell with an overhand
+        grip, hands slightly wider than shoulder-width apart. Keep your back straight and chest lifted
+        as you drive through your heels to lift the barbell off the ground, extending your hips and knees.
+        As you stand up straight, squeeze your glutes and keep your core engaged. Lower the barbell back
+        down to the ground by bending at the hips and knees, keeping your back straight. Repeat for the
+        desired number of repetitions.
+      summary: Hinge at the hips to grip the bar, then drive through your heels to stand up. Squeeze your
+        glutes, then lower the bar back to the ground.
+  expected_output:
+    keeps_cues: false
+    adds_nothing: true
+- name: 'barbell bench press: drops tucked elbows and the slow lowering'
+  metadata:
+    kind: dropped_cue
+    exercise: Barbell Bench Press
+    instructions_source: exercises-dataset 0025
+  inputs:
+    prompt: '{"original":"Lie flat on a bench with your feet flat on the ground and your back pressed
+      against the bench. Grasp the barbell with an overhand grip slightly wider than shoulder-width apart.
+      Lift the barbell off the rack and hold it directly above your chest with your arms fully extended.
+      Lower the barbell slowly towards your chest, keeping your elbows tucked in. Pause for a moment when
+      the barbell touches your chest. Push the barbell back up to the starting position by extending your
+      arms. Repeat for the desired number of repetitions.","summary":"Lie on the bench with your feet
+      flat, lower the bar to your chest and press it back up."}'
+    deps:
+      original: Lie flat on a bench with your feet flat on the ground and your back pressed against the
+        bench. Grasp the barbell with an overhand grip slightly wider than shoulder-width apart. Lift
+        the barbell off the rack and hold it directly above your chest with your arms fully extended.
+        Lower the barbell slowly towards your chest, keeping your elbows tucked in. Pause for a moment
+        when the barbell touches your chest. Push the barbell back up to the starting position by extending
+        your arms. Repeat for the desired number of repetitions.
+      summary: Lie on the bench with your feet flat, lower the bar to your chest and press it back up.
+  expected_output:
+    keeps_cues: false
+    adds_nothing: true
+- name: 'push-up: drops the straight body and the core'
+  metadata:
+    kind: dropped_cue
+    exercise: Push-Up
+    instructions_source: exercises-dataset 0662
+  inputs:
+    prompt: '{"original":"Start in a high plank position with your hands slightly wider than shoulder-width
+      apart and your feet together. Engage your core and lower your body towards the ground by bending
+      your elbows, keeping your body in a straight line. Pause for a moment when your chest is just above
+      the ground, then push yourself back up to the starting position by straightening your arms. Repeat
+      for the desired number of repetitions.","summary":"From a high plank, hands just wider than your
+      shoulders, lower your chest near the floor, then push back up."}'
+    deps:
+      original: Start in a high plank position with your hands slightly wider than shoulder-width apart
+        and your feet together. Engage your core and lower your body towards the ground by bending your
+        elbows, keeping your body in a straight line. Pause for a moment when your chest is just above
+        the ground, then push yourself back up to the starting position by straightening your arms. Repeat
+        for the desired number of repetitions.
+      summary: From a high plank, hands just wider than your shoulders, lower your chest near the floor,
+        then push back up.
+  expected_output:
+    keeps_cues: false
+    adds_nothing: true
+- name: 'cable lateral raise: adds shoulders down'
+  metadata:
+    kind: added_cue
+    exercise: Cable Lateral Raise
+    instructions_source: exercises-dataset 0178
+  inputs:
+    prompt: '{"original":"Stand with your feet shoulder-width apart and grasp the cable handles with an
+      overhand grip. Keep your arms straight and your core engaged. Raise your arms out to the sides until
+      they are parallel to the floor. Pause for a moment at the top, then slowly lower your arms back
+      down to the starting position. Repeat for the desired number of repetitions.","summary":"Hold the
+      cable handles, arms straight and core tight. Raise your arms out to the sides to shoulder height,
+      keeping your shoulders down away from your ears, then lower slowly."}'
+    deps:
+      original: Stand with your feet shoulder-width apart and grasp the cable handles with an overhand
+        grip. Keep your arms straight and your core engaged. Raise your arms out to the sides until they
+        are parallel to the floor. Pause for a moment at the top, then slowly lower your arms back down
+        to the starting position. Repeat for the desired number of repetitions.
+      summary: Hold the cable handles, arms straight and core tight. Raise your arms out to the sides
+        to shoulder height, keeping your shoulders down away from your ears, then lower slowly.
+  expected_output:
+    keeps_cues: true
+    adds_nothing: false
+- name: 'barbell bench press: adds an arched back'
+  metadata:
+    kind: added_cue
+    exercise: Barbell Bench Press
+    instructions_source: exercises-dataset 0025
+  inputs:
+    prompt: '{"original":"Lie flat on a bench with your feet flat on the ground and your back pressed
+      against the bench. Grasp the barbell with an overhand grip slightly wider than shoulder-width apart.
+      Lift the barbell off the rack and hold it directly above your chest with your arms fully extended.
+      Lower the barbell slowly towards your chest, keeping your elbows tucked in. Pause for a moment when
+      the barbell touches your chest. Push the barbell back up to the starting position by extending your
+      arms. Repeat for the desired number of repetitions.","summary":"Lie on the bench, feet flat, and
+      arch your lower back. Lower the bar slowly to your chest, elbows tucked in, then press it back up."}'
+    deps:
+      original: Lie flat on a bench with your feet flat on the ground and your back pressed against the
+        bench. Grasp the barbell with an overhand grip slightly wider than shoulder-width apart. Lift
+        the barbell off the rack and hold it directly above your chest with your arms fully extended.
+        Lower the barbell slowly towards your chest, keeping your elbows tucked in. Pause for a moment
+        when the barbell touches your chest. Push the barbell back up to the starting position by extending
+        your arms. Repeat for the desired number of repetitions.
+      summary: Lie on the bench, feet flat, and arch your lower back. Lower the bar slowly to your chest,
+        elbows tucked in, then press it back up.
+  expected_output:
+    keeps_cues: true
+    adds_nothing: false
+- name: '3/4 sit-up: adds a tucked chin'
+  metadata:
+    kind: added_cue
+    exercise: 3/4 Sit-Up
+    instructions_source: exercises-dataset 0001
+  inputs:
+    prompt: '{"original":"Lie flat on your back with your knees bent and feet flat on the ground. Place
+      your hands behind your head with your elbows pointing outwards. Engaging your abs, slowly lift your
+      upper body off the ground, curling forward until your torso is at a 45-degree angle. Pause for a
+      moment at the top, then slowly lower your upper body back down to the starting position. Repeat
+      for the desired number of repetitions.","summary":"Lie on your back, knees bent, hands behind your
+      head. Tuck your chin, and using your abs slowly curl up to 45 degrees, then lower slowly."}'
+    deps:
+      original: Lie flat on your back with your knees bent and feet flat on the ground. Place your hands
+        behind your head with your elbows pointing outwards. Engaging your abs, slowly lift your upper
+        body off the ground, curling forward until your torso is at a 45-degree angle. Pause for a moment
+        at the top, then slowly lower your upper body back down to the starting position. Repeat for the
+        desired number of repetitions.
+      summary: Lie on your back, knees bent, hands behind your head. Tuck your chin, and using your abs
+        slowly curl up to 45 degrees, then lower slowly.
+  expected_output:
+    keeps_cues: true
+    adds_nothing: false
+- name: '3/4 sit-up: 45 degrees becomes 90'
+  metadata:
+    kind: changed_number
+    exercise: 3/4 Sit-Up
+    instructions_source: exercises-dataset 0001
+  inputs:
+    prompt: '{"original":"Lie flat on your back with your knees bent and feet flat on the ground. Place
+      your hands behind your head with your elbows pointing outwards. Engaging your abs, slowly lift your
+      upper body off the ground, curling forward until your torso is at a 45-degree angle. Pause for a
+      moment at the top, then slowly lower your upper body back down to the starting position. Repeat
+      for the desired number of repetitions.","summary":"Lie on your back, knees bent, hands behind your
+      head. Using your abs, slowly curl up to 90 degrees, then lower slowly."}'
+    deps:
+      original: Lie flat on your back with your knees bent and feet flat on the ground. Place your hands
+        behind your head with your elbows pointing outwards. Engaging your abs, slowly lift your upper
+        body off the ground, curling forward until your torso is at a 45-degree angle. Pause for a moment
+        at the top, then slowly lower your upper body back down to the starting position. Repeat for the
+        desired number of repetitions.
+      summary: Lie on your back, knees bent, hands behind your head. Using your abs, slowly curl up to
+        90 degrees, then lower slowly.
+  expected_output:
+    keeps_cues: true
+    adds_nothing: false
+- name: 'dumbbell lateral raise: adds a load'
+  metadata:
+    kind: changed_number
+    exercise: Dumbbell Lateral Raise
+    instructions_source: exercises-dataset 0334
+  inputs:
+    prompt: '{"original":"Stand with your feet shoulder-width apart and hold a dumbbell in each hand,
+      palms facing your body. Keep your back straight and engage your core. Raise your arms out to the
+      sides until they are parallel to the floor, keeping a slight bend in your elbows. Pause for a moment
+      at the top, then slowly lower your arms back down to the starting position. Repeat for the desired
+      number of repetitions.","summary":"Hold a 5 kg dumbbell in each hand, back straight and core tight.
+      Raise your arms out to the sides to shoulder height, elbows slightly bent, then lower slowly."}'
+    deps:
+      original: Stand with your feet shoulder-width apart and hold a dumbbell in each hand, palms facing
+        your body. Keep your back straight and engage your core. Raise your arms out to the sides until
+        they are parallel to the floor, keeping a slight bend in your elbows. Pause for a moment at the
+        top, then slowly lower your arms back down to the starting position. Repeat for the desired number
+        of repetitions.
+      summary: Hold a 5 kg dumbbell in each hand, back straight and core tight. Raise your arms out to
+        the sides to shoulder height, elbows slightly bent, then lower slowly.
+  expected_output:
+    keeps_cues: true
+    adds_nothing: false
+- name: 'push-up: adds sets and reps'
+  metadata:
+    kind: changed_number
+    exercise: Push-Up
+    instructions_source: exercises-dataset 0662
+  inputs:
+    prompt: '{"original":"Start in a high plank position with your hands slightly wider than shoulder-width
+      apart and your feet together. Engage your core and lower your body towards the ground by bending
+      your elbows, keeping your body in a straight line. Pause for a moment when your chest is just above
+      the ground, then push yourself back up to the starting position by straightening your arms. Repeat
+      for the desired number of repetitions.","summary":"From a high plank, hands just wider than your
+      shoulders and core tight, lower your chest near the floor, body straight, then push back up. Do
+      3 sets of 10."}'
+    deps:
+      original: Start in a high plank position with your hands slightly wider than shoulder-width apart
+        and your feet together. Engage your core and lower your body towards the ground by bending your
+        elbows, keeping your body in a straight line. Pause for a moment when your chest is just above
+        the ground, then push yourself back up to the starting position by straightening your arms. Repeat
+        for the desired number of repetitions.
+      summary: From a high plank, hands just wider than your shoulders and core tight, lower your chest
+        near the floor, body straight, then push back up. Do 3 sets of 10.
+  expected_output:
+    keeps_cues: true
+    adds_nothing: false
+- name: 'barbell deadlift: adds a grip width'
+  metadata:
+    kind: changed_number
+    exercise: Barbell Deadlift
+    instructions_source: exercises-dataset 0032
+  inputs:
+    prompt: '{"original":"Stand with your feet shoulder-width apart and the barbell on the ground in front
+      of you. Bend your knees and hinge at the hips to lower your torso and grip the barbell with an overhand
+      grip, hands slightly wider than shoulder-width apart. Keep your back straight and chest lifted as
+      you drive through your heels to lift the barbell off the ground, extending your hips and knees.
+      As you stand up straight, squeeze your glutes and keep your core engaged. Lower the barbell back
+      down to the ground by bending at the hips and knees, keeping your back straight. Repeat for the
+      desired number of repetitions.","summary":"Hinge at the hips and grip the bar with your hands 30
+      cm apart, back straight and chest up. Stand up through your heels, then lower it the same way, back
+      straight."}'
+    deps:
+      original: Stand with your feet shoulder-width apart and the barbell on the ground in front of you.
+        Bend your knees and hinge at the hips to lower your torso and grip the barbell with an overhand
+        grip, hands slightly wider than shoulder-width apart. Keep your back straight and chest lifted
+        as you drive through your heels to lift the barbell off the ground, extending your hips and knees.
+        As you stand up straight, squeeze your glutes and keep your core engaged. Lower the barbell back
+        down to the ground by bending at the hips and knees, keeping your back straight. Repeat for the
+        desired number of repetitions.
+      summary: Hinge at the hips and grip the bar with your hands 30 cm apart, back straight and chest
+        up. Stand up through your heels, then lower it the same way, back straight.
+  expected_output:
+    keeps_cues: true
+    adds_nothing: false
+- name: 'dumbbell lateral raise: describes a front raise'
+  metadata:
+    kind: another_movement
+    exercise: Dumbbell Lateral Raise
+    instructions_source: exercises-dataset 0334
+  inputs:
+    prompt: '{"original":"Stand with your feet shoulder-width apart and hold a dumbbell in each hand,
+      palms facing your body. Keep your back straight and engage your core. Raise your arms out to the
+      sides until they are parallel to the floor, keeping a slight bend in your elbows. Pause for a moment
+      at the top, then slowly lower your arms back down to the starting position. Repeat for the desired
+      number of repetitions.","summary":"Hold a dumbbell in each hand, back straight and core tight. Raise
+      your arms straight in front of you to shoulder height, elbows slightly bent, then lower slowly."}'
+    deps:
+      original: Stand with your feet shoulder-width apart and hold a dumbbell in each hand, palms facing
+        your body. Keep your back straight and engage your core. Raise your arms out to the sides until
+        they are parallel to the floor, keeping a slight bend in your elbows. Pause for a moment at the
+        top, then slowly lower your arms back down to the starting position. Repeat for the desired number
+        of repetitions.
+      summary: Hold a dumbbell in each hand, back straight and core tight. Raise your arms straight in
+        front of you to shoulder height, elbows slightly bent, then lower slowly.
+  expected_output:
+    keeps_cues: true
+    adds_nothing: false
+- name: 'lever lateral raise: describes the dumbbell version'
+  metadata:
+    kind: another_movement
+    exercise: Lever Lateral Raise
+    instructions_source: exercises-dataset 0584
+  inputs:
+    prompt: '{"original":"Adjust the seat height and position yourself on the machine with your back against
+      the pad. Grasp the handles with an overhand grip and keep your arms straight. Exhale and raise your
+      arms out to the sides until they are parallel to the floor. Pause for a moment at the top, then
+      inhale and slowly lower your arms back to the starting position. Repeat for the desired number of
+      repetitions.","summary":"Stand with a dumbbell in each hand, back straight. Raise your arms out
+      to the sides to shoulder height, then lower them slowly."}'
+    deps:
+      original: Adjust the seat height and position yourself on the machine with your back against the
+        pad. Grasp the handles with an overhand grip and keep your arms straight. Exhale and raise your
+        arms out to the sides until they are parallel to the floor. Pause for a moment at the top, then
+        inhale and slowly lower your arms back to the starting position. Repeat for the desired number
+        of repetitions.
+      summary: Stand with a dumbbell in each hand, back straight. Raise your arms out to the sides to
+        shoulder height, then lower them slowly.
+  expected_output:
+    keeps_cues: false
+    adds_nothing: false
+- name: 'cable lateral raise: describes bent-arm dumbbell raises'
+  metadata:
+    kind: another_movement
+    exercise: Cable Lateral Raise
+    instructions_source: exercises-dataset 0178
+  inputs:
+    prompt: '{"original":"Stand with your feet shoulder-width apart and grasp the cable handles with an
+      overhand grip. Keep your arms straight and your core engaged. Raise your arms out to the sides until
+      they are parallel to the floor. Pause for a moment at the top, then slowly lower your arms back
+      down to the starting position. Repeat for the desired number of repetitions.","summary":"Hold a
+      dumbbell in each hand, elbows bent and core tight. Raise your arms out to the sides to shoulder
+      height, then lower them slowly."}'
+    deps:
+      original: Stand with your feet shoulder-width apart and grasp the cable handles with an overhand
+        grip. Keep your arms straight and your core engaged. Raise your arms out to the sides until they
+        are parallel to the floor. Pause for a moment at the top, then slowly lower your arms back down
+        to the starting position. Repeat for the desired number of repetitions.
+      summary: Hold a dumbbell in each hand, elbows bent and core tight. Raise your arms out to the sides
+        to shoulder height, then lower them slowly.
+  expected_output:
+    keeps_cues: false
+    adds_nothing: false
+- name: 'barbell bench press: describes an incline press'
+  metadata:
+    kind: another_movement
+    exercise: Barbell Bench Press
+    instructions_source: exercises-dataset 0025
+  inputs:
+    prompt: '{"original":"Lie flat on a bench with your feet flat on the ground and your back pressed
+      against the bench. Grasp the barbell with an overhand grip slightly wider than shoulder-width apart.
+      Lift the barbell off the rack and hold it directly above your chest with your arms fully extended.
+      Lower the barbell slowly towards your chest, keeping your elbows tucked in. Pause for a moment when
+      the barbell touches your chest. Push the barbell back up to the starting position by extending your
+      arms. Repeat for the desired number of repetitions.","summary":"Sit back on an incline bench, feet
+      flat. Lower the bar slowly to your upper chest, elbows tucked in, then press it back up."}'
+    deps:
+      original: Lie flat on a bench with your feet flat on the ground and your back pressed against the
+        bench. Grasp the barbell with an overhand grip slightly wider than shoulder-width apart. Lift
+        the barbell off the rack and hold it directly above your chest with your arms fully extended.
+        Lower the barbell slowly towards your chest, keeping your elbows tucked in. Pause for a moment
+        when the barbell touches your chest. Push the barbell back up to the starting position by extending
+        your arms. Repeat for the desired number of repetitions.
+      summary: Sit back on an incline bench, feet flat. Lower the bar slowly to your upper chest, elbows
+        tucked in, then press it back up.
+  expected_output:
+    keeps_cues: true
+    adds_nothing: false

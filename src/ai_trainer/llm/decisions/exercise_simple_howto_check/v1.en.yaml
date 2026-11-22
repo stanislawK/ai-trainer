@@ -1,0 +1,21 @@
+goal: >-
+  Two texts about one gym exercise, given as a JSON object. `original` is the exercise's
+  instructions from a public exercise catalogue. `summary` is a short version of them, written in
+  plain words for a beginner, which will be shown in place of the original.
+questions:
+  keeps_cues:
+    kind: probability
+    question: >-
+      Does the summary keep every safety and form cue the original gives, in any wording? Cues
+      are things like keeping the back straight, the chest up or the body in a straight line,
+      engaging the core, a slight bend in the elbows, keeping the elbows tucked in, keeping the
+      arms straight, or lowering slowly. Leaving out a pause, the starting stance or the line
+      about repeating is fine. Answer no if any cue is missing, weakened or reversed.
+  adds_nothing:
+    kind: probability
+    question: >-
+      Is everything the summary says also in the original, about the same movement? Shorter,
+      plainer wording of the original's own steps is fine. Answer no if the summary adds an
+      instruction, tip or cue the original doesn't give, adds or changes a number, angle, load,
+      set or repetition count, or describes a different movement, body position or piece of
+      equipment.

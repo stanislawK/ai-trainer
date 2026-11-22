@@ -1,0 +1,449 @@
+{
+  "template_id": "exercise_simple_howto_check",
+  "version": 1,
+  "model": "typesafe/jev-1.13",
+  "assertions": 0.9236111111111112,
+  "scores": {},
+  "thresholds": {
+    "max_assertions_drop": 0.0,
+    "max_score_drop": 0.05
+  },
+  "decision_thresholds": {
+    "keeps_cues": 0.12,
+    "adds_nothing": 0.5
+  },
+  "cases": {
+    "dumbbell lateral raise: good": {
+      "keeps_cues": {
+        "mean": 0.7666666666666666,
+        "min": 0.75,
+        "max": 0.78,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.030000000000000027
+      },
+      "adds_nothing": {
+        "mean": 0.9333333333333332,
+        "min": 0.93,
+        "max": 0.94,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.009999999999999898
+      }
+    },
+    "dumbbell lateral raise: good, other wording": {
+      "keeps_cues": {
+        "mean": 0.7933333333333333,
+        "min": 0.76,
+        "max": 0.81,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.050000000000000044
+      },
+      "adds_nothing": {
+        "mean": 0.8833333333333333,
+        "min": 0.87,
+        "max": 0.89,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.020000000000000018
+      }
+    },
+    "cable lateral raise: good": {
+      "keeps_cues": {
+        "mean": 0.7233333333333333,
+        "min": 0.71,
+        "max": 0.74,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.030000000000000027
+      },
+      "adds_nothing": {
+        "mean": 0.94,
+        "min": 0.94,
+        "max": 0.94,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.0
+      }
+    },
+    "lever lateral raise: good": {
+      "keeps_cues": {
+        "mean": 0.5533333333333333,
+        "min": 0.52,
+        "max": 0.6,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.07999999999999996
+      },
+      "adds_nothing": {
+        "mean": 0.89,
+        "min": 0.89,
+        "max": 0.89,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.0
+      }
+    },
+    "barbell deadlift: good": {
+      "keeps_cues": {
+        "mean": 0.64,
+        "min": 0.63,
+        "max": 0.65,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.020000000000000018
+      },
+      "adds_nothing": {
+        "mean": 0.9466666666666667,
+        "min": 0.94,
+        "max": 0.95,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.010000000000000009
+      }
+    },
+    "barbell bench press: good": {
+      "keeps_cues": {
+        "mean": 0.2333333333333333,
+        "min": 0.21,
+        "max": 0.27,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.060000000000000026
+      },
+      "adds_nothing": {
+        "mean": 0.9499999999999998,
+        "min": 0.95,
+        "max": 0.95,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.0
+      }
+    },
+    "barbell bench press: good, other wording": {
+      "keeps_cues": {
+        "mean": 0.18000000000000002,
+        "min": 0.17,
+        "max": 0.19,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.01999999999999999
+      },
+      "adds_nothing": {
+        "mean": 0.9433333333333334,
+        "min": 0.94,
+        "max": 0.95,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.010000000000000009
+      }
+    },
+    "push-up: good": {
+      "keeps_cues": {
+        "mean": 0.5266666666666667,
+        "min": 0.52,
+        "max": 0.53,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.010000000000000009
+      },
+      "adds_nothing": {
+        "mean": 0.9433333333333334,
+        "min": 0.93,
+        "max": 0.95,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.019999999999999907
+      }
+    },
+    "3/4 sit-up: good": {
+      "keeps_cues": {
+        "mean": 0.2966666666666667,
+        "min": 0.27,
+        "max": 0.34,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.07
+      },
+      "adds_nothing": {
+        "mean": 0.96,
+        "min": 0.96,
+        "max": 0.96,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.0
+      }
+    },
+    "dumbbell lateral raise: drops the back and elbow cues": {
+      "keeps_cues": {
+        "mean": 0.03666666666666667,
+        "min": 0.03,
+        "max": 0.04,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.010000000000000002
+      },
+      "adds_nothing": {
+        "mean": 0.9333333333333332,
+        "min": 0.93,
+        "max": 0.94,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.009999999999999898
+      }
+    },
+    "barbell deadlift: drops the straight back": {
+      "keeps_cues": {
+        "mean": 0.03333333333333333,
+        "min": 0.03,
+        "max": 0.04,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.010000000000000002
+      },
+      "adds_nothing": {
+        "mean": 0.9499999999999998,
+        "min": 0.94,
+        "max": 0.96,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.020000000000000018
+      }
+    },
+    "barbell bench press: drops tucked elbows and the slow lowering": {
+      "keeps_cues": {
+        "mean": 0.03,
+        "min": 0.03,
+        "max": 0.03,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.0
+      },
+      "adds_nothing": {
+        "mean": 0.9533333333333333,
+        "min": 0.95,
+        "max": 0.96,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.010000000000000009
+      }
+    },
+    "push-up: drops the straight body and the core": {
+      "keeps_cues": {
+        "mean": 0.05333333333333334,
+        "min": 0.05,
+        "max": 0.06,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.009999999999999995
+      },
+      "adds_nothing": {
+        "mean": 0.96,
+        "min": 0.96,
+        "max": 0.96,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.0
+      }
+    },
+    "cable lateral raise: adds shoulders down": {
+      "keeps_cues": {
+        "mean": 0.5566666666666666,
+        "min": 0.53,
+        "max": 0.59,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.05999999999999994
+      },
+      "adds_nothing": {
+        "mean": 0.06,
+        "min": 0.06,
+        "max": 0.06,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.0
+      }
+    },
+    "barbell bench press: adds an arched back": {
+      "keeps_cues": {
+        "mean": 0.07333333333333333,
+        "min": 0.06,
+        "max": 0.08,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.020000000000000004
+      },
+      "adds_nothing": {
+        "mean": 0.06666666666666667,
+        "min": 0.06,
+        "max": 0.07,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.010000000000000009
+      }
+    },
+    "3/4 sit-up: adds a tucked chin": {
+      "keeps_cues": {
+        "mean": 0.24,
+        "min": 0.21,
+        "max": 0.27,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.060000000000000026
+      },
+      "adds_nothing": {
+        "mean": 0.07,
+        "min": 0.07,
+        "max": 0.07,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.0
+      }
+    },
+    "3/4 sit-up: 45 degrees becomes 90": {
+      "keeps_cues": {
+        "mean": 0.11333333333333333,
+        "min": 0.11,
+        "max": 0.12,
+        "runs": 3,
+        "flips": true,
+        "spread": 0.009999999999999995
+      },
+      "adds_nothing": {
+        "mean": 0.05000000000000001,
+        "min": 0.05,
+        "max": 0.05,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.0
+      }
+    },
+    "dumbbell lateral raise: adds a load": {
+      "keeps_cues": {
+        "mean": 0.7399999999999999,
+        "min": 0.73,
+        "max": 0.75,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.020000000000000018
+      },
+      "adds_nothing": {
+        "mean": 0.056666666666666664,
+        "min": 0.05,
+        "max": 0.06,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.009999999999999995
+      }
+    },
+    "push-up: adds sets and reps": {
+      "keeps_cues": {
+        "mean": 0.52,
+        "min": 0.51,
+        "max": 0.53,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.020000000000000018
+      },
+      "adds_nothing": {
+        "mean": 0.05000000000000001,
+        "min": 0.05,
+        "max": 0.05,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.0
+      }
+    },
+    "barbell deadlift: adds a grip width": {
+      "keeps_cues": {
+        "mean": 0.06666666666666667,
+        "min": 0.06,
+        "max": 0.07,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.010000000000000009
+      },
+      "adds_nothing": {
+        "mean": 0.22666666666666666,
+        "min": 0.21,
+        "max": 0.24,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.03
+      }
+    },
+    "dumbbell lateral raise: describes a front raise": {
+      "keeps_cues": {
+        "mean": 0.32666666666666666,
+        "min": 0.3,
+        "max": 0.34,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.040000000000000036
+      },
+      "adds_nothing": {
+        "mean": 0.056666666666666664,
+        "min": 0.05,
+        "max": 0.06,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.009999999999999995
+      }
+    },
+    "lever lateral raise: describes the dumbbell version": {
+      "keeps_cues": {
+        "mean": 0.10333333333333333,
+        "min": 0.09,
+        "max": 0.11,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.020000000000000004
+      },
+      "adds_nothing": {
+        "mean": 0.04,
+        "min": 0.04,
+        "max": 0.04,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.0
+      }
+    },
+    "cable lateral raise: describes bent-arm dumbbell raises": {
+      "keeps_cues": {
+        "mean": 0.043333333333333335,
+        "min": 0.04,
+        "max": 0.05,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.010000000000000002
+      },
+      "adds_nothing": {
+        "mean": 0.03,
+        "min": 0.03,
+        "max": 0.03,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.0
+      }
+    },
+    "barbell bench press: describes an incline press": {
+      "keeps_cues": {
+        "mean": 0.07666666666666666,
+        "min": 0.06,
+        "max": 0.09,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.03
+      },
+      "adds_nothing": {
+        "mean": 0.03666666666666667,
+        "min": 0.03,
+        "max": 0.04,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.010000000000000002
+      }
+    }
+  }
+}
