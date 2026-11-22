@@ -1,0 +1,3 @@
+{#- One exercise-card candidate after "Looks wrong" (ADR-0031 *The flag*, #593; #590's just-flagged frame): the clamped original with #580's chevron and no sparkle, and the thanks line under the row. It replaces only that candidate, so the question stays open and its row still answers it. -#}
+{%- from "components/choice_card.html" import exercise_candidate -%}
+{{ exercise_candidate(question, option, index, picture, howto, flagged=true) }}

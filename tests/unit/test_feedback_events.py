@@ -2,11 +2,13 @@
 discard and an undo each write one content-free row, an edit names only the fields it changed,
 and a failing store never fails the athlete's action."""
 
+import io
 from uuid import uuid4
 
 import pytest
 from pydantic import JsonValue
 
+from ai_trainer import cli
 from ai_trainer.application.drafts import discard_draft, edit_draft, undo_log
 from ai_trainer.application.feedback import FeedbackRecorder, changed_fields, count_signals
 from ai_trainer.domain.feedback import FeedbackKind, FeedbackSignal
@@ -308,3 +310,36 @@ def test_lists_of_different_lengths_name_their_own_key() -> None:
     after = _draft_with({"rows": [{"sets": [{"a": 1}]}]})
 
     assert changed_fields(before, after) == ["sets"]
+
+
+# AC (#593): `feedback-report` counts `howto_flagged` per template version.
+async def test_report_counts_howto_flags_per_template_version() -> None:
+    flagged = FeedbackKind.HOWTO_FLAGGED
+    events = InMemoryFeedbackEvents()
+    recorder = FeedbackRecorder(events, clock=FixedClock())
+    user_id = uuid4()
+    for version in (1, 1, 2):
+        await recorder.record(
+            user_id, flagged, template_id="exercise.simple_howto", template_version=version
+        )
+    await recorder.record(user_id, FeedbackKind.DRAFT_DISCARDED)
+    signals = await events.signals()
+
+    counts = [
+        (c.kind, c.template_id, c.template_version, c.field, c.count)
+        for c in count_signals(signals)
+    ]
+    output = io.StringIO()
+    code = await cli.feedback_report(events=events, since=None, output=output)
+
+    assert counts == [
+        (flagged, "exercise.simple_howto", 1, None, 2),
+        (FeedbackKind.DRAFT_DISCARDED, None, None, None, 1),
+        (flagged, "exercise.simple_howto", 2, None, 1),
+    ]
+    assert code == 0
+    assert output.getvalue().splitlines() == [
+        "howto_flagged exercise.simple_howto@v1 - 2",
+        "draft_discarded - - 1",
+        "howto_flagged exercise.simple_howto@v2 - 1",
+    ]

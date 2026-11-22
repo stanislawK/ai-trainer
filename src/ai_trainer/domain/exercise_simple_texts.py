@@ -115,6 +115,15 @@ class NewSimpleText:
     created_at: datetime
 
 
+@dataclass(frozen=True, slots=True)
+class FlaggedText:
+    """What wrote a text an athlete's "Looks wrong" just flagged (ADR-0031 *The flag*, #593): the
+    template and its version, for the content-free `howto_flagged` event. Never the text."""
+
+    template_id: str
+    template_version: int
+
+
 type FailedCheckOutcome = Literal["counted", "rejected", "present"]
 """What recording a failed check did: the first of its source counted, with no text kept; the
 second stored the row `rejected`; or a row with a text from the same source, or an edited row,

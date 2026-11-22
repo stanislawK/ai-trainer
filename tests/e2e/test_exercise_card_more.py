@@ -4,7 +4,8 @@ with fixture candidates and served with the built `app.css`, htmx and `exercise_
 `page.route`, so it needs no seeded chat (app.css comes from the running app when the checkout
 has none built, as in CI).
 More expands and Less collapses a long how-to without posting an answer; a tap on the row still
-posts one; a short how-to keeps its toggle hidden and its row at full width; the keyboard works."""
+posts one; a short how-to keeps its toggle hidden and its row at full width; the keyboard works;
+"Looks wrong" on a short version above a picture credit posts only the flag (#593)."""
 
 from pathlib import Path
 from uuid import uuid4
@@ -12,6 +13,7 @@ from uuid import uuid4
 import pytest
 from playwright.sync_api import Locator, Page, Request, Route, expect
 
+from ai_trainer.domain.exercise_simple_texts import ShortHowto
 from ai_trainer.domain.exercises import ExerciseCandidate
 from tests.e2e.conftest import BASE_URL
 from tests.exercise_card_support import (
@@ -28,6 +30,10 @@ _LATERAL = ExerciseCandidate(id=uuid4(), name="Dumbbell Lateral Raise", how=LONG
 _FRONT = ExerciseCandidate(id=uuid4(), name="Dumbbell Front Raise", how=LONG_HOW)
 _BAND = ExerciseCandidate(id=uuid4(), name="Band Lateral Raise", how=SHORT_HOW)
 _CUSTOM = ExerciseCandidate(id=uuid4(), name="My Raise")
+_FRONT_SHORT = (
+    "Hold a dumbbell in each hand in front of your thighs. Lift them forward to shoulder height,"
+    " then lower slowly, keeping your back straight and your elbows soft the whole way."
+)
 _TYPES = {
     ".css": "text/css",
     ".js": "text/javascript",
@@ -38,7 +44,11 @@ _TYPES = {
 
 def _document() -> str:
     question = exercise_question([_LATERAL, _FRONT, _BAND, _CUSTOM])
-    card = render_exercise_card(question, {str(_FRONT.id): WGER_PICTURE})
+    card = render_exercise_card(
+        question,
+        {str(_FRONT.id): WGER_PICTURE},
+        {str(_FRONT.id): ShortHowto(text=_FRONT_SHORT)},
+    )
     return (
         '<!doctype html><html data-theme="trainer-dark"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width, initial-scale=1">'
@@ -155,3 +165,35 @@ def test_toggle_by_keyboard_flips_aria_expanded(card: _Card) -> None:
     expect(toggle).to_have_attribute("aria-expanded", "false")
     card.page.wait_for_timeout(300)
     assert card.answers == []
+
+
+def test_looks_wrong_posts_only_the_flag_above_the_picture_credit(card: _Card) -> None:
+    candidate = card.candidate(_FRONT)
+    card.toggle(_FRONT).click()
+    flag = candidate.locator("[data-howto-flag]")
+    expect(flag).to_be_visible()
+    # The credit line under it has 44 px targets too: neither target may reach the other's text,
+    # wherever the two sit across the row (#593).
+    gaps = candidate.evaluate(
+        """c => {
+          const box = e => e.getBoundingClientRect();
+          const flag = c.querySelector('[data-howto-flag]');
+          const credits = [...c.querySelectorAll('a')];
+          const creditText = Math.min(...credits.map(a => box(a).top));
+          const creditTarget = Math.min(...credits.map(a => box(a.querySelector('span')).top));
+          return {
+            flag_target_clears_credit_text:
+              box(flag.querySelector('span')).bottom <= creditText + 0.5,
+            credit_target_clears_flag_text: creditTarget >= box(flag).bottom - 0.5,
+          };
+        }"""
+    )
+    assert gaps == {"flag_target_clears_credit_text": True, "credit_target_clears_flag_text": True}
+    expect(flag).to_have_css("z-index", "10")
+
+    with card.page.expect_request(lambda request: request.url.endswith("/flag")):
+        flag.click()
+    card.page.wait_for_timeout(300)
+
+    assert len(card.answers) == 1
+    assert card.answers[0].endswith(f"/howto/{_FRONT.id}/flag")

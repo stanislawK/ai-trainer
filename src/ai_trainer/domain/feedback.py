@@ -17,6 +17,9 @@ class FeedbackKind(StrEnum):
     CHOICE_ANSWERED = "choice_answered"
     # Nothing writes it until the Jev pick (ADR-0034); the table's check admits it already.
     DECISION_OVERRIDDEN = "decision_overridden"
+    # An athlete's "Looks wrong" on a beginner how-to, with its template and version (ADR-0031
+    # *The flag*, #593).
+    HOWTO_FLAGGED = "howto_flagged"
 
 
 class NewFeedbackEvent(BaseModel):
@@ -50,12 +53,22 @@ class FeedbackSignal(BaseModel):
 
 
 class FeedbackCount(BaseModel):
-    """How many events of `kind` named `field` under a template; `field` is `None` for an
-    event that names none, as a discard."""
+    """How many events of `kind` named `field` under a template version; `field` is `None` for
+    an event that names none, as a discard or a how-to flag, and `template_version` is `None`
+    for a row that has none."""
 
     model_config = ConfigDict(frozen=True)
 
     kind: FeedbackKind
     template_id: str | None
+    template_version: int | None = None
     field: str | None
     count: int
+
+    @property
+    def template(self) -> str | None:
+        """The template as the report prints it: `<id>@v<N>` when the row has a version (#593),
+        the bare ID when it has none."""
+        if self.template_id is None or self.template_version is None:
+            return self.template_id
+        return f"{self.template_id}@v{self.template_version}"

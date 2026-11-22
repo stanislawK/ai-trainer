@@ -1733,6 +1733,55 @@
         "summary": "Howto"
       }
     },
+    "/clarifications/{clarification_id}/howto/{option_id}/flag": {
+      "post": {
+        "description": "\"Looks wrong\" on a candidate's short version (ADR-0031 *The flag*, #593): hides it\nfor every athlete, records one content-free `howto_flagged` event, and returns the\ncandidate with its clamped original and a thanks line. An already flagged or missing\ntext gets the same answer and records nothing. It never answers the question. The\nguards are `howto`'s: 404 for another user's or an unknown question or option, 409 for\nan answered one.",
+        "operationId": "flag_howto_clarifications__clarification_id__howto__option_id__flag_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "clarification_id",
+            "required": true,
+            "schema": {
+              "title": "Clarification Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "option_id",
+            "required": true,
+            "schema": {
+              "title": "Option Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Flag Howto"
+      }
+    },
     "/clarifications/{clarification_id}/name": {
       "get": {
         "description": "\"Let me type instead\" on the exercise card: its name field, holding the name as typed.\nNothing is written, and the question stays open (F23, ticket #402).",

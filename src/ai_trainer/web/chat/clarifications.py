@@ -6,6 +6,7 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse
 
+from ai_trainer.application.exercise_simple_howto import CardHowtos
 from ai_trainer.application.reply import (
     BandPlaced,
     ClarificationAnswered,
@@ -25,6 +26,7 @@ from ai_trainer.domain.clarification import (
     StoredClarification,
     UnknownOptionError,
 )
+from ai_trainer.domain.exercise_simple_texts import KeepOriginal
 from ai_trainer.domain.exercises import ExerciseNameError
 from ai_trainer.domain.training import (
     DraftConfirmedError,
@@ -164,6 +166,20 @@ class _ClarificationRoutes:
             },
         )
 
+    async def _candidate(
+        self, request: Request, clarification_id: str, option_id: str
+    ) -> tuple[StoredClarification, int, CardHowtos]:
+        """The open exercise question, the index of `option_id` among its catalogue
+        candidates, and the how-to service: another user's or an unknown question, an option
+        that isn't one of its candidates, or no service is a 404, an answered question a 409."""
+        question = await self._open_question(request, clarification_id)
+        options = question.clarification.options
+        index = next((i for i, option in enumerate(options) if option.id == option_id), None)
+        howtos = self._ctx.card_howtos
+        if index is None or option_id == KEEP_NAME_OPTION or howtos is None:
+            raise HTTPException(status_code=NOT_FOUND)
+        return question, index, howtos
+
     async def howto(self, request: Request, clarification_id: str, option_id: str) -> HTMLResponse:
         """A candidate's loading how-to line (ADR-0031 *Beginner how-to*, #592): writes its
         short version under the athlete whose card asked and returns the line, with the short
@@ -171,17 +187,39 @@ class _ClarificationRoutes:
         Another user's or an unknown question, or an option that isn't one of its catalogue
         candidates, is a 404, an answered one a 409."""
         user: User = request.state.user
-        question = await self._open_question(request, clarification_id)
-        options = question.clarification.options
-        index = next((i for i, option in enumerate(options) if option.id == option_id), None)
-        howtos = self._ctx.card_howtos
-        if index is None or option_id == KEEP_NAME_OPTION or howtos is None:
-            raise HTTPException(status_code=NOT_FOUND)
+        question, index, howtos = await self._candidate(request, clarification_id, option_id)
         line = await howtos.load(user_id=user.id, exercise_id=parse_id(option_id))
+        options = question.clarification.options
         return self._ctx.templates.TemplateResponse(
             request,
             "partials/chat/howto_line.html",
             {"question": question, "option": options[index], "index": index + 1, "howto": line},
+        )
+
+    async def flag_howto(
+        self, request: Request, clarification_id: str, option_id: str
+    ) -> HTMLResponse:
+        """ "Looks wrong" on a candidate's short version (ADR-0031 *The flag*, #593): hides it
+        for every athlete, records one content-free `howto_flagged` event, and returns the
+        candidate with its clamped original and a thanks line. An already flagged or missing
+        text gets the same answer and records nothing. It never answers the question. The
+        guards are `howto`'s: 404 for another user's or an unknown question or option, 409 for
+        an answered one."""
+        user: User = request.state.user
+        question, index, howtos = await self._candidate(request, clarification_id, option_id)
+        await howtos.flag(user_id=user.id, exercise_id=parse_id(option_id))
+        option = question.clarification.options[index]
+        pictures = await self._ctx.exercise_pictures([question])
+        return self._ctx.templates.TemplateResponse(
+            request,
+            "partials/chat/howto_candidate.html",
+            {
+                "question": question,
+                "option": option,
+                "index": index + 1,
+                "picture": pictures.get(option.id),
+                "howto": KeepOriginal(),
+            },
         )
 
     async def keep_name(self, request: Request, clarification_id: str) -> HTMLResponse:
@@ -291,4 +329,7 @@ def build_clarifications_router(ctx: ChatContext) -> APIRouter:
     router.post(
         "/clarifications/{clarification_id}/howto/{option_id}", response_class=HTMLResponse
     )(routes.howto)
+    router.post(
+        "/clarifications/{clarification_id}/howto/{option_id}/flag", response_class=HTMLResponse
+    )(routes.flag_howto)
     return router

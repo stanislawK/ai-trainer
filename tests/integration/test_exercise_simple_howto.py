@@ -37,6 +37,7 @@ from ai_trainer.application.ports.decision_gateway import DecisionResult
 from ai_trainer.application.ports.llm_gateway import LlmGatewayResult
 from ai_trainer.domain.exercise_simple_texts import (
     CardHowtoSource,
+    FlaggedText,
     HowtoCallFailed,
     HowtoCheck,
     HowtoCheckRefused,
@@ -710,3 +711,35 @@ async def test_card_rows_reads_catalogue_sources_with_their_stored_text(
         fresh: CardHowtoSource(instructions=_OLD, stored=None, text=None),
     }
     assert await repository.card_rows([], lang="en") == {}
+
+
+# AC (#593): the flag hides only a shown text; a second flag, or no text, changes nothing.
+async def test_flag_updates_only_a_shown_text(db_session_factory: SessionFactory) -> None:
+    repository = SqlAlchemyExerciseSimpleTextRepository(db_session_factory)
+    shown = await _catalogue(db_session_factory, "Zz Howto Flag Shown", _english(_NEW))
+    rejected = await _catalogue(db_session_factory, "Zz Howto Flag Rejected", _english(_NEW))
+    textless = await _catalogue(db_session_factory, "Zz Howto Flag Textless", _english(_NEW))
+    missing = await _catalogue(db_session_factory, "Zz Howto Flag Missing", _english(_NEW))
+    await repository.write(_new(shown, "Lie flat, lower slowly.", _NEW))
+    await repository.record_failed_check(_new(rejected, "One.", _NEW))
+    await repository.record_failed_check(_new(rejected, "Two.", _NEW))
+    await repository.record_failed_check(_new(textless, "One.", _NEW))
+
+    first = await repository.flag(shown, lang="en", flagged_at=NOW)
+    second = await repository.flag(shown, lang="en", flagged_at=NOW)
+    others = [
+        await repository.flag(exercise, lang="en", flagged_at=NOW)
+        for exercise in (rejected, textless, missing)
+    ]
+
+    assert first == FlaggedText(template_id="exercise.simple_howto", template_version=1)
+    assert second is None
+    assert others == [None, None, None]
+    row = await _row(db_session_factory, shown)
+    assert (row["text"], row["status"], row["flagged_at"]) == (
+        "Lie flat, lower slowly.",
+        "flagged",
+        NOW,
+    )
+    assert (await _row(db_session_factory, rejected))["status"] == "rejected"
+    assert (await _row(db_session_factory, textless))["flagged_at"] is None

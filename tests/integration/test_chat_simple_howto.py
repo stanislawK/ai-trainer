@@ -3,7 +3,9 @@
 catalogue candidate with no short version loads it from a user-scoped route that writes it and
 returns the line, behind a skeleton; a stored one shows straight away with its AI mark and no
 request; any fallback keeps the original with no error; a custom exercise or a `rejected` row
-makes no request. The writer and Jev's check are fakes: no model is called."""
+makes no request. "Looks wrong" (#593) flags a shown text for every athlete, records one
+content-free `howto_flagged` event and leaves the question open. The writer and Jev's check are
+fakes: no model is called."""
 
 from collections.abc import Sequence
 from uuid import UUID, uuid4
@@ -13,6 +15,7 @@ from fastapi.testclient import TestClient
 
 from ai_trainer.application.exercise_resolution import ResolutionLimits, ResolveExercises
 from ai_trainer.application.exercise_simple_howto import CardHowtos, WriteSimpleHowto
+from ai_trainer.application.feedback import FeedbackRecorder
 from ai_trainer.domain.chat import ChatRole
 from ai_trainer.domain.conversation import Intent
 from ai_trainer.domain.exercise_simple_texts import (
@@ -25,8 +28,10 @@ from ai_trainer.domain.exercise_simple_texts import (
     source_sha256,
 )
 from ai_trainer.domain.exercises import ExerciseCandidate, ExerciseLabel
+from ai_trainer.domain.feedback import FeedbackKind
 from ai_trainer.domain.sports.gym.extraction import GymExtraction
 from ai_trainer.domain.users import User, UserStatus
+from ai_trainer.web.csrf import CsrfMiddleware
 from ai_trainer.web.templating import build_templates
 from tests.chat_support import (
     FROZEN_NOW,
@@ -37,6 +42,7 @@ from tests.chat_support import (
     include_chat,
     sign_in_as,
 )
+from tests.feedback_support import InMemoryFeedbackEvents
 from tests.picker_support import ScriptedPicker
 from tests.simple_howto_support import (
     CHECK_VERSION,
@@ -121,11 +127,14 @@ class _App:
         writer: ScriptedWriter | None = None,
         *,
         clarifications: InMemoryClarificationRepository | None = None,
+        texts: InMemorySimpleTexts | None = None,
+        csrf: bool = False,
     ) -> None:
         app = FastAPI()
-        self.texts = InMemorySimpleTexts(
+        self.texts = texts or InMemorySimpleTexts(
             sources={candidate.id: _source(candidate) for candidate in (_LATERAL, _FRONT)}
         )
+        self.feedback = InMemoryFeedbackEvents()
         self.writer = writer or ScriptedWriter(_draft())
         self.check = ScriptedCheck()
         self.drafts = InMemoryDraftRepository()
@@ -160,8 +169,12 @@ class _App:
                     clock=FrozenClock(),
                     max_chars=160,
                 ),
+                feedback=FeedbackRecorder(self.feedback, clock=FrozenClock()),
+                clock=FrozenClock(),
             ),
         )
+        if csrf:
+            app.add_middleware(CsrfMiddleware, secret_key=b"test", templates=build_templates())
         self.user = sign_in_as(app)
         self.profile.sports[self.user.id] = ["gym"]
         self.client = TestClient(app)
@@ -185,6 +198,14 @@ class _App:
     def load(self, candidate: ExerciseCandidate, question: UUID | None = None) -> str:
         response = self.client.post(
             f"/clarifications/{question or self.open_question()}/howto/{candidate.id}",
+            headers=_HTMX,
+        )
+        assert response.status_code == 200
+        return " ".join(response.text.split())
+
+    def flag(self, candidate: ExerciseCandidate, question: UUID | None = None) -> str:
+        response = self.client.post(
+            f"/clarifications/{question or self.open_question()}/howto/{candidate.id}/flag",
             headers=_HTMX,
         )
         assert response.status_code == 200
@@ -395,6 +416,170 @@ async def test_without_the_how_to_service_the_card_is_as_before() -> None:
         ),
     )
 
-    response = TestClient(app).post(f"/clarifications/{uuid4()}/howto/{uuid4()}", headers=_HTMX)
+    client = TestClient(app)
+    response = client.post(f"/clarifications/{uuid4()}/howto/{uuid4()}", headers=_HTMX)
+    flag = client.post(f"/clarifications/{uuid4()}/howto/{uuid4()}/flag", headers=_HTMX)
+
+    assert (response.status_code, flag.status_code) == (404, 404)
+
+
+_THANKS = "Thanks, the short version is hidden. Showing the original."
+
+
+# AC (#593): after a flag, every athlete's next card shows the original.
+async def test_flag_hides_the_short_version_for_every_athlete() -> None:
+    app = _App()
+    app.store(_LATERAL, SimpleTextStatus.SHOWN)
+    await app.reply()
+
+    answer = app.flag(_LATERAL)
+
+    assert answer.startswith("<div")
+    assert f'data-candidate="{_LATERAL.id}"' in answer
+    assert _ORIGINAL in answer
+    assert _THANKS in answer
+    assert 'role="status"' in answer
+    assert _SIMPLE not in answer
+    assert _SHORT not in answer
+    row = app.texts.rows[_LATERAL.id]
+    assert (row.status, row.flagged_at) == (SimpleTextStatus.FLAGGED, NOW)
+
+    other = _App(texts=app.texts)
+    html = await other.reply()
+
+    block = _candidate(html, _LATERAL)
+    assert _ORIGINAL in block
+    assert _SIMPLE not in block
+    assert _SHORT not in block
+    assert _loader_url(other.open_question(), _LATERAL) not in block
+    assert "skeleton" not in block
+    assert _THANKS not in block
+    assert other.writer.calls == []
+
+
+# AC (#593): the flag doesn't answer the question; tapping the row still picks it.
+async def test_flag_leaves_the_question_open_and_the_row_still_answers() -> None:
+    app = _App()
+    app.store(_LATERAL, SimpleTextStatus.SHOWN)
+    await app.reply()
+    question = app.open_question()
+
+    answer = app.flag(_LATERAL, question)
+
+    assert [row.status for row in app.clarifications.all_of(app.user.id)] == ["open"]
+    assert f'hx-post="/clarifications/{question}/answer"' in answer
+    assert f'data-choice-option="{_LATERAL.id}"' in answer
+    response = app.client.post(
+        f"/clarifications/{question}/answer",
+        data={"option_ids": str(_LATERAL.id)},
+        headers=_HTMX,
+    )
+    assert response.status_code == 200
+    assert [row.status for row in app.clarifications.all_of(app.user.id)] == ["answered"]
+
+
+# AC (#593): one `howto_flagged` row, with no text or exercise name.
+async def test_flag_writes_one_content_free_feedback_event() -> None:
+    app = _App()
+    app.store(_LATERAL, SimpleTextStatus.SHOWN)
+    await app.reply()
+
+    app.flag(_LATERAL)
+
+    [event] = app.feedback.events
+    assert event.user_id == app.user.id
+    assert event.kind is FeedbackKind.HOWTO_FLAGGED
+    assert (event.template_id, event.template_version) == ("exercise.simple_howto", 1)
+    assert list(event.fields) == []
+    assert event.created_at == NOW
+    stored = str(event.model_dump())
+    for content in (_SHORT, _ORIGINAL, _LATERAL.name, str(_LATERAL.id)):
+        assert content not in stored
+
+
+# AC (#593): an already flagged or missing text answers without error, with no second row.
+async def test_flag_twice_or_with_no_text_is_200_and_records_once() -> None:
+    app = _App()
+    app.store(_LATERAL, SimpleTextStatus.SHOWN)
+    await app.reply()
+    question = app.open_question()
+    app.flag(_LATERAL, question)
+
+    again = app.flag(_LATERAL, question)
+    missing = app.flag(_FRONT, question)
+    custom = app.flag(_CUSTOM, question)
+    app.store(_FRONT, SimpleTextStatus.REJECTED)
+    rejected = app.flag(_FRONT, question)
+
+    for answer, candidate in (
+        (again, _LATERAL),
+        (missing, _FRONT),
+        (custom, _CUSTOM),
+        (rejected, _FRONT),
+    ):
+        assert (candidate.how or "") in answer
+        assert _THANKS in answer
+        assert _SIMPLE not in answer
+        assert 'role="alert"' not in answer
+    assert len(app.feedback.events) == 1
+    assert app.texts.rows[_FRONT.id].status is SimpleTextStatus.REJECTED
+
+
+async def test_flag_another_users_question_is_404() -> None:
+    app = _App()
+    app.store(_LATERAL, SimpleTextStatus.SHOWN)
+    await app.reply()
+    question = app.open_question()
+    stranger = _App(clarifications=app.clarifications, texts=app.texts)
+
+    response = stranger.client.post(
+        f"/clarifications/{question}/howto/{_LATERAL.id}/flag", headers=_HTMX
+    )
 
     assert response.status_code == 404
+    assert app.texts.rows[_LATERAL.id].status is SimpleTextStatus.SHOWN
+    assert stranger.feedback.events == []
+
+
+async def test_flag_option_not_on_the_question_is_404() -> None:
+    app = _App()
+    await app.reply()
+    question = app.open_question()
+
+    for option in (str(uuid4()), "keep", "not-an-id"):
+        response = app.client.post(f"/clarifications/{question}/howto/{option}/flag", headers=_HTMX)
+        assert response.status_code == 404
+    unknown = app.client.post(f"/clarifications/{uuid4()}/howto/{_LATERAL.id}/flag")
+    assert unknown.status_code == 404
+    assert app.feedback.events == []
+
+
+async def test_flag_answered_question_is_409() -> None:
+    app = _App()
+    app.store(_LATERAL, SimpleTextStatus.SHOWN)
+    await app.reply()
+    question = app.open_question()
+    app.client.post(
+        f"/clarifications/{question}/answer",
+        data={"option_ids": str(_LATERAL.id)},
+        headers=_HTMX,
+    )
+
+    response = app.client.post(
+        f"/clarifications/{question}/howto/{_LATERAL.id}/flag", headers=_HTMX
+    )
+
+    assert response.status_code == 409
+    assert app.texts.rows[_LATERAL.id].status is SimpleTextStatus.SHOWN
+    assert app.feedback.events == []
+
+
+async def test_flag_without_csrf_is_refused() -> None:
+    app = _App(csrf=True)
+    app.store(_LATERAL, SimpleTextStatus.SHOWN)
+
+    response = app.client.post(f"/clarifications/{uuid4()}/howto/{_LATERAL.id}/flag", headers=_HTMX)
+
+    assert response.status_code == 403
+    assert app.texts.rows[_LATERAL.id].status is SimpleTextStatus.SHOWN
+    assert app.feedback.events == []

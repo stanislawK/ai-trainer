@@ -220,3 +220,29 @@ async def test_no_column_holds_message_text_or_a_typed_value(
     assert "name" in row  # the row exists and names the field that changed
     [stored] = await repository.list_for_user(user_id)
     assert (stored.kind, tuple(stored.fields)) == (FeedbackKind.DRAFT_EDITED, ("name_as_typed",))
+
+
+async def test_a_howto_flagged_row_is_admitted_and_reads_back(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    """The kind check admits `howto_flagged` against the migrated schema (#593)."""
+    user_id = await _user(db_session_factory)
+    repository = SqlAlchemyFeedbackEventsRepository(db_session_factory)
+    await repository.record(
+        _event(
+            user_id,
+            kind=FeedbackKind.HOWTO_FLAGGED,
+            template_id="exercise.simple_howto",
+            template_version=2,
+            fields=[],
+        )
+    )
+
+    [read] = await repository.list_for_user(user_id)
+
+    assert (read.kind, read.template_id, read.template_version, tuple(read.fields)) == (
+        FeedbackKind.HOWTO_FLAGGED,
+        "exercise.simple_howto",
+        2,
+        (),
+    )

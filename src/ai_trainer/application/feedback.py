@@ -93,17 +93,26 @@ def _row_fields(old: JsonValue, new: JsonValue) -> set[str]:
 
 
 def count_signals(signals: Sequence[FeedbackSignal]) -> list[FeedbackCount]:
-    """Counts per kind, template and field, largest first; an event naming no field counts
-    once under `field=None`."""
-    counts: dict[tuple[FeedbackKind, str | None, str | None], int] = {}
+    """Counts per kind, template, template version and field, largest first; an event naming no
+    field counts once under `field=None`. Keyed on the version, so `howto_flagged` counts flags
+    per template version (ADR-0031 *The flag*, #593)."""
+    counts: dict[tuple[FeedbackKind, str | None, int | None, str | None], int] = {}
     for signal in signals:
         for field in signal.fields or (None,):
-            key = (signal.kind, signal.template_id, field)
+            key = (signal.kind, signal.template_id, signal.template_version, field)
             counts[key] = counts.get(key, 0) + 1
     return [
-        FeedbackCount(kind=kind, template_id=template, field=field, count=count)
-        for (kind, template, field), count in sorted(
+        FeedbackCount(
+            kind=kind, template_id=template, template_version=version, field=field, count=count
+        )
+        for (kind, template, version, field), count in sorted(
             counts.items(),
-            key=lambda item: (-item[1], item[0][0], item[0][1] or "", item[0][2] or ""),
+            key=lambda item: (
+                -item[1],
+                item[0][0],
+                item[0][1] or "",
+                item[0][2] or 0,
+                item[0][3] or "",
+            ),
         )
     ]

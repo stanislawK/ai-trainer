@@ -9,12 +9,16 @@ stores nothing; the log line names only the reason and the exercise ID.
 A text that passes the code checks is checked by Jev, under the same athlete and budget, before
 it is stored (#591). It fails closed: a failed check, a timeout or an error stores no text and
 counts; the second failed check of the same source stores the row `rejected`, after which later
-cards make no calls. A check the budget refuses never ran, so it stores and counts nothing."""
+cards make no calls. A check the budget refuses never ran, so it stores and counts nothing.
+
+An athlete's "Looks wrong" flags a shown text for every athlete at once and records one
+content-free `howto_flagged` event with its template and version (ADR-0031 *The flag*, #593)."""
 
 import logging
 from collections.abc import Collection, Mapping
 from uuid import UUID
 
+from ai_trainer.application.feedback import FeedbackRecorder
 from ai_trainer.application.ports.clock import ClockPort
 from ai_trainer.application.ports.exercise_simple_texts import (
     ExerciseSimpleTextsPort,
@@ -45,6 +49,7 @@ from ai_trainer.domain.exercise_simple_texts import (
     needs_writing,
     source_sha256,
 )
+from ai_trainer.domain.feedback import FeedbackKind
 
 logger = logging.getLogger(__name__)
 
@@ -125,11 +130,20 @@ class WriteSimpleHowto:
 class CardHowtos:
     """The exercise card's how-to lines (ADR-0031 *Beginner how-to*, #592): what each candidate
     shows when the card is drawn, read for every open card in one query, so a flag or an edit
-    applies to the next card; and the write a loading line asks for."""
+    applies to the next card; the write a loading line asks for; and "Looks wrong" (#593)."""
 
-    def __init__(self, *, texts: ExerciseSimpleTextsPort, write: WriteSimpleHowto) -> None:
+    def __init__(
+        self,
+        *,
+        texts: ExerciseSimpleTextsPort,
+        write: WriteSimpleHowto,
+        feedback: FeedbackRecorder,
+        clock: ClockPort,
+    ) -> None:
         self._texts = texts
         self._write = write
+        self._feedback = feedback
+        self._clock = clock
 
     async def howtos(self, exercise_ids: Collection[UUID]) -> Mapping[UUID, CardHowto]:
         """By exercise ID; an exercise with no catalogue text in English is left out, so its
@@ -154,3 +168,20 @@ class CardHowtos:
             if isinstance(current, ShortHowto):
                 return current
         return KeepOriginal()
+
+    async def flag(self, *, user_id: UUID, exercise_id: UUID) -> None:
+        """Hides the exercise's shown short version for every athlete (ADR-0031 *The flag*). Only
+        the flag that changed the row records `howto_flagged`, under the athlete, with the
+        template and version that wrote the text and no field or text; an already flagged,
+        `rejected` or missing text records nothing. The recorder is best effort."""
+        flagged = await self._texts.flag(
+            exercise_id, lang=SIMPLE_TEXT_LANG, flagged_at=self._clock.now()
+        )
+        if flagged is None:
+            return
+        await self._feedback.record(
+            user_id,
+            FeedbackKind.HOWTO_FLAGGED,
+            template_id=flagged.template_id,
+            template_version=flagged.template_version,
+        )

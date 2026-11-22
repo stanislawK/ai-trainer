@@ -41,12 +41,12 @@
 <span id="{{ how_id }}" class="{{ clamp }}" data-howto>{{ option.params.how }}</span>
 {%- endif -%}
 {%- endmacro %}
-{#- Under an open row with a short version (#590's "More open"): the full original, then the line that says who wrote the short one. It is drawn for any line that has or may get a short version, and shows only while its candidate is open and its line carries `data-simple`, so a swapped-in short version needs nothing else. "Looks wrong" is #593's. -#}
-{% macro original_instructions(option, pad) -%}
-<div class="hidden group-[[data-open]:has([data-simple])]/cand:flex {{ pad }} pr-4 flex-col gap-1" data-original>
+{#- Under an open row with a short version (#590's "More open"): the full original, then the line that says who wrote the short one and "Looks wrong" (#593). It is drawn for any line that has or may get a short version, and shows only while its candidate is open and its line carries `data-simple`, so a swapped-in short version gets its flag with nothing else. "Looks wrong" is an underlined text link with an invisible 44 px tap target, outside the row button, so it never answers the question; one tap, no reason asked. It sits above the credit line (`z-10`), and the block keeps 8 px under it (`mb-2`), so its target ends where the credit's text starts and neither covers the other's text. It posts to the flag route and swaps the whole candidate for the route's answer (its original and a thanks line); a refusal or an error swaps nothing. -#}
+{% macro original_instructions(question, option, pad) -%}
+<div class="hidden group-[[data-open]:has([data-simple])]/cand:flex {{ pad }} pr-4 mb-2 flex-col gap-1" data-original>
       <span class="text-[12px] font-semibold leading-4 lbl-2">Original instructions</span>
       <p class="text-[13px] leading-[18px] lbl-2">{{ option.params.how }}</p>
-      <span class="flex flex-wrap items-center gap-x-1.5 mt-1 text-[12px] leading-4 lbl-2"><span>Short version simplified by AI</span></span>
+      <span class="flex flex-wrap items-center gap-x-1.5 mt-1 text-[12px] leading-4 lbl-2"><span>Short version simplified by AI</span><span aria-hidden="true">·</span><button type="button" class="relative z-10 underline decoration-base-content/25 underline-offset-2 hover:decoration-base-content/70" hx-post="/clarifications/{{ question.id }}/howto/{{ option.id }}/flag" hx-target="closest [data-candidate]" hx-swap="outerHTML" hx-status:4xx="swap:none" hx-status:5xx="swap:none" data-howto-flag><span class="absolute -inset-x-2 -inset-y-3.5" aria-hidden="true"></span>Looks wrong</button></span>
     </div>
 {%- endmacro %}
 {#- One candidate's row button, or, as `keep`, "Keep my name". `how_id` is the ID of its how-to text, which the toggle controls, and `howto` what its line shows. -#}
@@ -71,34 +71,40 @@
       {{ icon("chevron-down", "size-4 transition-transform duration-300 motion-reduce:transition-none group-data-open/cand:rotate-180") }}
     </button>
 {%- endmacro %}
-{% macro exercise_card(question, pictures={}, howtos={}) -%}
-{%- set subject = question.clarification.subject -%}
-{%- set options = question.clarification.options -%}
-<div class="mat-content rounded-box p-4 flex flex-col gap-3" role="group" aria-labelledby="choice-{{ question.id }}-question" data-choice-card="{{ question.id }}">
-  <p id="choice-{{ question.id }}-question" class="text-[16px] leading-6">{% if options | length > 1 %}Which exercise is “{{ subject }}”?{% else %}I don't have “{{ subject }}” in my list.{% endif %}</p>
-  {%- set quiet_line = "pl-[76px] sm:pl-[92px] pr-4 flex flex-wrap items-center gap-x-1.5 gap-y-3 text-[12px] leading-4 lbl-2" %}
-  <div class="flex flex-col {{ 'gap-2.5' if pictures else 'gap-2' }}">
-    {%- for option in options %}
-    {%- if loop.last %}
-    {{ exercise_option(question, option, keep=true) }}
-    {%- else %}
-    {%- set picture = pictures.get(option.id) %}
-    {%- set how_id = "choice-" ~ question.id ~ "-how-" ~ loop.index if option.params.get("how") else none %}
-    {%- set howto = howtos.get(option.id) %}
-    <div class="group/cand flex flex-col gap-1.5" data-candidate="{{ option.id }}">
+{#- One candidate (`group/cand`, `data-candidate`): its row button and More toggle, then, just flagged (#593), a `role="status"` thanks line at the text column, then the open row's original block and the credit line. `index` is its 1-based place on the card, for its how-to text's ID. The card draws each candidate with it, and the flag route returns one on its own (`partials/chat/howto_candidate.html`). -#}
+{% macro exercise_candidate(question, option, index, picture=none, howto=none, flagged=false) -%}
+{%- set how_id = "choice-" ~ question.id ~ "-how-" ~ index if option.params.get("how") else none %}
+{%- set pad = "pl-[76px] sm:pl-[92px]" if picture else "pl-4" %}
+{%- set quiet_line = "pl-[76px] sm:pl-[92px] pr-4 flex flex-wrap items-center gap-x-1.5 gap-y-3 text-[12px] leading-4 lbl-2" %}
+<div class="group/cand flex flex-col gap-1.5" data-candidate="{{ option.id }}">
       <div class="relative">
     {{ exercise_option(question, option, picture, how_id=how_id, howto=howto) }}
     {%- if how_id %}
     {{ more_toggle(option, how_id) }}
     {%- endif %}
       </div>
+    {%- if flagged %}
+    <p class="{{ pad }} pr-4 flex items-center gap-1.5 text-[12px] leading-4 lbl-2" role="status" data-flagged>{{ icon("circle-check", "size-3.5 text-success") }}Thanks, the short version is hidden. Showing the original.</p>
+    {%- endif %}
     {%- if how_id and howto and howto.kind in ("short", "load") %}
-    {{ original_instructions(option, "pl-[76px] sm:pl-[92px]" if picture else "pl-4") }}
+    {{ original_instructions(question, option, pad) }}
     {%- endif %}
     {%- if picture %}
     {{ credit(picture, quiet_line, quiet_line, quiet=true) }}
     {%- endif %}
     </div>
+{%- endmacro %}
+{% macro exercise_card(question, pictures={}, howtos={}) -%}
+{%- set subject = question.clarification.subject -%}
+{%- set options = question.clarification.options -%}
+<div class="mat-content rounded-box p-4 flex flex-col gap-3" role="group" aria-labelledby="choice-{{ question.id }}-question" data-choice-card="{{ question.id }}">
+  <p id="choice-{{ question.id }}-question" class="text-[16px] leading-6">{% if options | length > 1 %}Which exercise is “{{ subject }}”?{% else %}I don't have “{{ subject }}” in my list.{% endif %}</p>
+  <div class="flex flex-col {{ 'gap-2.5' if pictures else 'gap-2' }}">
+    {%- for option in options %}
+    {%- if loop.last %}
+    {{ exercise_option(question, option, keep=true) }}
+    {%- else %}
+    {{ exercise_candidate(question, option, loop.index, pictures.get(option.id), howtos.get(option.id)) }}
     {%- endif %}
     {%- endfor %}
   </div>
