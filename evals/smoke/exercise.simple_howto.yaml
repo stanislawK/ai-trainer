@@ -6,7 +6,14 @@
 # the card yet. Length and the no-new-digits rule are graded in code by SimpleHowtoMatch; whether
 # every cue survived and nothing was added is always judged (ADR-0034 invariant 2, amended at
 # #589). An `expected_output` text is a reference: only its kind is graded.
+# Known gaps (owner-decided 2026-11-22 at #589): the cases that failed #589's runs on the default
+# model with no upstream pinned, through length, a token limit or the judge; #600 tunes them before
+# any card shows the text.
 name: exercise.simple_howto
+known_gaps:
+  'barbell deadlift: back straight': '#600'
+  'lateral raise: lever machine': '#600'
+  '3/4 sit-up: a number in the source': '#600'
 cases:
 - name: 'lateral raise: dumbbell'
   inputs:

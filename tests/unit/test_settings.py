@@ -1103,7 +1103,7 @@ def test_simple_howto_settings_default_and_blank_keeps_them(
     settings = Settings(_env_file=None)
 
     assert settings.simple_howto_model == "z-ai/glm-5.3-flash"
-    assert settings.simple_howto_provider_preferences is None
+    assert settings.simple_howto_provider_preferences == ProviderPreferences(only=["z-ai/fp8"])
     assert settings.exercise_simple_howto_max_chars == 160
     assert settings.exercise_simple_howto_timeout_seconds == 8.0
 

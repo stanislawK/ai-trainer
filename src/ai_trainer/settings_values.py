@@ -78,18 +78,21 @@ DEFAULT_ANSWER_REASONING_EFFORT: ReasoningEffort = "low"
 # confirms it.
 DEFAULT_PICTURE_BRIEF_MODEL = "z-ai/glm-5.3-flash"
 # `exercise.simple_howto` (ADR-0031 *Beginner how-to*, #589): what the other read templates run
-# on; its smoke set confirms it. 160 characters fill two lines of the exercise card at 390 px.
+# on. Its upstream is the model author's own fp8 endpoint: under price routing some calls ran out
+# of tokens before answering (public endpoints API, 2026-11-22, #589). 160 characters is an
+# estimate of two card lines at 390 px. #600 measures it and tunes the set until it passes.
 DEFAULT_SIMPLE_HOWTO_MODEL = "z-ai/glm-5.3-flash"
+DEFAULT_SIMPLE_HOWTO_PROVIDER = ProviderPreferences(only=["z-ai/fp8"])
 DEFAULT_EXERCISE_SIMPLE_HOWTO_MAX_CHARS = 160
 
 
 class SimpleHowtoSettings(BaseModel):
     """`exercise.simple_howto`'s model, upstream routing, reasoning effort and timeout (ADR-0026),
-    and the longest text it may store (ADR-0031). A blank model keeps the default; blank
-    preferences or effort leave OpenRouter's and the model's own."""
+    and the longest text it may store (ADR-0031). A blank model or blank preferences keep the
+    default; a blank effort leaves the model's own."""
 
     simple_howto_model: str = DEFAULT_SIMPLE_HOWTO_MODEL
-    simple_howto_provider_preferences: ProviderPreferencesSetting = None
+    simple_howto_provider_preferences: ProviderPreferencesSetting = DEFAULT_SIMPLE_HOWTO_PROVIDER
     simple_howto_reasoning_effort: ReasoningEffort | None = None
     exercise_simple_howto_max_chars: int = Field(
         default=DEFAULT_EXERCISE_SIMPLE_HOWTO_MAX_CHARS, gt=0
@@ -102,6 +105,14 @@ class SimpleHowtoSettings(BaseModel):
     def _blank_model_is_the_default(cls, value: object) -> object:
         if isinstance(value, str) and not value.strip():
             return DEFAULT_SIMPLE_HOWTO_MODEL
+        return value
+
+    @field_validator("simple_howto_provider_preferences", mode="before")
+    @classmethod
+    def _blank_preferences_are_the_default(cls, value: object) -> object:
+        # As `.env.example` leaves it: blank keeps the pinned upstream, not OpenRouter's routing.
+        if isinstance(value, str) and not value.strip():
+            return DEFAULT_SIMPLE_HOWTO_PROVIDER
         return value
 
     @field_validator("simple_howto_reasoning_effort", mode="before")
