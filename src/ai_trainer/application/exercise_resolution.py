@@ -19,7 +19,7 @@ from ai_trainer.application.ports.draft_settling import DecisionRef
 from ai_trainer.application.ports.exercises import ExerciseNamesPort, ExercisePickerPort
 from ai_trainer.application.reply.shared import LOG_KIND
 from ai_trainer.domain.clarification import KEEP_NAME_OPTION, ChoiceOption, Clarification
-from ai_trainer.domain.exercises import ExerciseCandidate, ExerciseLabel
+from ai_trainer.domain.exercises import ExerciseCandidate, ExerciseLabel, ExercisePick
 from ai_trainer.domain.sports.gym import names as gym_names
 from ai_trainer.domain.sports.gym.names import GYM_SPORT_ID
 from ai_trainer.domain.sports.gym.payload import Exercise, GymPayload
@@ -95,18 +95,23 @@ class ResolveExercises:
         call, which its timeout bounds."""
         still_open = gym_names.unsettled(draft)
         picks = await asyncio.gather(*(self._pick(user_id, exercise) for exercise in still_open))
-        chosen = {
-            spelling: candidate.id
-            for exercise, candidate in zip(still_open, picks, strict=True)
-            if candidate is not None
-            for spelling in gym_names.spellings_of(draft, [exercise])
-        }
+        chosen: dict[str, UUID] = {}
+        scored: dict[str, Mapping[UUID, float]] = {}
+        for exercise, pick in zip(still_open, picks, strict=True):
+            for spelling in gym_names.spellings_of(draft, [exercise]):
+                if pick.chosen is not None:
+                    chosen[spelling] = pick.chosen.id
+                elif pick.scores:
+                    # Kept on the draft, so each card, a later request's too, lists Jev's
+                    # likeliest candidate first with no second call (#579).
+                    scored[spelling] = pick.scores
+        draft = gym_names.with_scores(draft, scored) if scored else draft
         return gym_names.with_exercises(draft, chosen, jev_pick=True) if chosen else draft
 
-    async def _pick(self, user_id: UUID, exercise: Exercise) -> ExerciseCandidate | None:
+    async def _pick(self, user_id: UUID, exercise: Exercise) -> ExercisePick:
         candidates = await self._shortlist(user_id, exercise)
         if not candidates:
-            return None  # Jev is never asked to pick from nothing.
+            return ExercisePick()  # Jev is never asked to pick from nothing.
         return await self._picker.pick(user_id, exercise.name_as_typed, candidates)
 
     async def _shortlist(self, user_id: UUID, exercise: Exercise) -> Sequence[ExerciseCandidate]:
@@ -138,7 +143,12 @@ class ResolveExercises:
         if not still_open:
             return None
         exercise = still_open[0]
-        candidates = await self._shortlist(user_id, exercise)
+        # Jev's likeliest first; `sorted` is stable, so a tie or no score keeps the shortlist's
+        # order, and with no scores at all that order stands (#579).
+        candidates = sorted(
+            await self._shortlist(user_id, exercise),
+            key=lambda candidate: -exercise.candidate_scores.get(candidate.id, 0.0),
+        )
         return Clarification(
             question=self._question().text,
             options=(

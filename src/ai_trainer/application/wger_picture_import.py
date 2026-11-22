@@ -150,7 +150,11 @@ class ImportWgerPictures:
             floor=self._limits.floor,
             limit=self._limits.size,
         )
-        picked = await self._picker.pick(picks.admin_id, name, candidates) if candidates else None
+        picked = (
+            (await self._picker.pick(picks.admin_id, name, candidates)).chosen
+            if candidates
+            else None
+        )
         picks.by_name[name] = None if picked is None else picked.id
         return picks.by_name[name]
 

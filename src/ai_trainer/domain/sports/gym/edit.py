@@ -165,6 +165,7 @@ def _edited(exercise: Exercise, form: _ExerciseForm) -> Exercise:
             "exercise_id": None if renamed else exercise.exercise_id,
             "keep_name": False if renamed else exercise.keep_name,
             "jev_pick": False if renamed else exercise.jev_pick,
+            "candidate_scores": {} if renamed else exercise.candidate_scores,
             "measure": _measure(form.measure, exercise.measure, sets),
             "per_side": bool(form.per_side) if "per_side" in fields else exercise.per_side,
             "implements": form.implements if "implements" in fields else exercise.implements,

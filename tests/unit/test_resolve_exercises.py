@@ -6,7 +6,7 @@ from collections.abc import Mapping, Sequence
 from uuid import UUID, uuid4
 
 import pytest
-from pydantic import ValidationError
+from pydantic import JsonValue, ValidationError
 
 from ai_trainer.application.drafts import CardQuestions, confirm_draft, edit_draft
 from ai_trainer.application.exercise_resolution import ResolutionLimits, ResolveExercises
@@ -846,3 +846,191 @@ async def test_a_jev_pick_is_not_asked_before_a_same_session_question_is_answere
     assert question.purpose == SAME_SESSION_PURPOSE
     assert athlete.picker.asked == []
     assert (await athlete.stored(draft)).activities[0].exercise_id is None
+
+
+# --- the card ordered by Jev's scores (ticket #579) ----------------------------------------
+
+_A = ExerciseCandidate(id=uuid4(), name="Dumbbell Rear Lateral Raise")
+_B = ExerciseCandidate(id=uuid4(), name="Cable Lateral Raise")
+_C = ExerciseCandidate(id=uuid4(), name="Dumbbell Raise")
+_D = ExerciseCandidate(id=uuid4(), name="Dumbbell Lateral Raise")
+_SHORTLIST = (_A, _B, _C, _D)
+_SCORES = {_D.id: 0.6, _B.id: 0.3, _A.id: 0.05, _C.id: 0.05}
+
+
+def _resolver(picker: ScriptedPicker, names: _Names | None = None) -> ResolveExercises:
+    return ResolveExercises(
+        names or _Names(candidates=_SHORTLIST),
+        picker,
+        question=ScriptedConversation().exercise_question,
+        limits=_LIMITS,
+    )
+
+
+def _payload(*names: str, scores: Mapping[UUID, float] | None = None) -> dict[str, JsonValue]:
+    return {
+        "activities": [
+            {
+                "name_as_typed": name,
+                "measure": "load_reps",
+                "sets": [{"reps": 12}],
+                "candidate_scores": {str(key): value for key, value in (scores or {}).items()},
+            }
+            for name in names
+        ]
+    }
+
+
+async def test_card_lists_candidates_by_jev_score_highest_first() -> None:
+    """AC1 and AC2: Jev's likeliest candidate, below the threshold, leads; a tie keeps the
+    shortlist's order, and "Keep my name" stays last."""
+    resolver = _resolver(ScriptedPicker(scores={"lateral rises": _SCORES}))
+    settled = await resolver.settle(uuid4(), _payload("lateral rises"))
+
+    question = await resolver.next_question(uuid4(), settled)
+
+    assert question is not None
+    assert [option.id for option in question.options] == [
+        str(_D.id),
+        str(_B.id),
+        str(_A.id),
+        str(_C.id),
+        KEEP_NAME_OPTION,
+    ]
+    assert question.options[-1].id == KEEP_NAME_OPTION
+
+
+async def test_card_keeps_shortlist_order_without_scores() -> None:
+    """AC3: no scores (a timeout, an error) keep the shortlist's order, and the log drafts."""
+    resolver = _resolver(ScriptedPicker())
+
+    settled = await resolver.settle(uuid4(), _payload("lateral rises"))
+    question = await resolver.next_question(uuid4(), settled)
+
+    [exercise] = GymPayload.model_validate(settled).activities
+    assert exercise.exercise_id is None
+    assert exercise.candidate_scores == {}
+    assert question is not None
+    assert [option.id for option in question.options] == [
+        *(str(candidate.id) for candidate in _SHORTLIST),
+        KEEP_NAME_OPTION,
+    ]
+
+
+async def test_a_jev_timeout_still_drafts_the_log_with_the_shortlist_order() -> None:
+    """AC3 through the reply: the draft is made and its card lists the shortlist as it came."""
+    athlete = _Athlete(picker=ScriptedPicker())
+
+    draft, done = await athlete.log(_lift())
+
+    assert draft.draft.payload is not None
+    [question] = done.clarifications
+    assert [option.id for option in question.clarification.options] == [
+        str(_BARBELL.id),
+        str(_DUMBBELL.id),
+        KEEP_NAME_OPTION,
+    ]
+
+
+async def test_unscored_candidates_follow_the_scored_ones_in_shortlist_order() -> None:
+    resolver = _resolver(ScriptedPicker(scores={"lateral rises": {_C.id: 0.4}}))
+    settled = await resolver.settle(uuid4(), _payload("lateral rises"))
+
+    question = await resolver.next_question(uuid4(), settled)
+
+    assert question is not None
+    assert [option.id for option in question.options[:4]] == [
+        str(_C.id),
+        str(_A.id),
+        str(_B.id),
+        str(_D.id),
+    ]
+
+
+async def test_the_card_makes_no_second_jev_call() -> None:
+    """AC4: one call per name in `settle`; each card, the later one too, reads stored scores."""
+    picker = ScriptedPicker(scores={"lateral rises": _SCORES, "rows": {_A.id: 0.7, _D.id: 0.2}})
+    resolver = _resolver(picker)
+    user_id = uuid4()
+    settled = await resolver.settle(user_id, _payload("lateral rises", "rows", "Lateral  Rises"))
+
+    first = await resolver.next_question(user_id, settled)
+    second = await resolver.next_question(user_id, settled, settled=["lateral rises"])
+
+    assert sorted(name for _, name, _ in picker.asked) == ["lateral rises", "rows"]
+    assert first is not None
+    assert second is not None
+    assert first.options[0].id == str(_D.id)
+    assert second.subject == "rows"
+    # The scores survive a later request: the second card is ordered from the stored ones.
+    assert [option.id for option in second.options[:2]] == [str(_A.id), str(_D.id)]
+    entries = GymPayload.model_validate(settled).activities
+    assert entries[0].candidate_scores == _SCORES
+    assert entries[2].candidate_scores == _SCORES
+
+
+async def test_tapped_option_settles_whatever_its_row() -> None:
+    """AC5: the option ID, not its row, settles every entry of the name, and the scores go."""
+    resolver = _resolver(ScriptedPicker(scores={"lateral rises": _SCORES}))
+    settled = await resolver.settle(uuid4(), _payload("lateral rises", "Lateral Rises"))
+    question = await resolver.next_question(uuid4(), settled)
+    assert question is not None
+    last = question.options[-2].id
+    assert last == str(_C.id)
+
+    answered = resolver.answered(settled, "lateral rises", last)
+
+    for exercise in GymPayload.model_validate(answered).activities:
+        assert exercise.exercise_id == _C.id
+        assert exercise.candidate_scores == {}
+
+
+async def test_keep_my_name_and_a_typed_name_clear_the_scores() -> None:
+    resolver = _resolver(ScriptedPicker())
+    scored = _payload("lateral rises", "side raises", scores=_SCORES)
+
+    kept = resolver.answered(scored, "lateral rises", KEEP_NAME_OPTION)
+    typed = resolver.typed(scored, "lateral rises", "side raises")
+
+    assert GymPayload.model_validate(kept).activities[0].candidate_scores == {}
+    assert all(e.candidate_scores == {} for e in GymPayload.model_validate(typed).activities)
+
+
+async def test_a_confident_pick_stores_no_scores() -> None:
+    resolver = _resolver(ScriptedPicker({"lateral rises": _D}, scores={"lateral rises": _SCORES}))
+
+    settled = await resolver.settle(uuid4(), _payload("lateral rises"))
+
+    [exercise] = GymPayload.model_validate(settled).activities
+    assert exercise.exercise_id == _D.id
+    assert exercise.candidate_scores == {}
+
+
+async def test_a_history_match_clears_scores_left_on_an_entry() -> None:
+    resolver = _resolver(ScriptedPicker(), _Names({"lateral rises": _D.id}, candidates=_SHORTLIST))
+
+    settled = await resolver.settle(uuid4(), _payload("lateral rises", scores={_A.id: 0.5}))
+
+    [exercise] = GymPayload.model_validate(settled).activities
+    assert exercise.exercise_id == _D.id
+    assert exercise.candidate_scores == {}
+
+
+async def test_renaming_an_entry_clears_its_scores() -> None:
+    athlete = _Athlete(picker=ScriptedPicker(scores={"bench press": {_DUMBBELL.id: 0.6}}))
+    draft, _ = await athlete.log(_lift())
+    assert (await athlete.stored(draft)).activities[0].candidate_scores == {_DUMBBELL.id: 0.6}
+
+    edited = await _edit(athlete, draft, "incline press")
+
+    [exercise] = GymPayload.model_validate(edited.draft.payload).activities
+    assert exercise.candidate_scores == {}
+
+
+def test_a_v4_payload_reads_with_no_scores_and_v5_round_trips() -> None:
+    v4 = {"activities": [{"name_as_typed": "row", "measure": "reps", "sets": [{"reps": 8}]}]}
+    assert GymPayload.model_validate(v4).activities[0].candidate_scores == {}
+
+    v5 = GymPayload.model_validate(_payload("row", scores={_A.id: 0.25}))
+    assert GymPayload.model_validate(v5.model_dump(mode="json")) == v5
+    assert v5.activities[0].candidate_scores == {_A.id: 0.25}

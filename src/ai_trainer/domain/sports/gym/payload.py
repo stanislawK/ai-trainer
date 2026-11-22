@@ -10,7 +10,8 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_vali
 
 # Version 3 added `keep_name`; a v2 document reads as it is, with the flag off (ticket #397).
 # Version 4 added `jev_pick`, the same way (ticket #399).
-GYM_PAYLOAD_VERSION = 4
+# Version 5 added `candidate_scores`, the same way, with no scores (ticket #579).
+GYM_PAYLOAD_VERSION = 5
 
 type LoadUnit = Literal["kg", "lb"]
 # `gym_exercise_entries.measure`.
@@ -95,12 +96,15 @@ class Exercise(BaseModel):
     empty until the name is settled (ADR-0031), and `keep_name` says the athlete kept their own
     name, which a confirm makes a custom exercise (ticket #397). `jev_pick` says `exercise_id`
     is Jev's pick rather than the athlete's own answer, so an edit that undoes it is a
-    `decision_overridden` signal (ticket #399).
+    `decision_overridden` signal (ticket #399). `candidate_scores` is Jev's probability per
+    shortlisted exercise for a name it didn't settle, which orders the card with no second call;
+    a settled or renamed entry has none (ticket #579).
     `implements` of 2 with a load means that load in each hand."""
 
     exercise_id: UUID | None = None
     keep_name: bool = False
     jev_pick: bool = False
+    candidate_scores: dict[UUID, float] = {}
     name_as_typed: ExerciseName
     measure: Measure
     per_side: bool = False
