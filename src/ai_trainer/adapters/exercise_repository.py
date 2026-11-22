@@ -106,10 +106,15 @@ def _name_score(
     )
 
 
+def _flat(text_: str | None) -> str | None:
+    # One line, whole: the exercise card clamps it and its More shows the rest (#581).
+    return " ".join((text_ or "").split()) or None
+
+
 def _short(text_: str | None) -> str | None:
     # One line, cut at a word where there is one.
-    flat = " ".join((text_ or "").split())
-    if not flat:
+    flat = _flat(text_)
+    if flat is None:
         return None
     if len(flat) <= MAX_DESCRIPTION:
         return flat
@@ -315,7 +320,7 @@ class SqlAlchemyExerciseRepository:
                     name=found,
                     equipment=equipment,
                     target=target,
-                    how=_short(how),
+                    how=_flat(how),
                     name_score=float(fit),
                 )
                 for id_, found, equipment, target, how, fit in rows.tuples()
@@ -347,7 +352,7 @@ class SqlAlchemyExerciseRepository:
                 id_: (
                     default == measure,
                     ExerciseCandidate(
-                        id=id_, name=name, equipment=equipment, target=target, how=_short(how)
+                        id=id_, name=name, equipment=equipment, target=target, how=_flat(how)
                     ),
                 )
                 for id_, name, equipment, target, how, default in rows.tuples()

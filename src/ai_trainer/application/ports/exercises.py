@@ -47,7 +47,8 @@ class ExerciseNamesPort(Protocol):
     ) -> Sequence[ExerciseCandidate]:
         """At most `limit` exercises at `floor` or above, by trigram and `simple` full-text search
         over names and aliases in every language. Those measured like `measure` come first. Each
-        carries its short English text from `exercise_texts`, when it has one (F23, G5)."""
+        carries its whole English how-to text from `exercise_texts` on one line, when it has one
+        (F23, G5, #581)."""
         ...
 
     async def labels(
@@ -73,9 +74,9 @@ class ExerciseCandidatesPort(Protocol):
     async def candidates(
         self, user_id: UUID, exercise_ids: Sequence[UUID], *, measure: str
     ) -> Sequence[ExerciseCandidate]:
-        """The exercises among `exercise_ids` that `user_id` can see, each with its short English
-        text: those whose default measure is `measure` first, the order given otherwise. An ID the
-        athlete can't see is left out (invariant 3)."""
+        """The exercises among `exercise_ids` that `user_id` can see, each with its whole English
+        how-to text on one line (#581): those whose default measure is `measure` first, the order
+        given otherwise. An ID the athlete can't see is left out (invariant 3)."""
         ...
 
 

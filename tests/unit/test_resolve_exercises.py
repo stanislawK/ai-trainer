@@ -228,6 +228,17 @@ async def test_an_unsettled_name_asks_on_the_card_with_candidates_and_keep_my_na
     assert asked.options[2].params == {"name": "bench press"}
 
 
+async def test_candidate_option_carries_full_how() -> None:
+    """The card's More shows the whole how-to from the option it was asked with (#581)."""
+    long = "Lie on the bench, lower the bar to your chest, then press it up. " * 5
+    athlete = _Athlete(_Names(candidates=(_BARBELL.model_copy(update={"how": long}), _DUMBBELL)))
+
+    _, done = await athlete.log(_lift())
+
+    [question] = done.clarifications
+    assert question.clarification.options[0].params["how"] == long
+
+
 async def test_the_shortlist_reads_the_names_measure_and_the_limits() -> None:
     athlete = _Athlete()
 

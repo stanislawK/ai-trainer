@@ -220,3 +220,38 @@ async def test_candidates_put_the_entrys_own_measure_first_and_keep_the_given_or
 
     assert [c.name for c in timed] == ["My time", "My reps", "My load_reps"]
     assert [c.name for c in reps] == ["My reps", "My time", "My load_reps"]
+
+
+async def test_card_candidates_carry_full_instructions(
+    db_session_factory: SessionFactory, repository: SqlAlchemyExerciseRepository
+) -> None:
+    """The exercise card's More shows the whole how-to (#581): `shortlist` and `candidates` carry
+    the English instructions uncut, whitespace flattened; the MCP tool's `describe` stays short."""
+    owner = await _user(db_session_factory, "exercise-full-how")
+    made = await repository.create_custom(
+        owner, sport_id="gym", name="Zzfullhow Raise", default_measure=ExerciseMeasure.REPS
+    )
+    sentence = "Lift the weight out to shoulder height, then lower it slowly. "
+    long = (sentence * 6).strip()
+    async with db_session_factory() as session:
+        await session.execute(
+            text(
+                "INSERT INTO exercise_texts (exercise_id, lang, instructions, steps)"
+                " VALUES (:id, 'en', :text, '{}')"
+            ),
+            {"id": made.id, "text": long.replace(" then", "\n   then")},
+        )
+        await session.commit()
+    assert len(long) > 200
+
+    [listed] = await repository.shortlist(
+        owner, sport_id="gym", name="Zzfullhow Raise", measure="reps", floor=0.5, limit=4
+    )
+    [picked] = await repository.candidates(owner, [made.id], measure="reps")
+    [described] = await repository.describe(owner, [made.id], lang="en")
+
+    assert listed.how == long
+    assert picked.how == long
+    assert described.description is not None
+    assert len(described.description) <= 200
+    assert described.description.endswith("…")
