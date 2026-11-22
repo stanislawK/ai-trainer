@@ -79,8 +79,11 @@ DEFAULT_ANSWER_REASONING_EFFORT: ReasoningEffort = "low"
 DEFAULT_PICTURE_BRIEF_MODEL = "z-ai/glm-5.3-flash"
 # `exercise.simple_howto` (ADR-0031 *Beginner how-to*, #589): what the other read templates run
 # on. Its upstream is the model author's own fp8 endpoint: under price routing some calls ran out
-# of tokens before answering (public endpoints API, 2026-11-22, #589). 160 characters is an
-# estimate of two card lines at 390 px. #600 measures it and tunes the set until it passes.
+# of tokens before answering (public endpoints API, 2026-11-22, #589). The cap is a length cap,
+# not two card lines (ADR-0031's #600 amendment): measured 2026-11-22 with the real
+# `exercise_card` macro at 390 px, two lines hold about 45 characters on a picture row and 65
+# text-only, too few for the cues. 160 fits the longest cue-complete smoke reference (the
+# deadlift's, 153 characters); the card keeps its two-line clamp and "More" shows the rest.
 DEFAULT_SIMPLE_HOWTO_MODEL = "z-ai/glm-5.3-flash"
 DEFAULT_SIMPLE_HOWTO_PROVIDER = ProviderPreferences(only=["z-ai/fp8"])
 DEFAULT_EXERCISE_SIMPLE_HOWTO_MAX_CHARS = 160

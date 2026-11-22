@@ -5,6 +5,10 @@ from pydantic import ValidationError
 
 from ai_trainer.domain.llm_calls import ProviderPreferences
 from ai_trainer.settings import Settings
+from ai_trainer.settings_values import (
+    DEFAULT_EXERCISE_SIMPLE_HOWTO_MAX_CHARS,
+    DEFAULT_SIMPLE_HOWTO_PROVIDER,
+)
 
 ENV_EXAMPLE = Path(__file__).parents[2] / ".env.example"
 DATABASE_URL = "postgresql+psycopg://ai_trainer:secret@localhost:5432/ai_trainer"
@@ -1114,6 +1118,23 @@ def test_simple_howto_settings_default_and_blank_keeps_them(
 
     assert settings.simple_howto_model == "other/model"
     assert settings.simple_howto_provider_preferences == ProviderPreferences(sort="latency")
+
+
+def test_simple_howto_defaults_match_the_measured_cap_and_pinned_upstream(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # #600: the cap is a length cap from the longest cue-complete smoke reference (ADR-0031's
+    # #600 amendment), and the upstream stays the model author's own fp8 endpoint.
+    _set_required_keys(monkeypatch)
+    for variable in ("SIMPLE_HOWTO_PROVIDER_PREFERENCES", "EXERCISE_SIMPLE_HOWTO_MAX_CHARS"):
+        monkeypatch.delenv(variable, raising=False)
+
+    settings = Settings(_env_file=None)
+
+    assert DEFAULT_EXERCISE_SIMPLE_HOWTO_MAX_CHARS == 160
+    assert settings.exercise_simple_howto_max_chars == DEFAULT_EXERCISE_SIMPLE_HOWTO_MAX_CHARS
+    assert settings.simple_howto_provider_preferences == ProviderPreferences(only=["z-ai/fp8"])
+    assert settings.simple_howto_provider_preferences == DEFAULT_SIMPLE_HOWTO_PROVIDER
 
 
 @pytest.mark.parametrize(

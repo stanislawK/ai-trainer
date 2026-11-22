@@ -43,6 +43,7 @@ from ai_trainer.llm.simple_howto import (
     simple_howto_template,
 )
 from ai_trainer.settings import Settings
+from ai_trainer.settings_values import DEFAULT_EXERCISE_SIMPLE_HOWTO_MAX_CHARS
 from tests.unit.test_llm_gateway import FakeLlmCallsRepository
 
 _ROOT = Path(__file__).parents[2]
@@ -342,6 +343,28 @@ def test_the_committed_smoke_set_is_judged_and_its_references_pass_the_code_chec
     assert any(
         any(c.isdigit() for c in case["inputs"]["deps"]["instructions"]) for case in raw["cases"]
     )
+
+
+def _smoke_yaml() -> dict[str, Any]:
+    raw: dict[str, Any] = yaml.safe_load(
+        (_SMOKE_ROOT / f"{SIMPLE_HOWTO_TEMPLATE_ID}.yaml").read_text()
+    )
+    return raw
+
+
+def test_smoke_cases_state_the_settings_cap() -> None:
+    # #600: the set grades the cap the app enforces, and every reference fits under it.
+    for case in _smoke_yaml()["cases"]:
+        deps = SimpleHowtoDeps.model_validate(case["inputs"]["deps"])
+        assert deps.max_chars == DEFAULT_EXERCISE_SIMPLE_HOWTO_MAX_CHARS, case["name"]
+        reference = case["expected_output"]["text"]
+        assert len(reference) <= DEFAULT_EXERCISE_SIMPLE_HOWTO_MAX_CHARS, case["name"]
+
+
+@pytest.mark.xfail(strict=True, reason="#600 phase C clears the gaps")
+def test_smoke_set_has_no_known_gaps_for_600() -> None:
+    known_gaps: dict[str, str] = _smoke_yaml().get("known_gaps") or {}
+    assert [name for name, ticket in known_gaps.items() if ticket == "#600"] == []
 
 
 def test_the_evals_cli_grades_the_set_in_code_at_the_apps_version() -> None:
