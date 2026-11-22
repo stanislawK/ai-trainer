@@ -203,15 +203,17 @@ async def test_candidate_with_approved_wger_picture_shows_picture_and_full_credi
     # 48 px on the phone, the mock's 64 px wider, on the neutral fill.
     assert "size-12 sm:size-16" in block
     assert "bg-base-content/10" in block
-    # The how-to clamps at one line beside the picture on the phone, two wider.
-    assert "line-clamp-1 sm:line-clamp-2" in block
-    # The credit wraps rather than truncates, so the licence always shows.
+    # The how-to clamps at two lines beside the picture on the phone and wider (#580).
+    assert "line-clamp-2" in block
+    assert "line-clamp-1" not in block
+    # The credit wraps rather than truncates, so the licence always shows; it is one quiet line
+    # of dot-separated text links (#580).
     assert re.search(r'<span class="[^"]*\bflex-wrap\b[^"]*" data-credit="wger"', block)
     credit = block[block.index('data-credit="wger"') :]
-    assert "A long author name, Jr. ·" in credit
+    assert "<span>A long author name, Jr.</span>" in credit
     assert f'href="{_LICENCE_URL}"' in credit
     assert ">CC BY-SA 4.0</a>" in credit
-    assert "via" in credit
+    assert '<span aria-hidden="true">·</span>' in credit
     assert f'href="{_PAGE}"' in credit
     assert "wger.de" in credit
     assert "truncate" not in block
