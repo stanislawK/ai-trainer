@@ -862,13 +862,13 @@ docker exec ai-trainer-prod-app-1 ai-trainer import-exercises
 
 1. R2, `ai-trainer-media`, Settings, **Custom Domains**, **Add**, `media.<your domain>`.
 2. The zone's Caching, **Cache Rules**: for that hostname, *Eligible for cache*, Edge TTL *Use cache-control header if present, otherwise 1 day*.
-3. After 16.7 has stored a picture, request one of its URLs twice from your laptop. `<key>` is the storage key `exercises/<exercise id>/<sha256>.<ext>`; the admin page's picture links show it.
+3. No picture exists yet, so the cache check waits: **come back to it after 16.8**. Then request one approved picture's URL twice from your laptop. Get the URL on `/admin/exercises` with the **Approved** filter: right-click the picture, *Copy image address*. It is `https://media.<your domain>/<key>`, and `<key>` is `exercises/<exercise id>/<sha256>.<ext>`.
 
 ```sh
-curl -sI https://media.<your domain>/<key> | grep -i cf-cache-status
+curl -sI <the copied URL> | grep -i cf-cache-status
 ```
 
-**You should see:** the second request prints `cf-cache-status: HIT` (the first may print `MISS`). Before any picture exists, `storage-check` in 16.6 proves the domain reads the bucket.
+**You should see:** now, nothing to check by hand: `storage-check` in 16.6 proves the domain reads the bucket. After 16.8, the second request prints `cf-cache-status: HIT` (the first may print `MISS`).
 
 **If it fails:**
 - `storage-check` prints `result=failed step=media_public reason=status_403` or `status_404`: the domain isn't connected to the media bucket yet, or `MEDIA_PUBLIC_BASE_URL` has the wrong host.
@@ -935,7 +935,7 @@ docker exec ai-trainer-prod-app-1 ai-trainer storage-check
 
 ### 16.7 wger import
 
-**Where:** the server. It makes real Jev calls and costs cents, one per distinct wger name, so start small. `<email>` is an address listed in `ADMIN_EMAILS` whose account has signed in.
+**Where:** the server. It makes real Jev calls and costs cents: `--limit` caps the images read, and Jev is asked at most once per distinct name among them, so start small. `<email>` is an address listed in `ADMIN_EMAILS` whose account has signed in.
 
 **Do:**
 
@@ -949,9 +949,9 @@ docker exec ai-trainer-prod-app-1 ai-trainer import-wger-pictures --limit 5 --ad
 - `result=refused reason=admin_required` or `reason=not_admin`: `--admin` is missing or isn't in `ADMIN_EMAILS`. Nothing was requested.
 - `result=refused reason=storage_not_configured`: `OBJECT_STORAGE_MEDIA_BUCKET` isn't in the app's environment. Do 16.5 and 16.6.
 - `result=failed reason=wger_error|wger_timeout`: wger didn't answer; wait and run again, or raise `WGER_TIMEOUT_SECONDS`. `storage_error`: run `storage-check`. `database_error`: look in `/opt/ai-trainer/compose.sh logs app`. A failed run leaves no object without its row, so running it again is safe.
-- `unmatched` on most images is normal. Only a pick at `EXERCISE_PICK_THRESHOLD` counts.
+- `unmatched` on most images is normal. Only a pick at `EXERCISE_PICK_THRESHOLD` counts. If the run ends `stored=0`, run it again with a higher `--limit` (for example 20): 16.8 and 16.9 need at least one stored picture.
 
-**Undo:** Remove the pictures in 16.9. The file stays in the bucket, and its `sha256` is never imported again, so Remove is also how you keep a picture out for good.
+**Undo:** Remove the pictures in 16.9. Remove moves the file out of the public bucket, and its `sha256` is never imported again, so Remove is also how you keep a picture out for good.
 
 ### 16.8 Approve
 
@@ -969,10 +969,10 @@ docker exec ai-trainer-prod-app-1 ai-trainer import-wger-pictures --limit 5 --ad
 
 **Where:** the same page, then your laptop.
 
-**Do:** press **Remove** on an approved picture. Then request its URL from your laptop:
+**Do:** the Removed filter draws no picture, so copy the URL first: on the **Approved** filter, right-click the picture, *Copy image address*. Then press **Remove** on it, and request the copied URL from your laptop:
 
 ```sh
-curl -sI https://media.<your domain>/<key> | head -n 1
+curl -sI <the copied URL> | head -n 1
 ```
 
 Open the **Removed** filter and press **Undo** (it also sits in the toast).
