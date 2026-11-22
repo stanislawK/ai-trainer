@@ -4,7 +4,7 @@
 |---|---|
 | Status | Accepted |
 | Date | 2026-10-30 |
-| Related | PRD-0010 (B37, B38, F23, F24, G5, G10, G14), PRD-0012 (F24, G16, G17), ADR-0006, ADR-0010, ADR-0015, ADR-0016, ADR-0020, ADR-0032, ADR-0033 |
+| Related | PRD-0010 (B37, B38, F23, F24, G5, G10, G14), PRD-0011 (F23), PRD-0012 (F24, G16, G17), ADR-0006, ADR-0008, ADR-0010, ADR-0012, ADR-0015, ADR-0016, ADR-0018, ADR-0020, ADR-0026, ADR-0029, ADR-0032, ADR-0033, ADR-0034 |
 
 ## Context
 
@@ -157,6 +157,38 @@ Owner-directed 2026-11-08, at #531. Evidence: [exercise-media.md](../research/ex
 - **Cap hit:** the run stops before the next call and keeps the pictures already made as `suggested` (approval rule above). It reports the number done and the spend. Raising the cap is the owner's edit of `Settings`.
 - **Budget (owner-directed 2026-11-08, at #533):** the command is outside ADR-0029's per-user model-call budget, as admin-run ingestion's embeddings are. Its spend cap and one exercise per run bound it instead. The picture's price in `Settings` (`IMAGE_GENERATION_PRICE_USD`, 0.0336 USD) only checks the cap before the call; the row records the cost the response bills (`usage.cost`).
 
+### Beginner how-to (F23)
+
+Owner-directed 2026-11-22. F23 asks for "two short beginner-friendly lines on how it's done". The start of the dataset's instructions, clamped to two lines, is neither: similar candidates open alike ("Stand with your feet shoulder-width apart…"), so the athlete can't tell them apart (owner's chat of 2026-11-18, recorded on [#580](https://github.com/stanislawK/ai-trainer/issues/580); the transcript it names is not in `evals/field/` yet). The full text sits behind "More" (#580, #581). A text model writes the short version the first time a card shows the exercise, and every later card reuses it. No admin approves it beforehand, because approving 1,315 texts is too much work for one admin. A flag from any athlete takes it down. ⚠ The names below (template id, table, settings, the flag's kind) are proposals for the owner's review.
+
+- **Template:** `exercise.simple_howto`, a `TemplateStr` file (ADR-0008). It only shortens and rewords the source into plain words for a beginner. It keeps every safety and form cue the source gives ("keep your back straight", "don't lock your elbows"), and adds no advice, number, load or cue the source lacks. Its model, upstream routing, reasoning effort and timeout come from `Settings` per template (ADR-0026) and are chosen through `/tune-prompt`.
+- **Input:** the exercise's name, its English `exercise_texts.instructions`, `target` and `equipment`. That is public catalogue text only: no athlete data, no user identity, no chat. An exercise with no English text, such as a custom exercise, gets no call and keeps today's row.
+- **Storage:** `exercise_simple_texts`, a shared reference table with no user column, like the catalogue (invariant 3 is unchanged):
+  - `exercise_id` (FK `exercises` CASCADE), `lang`, `text`, `template_id`, `template_version`, `model`, `source_sha256` (of the instructions it was written from), `status` (`shown`, `flagged`, `rejected`), `check_version` (the Jev set's pinned version), `created_at`, `flagged_at`.
+  - Unique `(exercise_id, lang)`. Only English is written, the language the card reads (G5).
+  - The catalogue's attribution covers it: it is derived from MIT-licensed text (G10), and the full original stays one tap away.
+- **When it is written:** the first time an exercise card renders a catalogue candidate that has no row.
+  - The card renders at once with today's clamped original, so a candidate never waits for a model.
+  - Each such row loads its short version from a user-scoped route (`hx-trigger="load"`, ADR-0012) that writes it and returns the row's partial. A skeleton shows while it loads.
+  - A row that already has a `shown` text renders it straight away, with no request and no model call.
+  - The insert is `ON CONFLICT DO NOTHING`, so the first write wins. Two athletes opening the same new exercise at the same moment may pay for one extra call, which is cheaper than holding a lock across a model call.
+- **Fallback:** a timeout (`EXERCISE_SIMPLE_HOWTO_TIMEOUT_SECONDS`), an error, a budget refusal or an output that fails validation keeps the clamped original, stores nothing, and is tried again on the exercise's next card. Validation is in code: non-empty, at most `EXERCISE_SIMPLE_HOWTO_MAX_CHARS` (two lines on the card at 390 px), and no digit absent from the source. The log line names the reason and the exercise ID, never athlete data.
+- **Jev check:** a text that passes validation is scored by Jev before it is stored. This is a score in ADR-0020's sense, added with `/add-decision` through the decision gateway at a pinned version. It is a filter in front of the flag, not a human gate, and nothing here should be read as a review.
+  - **Two closed questions, as a question file:** does the summary keep every safety or form cue of the original, and does it add any instruction, number or claim the original doesn't make? Both must pass. A broad "how accurate is it" score is harder to calibrate.
+  - **State:** the original instructions and the summary, built in code. Public catalogue text only, with no user identity (ADR-0020).
+  - **Threshold** (`EXERCISE_SIMPLE_HOWTO_CHECK_THRESHOLD`), calibrated on a labelled dataset before it is set (ADR-0034): good summaries, and deliberately broken ones that drop a cue, add a cue, change a number or describe another movement. ⚠ If Jev can't separate them, the check is left out and the rest of this section stands. ADR-0020 records Jev failing on fuzzy wording, and comparing two texts is harder than classifying one.
+  - **Fails closed:** a score under the threshold, a timeout or an error stores nothing, and the card keeps the original. The second failed check of the same source text stores the row as `rejected`, so later cards keep the original with no calls. A `rejected` row is listed at `/admin/exercises` beside the flagged ones, and an import that changes its source text clears it, as for stale text.
+  - **Accounting:** an `llm_calls` row under the same athlete and budget as the text call (ADR-0018, ADR-0029).
+- **Accounting and budget:** each call writes an `llm_calls` row under the athlete whose card triggered it (ADR-0018), with content-free traces. It counts against that athlete's model-call budget (ADR-0029), like the shortlist's embedding call (the #429 amendment). A card triggers at most `exercise_shortlist_size` calls, and only for exercises nobody has opened before.
+- **On the card:** the short version replaces the clamped line, with an "AI simplified" label. "More" shows the full original instructions (#581), so the control always appears beside a short version. Jev doesn't write it, since Jev never writes text (ADR-0020); it only scores it (below).
+- **Stale text:** when `import-exercises` changes an exercise's English instructions, the row's `source_sha256` no longer matches, so the card treats the row as missing. The next card rewrites it over the old row.
+- **The flag:** a "Looks wrong" control on the short version, outside the row button, that doesn't answer the question (as "More" doesn't).
+  - It sets `status = flagged` and `flagged_at`. A flagged text is hidden for every athlete straight away, and the card falls back to the clamped original. It is not regenerated automatically, since the same input would most likely give the same mistake.
+  - It writes a content-free `feedback_events` row of kind `howto_flagged` with the template ID and version (ADR-0034), so `feedback-report` counts flags per template version.
+  - It is one tap, with no reason asked. Athletes are approval-gated (ADR-0005), so one athlete can hide a text for everyone, and that is accepted.
+  - An admin sees flagged and `rejected` texts at `/admin/exercises` and either edits the text (it stays `shown` and is never regenerated, since an edit is a human's text) or clears it (the row is deleted, so the next card rewrites it).
+- **Smoke set:** `evals/smoke/exercise.simple_howto.yaml`, catalogue exercises chosen for their safety cues and for look-alike openings (the lateral-raise family). Length and the no-new-digits rule are graded in code. Whether every safety cue survives and nothing was added is always judged (ADR-0034's safety rule).
+
 ### Invariants
 
 1. A mapping from a typed name to an exercise is saved only when the athlete confirms it: on the draft card, or by picking on the choice card. Jev's pick alone never writes an alias.
@@ -164,13 +196,15 @@ Owner-directed 2026-11-08, at #531. Evidence: [exercise-media.md](../research/ex
 3. User aliases and custom exercises are the athlete's own data: user-scoped, deleted with the account (G1, G7). Catalogue queries read rows where `owner_user_id IS NULL OR owner_user_id = :user_id`.
 4. The typed name is always kept next to the resolved exercise.
 5. Imported text and media keep their source, license and attribution, and only `approved` media is shown (G10, ADR-0016). `unstated` media is only ever `embedded`, and is shown only while the app is non-commercial (PRD 0012 G16, G17); hiding it is one query on `rights`.
-6. No exercise name, alias or description is written by a model at request time. Descriptions come from `exercise_texts`.
+6. No exercise name or alias is written by a model at request time. Descriptions come from `exercise_texts`. The one exception is the beginner how-to in `exercise_simple_texts`: it is written from the exercise's own catalogue text only, is labelled as AI simplified, keeps the original one tap away, and is hidden as soon as it is flagged (amended 2026-11-22).
 
 ## Alternatives considered
 
 - **Let the extraction LLM name the exercise from a catalogue in its prompt.** 1,324 names don't fit a lean prompt (G14), and an LLM would write names freely rather than pick.
 - **An external exercise API at request time (ADR-0016's port).** That adds a network call to every log. The data changes rarely, so an import is enough.
 - **Embedding search for names from day one.** It needs ADR-0033's model first. Trigram covers typos and word order for short names, and embeddings join the shortlist later without a schema change.
+- **Beginner how-to: an admin approves each text, as with pictures.** It is safer, but 1,315 texts are too much for one admin to review (owner, 2026-11-22).
+- **Beginner how-to: a batch run over the whole catalogue, shown without approval.** It has no latency on the card and no race, and its cost is known up front. But it pays for exercises nobody opens, and it needs an admin to run it again after each import. Writing on first display spends only on what athletes see. Owner-directed 2026-11-22.
 - **A search phrase returned by `gym.extract`, used only for matching.** It might rescue paraphrases at no extra call, but it adds a prompt field to evaluate for a problem M3 addresses. Left out, owner-directed 2026-10-31.
 
 ## Consequences
@@ -183,6 +217,12 @@ Owner-directed 2026-11-08, at #531. Evidence: [exercise-media.md](../research/ex
 - The F23 card needs a Claude Design mock with a media slot before its web ticket (ADR-0019).
 - ⚠ The media source is `wger` (see "First media source (#514)", 2026-11-07). The import is the M2m ticket's work. Until it lands, cards show text only.
 - ⚠ A fallback source fills `wger`'s gaps (see "Fallback media source (#524)", 2026-11-08). The generation flow, the brief rules against printed text, and the spend cap are recorded in "Picture generation (#531)", 2026-11-08. The import and the code are M2m's work.
+- Owner-directed amendment, 2026-11-22: it adds "Beginner how-to (F23)", relaxes invariant 6 for that one text, and adds two alternatives. It is proposed for the owner's review with this branch's PR. It changes no other Decision or Invariant.
+  - **Why no draft.** The non-negotiable "AI-made data changes are drafts the user confirms" covers an athlete's own data. A beginner how-to is shared catalogue text that no athlete owns and nothing is logged from. Its safeguards are the source-only input, the code check, Jev's check, the label, the original one tap away, and the flag. `CLAUDE.md` says so in the same change.
+  - **Safety is the risk accepted.** An athlete may read a rewrite no human has checked. A dropped or changed form cue is the failure that matters, which is why the template keeps cues, Jev checks each text before it is stored, the judged smoke set checks the template, and one flag hides the text.
+  - **Migrations are expand only (ADR-0024).** One migration creates `exercise_simple_texts`. Another widens `feedback_events`' `kind` check to admit `howto_flagged`; it is replaced as `NOT VALID` and then validated, so squawk passes.
+  - **Cost** is one short text call and one Jev call per catalogue exercise opened (two of each at most, before `rejected`), plus the same again after an import changes its text. A figure goes into the template's ticket from the OpenRouter MCP, cited with its date.
+  - **Follow-up tickets,** from `/create-tickets`, each blocked by #581 (both change `choice_card.html`): the table, route, template and smoke set; Jev's check as a decision set with its dataset, threshold and fallback; the flag with its feedback kind; the admin list of flagged and rejected texts. The card's label and flag need frames in the Exercise Card mock first (ADR-0019), alongside #580's.
 - Owner-directed amendment, 2026-11-12, at #556, approved by the owner at its plan gate: `exercise_media` gains the nullable `removed_at` and `removed_from` (expand only, ADR-0024), the `removed` bullet records how a removal is undone, the quarantine key, the shared-asset rule, and that the Cloudflare cache purge is deferred to a follow-up ticket. It changes no other Decision or Invariant.
 - Owner-directed amendment, 2026-11-11, at #555, approved by the owner at its plan gate: in "The import (#552)" the **Matching** and **Jev is deferred** bullets are replaced by a catalogue-only shortlist, Jev's pick at `EXERCISE_PICK_THRESHOLD` with unmatched as its fallback, and `--admin` with `llm_calls` rows under the admin, outside ADR-0029's budget and bounded by `--limit`. It changes no other Decision or Invariant.
 - Owner-directed amendment, 2026-11-11, at #552: it adds "The import (#552)" under "First media source (#514)" and changes no other Decision or Invariant.
