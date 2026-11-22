@@ -1,5 +1,6 @@
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Protocol
 
 from pydantic import BaseModel
 
@@ -42,6 +43,22 @@ class PromptTemplate[DepsT: BaseModel, OutputT: TemplateOutput]:
     # case with it, as the app does.
     # Typed on `BaseModel`, not `DepsT`, so a template stays covariant in its deps.
     output_for: Callable[[BaseModel], type[OutputT] | tuple[type[OutputT], ...]] | None = None
+    # The output types a run with these deps checks in code, sending a failing reply back to the
+    # model within `output_retries` in the same run (`ModelRetry`), worded by a text from
+    # `TextRenderer.render_text` (#600). The app's caller and the eval task both run with it.
+    output_check: (
+        Callable[[BaseModel, TextRenderer], type[OutputT] | tuple[type[OutputT], ...]] | None
+    ) = None
+
+
+class TextRenderer(Protocol):
+    """Renders a text kept beside the templates (`PromptRegistry.render_text`)."""
+
+    def render_text(
+        self, text_id: str, version: int, deps: BaseModel, *, locale: str = "en"
+    ) -> str:
+        """The text `<text_id>/v<version>.<locale>.md`, rendered with `deps`."""
+        ...
 
 
 class UnknownPromptTemplateError(LookupError):

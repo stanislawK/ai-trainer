@@ -49,6 +49,15 @@ class PromptRegistry:
         beside the templates, so a saved reply records its ID and version like any other."""
         return self._body_path(reply_id, version, locale).read_text().strip()
 
+    def render_text(
+        self, text_id: str, version: int, deps: BaseModel, *, locale: str = "en"
+    ) -> str:
+        """A text sent to the model during a template's run, such as the note that sends a
+        reply back (#600), rendered with `deps`. It lives beside the templates and is versioned
+        like one, but has no agent, model or smoke set of its own, so it is not registered."""
+        body = self._body_path(text_id, version, locale).read_text()
+        return TemplateStr(body, deps_type=type(deps)).render(deps).strip()
+
     def render_instructions(
         self, template_id: str, version: int, deps: BaseModel, *, persona_version: int = 1
     ) -> str:

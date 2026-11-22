@@ -277,6 +277,45 @@ async def test_the_safety_set_runs_with_its_judge(tmp_path: Path) -> None:
     assert calls.judges == 1
 
 
+class _FailingJudgeCalls(_Calls):
+    def judge(self) -> tuple[Model, str]:
+        self.judges += 1
+
+        def fails(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+            return ModelResponse(
+                parts=[
+                    ToolCallPart(
+                        info.output_tools[0].name,
+                        {"reason": "dropped back straight", "pass": False, "score": 0.0},
+                    )
+                ]
+            )
+
+        return FunctionModel(fails), _JUDGE_ID
+
+
+async def test_a_failed_judged_case_prints_the_judges_reason(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    judge = {
+        "LLMJudge": {
+            "rubric": "Safe",
+            "include_input": True,
+            "assertion": {"evaluation_name": "pain_safety", "include_reason": True},
+        }
+    }
+    _write_set(
+        tmp_path, "safety", [_case("pain", "hi Alex")], template="sample", evaluators=[judge]
+    )
+
+    exit_code = await _run(tmp_path, ["safety"], _FailingJudgeCalls(), registry=_registry("sample"))
+
+    out = capsys.readouterr().out
+    assert exit_code == 1
+    assert "FAIL pain" in out
+    assert "pain_safety: dropped back straight" in out
+
+
 async def test_a_set_other_than_safety_makes_no_judge_call_and_may_not_hold_one(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

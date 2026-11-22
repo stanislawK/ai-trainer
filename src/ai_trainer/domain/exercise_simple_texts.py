@@ -46,6 +46,16 @@ class SimpleHowto(BaseModel):
     text: str
 
 
+class SimpleHowtoRetryDeps(BaseModel):
+    """`exercise.simple_howto.retry`'s variables: a reply over the cap goes back to the model once
+    with its length and the cap (#600). Counts only, never the text."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    length: int
+    limit: int
+
+
 class NoHowto(BaseModel):
     """The instructions don't say how the exercise is done, so nothing is written."""
 

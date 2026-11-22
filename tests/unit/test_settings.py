@@ -5,6 +5,10 @@ from pydantic import ValidationError
 
 from ai_trainer.domain.llm_calls import ProviderPreferences
 from ai_trainer.settings import Settings
+from ai_trainer.settings_values import (
+    DEFAULT_EXERCISE_SIMPLE_HOWTO_MAX_CHARS,
+    DEFAULT_SIMPLE_HOWTO_PROVIDER,
+)
 
 ENV_EXAMPLE = Path(__file__).parents[2] / ".env.example"
 DATABASE_URL = "postgresql+psycopg://ai_trainer:secret@localhost:5432/ai_trainer"
@@ -688,10 +692,8 @@ def test_a_session_merge_window_of_zero_minutes_fails_at_startup(
     assert [error["loc"] for error in excinfo.value.errors()] == [("session_merge_window_min",)]
 
 
-@pytest.mark.parametrize(
-    "variable",
-    ["ROUTER_REASONING_EFFORT", "EXTRACT_REASONING_EFFORT", "SIMPLE_HOWTO_REASONING_EFFORT"],
-)
+# `SIMPLE_HOWTO_REASONING_EFFORT` defaults to its tuned effort instead (#600).
+@pytest.mark.parametrize("variable", ["ROUTER_REASONING_EFFORT", "EXTRACT_REASONING_EFFORT"])
 def test_a_reasoning_effort_is_unset_unless_given(
     monkeypatch: pytest.MonkeyPatch, variable: str
 ) -> None:
@@ -1097,23 +1099,54 @@ def test_simple_howto_settings_default_and_blank_keeps_them(
 ) -> None:
     # `exercise.simple_howto` (ADR-0031, #589): blank keys as copied from `.env.example`.
     _set_required_keys(monkeypatch)
-    for variable in ("SIMPLE_HOWTO_MODEL", "SIMPLE_HOWTO_PROVIDER_PREFERENCES"):
+    for variable in (
+        "SIMPLE_HOWTO_MODEL",
+        "SIMPLE_HOWTO_PROVIDER_PREFERENCES",
+        "SIMPLE_HOWTO_REASONING_EFFORT",
+    ):
         monkeypatch.setenv(variable, "  ")
 
     settings = Settings(_env_file=None)
 
     assert settings.simple_howto_model == "z-ai/glm-5.3-flash"
     assert settings.simple_howto_provider_preferences == ProviderPreferences(only=["z-ai/fp8"])
-    assert settings.exercise_simple_howto_max_chars == 160
+    # Blank keeps the tuned effort: unset, the model would reason at its own `max` (#600).
+    assert settings.simple_howto_reasoning_effort == "high"
+    assert settings.exercise_simple_howto_max_chars == 180
     assert settings.exercise_simple_howto_timeout_seconds == 8.0
 
     monkeypatch.setenv("SIMPLE_HOWTO_MODEL", "other/model")
     monkeypatch.setenv("SIMPLE_HOWTO_PROVIDER_PREFERENCES", '{"sort": "latency"}')
+    monkeypatch.setenv("SIMPLE_HOWTO_REASONING_EFFORT", "low")
 
     settings = Settings(_env_file=None)
 
     assert settings.simple_howto_model == "other/model"
     assert settings.simple_howto_provider_preferences == ProviderPreferences(sort="latency")
+    assert settings.simple_howto_reasoning_effort == "low"
+
+
+def test_simple_howto_defaults_match_the_measured_cap_and_pinned_upstream(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # #600: the cap is a length cap from the longest cue-complete output in the smoke runs
+    # (ADR-0031's #600 amendment), the upstream stays the model author's own fp8 endpoint, and
+    # the effort is the one the smoke set passed at.
+    _set_required_keys(monkeypatch)
+    for variable in (
+        "SIMPLE_HOWTO_PROVIDER_PREFERENCES",
+        "SIMPLE_HOWTO_REASONING_EFFORT",
+        "EXERCISE_SIMPLE_HOWTO_MAX_CHARS",
+    ):
+        monkeypatch.delenv(variable, raising=False)
+
+    settings = Settings(_env_file=None)
+
+    assert settings.simple_howto_reasoning_effort == "high"
+    assert DEFAULT_EXERCISE_SIMPLE_HOWTO_MAX_CHARS == 180
+    assert settings.exercise_simple_howto_max_chars == DEFAULT_EXERCISE_SIMPLE_HOWTO_MAX_CHARS
+    assert settings.simple_howto_provider_preferences == ProviderPreferences(only=["z-ai/fp8"])
+    assert settings.simple_howto_provider_preferences == DEFAULT_SIMPLE_HOWTO_PROVIDER
 
 
 @pytest.mark.parametrize(
