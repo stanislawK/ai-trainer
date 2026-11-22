@@ -1,0 +1,237 @@
+# Smoke set for exercise.simple_howto (ADR-0031 *Beginner how-to*, ADR-0034, #589): catalogue
+# exercises chosen for their safety and form cues and for look-alike openings (the lateral-raise
+# family, owner's chat of 2026-11-18 on #580), and one whose source carries a number. Each case's
+# deps are the exercise's name, English instructions, target and equipment exactly as `ai-trainer
+# import-exercises` stores them from the pinned dataset commit 7455efae. No field transcript covers
+# the card yet. Length and the no-new-digits rule are graded in code by SimpleHowtoMatch; whether
+# every cue survived and nothing was added is always judged (ADR-0034 invariant 2, amended at
+# #589). An `expected_output` text is a reference: only its kind is graded.
+# Known gaps (owner-decided 2026-11-22 at #589): the cases that failed #589's runs on the default
+# model with no upstream pinned, through length, a token limit or the judge; #600 tunes them before
+# any card shows the text.
+name: exercise.simple_howto
+known_gaps:
+  'barbell deadlift: back straight': '#600'
+  'lateral raise: lever machine': '#600'
+  '3/4 sit-up: a number in the source': '#600'
+cases:
+- name: 'lateral raise: dumbbell'
+  inputs:
+    prompt: Dumbbell Lateral Raise
+    deps:
+      exercise_name: Dumbbell Lateral Raise
+      instructions: Stand with your feet shoulder-width apart and hold a dumbbell in each hand, palms
+        facing your body. Keep your back straight and engage your core. Raise your arms out to the sides
+        until they are parallel to the floor, keeping a slight bend in your elbows. Pause for a moment
+        at the top, then slowly lower your arms back down to the starting position. Repeat for the desired
+        number of repetitions.
+      target: delts
+      equipment: dumbbell
+      max_chars: 160
+  metadata:
+    instructions_source: exercises-dataset 0334
+  expected_output:
+    text: Hold a dumbbell in each hand, back straight and core tight. Raise your arms out to the sides
+      to shoulder height, elbows slightly bent, then lower slowly.
+  evaluators:
+  - LLMJudge:
+      rubric: 'The output is a beginner how-to for the exercise whose catalogue instructions are in the
+        input''s deps. It passes only if all three hold: (1) it keeps every safety and form cue the instructions
+        give, in any wording: back straight, core engaged, a slight bend in the elbows, lowering slowly;
+        (2) it adds nothing the instructions don''t say: no advice, tip, number, load, sets, repetitions
+        or cue of its own; (3) it describes this exercise, standing with a dumbbell in each hand and raising
+        the arms out to the sides, so a beginner could tell it from similar exercises. Shortening, plain
+        words and leaving out the repeat line are fine.'
+      include_input: true
+      assertion:
+        evaluation_name: cues_kept
+        include_reason: true
+- name: 'lateral raise: cable'
+  inputs:
+    prompt: Cable Lateral Raise
+    deps:
+      exercise_name: Cable Lateral Raise
+      instructions: Stand with your feet shoulder-width apart and grasp the cable handles with an overhand
+        grip. Keep your arms straight and your core engaged. Raise your arms out to the sides until they
+        are parallel to the floor. Pause for a moment at the top, then slowly lower your arms back down
+        to the starting position. Repeat for the desired number of repetitions.
+      target: delts
+      equipment: cable
+      max_chars: 160
+  metadata:
+    instructions_source: exercises-dataset 0178
+  expected_output:
+    text: Hold the cable handles, arms straight and core tight. Raise your arms out to the sides to shoulder
+      height, pause, then lower them slowly.
+  evaluators:
+  - LLMJudge:
+      rubric: 'The output is a beginner how-to for the exercise whose catalogue instructions are in the
+        input''s deps. It passes only if all three hold: (1) it keeps every safety and form cue the instructions
+        give, in any wording: arms straight, core engaged, lowering slowly; (2) it adds nothing the instructions
+        don''t say: no advice, tip, number, load, sets, repetitions or cue of its own; (3) it describes
+        this exercise, holding cable handles and raising the arms out to the sides, so a beginner could
+        tell it from similar exercises. Shortening, plain words and leaving out the repeat line are fine.'
+      include_input: true
+      assertion:
+        evaluation_name: cues_kept
+        include_reason: true
+- name: 'lateral raise: lever machine'
+  inputs:
+    prompt: Lever Lateral Raise
+    deps:
+      exercise_name: Lever Lateral Raise
+      instructions: Adjust the seat height and position yourself on the machine with your back against
+        the pad. Grasp the handles with an overhand grip and keep your arms straight. Exhale and raise
+        your arms out to the sides until they are parallel to the floor. Pause for a moment at the top,
+        then inhale and slowly lower your arms back to the starting position. Repeat for the desired number
+        of repetitions.
+      target: delts
+      equipment: leverage machine
+      max_chars: 160
+  metadata:
+    instructions_source: exercises-dataset 0584
+  expected_output:
+    text: Sit on the machine, back against the pad, arms straight. Breathe out as you raise your arms
+      to the sides to shoulder height, then lower slowly.
+  evaluators:
+  - LLMJudge:
+      rubric: 'The output is a beginner how-to for the exercise whose catalogue instructions are in the
+        input''s deps. It passes only if all three hold: (1) it keeps every safety and form cue the instructions
+        give, in any wording: back against the pad, arms straight, lowering slowly; (2) it adds nothing
+        the instructions don''t say: no advice, tip, number, load, sets, repetitions or cue of its own;
+        (3) it describes this exercise, seated on a machine with the back against the pad, raising the
+        arms to the sides, so a beginner could tell it from similar exercises. Shortening, plain words
+        and leaving out the repeat line are fine.'
+      include_input: true
+      assertion:
+        evaluation_name: cues_kept
+        include_reason: true
+- name: 'barbell deadlift: back straight'
+  inputs:
+    prompt: Barbell Deadlift
+    deps:
+      exercise_name: Barbell Deadlift
+      instructions: Stand with your feet shoulder-width apart and the barbell on the ground in front of
+        you. Bend your knees and hinge at the hips to lower your torso and grip the barbell with an overhand
+        grip, hands slightly wider than shoulder-width apart. Keep your back straight and chest lifted
+        as you drive through your heels to lift the barbell off the ground, extending your hips and knees.
+        As you stand up straight, squeeze your glutes and keep your core engaged. Lower the barbell back
+        down to the ground by bending at the hips and knees, keeping your back straight. Repeat for the
+        desired number of repetitions.
+      target: glutes
+      equipment: barbell
+      max_chars: 160
+  metadata:
+    instructions_source: exercises-dataset 0032
+  expected_output:
+    text: Hinge at the hips to grip the bar, then stand up through your heels, back straight, chest up,
+      core tight. Lower it the same way, back straight.
+  evaluators:
+  - LLMJudge:
+      rubric: 'The output is a beginner how-to for the exercise whose catalogue instructions are in the
+        input''s deps. It passes only if all three hold: (1) it keeps every safety and form cue the instructions
+        give, in any wording: back straight (lifting and lowering), chest lifted, driving through the
+        heels, core engaged; (2) it adds nothing the instructions don''t say: no advice, tip, number,
+        load, sets, repetitions or cue of its own; (3) it describes this exercise, lifting a barbell from
+        the ground by hinging at the hips, so a beginner could tell it from similar exercises. Shortening,
+        plain words and leaving out the repeat line are fine.'
+      include_input: true
+      assertion:
+        evaluation_name: cues_kept
+        include_reason: true
+- name: 'barbell bench press: elbows tucked'
+  inputs:
+    prompt: Barbell Bench Press
+    deps:
+      exercise_name: Barbell Bench Press
+      instructions: Lie flat on a bench with your feet flat on the ground and your back pressed against
+        the bench. Grasp the barbell with an overhand grip slightly wider than shoulder-width apart. Lift
+        the barbell off the rack and hold it directly above your chest with your arms fully extended.
+        Lower the barbell slowly towards your chest, keeping your elbows tucked in. Pause for a moment
+        when the barbell touches your chest. Push the barbell back up to the starting position by extending
+        your arms. Repeat for the desired number of repetitions.
+      target: pectorals
+      equipment: barbell
+      max_chars: 160
+  metadata:
+    instructions_source: exercises-dataset 0025
+  expected_output:
+    text: Lie on the bench, feet flat and back pressed down. Lower the bar slowly to your chest, elbows
+      tucked in, then press it back up.
+  evaluators:
+  - LLMJudge:
+      rubric: 'The output is a beginner how-to for the exercise whose catalogue instructions are in the
+        input''s deps. It passes only if all three hold: (1) it keeps every safety and form cue the instructions
+        give, in any wording: feet flat, back pressed against the bench, elbows tucked in, lowering slowly;
+        (2) it adds nothing the instructions don''t say: no advice, tip, number, load, sets, repetitions
+        or cue of its own; (3) it describes this exercise, lying on a bench and lowering a barbell to
+        the chest, then pressing it up, so a beginner could tell it from similar exercises. Shortening,
+        plain words and leaving out the repeat line are fine.'
+      include_input: true
+      assertion:
+        evaluation_name: cues_kept
+        include_reason: true
+- name: 'push-up: straight body'
+  inputs:
+    prompt: Push-Up
+    deps:
+      exercise_name: Push-Up
+      instructions: Start in a high plank position with your hands slightly wider than shoulder-width
+        apart and your feet together. Engage your core and lower your body towards the ground by bending
+        your elbows, keeping your body in a straight line. Pause for a moment when your chest is just
+        above the ground, then push yourself back up to the starting position by straightening your arms.
+        Repeat for the desired number of repetitions.
+      target: pectorals
+      equipment: body weight
+      max_chars: 160
+  metadata:
+    instructions_source: exercises-dataset 0662
+  expected_output:
+    text: From a high plank, hands just wider than your shoulders and core tight, lower your chest near
+      the floor, body straight, then push back up.
+  evaluators:
+  - LLMJudge:
+      rubric: 'The output is a beginner how-to for the exercise whose catalogue instructions are in the
+        input''s deps. It passes only if all three hold: (1) it keeps every safety and form cue the instructions
+        give, in any wording: core engaged, body in a straight line; (2) it adds nothing the instructions
+        don''t say: no advice, tip, number, load, sets, repetitions or cue of its own; (3) it describes
+        this exercise, lowering the chest to the ground from a high plank and pushing back up, so a beginner
+        could tell it from similar exercises. Shortening, plain words and leaving out the repeat line
+        are fine.'
+      include_input: true
+      assertion:
+        evaluation_name: cues_kept
+        include_reason: true
+- name: '3/4 sit-up: a number in the source'
+  inputs:
+    prompt: 3/4 Sit-Up
+    deps:
+      exercise_name: 3/4 Sit-Up
+      instructions: Lie flat on your back with your knees bent and feet flat on the ground. Place your
+        hands behind your head with your elbows pointing outwards. Engaging your abs, slowly lift your
+        upper body off the ground, curling forward until your torso is at a 45-degree angle. Pause for
+        a moment at the top, then slowly lower your upper body back down to the starting position. Repeat
+        for the desired number of repetitions.
+      target: abs
+      equipment: body weight
+      max_chars: 160
+  metadata:
+    instructions_source: exercises-dataset 0001
+  expected_output:
+    text: Lie on your back, knees bent, hands behind your head. Using your abs, slowly curl up to 45 degrees,
+      then lower slowly.
+  evaluators:
+  - LLMJudge:
+      rubric: 'The output is a beginner how-to for the exercise whose catalogue instructions are in the
+        input''s deps. It passes only if all three hold: (1) it keeps every safety and form cue the instructions
+        give, in any wording: knees bent, feet flat, lifting and lowering slowly, the 45-degree top position;
+        (2) it adds nothing the instructions don''t say: no advice, tip, number, load, sets, repetitions
+        or cue of its own; (3) it describes this exercise, lying on the back and curling the upper body
+        up to 45 degrees, so a beginner could tell it from similar exercises. Shortening, plain words
+        and leaving out the repeat line are fine.'
+      include_input: true
+      assertion:
+        evaluation_name: cues_kept
+        include_reason: true
+evaluators:
+- SimpleHowtoMatch

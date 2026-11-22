@@ -43,6 +43,9 @@ from ai_trainer.adapters.conversation_repository import SqlAlchemyConversationRe
 from ai_trainer.adapters.db import build_engine, build_session_factory
 from ai_trainer.adapters.exercise_history import SqlAlchemyExerciseHistory
 from ai_trainer.adapters.exercise_repository import SqlAlchemyExerciseRepository
+from ai_trainer.adapters.exercise_simple_text_repository import (
+    SqlAlchemyExerciseSimpleTextRepository,
+)
 from ai_trainer.adapters.feedback_repository import SqlAlchemyFeedbackEventsRepository
 from ai_trainer.adapters.google_oauth import AuthlibGoogleOAuthClient
 from ai_trainer.adapters.gym_activity_store import GymActivityStore
@@ -90,6 +93,7 @@ from ai_trainer.application.exercise_picture import ExercisePictureService, Pict
 from ai_trainer.application.exercise_picture_store import StoreExercisePicture
 from ai_trainer.application.exercise_progress import ExerciseProgress
 from ai_trainer.application.exercise_resolution import ResolutionLimits, ResolveExercises
+from ai_trainer.application.exercise_simple_howto import WriteSimpleHowto
 from ai_trainer.application.feedback import FeedbackRecorder
 from ai_trainer.application.knowledge_file_staging import FileStaging
 from ai_trainer.application.knowledge_ingestion import KnowledgeIngestion
@@ -138,6 +142,7 @@ from ai_trainer.llm.picture_brief import LlmPictureBriefWriter
 from ai_trainer.llm.question_sport import JevQuestionSport
 from ai_trainer.llm.router_fast import JevFastRouter, RouterFastThresholds
 from ai_trainer.llm.safety_screen import JevSafetyScreen
+from ai_trainer.llm.simple_howto import LlmSimpleHowtoWriter, SimpleHowtoCall
 from ai_trainer.mcp.citations import cited_sources
 from ai_trainer.mcp.server import build_mcp_server
 from ai_trainer.mcp.toolset import build_toolset
@@ -309,6 +314,34 @@ def build_onboarding_reader(
         provider=settings.onboarding_provider_preferences,
         reasoning_effort=settings.onboarding_reasoning_effort,
         timeout_seconds=settings.onboarding_call_timeout_seconds,
+    )
+
+
+def build_simple_howto(
+    settings: Settings,
+    session_factory: Callable[[], AsyncSession],
+    sports: SportRegistry,
+    *,
+    gateway: LlmGatewayPort,
+    clock: ClockPort,
+) -> WriteSimpleHowto:
+    """The beginner how-to, written the first time a card shows a catalogue exercise (ADR-0031,
+    #589). The app passes its budgeted gateway, so the call counts against the athlete's budget
+    (ADR-0029); the card's route is a later ticket."""
+    return WriteSimpleHowto(
+        texts=SqlAlchemyExerciseSimpleTextRepository(session_factory),
+        writer=LlmSimpleHowtoWriter(
+            registry=build_prompt_registry(_PROMPTS_ROOT, sports),
+            gateway=gateway,
+            call=SimpleHowtoCall(
+                model=settings.simple_howto_model,
+                provider=settings.simple_howto_provider_preferences,
+                reasoning_effort=settings.simple_howto_reasoning_effort,
+                timeout_seconds=settings.exercise_simple_howto_timeout_seconds,
+            ),
+        ),
+        clock=clock,
+        max_chars=settings.exercise_simple_howto_max_chars,
     )
 
 
@@ -791,6 +824,9 @@ def create_app(  # noqa: PLR0915 -- composition root: objects are built only her
         budget,
     )
     conversation = build_llm_conversation(settings, sport_registry, gateway)
+    app.state.simple_howto = build_simple_howto(
+        settings, session_factory, sport_registry, gateway=gateway, clock=clock
+    )
     decisions = BudgetedDecisionGateway(
         OpenRouterDecisionGateway(settings, llm_calls, debug_log=debug_log), budget
     )

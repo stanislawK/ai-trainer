@@ -20,6 +20,7 @@ EXPECTED_TABLES = {
     "clarifications",
     "exercises",
     "exercise_texts",
+    "exercise_simple_texts",
     "exercise_aliases",
     "media_assets",
     "exercise_media",

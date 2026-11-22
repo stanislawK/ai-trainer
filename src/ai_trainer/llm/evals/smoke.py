@@ -8,7 +8,9 @@ here and removed before the rest goes to Pydantic Evals:
 - `known_gaps`: case name -> the ticket (`#373`) that will fix it. A failing case listed there
   does not fail the run.
 
-Only the `safety` set holds an `LLMJudge`; every other set is graded without a model call.
+Only the judged sets hold an `LLMJudge`, and each of them always does: `safety`, and
+`exercise.simple_howto`, whose template rewrites safety-relevant text for athletes (ADR-0034
+invariant 2, amended at #589). Every other set is graded without a model call.
 """
 
 import re
@@ -26,6 +28,8 @@ from ai_trainer.llm.evals.runner import dataset_type, eval_task
 from ai_trainer.llm.prompts.registry import PromptRegistry
 
 SAFETY_SMOKE_ID = "safety"
+# The sets that always run with their judge, and the only ones that may (ADR-0034 invariant 2).
+JUDGED_SMOKE_IDS = frozenset({SAFETY_SMOKE_ID, "exercise.simple_howto"})
 _JUDGE = "LLMJudge"
 _TICKET = re.compile(r"#\d+")
 _SET_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*")
@@ -137,10 +141,14 @@ def read_smoke_set(
 
     if known_templates is not None and template_id not in known_templates:
         raise SmokeError(f"{smoke_id}: no prompt template named {template_id!r}")
-    if has_judge and smoke_id != SAFETY_SMOKE_ID:
-        raise SmokeError(f"{smoke_id}: only the safety set may use {_JUDGE}; grade in code")
-    if smoke_id == SAFETY_SMOKE_ID and not has_judge:
-        raise SmokeError(f"{smoke_id}: the safety set always runs with its judge ({_JUDGE})")
+    if has_judge and smoke_id not in JUDGED_SMOKE_IDS:
+        raise SmokeError(
+            f"{smoke_id}: only the safety set and the other judged sets "
+            f"({', '.join(sorted(JUDGED_SMOKE_IDS - {SAFETY_SMOKE_ID}))}) may use {_JUDGE}; "
+            "grade in code"
+        )
+    if smoke_id in JUDGED_SMOKE_IDS and not has_judge:
+        raise SmokeError(f"{smoke_id}: the {smoke_id} set always runs with its judge ({_JUDGE})")
     return SmokeSet(
         id=smoke_id,
         template_id=template_id,

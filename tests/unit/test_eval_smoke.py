@@ -1,5 +1,6 @@
 """Smoke sets (ADR-0034, ticket #372): `evals/smoke/<id>.yaml` run once per case, graded in code,
-no baseline, no judge except the safety set. No real model: scripted `FunctionModel`s."""
+no baseline, no judge except the judged sets (safety, exercise.simple_howto). No real model:
+scripted `FunctionModel`s."""
 
 import re
 from dataclasses import dataclass
@@ -18,7 +19,7 @@ from ai_trainer.domain.sports.registry import default_sport_registry
 from ai_trainer.llm.evals import cli as cli_module
 from ai_trainer.llm.evals.cli import _build_parser, execute_smoke, main
 from ai_trainer.llm.evals.inputs import EvalCaseInputs
-from ai_trainer.llm.evals.smoke import SmokeError, read_smoke_set, smoke_ids
+from ai_trainer.llm.evals.smoke import JUDGED_SMOKE_IDS, SmokeError, read_smoke_set, smoke_ids
 from ai_trainer.llm.prompts.registry import PromptRegistry
 from ai_trainer.llm.prompts.template import PromptTemplate
 
@@ -375,12 +376,33 @@ def test_gym_smoke_lists_neither_the_bench_nor_the_hantles_case_as_a_known_gap()
         assert _gym_smoke_case(prompt)["name"] not in known_gaps
 
 
-def test_the_committed_smoke_sets_read_and_the_safety_set_alone_holds_a_judge() -> None:
+def test_the_committed_smoke_sets_read_and_only_the_judged_sets_hold_a_judge() -> None:
     root = ROOT / "evals" / "smoke"
 
+    assert {"safety", "exercise.simple_howto"} <= set(smoke_ids(root))
     for smoke_id in smoke_ids(root):
         smoke_set = read_smoke_set(smoke_id, smoke_root=root)
-        assert smoke_set.has_judge == (smoke_id == "safety"), smoke_id
+        assert smoke_set.has_judge == (smoke_id in JUDGED_SMOKE_IDS), smoke_id
+
+
+# AC (#589): the smoke set passes, cues judged (ADR-0034 invariant 2 as amended).
+def test_simple_howto_set_must_hold_its_judge(tmp_path: Path) -> None:
+    _write_set(tmp_path, "exercise.simple_howto", [_case("bench", "hi Alex")])
+
+    with pytest.raises(SmokeError, match="always runs with its judge"):
+        read_smoke_set("exercise.simple_howto", smoke_root=tmp_path)
+
+    _write_set(tmp_path, "exercise.simple_howto", [_case("bench", "hi Alex")], evaluators=[_JUDGE])
+
+    assert read_smoke_set("exercise.simple_howto", smoke_root=tmp_path).has_judge
+
+
+def test_other_sets_still_may_not_judge(tmp_path: Path) -> None:
+    assert frozenset({"safety", "exercise.simple_howto"}) == JUDGED_SMOKE_IDS
+    _write_set(tmp_path, "media.picture_brief", [_case("pull-up", "hi")], evaluators=[_JUDGE])
+
+    with pytest.raises(SmokeError, match="only the safety set"):
+        read_smoke_set("media.picture_brief", smoke_root=tmp_path)
 
 
 @pytest.mark.parametrize("path", ["smoke/safety.yaml", "datasets/chitchat.yaml"])

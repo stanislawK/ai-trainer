@@ -95,6 +95,11 @@ from ai_trainer.llm.router import (
 )
 from ai_trainer.llm.router_fast import ROUTER_FAST_ID, ROUTER_FAST_VERSION, RouterFastThresholds
 from ai_trainer.llm.safety_screen import SAFETY_SCREEN_ID, SAFETY_SCREEN_VERSION
+from ai_trainer.llm.simple_howto import (
+    SIMPLE_HOWTO_TEMPLATE_ID,
+    SIMPLE_HOWTO_VERSION,
+    SimpleHowtoMatch,
+)
 from ai_trainer.settings import Settings
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
@@ -129,6 +134,8 @@ _EVALUATORS: dict[str, tuple[type[Evaluator[EvalCaseInputs, BaseModel, object]],
     SCHEDULE_TEMPLATE_ID: (ScheduleMatch,),
     # Positions, the no-text rule and the name, graded in code (ADR-0031, #532).
     PICTURE_BRIEF_TEMPLATE_ID: (PictureBriefMatch,),
+    # Length and the no-new-digits rule in code; the cues by the set's judge (ADR-0031, #589).
+    SIMPLE_HOWTO_TEMPLATE_ID: (SimpleHowtoMatch,),
     # Every sport's extraction template is graded the same way, in code (ADR-0006, ADR-0014),
     # and one that may ask on whether it asked (ticket #164).
     **{
@@ -173,6 +180,7 @@ def _active_versions(sports: SportRegistry) -> dict[str, int]:
         LEVEL_TEMPLATE_ID: SPORT_STEP_VERSION,
         SCHEDULE_TEMPLATE_ID: SPORT_STEP_VERSION,
         PICTURE_BRIEF_TEMPLATE_ID: PICTURE_BRIEF_VERSION,
+        SIMPLE_HOWTO_TEMPLATE_ID: SIMPLE_HOWTO_VERSION,
         **{
             plugin.extraction.template_id: plugin.extraction.version
             for plugin in sports.all()

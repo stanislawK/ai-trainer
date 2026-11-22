@@ -26,6 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from ai_trainer import main as main_module
+from ai_trainer.application.exercise_simple_howto import WriteSimpleHowto
 from ai_trainer.llm.gateway import OpenRouterGateway
 from ai_trainer.main import _build_tracer_provider, _traces_endpoint, app_factory, create_app
 from ai_trainer.settings import Settings
@@ -173,6 +174,13 @@ async def test_the_gateway_answers_through_the_apps_mcp_toolset(
     app = create_app(_settings())
 
     assert built == [app.state.mcp_toolset]
+
+
+def test_create_app_exposes_the_beginner_how_to_for_the_card_route() -> None:
+    """Built now so the card's route ticket only wires the route (ADR-0031, #589)."""
+    app = create_app(_settings())
+
+    assert isinstance(app.state.simple_howto, WriteSimpleHowto)
 
 
 def test_create_app_serves_the_ai_onboarding_cards() -> None:
