@@ -416,6 +416,35 @@ async def test_second_failed_check_stores_rejected_and_later_write_calls_nothing
     assert record.getMessage() == f"simple how-to rejected: exercise={exercise}"
 
 
+async def test_an_edited_rejected_row_is_present_not_rejected() -> None:
+    # An admin's edit is a human's text (ADR-0031), whatever status the row still carries.
+    exercise = uuid4()
+    texts = InMemorySimpleTexts(sources={exercise: _source(exercise)})
+    texts.rows[exercise] = _Row(
+        text=NewSimpleText(
+            exercise_id=exercise,
+            lang="en",
+            text=_GOOD,
+            template_id="exercise.simple_howto",
+            template_version=1,
+            model="test/model",
+            source_sha256=source_sha256(_INSTRUCTIONS),
+            check_version=_CHECK_VERSION,
+            created_at=NOW,
+        ),
+        body=_GOOD,
+        status=SimpleTextStatus.REJECTED,
+        check_failures=2,
+    )
+    texts.edited.add(exercise)
+    writer = ScriptedWriter(_draft())
+
+    result = await _service(texts, writer).write(user_id=uuid4(), exercise_id=exercise)
+
+    assert result == HowtoPresent()
+    assert writer.calls == []
+
+
 async def test_a_failed_check_that_loses_the_race_is_present() -> None:
     exercise = uuid4()
     texts = InMemorySimpleTexts(sources={exercise: _source(exercise)})

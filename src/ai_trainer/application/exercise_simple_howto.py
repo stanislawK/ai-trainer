@@ -68,7 +68,8 @@ class WriteSimpleHowto:
         stored = await self._texts.stored(exercise_id, lang=SIMPLE_TEXT_LANG)
         if stored is not None and not needs_writing(stored, sha256):
             # Only a row with text gets here, so a `rejected` one is current and checked twice.
-            if stored.status is SimpleTextStatus.REJECTED:
+            # An admin's edit is a human's text, whatever status the row still carries.
+            if stored.status is SimpleTextStatus.REJECTED and stored.edited_at is None:
                 return HowtoRejected()
             return HowtoPresent()
         deps = source.deps(max_chars=self._max_chars)
