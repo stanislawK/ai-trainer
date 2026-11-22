@@ -12,6 +12,7 @@ from ai_trainer.domain.exercises import (
     ExerciseEntry,
     ExerciseLabel,
     ExerciseMeasure,
+    ExercisePick,
     ImportedCatalogue,
     LoggedName,
 )
@@ -123,9 +124,11 @@ class ExercisePickerPort(Protocol):
 
     async def pick(
         self, user_id: UUID, name: str, candidates: Sequence[ExerciseCandidate]
-    ) -> ExerciseCandidate | None:
-        """The candidate when the pick is confident; `None` for a low-confidence pick, "none of
-        these", a timeout, an error, and an empty shortlist, which makes no call."""
+    ) -> ExercisePick:
+        """`chosen` is the candidate when the pick is confident; `None` for a low-confidence
+        pick, "none of these", a timeout, an error, and an empty shortlist, which makes no call.
+        `scores` is Jev's probability per candidate, by its ID, which orders the card (#579); it
+        is empty for a timeout, an error and an empty shortlist."""
         ...
 
 

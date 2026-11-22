@@ -6,10 +6,22 @@ import asyncio
 from collections.abc import Callable, Sequence
 from dataclasses import replace
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, Self
 from uuid import UUID, uuid4
 
+import httpx2
 import pytest
+from pydantic_ai import models
+from pydantic_ai.models.decision import (
+    ChoiceAnswer,
+    ChoiceQuestion,
+    DecisionAnswer,
+    DecisionModel,
+    DecisionModelSettings,
+    DecisionRequest,
+    DecisionResponse,
+)
+from pydantic_ai.usage import RequestUsage
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -18,6 +30,7 @@ from ai_trainer.adapters.clarification_repository import SqlAlchemyClarification
 from ai_trainer.adapters.conversation_repository import SqlAlchemyConversationRepository
 from ai_trainer.adapters.db import build_engine
 from ai_trainer.adapters.exercise_repository import SqlAlchemyExerciseRepository
+from ai_trainer.adapters.llm_calls_repository import SqlAlchemyLlmCallsRepository
 from ai_trainer.adapters.session_draft_repository import SqlAlchemySessionDraftRepository
 from ai_trainer.adapters.training_session_repository import SqlAlchemyTrainingSessionRepository
 from ai_trainer.application.exercise_catalogue import import_catalogue
@@ -38,10 +51,16 @@ from ai_trainer.domain.clarification import (
     StoredClarification,
 )
 from ai_trainer.domain.conversation import Intent
-from ai_trainer.domain.exercises import ExerciseCandidate, ExerciseMeasure
+from ai_trainer.domain.exercises import ExerciseCandidate, ExerciseMeasure, ExercisePick
 from ai_trainer.domain.sports.gym.extraction import GymExtraction
 from ai_trainer.domain.sports.gym.payload import GymPayload
 from ai_trainer.domain.training import SessionDraft, StoredDraft
+from ai_trainer.llm.decision_gateway import OpenRouterDecisionGateway
+from ai_trainer.llm.exercise_shortlist import (
+    EXERCISE_SHORTLIST_ID,
+    EXERCISE_SHORTLIST_VERSION,
+    JevExercisePicker,
+)
 from ai_trainer.settings import Settings
 from tests.activity_support import STORES
 from tests.chat_support import (
@@ -173,9 +192,11 @@ class _PicksBarbell(ScriptedPicker):
 
     async def pick(
         self, user_id: UUID, name: str, candidates: Sequence[ExerciseCandidate]
-    ) -> ExerciseCandidate | None:
+    ) -> ExercisePick:
         await super().pick(user_id, name, candidates)
-        return next((c for c in candidates if c.name == "Barbell Bench Press"), None)
+        return ExercisePick(
+            chosen=next((c for c in candidates if c.name == "Barbell Bench Press"), None)
+        )
 
 
 def _option(question: StoredClarification, name: str) -> str:
@@ -797,3 +818,120 @@ async def test_labels_leave_out_another_athletes_custom_exercise(
         )
         == {}
     )
+
+
+# --- the card ordered by Jev's scores, on the real gateway (ticket #579) -----------------------
+
+
+class _UnsureJev(DecisionModel[None]):
+    """Jev behind the real gateway, no network: never sure, it gives the last candidate 0.6 and
+    the first 0.3, below any pick threshold."""
+
+    max_choice_options = 255
+    max_score_levels = 10
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.requests: list[DecisionRequest] = []
+
+    @property
+    def model_name(self) -> str:
+        return "typesafe/jev-1.13-20260917"
+
+    @property
+    def system(self) -> str:
+        return "fake"
+
+    @property
+    def base_url(self) -> str:
+        return "https://jev.invalid"
+
+    async def decide(
+        self, request: DecisionRequest, model_settings: DecisionModelSettings
+    ) -> DecisionResponse:
+        self.requests.append(request)
+        question = request.questions["exercise"]
+        assert isinstance(question, ChoiceQuestion)
+        options = [option for option in question.criteria if option != "none"]
+        # A choice answers the full distribution over its options (ADR-0020): the last one
+        # leads, the first follows, any others share what's left.
+        rest = options[1:-1]
+        probabilities = {option: 0.2 / len(rest) for option in rest}
+        probabilities |= {options[-1]: 0.5, "none": 0.1}
+        if len(options) > 1:
+            probabilities[options[0]] = 0.2
+        answers: dict[str, DecisionAnswer] = {
+            "exercise": ChoiceAnswer(
+                choice=options[-1], confidence=0.6, probabilities=probabilities
+            )
+        }
+        return DecisionResponse(
+            answers=answers, model_name=self.model_name, usage=RequestUsage(input_tokens=120)
+        )
+
+
+def _refuse(request: httpx2.Request) -> httpx2.Response:
+    raise AssertionError(f"a test reached the network: {request.url}")
+
+
+def _one_at_a_time(factory: SessionFactory) -> SessionFactory:
+    """`factory`'s sessions, one open at a time: `settle` asks for its names concurrently, and
+    the test's shared connection can't hold two savepoints that close out of order."""
+    bind = factory().bind
+    lock = asyncio.Lock()
+
+    class _Serial(AsyncSession):
+        async def __aenter__(self) -> Self:
+            await lock.acquire()
+            return await super().__aenter__()
+
+        async def __aexit__(self, *exc: Any) -> None:
+            try:
+                await super().__aexit__(*exc)
+            finally:
+                lock.release()
+
+    return lambda: _Serial(bind=bind, join_transaction_mode="create_savepoint")
+
+
+async def test_scored_card_makes_one_llm_call_per_name(
+    db_session_factory: SessionFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """AC4: `settle` asks Jev once per open name and keeps its scores on the draft; both cards,
+    the second on a later request, are ordered from them with no second call."""
+    monkeypatch.setattr(models, "ALLOW_MODEL_REQUESTS", True)
+    factory = _one_at_a_time(db_session_factory)
+    exercises = SqlAlchemyExerciseRepository(factory)
+    await import_catalogue(source=sample_source(), exercises=exercises)
+    user_id = (await _athlete(factory, "resolve-scored")).user_id
+    calls = SqlAlchemyLlmCallsRepository(factory)
+    jev = _UnsureJev()
+    async with httpx2.AsyncClient(transport=httpx2.MockTransport(_refuse)) as client:
+        gateway = OpenRouterDecisionGateway(Settings(), calls, http_client=client)
+        resolver = ResolveExercises(
+            exercises,
+            JevExercisePicker(gateway, threshold=0.9),
+            question=ScriptedConversation().exercise_question,
+            limits=_LIMITS,
+        )
+        payload = _extraction("bench press", "chest press").to_payload().model_dump(mode="json")
+        with gateway.agent.override(model=jev):
+            settled = await resolver.settle(user_id, payload)
+            first = await resolver.next_question(user_id, settled)
+            second = await resolver.next_question(user_id, settled, settled=["bench press"])
+
+    rows = await calls.list_for_user(user_id)
+    assert len(rows) == len(jev.requests) == 2
+    assert {(row.template_id, row.template_version) for row in rows} == {
+        (EXERCISE_SHORTLIST_ID, EXERCISE_SHORTLIST_VERSION)
+    }
+    for question, request in zip((first, second), jev.requests, strict=True):
+        assert question is not None
+        asked = request.questions["exercise"]
+        assert isinstance(asked, ChoiceQuestion)
+        offered = [option for option in asked.criteria if option != "none"]
+        assert len(offered) >= 2  # so the likeliest, last on the shortlist, moved up
+        assert question.options[0].id == offered[-1]
+        assert question.options[-1].id == KEEP_NAME_OPTION
+    entries = GymPayload.model_validate(settled).activities
+    assert all(entry.exercise_id is None and entry.candidate_scores for entry in entries)

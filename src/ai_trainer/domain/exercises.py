@@ -1,3 +1,4 @@
+from collections.abc import Mapping
 from datetime import date
 from enum import StrEnum
 from uuid import UUID
@@ -107,6 +108,17 @@ class ExerciseCandidate(BaseModel):
     # How well the typed name fits this exercise's names, from the trigram shortlist (#508);
     # `None` where no name was scored. Neither Jev nor the card reads it.
     name_score: float | None = None
+
+
+class ExercisePick(BaseModel):
+    """What Jev made of a shortlist (ADR-0031, #579): `chosen`, the candidate when the pick is
+    confident, and `scores`, its probability for each candidate it scored, by catalogue ID, which
+    orders the card when nothing was chosen. Empty when no call was made or it failed."""
+
+    model_config = ConfigDict(frozen=True)
+
+    chosen: ExerciseCandidate | None = None
+    scores: Mapping[UUID, float] = {}
 
 
 class ExerciseLabel(BaseModel):

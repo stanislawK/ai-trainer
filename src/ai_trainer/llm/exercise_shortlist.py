@@ -11,7 +11,7 @@ from uuid import UUID
 from pydantic import BaseModel
 
 from ai_trainer.application.ports.decision_gateway import DecisionGatewayPort
-from ai_trainer.domain.exercises import ExerciseCandidate
+from ai_trainer.domain.exercises import ExerciseCandidate, ExercisePick
 from ai_trainer.domain.llm_calls import LlmCallOutcome
 from ai_trainer.llm.decisions.loader import DecisionSet, DecisionSetLoader
 
@@ -57,6 +57,15 @@ def confident_pick(
     return option
 
 
+def candidate_scores(
+    probabilities: Mapping[str, Mapping[str, float]], candidates: Sequence[ExerciseCandidate]
+) -> dict[UUID, float]:
+    """Jev's probability for each candidate it scored, by catalogue ID (#579). "None of these"
+    and an option that is no candidate are left out."""
+    distribution = probabilities.get(_QUESTION, {})
+    return {c.id: distribution[str(c.id)] for c in candidates if str(c.id) in distribution}
+
+
 class JevExercisePicker:
     """Implements `ExercisePickerPort`. The state is the typed name alone: no identity, no
     history and no profile reach Jev (ADR-0020 data retention)."""
@@ -77,9 +86,9 @@ class JevExercisePicker:
 
     async def pick(
         self, user_id: UUID, name: str, candidates: Sequence[ExerciseCandidate]
-    ) -> ExerciseCandidate | None:
+    ) -> ExercisePick:
         if not candidates:
-            return None
+            return ExercisePick()
         try:
             decision_set = exercise_shortlist_set(candidates, loader=self._loader)
             result = await self._decisions.decide(
@@ -93,8 +102,11 @@ class JevExercisePicker:
             # A failure the gateway did not map to an outcome (its row write, say): the card asks.
             # Logged by type only, so a dead pick shows without a name or a message (ADR-0030).
             logger.warning("exercise pick failed: %s", type(error).__name__)
-            return None
+            return ExercisePick()
         if result.outcome is not LlmCallOutcome.SUCCESS or result.output is None:
-            return None
+            return ExercisePick()
         option = confident_pick(result.output, result.probabilities, threshold=self._threshold)
-        return next((c for c in candidates if str(c.id) == option), None)
+        return ExercisePick(
+            chosen=next((c for c in candidates if str(c.id) == option), None),
+            scores=candidate_scores(result.probabilities, candidates),
+        )

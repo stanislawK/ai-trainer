@@ -3,6 +3,7 @@ question over this log's candidates and "none of these", asked of the typed name
 pick that counts only above the `Settings` threshold. Everything else is the card's."""
 
 import asyncio
+from collections.abc import Mapping
 from uuid import UUID, uuid4
 
 import httpx2
@@ -22,7 +23,7 @@ from pydantic_ai.models.decision import (
 from pydantic_ai.usage import RequestUsage
 
 from ai_trainer.application.ports.decision_gateway import DecisionResult
-from ai_trainer.domain.exercises import ExerciseCandidate
+from ai_trainer.domain.exercises import ExerciseCandidate, ExercisePick
 from ai_trainer.domain.llm_calls import LlmCallOutcome
 from ai_trainer.llm.decision_gateway import OpenRouterDecisionGateway
 from ai_trainer.llm.decisions.loader import DECISIONS_ROOT
@@ -52,8 +53,10 @@ class FakeDecisions:
         probability: float = 0.97,
         outcome: LlmCallOutcome = LlmCallOutcome.SUCCESS,
         error: Exception | None = None,
+        distribution: Mapping[str, float] | None = None,
     ) -> None:
         self.option = option
+        self.distribution = distribution
         self.probability = probability
         self.outcome = outcome
         self.error = error
@@ -87,7 +90,7 @@ class FakeDecisions:
         return DecisionResult(
             output=output_type.model_validate({"exercise": self.option}),
             outcome=LlmCallOutcome.SUCCESS,
-            probabilities={"exercise": {self.option: self.probability}},
+            probabilities={"exercise": dict(self.distribution or {self.option: self.probability})},
         )
 
 
@@ -100,7 +103,7 @@ async def test_a_pick_above_the_threshold_is_that_candidate() -> None:
 
     picked = await _picker(decisions).pick(uuid4(), "db bench", [_BARBELL, _DUMBBELL])
 
-    assert picked == _DUMBBELL
+    assert picked.chosen == _DUMBBELL
 
 
 async def test_a_pick_at_the_threshold_counts() -> None:
@@ -108,19 +111,23 @@ async def test_a_pick_at_the_threshold_counts() -> None:
         uuid4(), "bench press", [_BARBELL, _DUMBBELL]
     )
 
-    assert picked == _BARBELL
+    assert picked.chosen == _BARBELL
 
 
 async def test_a_pick_below_the_threshold_returns_no_pick() -> None:
     decisions = FakeDecisions(str(_BARBELL.id), 0.89)
 
-    assert await _picker(decisions).pick(uuid4(), "bench press", [_BARBELL, _DUMBBELL]) is None
+    assert (
+        await _picker(decisions).pick(uuid4(), "bench press", [_BARBELL, _DUMBBELL])
+    ).chosen is None
 
 
 async def test_none_of_these_returns_no_pick_however_sure_it_is() -> None:
     decisions = FakeDecisions("none", 0.99)
 
-    assert await _picker(decisions).pick(uuid4(), "rising arms", [_BARBELL, _DUMBBELL]) is None
+    assert (
+        await _picker(decisions).pick(uuid4(), "rising arms", [_BARBELL, _DUMBBELL])
+    ).chosen is None
 
 
 @pytest.mark.parametrize(
@@ -133,7 +140,43 @@ async def test_none_of_these_returns_no_pick_however_sure_it_is() -> None:
     ids=["timeout", "error", "gateway_raises"],
 )
 async def test_a_timeout_or_an_error_returns_no_pick(decisions: FakeDecisions) -> None:
-    assert await _picker(decisions).pick(uuid4(), "bench press", [_BARBELL, _DUMBBELL]) is None
+    picked = await _picker(decisions).pick(uuid4(), "bench press", [_BARBELL, _DUMBBELL])
+
+    assert picked == ExercisePick()
+
+
+async def test_pick_returns_scores_per_candidate_below_threshold() -> None:
+    """AC1 (#579): a pick below the threshold chooses nothing but keeps Jev's probability per
+    candidate; "none" and an ID that is no candidate are left out."""
+    plank = ExerciseCandidate(id=uuid4(), name="Plank")
+    decisions = FakeDecisions(
+        str(plank.id),
+        distribution={str(plank.id): 0.6, str(_DUMBBELL.id): 0.3, "none": 0.08, str(uuid4()): 0.02},
+    )
+
+    picked = await _picker(decisions).pick(uuid4(), "db bench", [_BARBELL, _DUMBBELL, plank])
+
+    assert picked == ExercisePick(scores={plank.id: 0.6, _DUMBBELL.id: 0.3})
+
+
+async def test_pick_on_timeout_has_no_scores() -> None:
+    """AC3 (#579): a timeout gives no scores, so the card keeps the shortlist's order."""
+    decisions = FakeDecisions(outcome=LlmCallOutcome.TIMEOUT)
+
+    picked = await _picker(decisions).pick(uuid4(), "bench press", [_BARBELL, _DUMBBELL])
+
+    assert picked.scores == {}
+    assert picked.chosen is None
+
+
+async def test_a_confident_pick_keeps_its_scores_too() -> None:
+    decisions = FakeDecisions(
+        str(_DUMBBELL.id), distribution={str(_DUMBBELL.id): 0.95, str(_BARBELL.id): 0.05}
+    )
+
+    picked = await _picker(decisions).pick(uuid4(), "db bench", [_BARBELL, _DUMBBELL])
+
+    assert picked == ExercisePick(chosen=_DUMBBELL, scores={_DUMBBELL.id: 0.95, _BARBELL.id: 0.05})
 
 
 async def test_a_failure_the_gateway_did_not_map_is_logged_by_type_only(
@@ -142,7 +185,9 @@ async def test_a_failure_the_gateway_did_not_map_is_logged_by_type_only(
     decisions = FakeDecisions(error=RuntimeError("bench press for 123e4567"))
 
     with caplog.at_level("WARNING", logger="ai_trainer.llm.exercise_shortlist"):
-        assert await _picker(decisions).pick(uuid4(), "bench press", [_BARBELL, _DUMBBELL]) is None
+        assert (
+            await _picker(decisions).pick(uuid4(), "bench press", [_BARBELL, _DUMBBELL])
+        ).chosen is None
 
     assert [record.getMessage() for record in caplog.records] == [
         "exercise pick failed: RuntimeError"
@@ -152,13 +197,15 @@ async def test_a_failure_the_gateway_did_not_map_is_logged_by_type_only(
 async def test_an_option_that_is_no_candidate_returns_no_pick() -> None:
     decisions = FakeDecisions(str(uuid4()), 0.99)
 
-    assert await _picker(decisions).pick(uuid4(), "bench press", [_BARBELL, _DUMBBELL]) is None
+    assert (
+        await _picker(decisions).pick(uuid4(), "bench press", [_BARBELL, _DUMBBELL])
+    ).chosen is None
 
 
 async def test_an_empty_shortlist_makes_no_call() -> None:
     decisions = FakeDecisions("none")
 
-    assert await _picker(decisions).pick(uuid4(), "bench press", []) is None
+    assert (await _picker(decisions).pick(uuid4(), "bench press", [])).chosen is None
     assert decisions.calls == []
 
 
@@ -299,7 +346,7 @@ async def test_each_call_writes_one_llm_calls_row_with_the_set_and_version() -> 
             user_id, "bench press", [_BARBELL, _DUMBBELL]
         )
 
-    assert picked == _BARBELL
+    assert picked.chosen == _BARBELL
     [row] = repository.recorded
     assert row.user_id == user_id
     assert (row.template_id, row.template_version) == (
@@ -323,6 +370,6 @@ async def test_a_timeout_writes_its_row_and_returns_no_pick() -> None:
             uuid4(), "bench press", [_BARBELL, _DUMBBELL]
         )
 
-    assert picked is None
+    assert picked == ExercisePick()
     [row] = repository.recorded
     assert row.outcome is LlmCallOutcome.TIMEOUT

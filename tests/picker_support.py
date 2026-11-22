@@ -1,23 +1,30 @@
-"""A fake `ExercisePickerPort` for unit and integration tests (ADR-0031, ticket #399)."""
+"""A fake `ExercisePickerPort` for unit and integration tests (ADR-0031, tickets #399, #579)."""
 
 from collections.abc import Mapping, Sequence
 from uuid import UUID
 
-from ai_trainer.domain.exercises import ExerciseCandidate
+from ai_trainer.domain.exercises import ExerciseCandidate, ExercisePick
 
 
 class ScriptedPicker:
-    """Picks the candidate scripted for a typed name, or none. Records every call."""
+    """Picks the candidate scripted for a typed name, or none, with the scores scripted for that
+    name, or none. Records every call."""
 
     decision_id = "exercise_shortlist"
     decision_version = 1
 
-    def __init__(self, picks: Mapping[str, ExerciseCandidate] | None = None) -> None:
+    def __init__(
+        self,
+        picks: Mapping[str, ExerciseCandidate] | None = None,
+        *,
+        scores: Mapping[str, Mapping[UUID, float]] | None = None,
+    ) -> None:
         self.picks = picks or {}
+        self.scores = scores or {}
         self.asked: list[tuple[UUID, str, tuple[ExerciseCandidate, ...]]] = []
 
     async def pick(
         self, user_id: UUID, name: str, candidates: Sequence[ExerciseCandidate]
-    ) -> ExerciseCandidate | None:
+    ) -> ExercisePick:
         self.asked.append((user_id, name, tuple(candidates)))
-        return self.picks.get(name)
+        return ExercisePick(chosen=self.picks.get(name), scores=self.scores.get(name, {}))

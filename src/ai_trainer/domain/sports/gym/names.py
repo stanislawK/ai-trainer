@@ -58,9 +58,27 @@ def with_exercises(
                     update={
                         "exercise_id": exercise_ids[exercise.name_as_typed],
                         "jev_pick": jev_pick,
+                        "candidate_scores": {},
                     }
                 )
                 if exercise.name_as_typed in exercise_ids
+                else exercise
+                for exercise in payload.activities
+            ]
+        }
+    )
+
+
+def with_scores(payload: GymPayload, scores: Mapping[str, Mapping[UUID, float]]) -> GymPayload:
+    """The payload with Jev's scores on each entry named in `scores`, by its name as typed, for
+    its card to list the likeliest candidate first (ticket #579)."""
+    return payload.model_copy(
+        update={
+            "activities": [
+                exercise.model_copy(
+                    update={"candidate_scores": dict(scores[exercise.name_as_typed])}
+                )
+                if exercise.name_as_typed in scores
                 else exercise
                 for exercise in payload.activities
             ]
@@ -81,9 +99,14 @@ def overridden_picks(before: GymPayload, after: GymPayload) -> int:
 def answered(payload: GymPayload, subject: str, option_id: str) -> GymPayload:
     """The payload as the athlete's tap reads it: "Keep my name", or the candidate exercise whose
     ID the option carries, on every entry of `subject`."""
-    change: dict[str, object] = (
-        {"keep_name": True} if option_id == KEEP_NAME_OPTION else {"exercise_id": UUID(option_id)}
-    )
+    change: dict[str, object] = {
+        "candidate_scores": {},
+        **(
+            {"keep_name": True}
+            if option_id == KEEP_NAME_OPTION
+            else {"exercise_id": UUID(option_id)}
+        ),
+    }
     key = _key(subject)
     return payload.model_copy(
         update={
@@ -110,7 +133,10 @@ def typed(payload: GymPayload, subject: str, name: str) -> GymPayload:
         ),
         None,
     )
-    answer: dict[str, object] = {"keep_name": True} if lent is None else {"exercise_id": lent}
+    answer: dict[str, object] = {
+        "candidate_scores": {},
+        **({"keep_name": True} if lent is None else {"exercise_id": lent}),
+    }
 
     def renamed(exercise: Exercise) -> Exercise:
         key = _key(exercise.name_as_typed)

@@ -34,7 +34,7 @@ from ai_trainer.application.reply import (
 from ai_trainer.domain.chat import ChatRole
 from ai_trainer.domain.clarification import KEEP_NAME_OPTION, StoredClarification
 from ai_trainer.domain.conversation import Intent
-from ai_trainer.domain.exercises import ExerciseCandidate
+from ai_trainer.domain.exercises import ExerciseCandidate, ExercisePick
 from ai_trainer.domain.sports.gym.extraction import GymExtraction
 from ai_trainer.domain.training import StoredDraft
 from tests.activity_support import STORES
@@ -123,9 +123,9 @@ class _Jev(ScriptedPicker):
 
     async def pick(
         self, user_id: UUID, name: str, candidates: Sequence[ExerciseCandidate]
-    ) -> ExerciseCandidate | None:
+    ) -> ExercisePick:
         await super().pick(user_id, name, candidates)
-        return next((c for c in candidates if c.id == self.picks_id), None)
+        return ExercisePick(chosen=next((c for c in candidates if c.id == self.picks_id), None))
 
 
 @dataclass
