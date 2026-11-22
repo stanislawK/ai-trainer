@@ -2,13 +2,12 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import (
+    BigInteger,
     CheckConstraint,
     Computed,
     DateTime,
     ForeignKey,
     Index,
-    Integer,
-    SmallInteger,
     Text,
     UniqueConstraint,
     text,
@@ -149,13 +148,13 @@ class ExerciseSimpleTextOrm(Base):
     lang: Mapped[str] = mapped_column(Text, primary_key=True)
     text: Mapped[str] = mapped_column(Text, nullable=False)
     template_id: Mapped[str] = mapped_column(Text, nullable=False)
-    template_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    template_version: Mapped[int] = mapped_column(BigInteger, nullable=False)
     model: Mapped[str] = mapped_column(Text, nullable=False)
     source_sha256: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(Text, nullable=False, server_default="shown")
     # The Jev check set's pinned version; NULL until the check lands (a later ticket).
-    check_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    check_failures: Mapped[int] = mapped_column(SmallInteger, nullable=False, server_default="0")
+    check_version: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    check_failures: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     flagged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     edited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
