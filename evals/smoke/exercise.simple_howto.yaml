@@ -30,12 +30,14 @@ cases:
   evaluators:
   - LLMJudge:
       rubric: 'The output is a beginner how-to for the exercise whose catalogue instructions are in the
-        input''s deps. It passes only if all three hold: (1) it keeps each of these safety and form cues, in any wording, and no other detail is required: back straight, core engaged, a slight bend in the elbows, lowering slowly;
-        (2) it adds nothing the instructions don''t say: no advice, tip, number, load, sets, repetitions
-        or cue of its own; (3) a beginner could tell this exercise from similar ones by its equipment
-        and movement, in any wording (for example: standing with a dumbbell in each hand and raising the
-        arms out to the sides); no single phrase is required. Shortening, plain words and leaving out
-        pauses and the repeat line are fine.'
+        input''s deps. It passes only if all three hold: (1) it keeps each of these safety and form cues,
+        in any wording, and no other detail is required: back straight, core engaged, a slight bend in
+        the elbows, lowering slowly; (2) it adds nothing the instructions don''t say: no advice, tip,
+        number, load, sets, repetitions or cue of its own (a starting position the instructions imply,
+        such as arms at the sides when holding weights, is not new); (3) a beginner could tell this exercise
+        from similar ones by its equipment and movement, in any wording (for example: standing with a
+        dumbbell in each hand and raising the arms out to the sides); no single phrase is required. Shortening,
+        plain words and leaving out pauses and the repeat line are fine.'
       include_input: true
       assertion:
         evaluation_name: cues_kept
@@ -60,11 +62,14 @@ cases:
   evaluators:
   - LLMJudge:
       rubric: 'The output is a beginner how-to for the exercise whose catalogue instructions are in the
-        input''s deps. It passes only if all three hold: (1) it keeps each of these safety and form cues, in any wording, and no other detail is required: arms straight, core engaged, lowering slowly; (2) it adds nothing the instructions
-        don''t say: no advice, tip, number, load, sets, repetitions or cue of its own; (3) a beginner
-        could tell this exercise from similar ones by its equipment and movement, in any wording (for
-        example: holding cable handles and raising the arms out to the sides); no single phrase is required.
-        Shortening, plain words and leaving out pauses and the repeat line are fine.'
+        input''s deps. It passes only if all three hold: (1) it keeps each of these safety and form cues,
+        in any wording, and no other detail is required: arms straight, core engaged, lowering slowly;
+        (2) it adds nothing the instructions don''t say: no advice, tip, number, load, sets, repetitions
+        or cue of its own (a starting position the instructions imply, such as arms at the sides when
+        holding weights, is not new); (3) a beginner could tell this exercise from similar ones by its
+        equipment and movement, in any wording (for example: holding cable handles and raising the arms
+        out to the sides); no single phrase is required. Shortening, plain words and leaving out pauses
+        and the repeat line are fine.'
       include_input: true
       assertion:
         evaluation_name: cues_kept
@@ -90,12 +95,14 @@ cases:
   evaluators:
   - LLMJudge:
       rubric: 'The output is a beginner how-to for the exercise whose catalogue instructions are in the
-        input''s deps. It passes only if all three hold: (1) it keeps each of these safety and form cues, in any wording, and no other detail is required: back against the pad, arms straight, lowering slowly; (2) it adds nothing
-        the instructions don''t say: no advice, tip, number, load, sets, repetitions or cue of its own;
-        (3) a beginner could tell this exercise from similar ones by its equipment and movement, in any
-        wording (for example: seated on a machine with the back against the pad, raising the arms to the
-        sides); no single phrase is required. Shortening, plain words and leaving out pauses and the repeat line
-        are fine.'
+        input''s deps. It passes only if all three hold: (1) it keeps each of these safety and form cues,
+        in any wording, and no other detail is required: back against the pad, arms straight, lowering
+        slowly; (2) it adds nothing the instructions don''t say: no advice, tip, number, load, sets, repetitions
+        or cue of its own (a starting position the instructions imply, such as arms at the sides when
+        holding weights, is not new); (3) a beginner could tell this exercise from similar ones by its
+        equipment and movement, in any wording (for example: seated on a machine with the back against
+        the pad, raising the arms to the sides); no single phrase is required. Shortening, plain words
+        and leaving out pauses and the repeat line are fine.'
       include_input: true
       assertion:
         evaluation_name: cues_kept
@@ -123,12 +130,14 @@ cases:
   evaluators:
   - LLMJudge:
       rubric: 'The output is a beginner how-to for the exercise whose catalogue instructions are in the
-        input''s deps. It passes only if all three hold: (1) it keeps each of these safety and form cues, in any wording, and no other detail is required: back straight (lifting and lowering), chest lifted, driving through the
-        heels, core engaged; (2) it adds nothing the instructions don''t say: no advice, tip, number,
-        load, sets, repetitions or cue of its own; (3) a beginner could tell this exercise from similar
-        ones by its equipment and movement, in any wording (for example: lifting a barbell from the ground
-        by hinging at the hips); no single phrase is required. Shortening, plain words and leaving out
-        pauses and the repeat line are fine.'
+        input''s deps. It passes only if all three hold: (1) it keeps each of these safety and form cues,
+        in any wording, and no other detail is required: back straight (lifting and lowering), chest lifted,
+        driving through the heels, core engaged; (2) it adds nothing the instructions don''t say: no advice,
+        tip, number, load, sets, repetitions or cue of its own (a starting position the instructions imply,
+        such as arms at the sides when holding weights, is not new); (3) a beginner could tell this exercise
+        from similar ones by its equipment and movement, in any wording (for example: lifting a barbell
+        from the ground by hinging at the hips); no single phrase is required. Shortening, plain words
+        and leaving out pauses and the repeat line are fine.'
       include_input: true
       assertion:
         evaluation_name: cues_kept
@@ -155,12 +164,14 @@ cases:
   evaluators:
   - LLMJudge:
       rubric: 'The output is a beginner how-to for the exercise whose catalogue instructions are in the
-        input''s deps. It passes only if all three hold: (1) it keeps each of these safety and form cues, in any wording, and no other detail is required: feet flat, back pressed against the bench, elbows tucked in, lowering slowly;
-        (2) it adds nothing the instructions don''t say: no advice, tip, number, load, sets, repetitions
-        or cue of its own; (3) a beginner could tell this exercise from similar ones by its equipment
-        and movement, in any wording (for example: lying on a bench and lowering a barbell to the chest,
-        then pressing it up); no single phrase is required. Shortening, plain words and leaving out pauses and the
-        repeat line are fine.'
+        input''s deps. It passes only if all three hold: (1) it keeps each of these safety and form cues,
+        in any wording, and no other detail is required: feet flat, back pressed against the bench, elbows
+        tucked in, lowering slowly; (2) it adds nothing the instructions don''t say: no advice, tip, number,
+        load, sets, repetitions or cue of its own (a starting position the instructions imply, such as
+        arms at the sides when holding weights, is not new); (3) a beginner could tell this exercise from
+        similar ones by its equipment and movement, in any wording (for example: lying on a bench and
+        lowering a barbell to the chest, then pressing it up); no single phrase is required. Shortening,
+        plain words and leaving out pauses and the repeat line are fine.'
       include_input: true
       assertion:
         evaluation_name: cues_kept
@@ -186,11 +197,14 @@ cases:
   evaluators:
   - LLMJudge:
       rubric: 'The output is a beginner how-to for the exercise whose catalogue instructions are in the
-        input''s deps. It passes only if all three hold: (1) it keeps each of these safety and form cues, in any wording, and no other detail is required: core engaged, body in a straight line; (2) it adds nothing the instructions
-        don''t say: no advice, tip, number, load, sets, repetitions or cue of its own; (3) a beginner
-        could tell this exercise from similar ones by its equipment and movement, in any wording (for
-        example: lowering the chest to the ground from a high plank and pushing back up); no single phrase
-        is required. Shortening, plain words and leaving out pauses and the repeat line are fine.'
+        input''s deps. It passes only if all three hold: (1) it keeps each of these safety and form cues,
+        in any wording, and no other detail is required: core engaged, body in a straight line; (2) it
+        adds nothing the instructions don''t say: no advice, tip, number, load, sets, repetitions or cue
+        of its own (a starting position the instructions imply, such as arms at the sides when holding
+        weights, is not new); (3) a beginner could tell this exercise from similar ones by its equipment
+        and movement, in any wording (for example: lowering the chest to the ground from a high plank
+        and pushing back up); no single phrase is required. Shortening, plain words and leaving out pauses
+        and the repeat line are fine.'
       include_input: true
       assertion:
         evaluation_name: cues_kept
@@ -216,12 +230,14 @@ cases:
   evaluators:
   - LLMJudge:
       rubric: 'The output is a beginner how-to for the exercise whose catalogue instructions are in the
-        input''s deps. It passes only if all three hold: (1) it keeps each of these safety and form cues, in any wording, and no other detail is required: knees bent, feet flat, lifting and lowering slowly, the 45-degree top position;
-        (2) it adds nothing the instructions don''t say: no advice, tip, number, load, sets, repetitions
-        or cue of its own; (3) a beginner could tell this exercise from similar ones by its equipment
-        and movement, in any wording (for example: lying on the back and curling the upper body up to
-        45 degrees); no single phrase is required. Shortening, plain words and leaving out pauses and the repeat
-        line are fine.'
+        input''s deps. It passes only if all three hold: (1) it keeps each of these safety and form cues,
+        in any wording, and no other detail is required: knees bent, feet flat, lifting and lowering slowly,
+        the 45-degree top position; (2) it adds nothing the instructions don''t say: no advice, tip, number,
+        load, sets, repetitions or cue of its own (a starting position the instructions imply, such as
+        arms at the sides when holding weights, is not new); (3) a beginner could tell this exercise from
+        similar ones by its equipment and movement, in any wording (for example: lying on the back and
+        curling the upper body up to 45 degrees); no single phrase is required. Shortening, plain words
+        and leaving out pauses and the repeat line are fine.'
       include_input: true
       assertion:
         evaluation_name: cues_kept
