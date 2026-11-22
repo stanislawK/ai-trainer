@@ -1684,6 +1684,55 @@
         "summary": "Exercise Card"
       }
     },
+    "/clarifications/{clarification_id}/howto/{option_id}": {
+      "post": {
+        "description": "A candidate's loading how-to line (ADR-0031 *Beginner how-to*, #592): writes its\nshort version under the athlete whose card asked and returns the line, with the short\nversion or, on any fallback, the original and no error. It never answers the question.\nAnother user's or an unknown question, or an option that isn't one of its catalogue\ncandidates, is a 404, an answered one a 409.",
+        "operationId": "howto_clarifications__clarification_id__howto__option_id__post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "clarification_id",
+            "required": true,
+            "schema": {
+              "title": "Clarification Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "option_id",
+            "required": true,
+            "schema": {
+              "title": "Option Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Howto"
+      }
+    },
     "/clarifications/{clarification_id}/name": {
       "get": {
         "description": "\"Let me type instead\" on the exercise card: its name field, holding the name as typed.\nNothing is written, and the question stays open (F23, ticket #402).",

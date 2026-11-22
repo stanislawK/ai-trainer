@@ -13,6 +13,7 @@ from ai_trainer.domain.clarification import (
     Clarification,
     StoredClarification,
 )
+from ai_trainer.domain.exercise_simple_texts import CardHowto
 from ai_trainer.domain.exercises import ExerciseCandidate
 from ai_trainer.web.templating import build_templates
 from tests.chat_support import FROZEN_NOW
@@ -71,10 +72,12 @@ def exercise_question(
 
 
 def render_exercise_card(
-    question: StoredClarification, pictures: Mapping[str, CardPicture] | None = None
+    question: StoredClarification,
+    pictures: Mapping[str, CardPicture] | None = None,
+    howtos: Mapping[str, CardHowto] | None = None,
 ) -> str:
     template = build_templates().env.from_string(
         '{% from "components/choice_card.html" import exercise_card %}'
-        "{{ exercise_card(question, pictures) }}"
+        "{{ exercise_card(question, pictures, howtos) }}"
     )
-    return template.render(question=question, pictures=pictures or {})
+    return template.render(question=question, pictures=pictures or {}, howtos=howtos or {})

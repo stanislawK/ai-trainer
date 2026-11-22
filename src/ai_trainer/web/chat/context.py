@@ -14,6 +14,7 @@ from pydantic import ValidationError
 from starlette.templating import Jinja2Templates
 
 from ai_trainer.application.exercise_card_media import CardPicture, ExerciseCardMedia
+from ai_trainer.application.exercise_simple_howto import CardHowtos
 from ai_trainer.application.ports.chat import ChatRepositoryPort, ConversationRepositoryPort
 from ai_trainer.application.ports.clock import ClockPort
 from ai_trainer.application.reply import ReplyDone, ReplyServices, asking_sports
@@ -22,6 +23,7 @@ from ai_trainer.domain.clarification import (
     KEEP_NAME_OPTION,
     StoredClarification,
 )
+from ai_trainer.domain.exercise_simple_texts import CardHowto
 from ai_trainer.domain.exercises import ExerciseLabel
 from ai_trainer.domain.sports.registry import SportRegistry
 from ai_trainer.domain.training import StoredDraft
@@ -80,6 +82,8 @@ class ChatContext:
     retention_days: int
     # Approved pictures on the exercise card (#558); without it the card is text only.
     card_media: ExerciseCardMedia | None = None
+    # The candidates' short how-tos (#592); without it each line keeps its original.
+    card_howtos: CardHowtos | None = None
 
     @property
     def clock(self) -> ClockPort:
@@ -108,6 +112,17 @@ class ChatContext:
             return {}
         found = await self.card_media.pictures(_exercise_ids(questions))
         return {str(exercise_id): picture for exercise_id, picture in found.items()}
+
+    async def exercise_howtos(
+        self, questions: Iterable[StoredClarification | None]
+    ) -> Mapping[str, CardHowto]:
+        """What every open exercise question's candidates show in their how-to line, by option
+        ID, read in one call when the card is drawn, so a flag or an edit applies at once
+        (ADR-0031 *Beginner how-to*, #592)."""
+        if self.card_howtos is None:
+            return {}
+        found = await self.card_howtos.howtos(_exercise_ids(questions))
+        return {str(exercise_id): howto for exercise_id, howto in found.items()}
 
     async def draft_labels(
         self,
@@ -176,6 +191,7 @@ class ChatContext:
             labels=await self.draft_labels(user, done.drafts, done.clarifications),
             answers=self.draft_answers(done.drafts, done.clarifications),
             pictures=await self.exercise_pictures(done.clarifications),
+            howtos=await self.exercise_howtos(done.clarifications),
         )
 
     async def shown_card(self, user: User, draft: StoredDraft) -> DraftCard:
@@ -199,6 +215,7 @@ class ChatContext:
             athlete_sports=await self.athlete_sports(user) if pending else (),
             question=question,
             pictures=await self.exercise_pictures([question]),
+            howtos=await self.exercise_howtos([question]),
             asking=asking_sports(asked, draft.message_id),
             labels=labels.get(draft.id),
             dropped=tuple(

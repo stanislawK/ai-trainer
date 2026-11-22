@@ -178,10 +178,11 @@ async def test_the_gateway_answers_through_the_apps_mcp_toolset(
 
 
 def test_create_app_exposes_the_beginner_how_to_for_the_card_route() -> None:
-    """Built now so the card's route ticket only wires the route (ADR-0031, #589)."""
+    """The card's how-to route runs the app's write (ADR-0031, #589, #592)."""
     app = create_app(_settings())
 
     assert isinstance(app.state.simple_howto, WriteSimpleHowto)
+    assert "/clarifications/{clarification_id}/howto/{option_id}" in app.openapi()["paths"]
 
 
 def test_build_simple_howto_checks_through_budgeted_decision_gateway(

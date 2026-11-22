@@ -1,0 +1,3 @@
+{#- A candidate's how-to line after its load (ADR-0031 *Beginner how-to*, #592): the short version, or the original on any fallback. It replaces only the line, so the row button and its focus stay. -#}
+{%- from "components/choice_card.html" import howto_line -%}
+{{ howto_line(question, option, "choice-" ~ question.id ~ "-how-" ~ index, howto) }}

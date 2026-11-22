@@ -25,6 +25,7 @@ from ai_trainer.application.exercise_card_media import CardPicture
 from ai_trainer.application.reply import asking_sports, sports_to_switch_to
 from ai_trainer.domain.chat import ChatMessage, ChatRole
 from ai_trainer.domain.clarification import BAND_PURPOSE, EXERCISE_PURPOSE, StoredClarification
+from ai_trainer.domain.exercise_simple_texts import CardHowto
 from ai_trainer.domain.exercises import ExerciseLabel
 from ai_trainer.domain.sports.base import SportPlugin
 from ai_trainer.domain.sports.registry import SportRegistry, UnknownSportError
@@ -63,6 +64,8 @@ class DraftCard:
     bands: tuple[ChoiceCard, ...] = ()
     # The exercise card's approved pictures, by candidate option ID (F24, ticket #558).
     pictures: Mapping[str, CardPicture] = field(default_factory=dict)
+    # What each candidate's how-to line shows, by option ID (ADR-0031, ticket #592).
+    howtos: Mapping[str, CardHowto] = field(default_factory=dict)
 
     @property
     def asks_name(self) -> bool:
@@ -176,14 +179,15 @@ def draft_cards(
     labels: Mapping[UUID, Mapping[str, ExerciseLabel]] | None = None,
     answers: Mapping[UUID, Sequence[StoredClarification]] | None = None,
     pictures: Mapping[str, CardPicture] | None = None,
+    howtos: Mapping[str, CardHowto] | None = None,
 ) -> Mapping[UUID, Sequence[DraftCard]]:
     """The cards to show under each assistant message, keyed by its ID. `log_id` is the
     athlete's message that `messages` answer, when the list starts with its reply. A draft
     moved to a sport its log's reply never extracted goes under that reply's last extraction
     part (#163). `questions` are the conversation's, and a pending card shows its own open one
     (#166). `labels` name each draft's settled entries and `answers` are the rows above it, both
-    by the draft's ID (#402). `pictures` are the exercise cards' approved pictures, by option ID
-    (#558)."""
+    by the draft's ID (#402). `pictures` are the exercise cards' approved pictures and `howtos`
+    their how-to lines, by option ID (#558, #592)."""
     pending = _drafts_by_log(drafts)
     cards: dict[UUID, list[DraftCard]] = {}
     last_extraction: dict[UUID, UUID] = {}
@@ -198,6 +202,7 @@ def draft_cards(
             athlete_sports=athlete_sports,
             question=asking.get(draft.id),
             pictures=pictures,
+            howtos=howtos,
             asking=asking_sports(shown, draft.message_id),
             labels=(labels or {}).get(draft.id, {}),
             named=(answers or {}).get(draft.id, ()),
@@ -288,6 +293,7 @@ def draft_card(
     athlete_sports: Sequence[str] = (),
     question: StoredClarification | None = None,
     pictures: Mapping[str, CardPicture] | None = None,
+    howtos: Mapping[str, CardHowto] | None = None,
     asking: Collection[str] = (),
     labels: Mapping[str, ExerciseLabel] | None = None,
     named: Sequence[StoredClarification] = (),
@@ -298,8 +304,8 @@ def draft_card(
     reads: the page still renders, without that card. A pending card's chip offers
     `athlete_sports`, as `sports_to_switch_to` narrows them, without the sports still `asking`
     on its log (#164), and asks `question` (#166), an exercise question with its candidates'
-    `pictures` (#558). `labels` name its settled entries and `named` are its answered exercise
-    questions, shown as rows above it (#402)."""
+    `pictures` (#558) and how-to lines `howtos` (#592). `labels` name its settled entries and
+    `named` are its answered exercise questions, shown as rows above it (#402)."""
     try:
         sport = sports.get(draft.sport_id)
     except UnknownSportError:
@@ -341,6 +347,7 @@ def draft_card(
         dropped=dropped,
         bands=tuple(ChoiceCard(band) for band in bands),
         pictures=pictures or {},
+        howtos=howtos or {},
     )
 
 

@@ -19,6 +19,7 @@ from ai_trainer.application.reply import (
 )
 from ai_trainer.domain.clarification import (
     EXERCISE_PURPOSE,
+    KEEP_NAME_OPTION,
     ClarificationNotFoundError,
     ClarificationResolvedError,
     StoredClarification,
@@ -80,6 +81,7 @@ class _ClarificationRoutes:
                     labels=await ctx.draft_labels(user, reply.drafts, questions),
                     answers=ctx.draft_answers(reply.drafts, questions),
                     pictures=await ctx.exercise_pictures(questions),
+                    howtos=await ctx.exercise_howtos(questions),
                 ),
             },
         )
@@ -155,7 +157,31 @@ class _ClarificationRoutes:
         return self._ctx.templates.TemplateResponse(
             request,
             "partials/chat/exercise_card.html",
-            {"question": question, "pictures": await self._ctx.exercise_pictures([question])},
+            {
+                "question": question,
+                "pictures": await self._ctx.exercise_pictures([question]),
+                "howtos": await self._ctx.exercise_howtos([question]),
+            },
+        )
+
+    async def howto(self, request: Request, clarification_id: str, option_id: str) -> HTMLResponse:
+        """A candidate's loading how-to line (ADR-0031 *Beginner how-to*, #592): writes its
+        short version under the athlete whose card asked and returns the line, with the short
+        version or, on any fallback, the original and no error. It never answers the question.
+        Another user's or an unknown question, or an option that isn't one of its catalogue
+        candidates, is a 404, an answered one a 409."""
+        user: User = request.state.user
+        question = await self._open_question(request, clarification_id)
+        options = question.clarification.options
+        index = next((i for i, option in enumerate(options) if option.id == option_id), None)
+        howtos = self._ctx.card_howtos
+        if index is None or option_id == KEEP_NAME_OPTION or howtos is None:
+            raise HTTPException(status_code=NOT_FOUND)
+        line = await howtos.load(user_id=user.id, exercise_id=parse_id(option_id))
+        return self._ctx.templates.TemplateResponse(
+            request,
+            "partials/chat/howto_line.html",
+            {"question": question, "option": options[index], "index": index + 1, "howto": line},
         )
 
     async def keep_name(self, request: Request, clarification_id: str) -> HTMLResponse:
@@ -262,4 +288,7 @@ def build_clarifications_router(ctx: ChatContext) -> APIRouter:
     router.get("/clarifications/{clarification_id}/card", response_class=HTMLResponse)(
         routes.exercise_card
     )
+    router.post(
+        "/clarifications/{clarification_id}/howto/{option_id}", response_class=HTMLResponse
+    )(routes.howto)
     return router
