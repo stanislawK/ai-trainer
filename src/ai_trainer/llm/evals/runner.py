@@ -199,18 +199,28 @@ def eval_task(
 
     async def task(inputs: EvalCaseInputs) -> TemplateOutput:
         deps = template.deps_type.model_validate(inputs.deps)
-        if template.output_for is None:
+        output_type = _run_output_type(template, deps, registry)
+        if output_type is None:
             result = await agent.run(inputs.prompt, deps=deps, model=model)
         else:
             result = await agent.run(
-                inputs.prompt,
-                deps=deps,
-                model=model,
-                output_type=output_types(template.output_for(deps)),
+                inputs.prompt, deps=deps, model=model, output_type=output_types(output_type)
             )
         return result.output
 
     return task
+
+
+def _run_output_type(
+    template: PromptTemplate[BaseModel, TemplateOutput], deps: BaseModel, registry: PromptRegistry
+) -> type[TemplateOutput] | tuple[type[TemplateOutput], ...] | None:
+    """What a case runs with when it differs from the template's outputs: its output check
+    (#600), or the narrower output for its deps (#164), as the app runs it."""
+    if template.output_check is not None:
+        return template.output_check(deps, registry)
+    if template.output_for is not None:
+        return template.output_for(deps)
+    return None
 
 
 def dataset_type(

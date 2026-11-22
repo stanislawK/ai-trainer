@@ -4,6 +4,7 @@ catalogue text only; the writer runs it under the athlete with the template's se
 committed smoke set holds its judge."""
 
 import asyncio
+import json
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -12,7 +13,14 @@ from uuid import uuid4
 import pytest
 import yaml
 from pydantic import BaseModel, PostgresDsn, SecretStr, ValidationError
-from pydantic_ai import ModelMessage, ModelRequest, ModelResponse, ToolCallPart, UserPromptPart
+from pydantic_ai import (
+    ModelMessage,
+    ModelMessagesTypeAdapter,
+    ModelRequest,
+    ModelResponse,
+    ToolCallPart,
+    UserPromptPart,
+)
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 from pydantic_evals.evaluators import EvaluatorContext
 
@@ -23,6 +31,7 @@ from ai_trainer.domain.exercise_simple_texts import (
     SimpleHowto,
     SimpleHowtoDeps,
     SimpleHowtoDraft,
+    SimpleHowtoRetryDeps,
     has_new_digit,
     invalid_reason,
 )
@@ -31,15 +40,19 @@ from ai_trainer.domain.sports.registry import default_sport_registry
 from ai_trainer.llm.conversation import build_prompt_registry
 from ai_trainer.llm.evals import cli as cli_module
 from ai_trainer.llm.evals.inputs import EvalCaseInputs
+from ai_trainer.llm.evals.runner import eval_task
 from ai_trainer.llm.evals.smoke import read_smoke_set
 from ai_trainer.llm.gateway import OpenRouterGateway
 from ai_trainer.llm.prompts.registry import PromptRegistry
 from ai_trainer.llm.simple_howto import (
+    SIMPLE_HOWTO_RETRY_ID,
+    SIMPLE_HOWTO_RETRY_VERSION,
     SIMPLE_HOWTO_TEMPLATE_ID,
     SIMPLE_HOWTO_VERSION,
     LlmSimpleHowtoWriter,
     SimpleHowtoCall,
     SimpleHowtoMatch,
+    simple_howto_output,
     simple_howto_template,
 )
 from ai_trainer.settings import Settings
@@ -181,7 +194,11 @@ async def test_writer_runs_under_the_athlete_with_template_settings() -> None:
     assert call["reasoning_effort"] == "low"
     assert call["timeout_seconds"] == 8.0
     assert call["temperature"] == 0
-    assert call["output_type"] == (SimpleHowto, NoHowto)
+    # The template's output check: `SimpleHowto` capped at the deps' limit, `NoHowto` as is.
+    checked, refusal = call["output_type"]
+    assert issubclass(checked, SimpleHowto)
+    assert checked.__name__ == "SimpleHowto"
+    assert refusal is NoHowto
     assert call["prompt"] == "Barbell Bench Press"
     assert _DEPS.instructions in call["instructions"]
 
@@ -372,3 +389,135 @@ def test_the_evals_cli_grades_the_set_in_code_at_the_apps_version() -> None:
     assert cli_module._evaluators_for(SIMPLE_HOWTO_TEMPLATE_ID) == (SimpleHowtoMatch,)
     versions = cli_module._active_versions(default_sport_registry())
     assert versions[SIMPLE_HOWTO_TEMPLATE_ID] == SIMPLE_HOWTO_VERSION
+
+
+# #600: a how-to over the cap goes back to the model once, in the same run, with its length and
+# the cap worded by `exercise.simple_howto.retry`.
+
+_LONG = "Lie flat on the bench, feet flat. " * 5  # 169 stripped, over `_DEPS.max_chars` (160)
+_SHORT = "Lie on the bench, feet flat. Lower the bar slowly, elbows tucked in."
+
+
+def _retry_text(length: int, limit: int) -> str:
+    return _registry().render_text(
+        SIMPLE_HOWTO_RETRY_ID,
+        SIMPLE_HOWTO_RETRY_VERSION,
+        SimpleHowtoRetryDeps(length=length, limit=limit),
+    )
+
+
+def _scripted(*texts: str) -> tuple[FunctionModel, list[list[ModelMessage]]]:
+    """A model that answers `SimpleHowto` with each text in turn, recording what it was sent."""
+    seen: list[list[ModelMessage]] = []
+
+    def reply(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        seen.append(list(messages))
+        [tool] = [output.name for output in info.output_tools if "SimpleHowto" in output.name]
+        return ModelResponse(parts=[ToolCallPart(tool, {"text": texts[len(seen) - 1]})])
+
+    return FunctionModel(reply), seen
+
+
+def test_retry_text_states_the_length_and_the_cap() -> None:
+    text = _retry_text(170, 160)
+
+    assert "170" in text
+    assert "160" in text
+    assert "cue" in text
+    assert set(SimpleHowtoRetryDeps.model_fields) == {"length", "limit"}
+
+
+def test_the_template_declares_the_output_check_both_paths_run() -> None:
+    assert simple_howto_template().output_check is simple_howto_output
+
+
+async def test_the_model_sees_the_same_output_tools_with_the_check() -> None:
+    def tools(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        seen.append([(t.name, t.description, t.parameters_json_schema) for t in info.output_tools])
+        [tool] = [output.name for output in info.output_tools if "NoHowto" in output.name]
+        return ModelResponse(parts=[ToolCallPart(tool, {"reason": "x"})])
+
+    seen: list[list[tuple[str, str | None, dict[str, Any]]]] = []
+    agent = _registry().build_agent(SIMPLE_HOWTO_TEMPLATE_ID, SIMPLE_HOWTO_VERSION)
+    await agent.run("x", deps=_DEPS, model=FunctionModel(tools))
+    await agent.run(
+        "x",
+        deps=_DEPS,
+        model=FunctionModel(tools),
+        output_type=list(simple_howto_output(_DEPS, _registry())),
+    )
+
+    assert seen[0] == seen[1]
+
+
+async def test_an_over_long_howto_is_retried_once_in_the_same_call() -> None:
+    model, seen = _scripted(_LONG, _SHORT)
+    calls = FakeLlmCallsRepository()
+    gateway = OpenRouterGateway(_settings(), calls)
+
+    with gateway.agent.override(model=model):
+        result = await _writer(gateway).write(user_id=uuid4(), deps=_DEPS)
+
+    assert isinstance(result, SimpleHowtoDraft)
+    assert result.text == _SHORT
+    assert len(seen) == 2
+    [row] = calls.recorded
+    assert row.outcome == LlmCallOutcome.SUCCESS
+    sent = ModelMessagesTypeAdapter.dump_json(seen[1]).decode()
+    assert json.dumps(_retry_text(len(_LONG.strip()), 160))[1:-1] in sent
+
+
+async def test_a_howto_still_over_the_cap_after_the_retry_falls_back() -> None:
+    model, seen = _scripted(_LONG, _LONG)
+    calls = FakeLlmCallsRepository()
+    gateway = OpenRouterGateway(_settings(), calls)
+
+    with gateway.agent.override(model=model):
+        result = await _writer(gateway).write(user_id=uuid4(), deps=_DEPS)
+
+    assert result == HowtoCallFailed(reason="error")
+    assert len(seen) == 2
+    [row] = calls.recorded
+    assert row.outcome == LlmCallOutcome.ERROR
+
+
+async def test_the_cap_counts_the_stripped_text() -> None:
+    padded = "  " + "x" * 160 + "  "
+    model, seen = _scripted(padded)
+    gateway = OpenRouterGateway(_settings(), FakeLlmCallsRepository())
+
+    with gateway.agent.override(model=model):
+        result = await _writer(gateway).write(user_id=uuid4(), deps=_DEPS)
+
+    assert isinstance(result, SimpleHowtoDraft)
+    assert len(seen) == 1
+
+
+async def test_no_howto_is_never_retried() -> None:
+    seen: list[int] = []
+
+    def no_howto(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        seen.append(1)
+        [tool] = [output.name for output in info.output_tools if "NoHowto" in output.name]
+        return ModelResponse(parts=[ToolCallPart(tool, {"reason": "y" * 400})])
+
+    gateway = OpenRouterGateway(_settings(), FakeLlmCallsRepository())
+
+    with gateway.agent.override(model=FunctionModel(no_howto)):
+        result = await _writer(gateway).write(user_id=uuid4(), deps=_DEPS)
+
+    assert result == NoHowto(reason="y" * 400)
+    assert seen == [1]
+
+
+async def test_the_smoke_task_retries_as_the_app_does() -> None:
+    model, seen = _scripted(_LONG, _SHORT)
+    task = eval_task(_registry(), SIMPLE_HOWTO_TEMPLATE_ID, SIMPLE_HOWTO_VERSION, model=model)
+
+    output = await task(EvalCaseInputs(prompt=_DEPS.exercise_name, deps=_DEPS.model_dump()))
+
+    assert isinstance(output, SimpleHowto)
+    assert output.text == _SHORT
+    assert len(seen) == 2
+    sent = ModelMessagesTypeAdapter.dump_json(seen[1]).decode()
+    assert json.dumps(_retry_text(len(_LONG.strip()), 160))[1:-1] in sent

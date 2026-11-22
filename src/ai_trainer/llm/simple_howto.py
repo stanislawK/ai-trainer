@@ -7,9 +7,11 @@ equipment. The deps, the outputs and the code checks are in `domain/exercise_sim
 the template, its grader and the writer are here."""
 
 from dataclasses import dataclass
+from typing import Self
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
+from pydantic_ai import ModelRetry
 from pydantic_evals.evaluators import Evaluator, EvaluatorContext, EvaluatorOutput
 
 from ai_trainer.application.ports.llm_gateway import LlmGatewayPort
@@ -19,16 +21,52 @@ from ai_trainer.domain.exercise_simple_texts import (
     SimpleHowto,
     SimpleHowtoDeps,
     SimpleHowtoDraft,
+    SimpleHowtoRetryDeps,
     has_new_digit,
 )
 from ai_trainer.domain.llm_calls import LlmCallOutcome, ProviderPreferences, ReasoningEffort
 from ai_trainer.llm.evals.inputs import EvalCaseInputs
 from ai_trainer.llm.prompts.registry import PromptRegistry
-from ai_trainer.llm.prompts.template import PromptTemplate
+from ai_trainer.llm.prompts.template import PromptTemplate, TextRenderer
 from ai_trainer.settings_values import DEFAULT_EXERCISE_SIMPLE_HOWTO_MAX_CHARS
 
 SIMPLE_HOWTO_TEMPLATE_ID = "exercise.simple_howto"
 SIMPLE_HOWTO_VERSION = 2
+# The note a reply over the cap goes back with, once, in the same run (#600, ADR-0031).
+SIMPLE_HOWTO_RETRY_ID = "exercise.simple_howto.retry"
+SIMPLE_HOWTO_RETRY_VERSION = 1
+
+
+def simple_howto_output(
+    deps: BaseModel, texts: TextRenderer
+) -> tuple[type[SimpleHowto], type[NoHowto]]:
+    """The template's output check (#600): `SimpleHowto` refusing a stripped text over the deps'
+    `max_chars` with `ModelRetry`, so the model rewrites it within `output_retries` in the same
+    run, one gateway call and one `llm_calls` row. `NoHowto` is never sent back.
+
+    The checked type keeps `SimpleHowto`'s name, docstring and fields, so the model sees the same
+    output tool, and it is a `SimpleHowto`, so callers read it unchanged."""
+    limit = SimpleHowtoDeps.model_validate(deps).max_chars
+
+    class Checked(SimpleHowto):
+        __doc__ = SimpleHowto.__doc__
+
+        @model_validator(mode="after")
+        def _within_cap(self) -> Self:
+            length = len(self.text.strip())
+            if length > limit:
+                raise ModelRetry(
+                    texts.render_text(
+                        SIMPLE_HOWTO_RETRY_ID,
+                        SIMPLE_HOWTO_RETRY_VERSION,
+                        SimpleHowtoRetryDeps(length=length, limit=limit),
+                    )
+                )
+            return self
+
+    # The output tool's name and schema title come from the class name.
+    Checked.__name__ = Checked.__qualname__ = SimpleHowto.__name__
+    return Checked, NoHowto
 
 
 def simple_howto_template() -> PromptTemplate[SimpleHowtoDeps, SimpleHowto | NoHowto]:
@@ -45,6 +83,7 @@ def simple_howto_template() -> PromptTemplate[SimpleHowtoDeps, SimpleHowto | NoH
         temperature=0,
         # A catalogue text, not a reply to the athlete.
         persona=False,
+        output_check=simple_howto_output,
     )
 
 
@@ -80,7 +119,8 @@ class LlmSimpleHowtoWriter:
             template_id=template.id,
             template_version=template.version,
             model_id=self._call.model,
-            output_type=(SimpleHowto, NoHowto),
+            # The template's own check, as its smoke set runs it.
+            output_type=simple_howto_output(deps, self._registry),
             instructions=self._registry.render_instructions(template.id, template.version, deps),
             prompt=deps.exercise_name,
             temperature=template.temperature,
