@@ -1,10 +1,12 @@
 """What writing one exercise's beginner how-to reads, calls, checks and stores (ADR-0031 *Beginner
 how-to*, #589, #591)."""
 
+from collections.abc import Collection, Mapping
 from typing import Protocol
 from uuid import UUID
 
 from ai_trainer.domain.exercise_simple_texts import (
+    CardHowtoSource,
     FailedCheckOutcome,
     HowtoCallFailed,
     HowtoCheck,
@@ -27,6 +29,14 @@ class ExerciseSimpleTextsPort(Protocol):
         ...
 
     async def stored(self, exercise_id: UUID, *, lang: str) -> StoredSimpleText | None: ...
+
+    async def card_rows(
+        self, exercise_ids: Collection[UUID], *, lang: str
+    ) -> Mapping[UUID, CardHowtoSource]:
+        """Each catalogue exercise's text in `lang` with its stored short version, by exercise
+        ID, in one read (#592). An athlete's own exercise, or one with no text in `lang`, is
+        left out."""
+        ...
 
     async def write(self, text: NewSimpleText) -> bool:
         """Stores `text` `shown` unless a row with a text from the same source, or an edited row,

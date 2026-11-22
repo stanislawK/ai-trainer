@@ -12,6 +12,7 @@ counts; the second failed check of the same source stores the row `rejected`, af
 cards make no calls. A check the budget refuses never ran, so it stores and counts nothing."""
 
 import logging
+from collections.abc import Collection, Mapping
 from uuid import UUID
 
 from ai_trainer.application.ports.clock import ClockPort
@@ -22,6 +23,7 @@ from ai_trainer.application.ports.exercise_simple_texts import (
 )
 from ai_trainer.domain.exercise_simple_texts import (
     SIMPLE_TEXT_LANG,
+    CardHowto,
     HowtoCallFailed,
     HowtoCheckRefused,
     HowtoFailed,
@@ -32,10 +34,13 @@ from ai_trainer.domain.exercise_simple_texts import (
     HowtoSkipped,
     HowtoSource,
     HowtoStored,
+    KeepOriginal,
     NewSimpleText,
     NoHowto,
+    ShortHowto,
     SimpleHowtoDraft,
     SimpleTextStatus,
+    card_howto,
     invalid_reason,
     needs_writing,
     source_sha256,
@@ -115,3 +120,37 @@ class WriteSimpleHowto:
     def _failed(reason: HowtoFailure, exercise_id: UUID) -> HowtoFailed:
         logger.info("simple how-to not stored: reason=%s exercise=%s", reason, exercise_id)
         return HowtoFailed(reason=reason)
+
+
+class CardHowtos:
+    """The exercise card's how-to lines (ADR-0031 *Beginner how-to*, #592): what each candidate
+    shows when the card is drawn, read for every open card in one query, so a flag or an edit
+    applies to the next card; and the write a loading line asks for."""
+
+    def __init__(self, *, texts: ExerciseSimpleTextsPort, write: WriteSimpleHowto) -> None:
+        self._texts = texts
+        self._write = write
+
+    async def howtos(self, exercise_ids: Collection[UUID]) -> Mapping[UUID, CardHowto]:
+        """By exercise ID; an exercise with no catalogue text in English is left out, so its
+        line keeps the original and makes no request."""
+        if not exercise_ids:
+            return {}
+        rows = await self._texts.card_rows(exercise_ids, lang=SIMPLE_TEXT_LANG)
+        return {
+            exercise_id: card_howto(row.stored, source_sha256(row.instructions), row.text)
+            for exercise_id, row in rows.items()
+        }
+
+    async def load(self, *, user_id: UUID, exercise_id: UUID) -> ShortHowto | KeepOriginal:
+        """Writes the short version under the athlete whose card asked, and returns the line
+        to swap in: the short version, or the original on any fallback. A row another write
+        stored first is read again, so the race still shows its text."""
+        result = await self._write.write(user_id=user_id, exercise_id=exercise_id)
+        if isinstance(result, HowtoStored):
+            return ShortHowto(text=result.text)
+        if isinstance(result, HowtoPresent):
+            current = (await self.howtos([exercise_id])).get(exercise_id)
+            if isinstance(current, ShortHowto):
+                return current
+        return KeepOriginal()

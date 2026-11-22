@@ -93,7 +93,7 @@ from ai_trainer.application.exercise_picture import ExercisePictureService, Pict
 from ai_trainer.application.exercise_picture_store import StoreExercisePicture
 from ai_trainer.application.exercise_progress import ExerciseProgress
 from ai_trainer.application.exercise_resolution import ResolutionLimits, ResolveExercises
-from ai_trainer.application.exercise_simple_howto import WriteSimpleHowto
+from ai_trainer.application.exercise_simple_howto import CardHowtos, WriteSimpleHowto
 from ai_trainer.application.feedback import FeedbackRecorder
 from ai_trainer.application.knowledge_file_staging import FileStaging
 from ai_trainer.application.knowledge_ingestion import KnowledgeIngestion
@@ -329,8 +329,8 @@ def build_simple_howto(
 ) -> WriteSimpleHowto:
     """The beginner how-to, written the first time a card shows a catalogue exercise (ADR-0031,
     #589) and checked by Jev before it is stored (#591). The app passes its budgeted gateways, so
-    both calls count against the athlete's budget (ADR-0029); the card's route is a later
-    ticket."""
+    both calls count against the athlete's budget (ADR-0029). The exercise card's how-to route
+    runs it (#592)."""
     return WriteSimpleHowto(
         texts=SqlAlchemyExerciseSimpleTextRepository(session_factory),
         writer=LlmSimpleHowtoWriter(
@@ -907,6 +907,10 @@ def create_app(  # noqa: PLR0915 -- composition root: objects are built only her
             card_media=ExerciseCardMedia(
                 media=SqlAlchemyExerciseMediaRepository(session_factory),
                 public_base_url=settings.media_public_base_url,
+            ),
+            card_howtos=CardHowtos(
+                texts=SqlAlchemyExerciseSimpleTextRepository(session_factory),
+                write=app.state.simple_howto,
             ),
         )
     )

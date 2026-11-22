@@ -5,8 +5,6 @@ missing unless an admin edited it. A failed check stores no text and counts; the
 check of the same source stores `rejected`, after which no call is made."""
 
 import logging
-from dataclasses import dataclass, field
-from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 import pytest
@@ -32,8 +30,16 @@ from ai_trainer.domain.exercise_simple_texts import (
     needs_writing,
     source_sha256,
 )
+from tests.simple_howto_support import (
+    CHECK_VERSION,
+    NOW,
+    FrozenClock,
+    InMemorySimpleTexts,
+    ScriptedCheck,
+    ScriptedWriter,
+    StoredRow,
+)
 
-NOW = datetime(2026, 11, 22, 18, 0, tzinfo=UTC)
 _INSTRUCTIONS = (
     "Lie flat on your back with your knees bent. Lift your upper body until your torso is at a "
     "45-degree angle. Keep your back straight."
@@ -41,106 +47,8 @@ _INSTRUCTIONS = (
 _GOOD = (
     "Lie on your back, knees bent, and lift your upper body to 45 degrees. Keep your back straight."
 )
-_CHECK_VERSION = 1
 
-
-class FrozenClock:
-    def now(self) -> datetime:
-        return NOW
-
-
-@dataclass
-class _Row:
-    text: NewSimpleText
-    body: str | None
-    status: SimpleTextStatus = SimpleTextStatus.SHOWN
-    check_failures: int = 0
-
-
-@dataclass
-class InMemorySimpleTexts:
-    """Implements `ExerciseSimpleTextsPort` with the repository's conditional upserts."""
-
-    sources: dict[UUID, HowtoSource] = field(default_factory=dict)
-    rows: dict[UUID, _Row] = field(default_factory=dict)
-    edited: set[UUID] = field(default_factory=set)
-    writes: list[NewSimpleText] = field(default_factory=list)
-    failed_checks: list[NewSimpleText] = field(default_factory=list)
-
-    async def howto_source(self, exercise_id: UUID, *, lang: str) -> HowtoSource | None:
-        assert lang == "en"
-        return self.sources.get(exercise_id)
-
-    async def stored(self, exercise_id: UUID, *, lang: str) -> StoredSimpleText | None:
-        row = self.rows.get(exercise_id)
-        if row is None:
-            return None
-        return StoredSimpleText(
-            source_sha256=row.text.source_sha256,
-            status=row.status,
-            edited_at=NOW if exercise_id in self.edited else None,
-            has_text=row.body is not None,
-            check_failures=row.check_failures,
-        )
-
-    async def write(self, text: NewSimpleText) -> bool:
-        stored = await self.stored(text.exercise_id, lang=text.lang)
-        if stored is not None and not needs_writing(stored, text.source_sha256):
-            return False
-        failures = (
-            stored.check_failures
-            if stored is not None and stored.source_sha256 == text.source_sha256
-            else 0
-        )
-        self.rows[text.exercise_id] = _Row(text, text.text, check_failures=failures)
-        self.writes.append(text)
-        return True
-
-    async def record_failed_check(self, text: NewSimpleText) -> FailedCheckOutcome:
-        self.failed_checks.append(text)
-        stored = await self.stored(text.exercise_id, lang=text.lang)
-        if stored is not None and not needs_writing(stored, text.source_sha256):
-            return "present"
-        if stored is not None and stored.source_sha256 == text.source_sha256:
-            self.rows[text.exercise_id] = _Row(
-                text, text.text, SimpleTextStatus.REJECTED, stored.check_failures + 1
-            )
-            return "rejected"
-        self.rows[text.exercise_id] = _Row(text, None, check_failures=1)
-        return "counted"
-
-
-@dataclass
-class ScriptedWriter:
-    """Implements `SimpleHowtoWriterPort`; returns `reply` and remembers each call."""
-
-    reply: SimpleHowtoDraft | NoHowto | HowtoCallFailed
-    calls: list[tuple[UUID, SimpleHowtoDeps]] = field(default_factory=list)
-
-    async def write(
-        self, *, user_id: UUID, deps: SimpleHowtoDeps
-    ) -> SimpleHowtoDraft | NoHowto | HowtoCallFailed:
-        self.calls.append((user_id, deps))
-        return self.reply
-
-
-@dataclass
-class ScriptedCheck:
-    """Implements `SimpleHowtoCheckPort`; returns the next of `replies` (the last repeats)."""
-
-    replies: list[HowtoCheck | HowtoCheckRefused] = field(
-        default_factory=lambda: [HowtoCheck(passed=True, version=_CHECK_VERSION)]
-    )
-    calls: list[tuple[UUID, str, str]] = field(default_factory=list)
-
-    async def check(
-        self, *, user_id: UUID, original: str, summary: str
-    ) -> HowtoCheck | HowtoCheckRefused:
-        self.calls.append((user_id, original, summary))
-        return self.replies[min(len(self.calls), len(self.replies)) - 1]
-
-
-_FAIL = HowtoCheck(passed=False, version=_CHECK_VERSION)
+_FAIL = HowtoCheck(passed=False, version=CHECK_VERSION)
 
 
 def _draft(text: str = _GOOD) -> SimpleHowtoDraft:
@@ -204,7 +112,7 @@ async def test_valid_howto_is_stored_once_and_a_second_write_makes_no_call() -> 
             template_version=1,
             model="test/model",
             source_sha256=source_sha256(_INSTRUCTIONS),
-            check_version=_CHECK_VERSION,
+            check_version=CHECK_VERSION,
             created_at=NOW,
         )
     ]
@@ -335,7 +243,7 @@ async def test_passing_check_stores_shown_with_check_version() -> None:
     assert (row.status, row.body, row.text.check_version) == (
         SimpleTextStatus.SHOWN,
         _GOOD,
-        _CHECK_VERSION,
+        CHECK_VERSION,
     )
 
 
@@ -374,7 +282,7 @@ async def test_first_failed_check_stores_no_text_and_counts(
 async def test_a_once_failed_row_is_written_again_on_the_next_card() -> None:
     exercise = uuid4()
     texts = InMemorySimpleTexts(sources={exercise: _source(exercise)})
-    check = ScriptedCheck([_FAIL, HowtoCheck(passed=True, version=_CHECK_VERSION)])
+    check = ScriptedCheck([_FAIL, HowtoCheck(passed=True, version=CHECK_VERSION)])
     writer = ScriptedWriter(_draft())
 
     await _service(texts, writer, check=check).write(user_id=uuid4(), exercise_id=exercise)
@@ -410,7 +318,7 @@ async def test_second_failed_check_stores_rejected_and_later_write_calls_nothing
         SimpleTextStatus.REJECTED,
         _GOOD,
         2,
-        _CHECK_VERSION,
+        CHECK_VERSION,
     )
     [record] = caplog.records
     assert record.getMessage() == f"simple how-to rejected: exercise={exercise}"
@@ -420,7 +328,7 @@ async def test_an_edited_rejected_row_is_present_not_rejected() -> None:
     # An admin's edit is a human's text (ADR-0031), whatever status the row still carries.
     exercise = uuid4()
     texts = InMemorySimpleTexts(sources={exercise: _source(exercise)})
-    texts.rows[exercise] = _Row(
+    texts.rows[exercise] = StoredRow(
         text=NewSimpleText(
             exercise_id=exercise,
             lang="en",
@@ -429,7 +337,7 @@ async def test_an_edited_rejected_row_is_present_not_rejected() -> None:
             template_version=1,
             model="test/model",
             source_sha256=source_sha256(_INSTRUCTIONS),
-            check_version=_CHECK_VERSION,
+            check_version=CHECK_VERSION,
             created_at=NOW,
         ),
         body=_GOOD,
@@ -464,7 +372,7 @@ async def test_check_timeout_counts_as_failed_check() -> None:
     exercise = uuid4()
     texts = InMemorySimpleTexts(sources={exercise: _source(exercise)})
     # `JevSimpleHowtoCheck` turns a timeout into this (tests/unit/test_simple_howto_check.py).
-    timed_out = ScriptedCheck([HowtoCheck(passed=False, version=_CHECK_VERSION)])
+    timed_out = ScriptedCheck([HowtoCheck(passed=False, version=CHECK_VERSION)])
 
     result = await _service(texts, ScriptedWriter(_draft()), check=timed_out).write(
         user_id=uuid4(), exercise_id=exercise

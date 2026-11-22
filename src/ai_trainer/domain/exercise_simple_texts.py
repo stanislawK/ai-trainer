@@ -14,7 +14,7 @@ import re
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
-from typing import Literal
+from typing import ClassVar, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -236,3 +236,54 @@ class HowtoFailed:
 
 
 type HowtoResult = HowtoStored | HowtoPresent | HowtoSkipped | HowtoFailed | HowtoRejected
+
+
+@dataclass(frozen=True, slots=True)
+class CardHowtoSource:
+    """A catalogue exercise's English instructions and its stored short version, as the card
+    reads them when it is drawn (#592). `text` is the stored row's text, if any."""
+
+    instructions: str
+    stored: StoredSimpleText | None
+    text: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class ShortHowto:
+    """The short version replaces the clamped line, with its AI mark (#590)."""
+
+    kind: ClassVar[Literal["short"]] = "short"
+    text: str
+
+
+@dataclass(frozen=True, slots=True)
+class LoadHowto:
+    """The clamped original now, and a request that writes the short version (ADR-0031)."""
+
+    kind: ClassVar[Literal["load"]] = "load"
+
+
+@dataclass(frozen=True, slots=True)
+class KeepOriginal:
+    """The clamped original, with no request: a `rejected` or flagged row, or no catalogue
+    text to write from."""
+
+    kind: ClassVar[Literal["keep"]] = "keep"
+
+
+type CardHowto = ShortHowto | LoadHowto | KeepOriginal
+"""What a candidate's how-to line shows on the exercise card (ADR-0031 *Beginner how-to*,
+#592)."""
+
+
+def card_howto(stored: StoredSimpleText | None, sha256: str, text: str | None) -> CardHowto:
+    """A row that needs writing (none, stale and unedited, or text-less) loads; a flagged one,
+    a current unedited `rejected` one, or one with no text keeps the original; any other row
+    with a text is shown. An admin's edit is a human's text, whatever status it still carries,
+    except a flag, which hides it."""
+    if stored is None or needs_writing(stored, sha256):
+        return LoadHowto()
+    rejected = stored.status is SimpleTextStatus.REJECTED and stored.edited_at is None
+    if text is None or stored.status is SimpleTextStatus.FLAGGED or rejected:
+        return KeepOriginal()
+    return ShortHowto(text=text)

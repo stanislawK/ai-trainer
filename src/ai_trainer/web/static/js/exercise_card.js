@@ -17,6 +17,13 @@
     if (!text || candidate.hasAttribute("data-open")) {
       return;
     }
+    // A short version always has the toggle, since the original is one tap away (#590, #592).
+    // A loading line's text is hidden behind its skeleton, so it measures as fitting and shows
+    // none until its answer is swapped in.
+    if (text.hasAttribute("data-simple")) {
+      candidate.setAttribute("data-more", "");
+      return;
+    }
     // Measured at full width: a text that fits there needs no toggle.
     candidate.removeAttribute("data-more");
     if (text.scrollHeight > text.clientHeight + 1) {

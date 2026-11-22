@@ -30,9 +30,28 @@
 </div>
 {%- endmacro %}
 {#- The exercise card (F23, F24, ADR-0031, tickets #402, #558 and #581; the Exercise Card mock, layout A with #580's option 2c): asked in the draft's place, one name at a time, with up to 4 candidates, then "Keep my name" and "Let me type instead". With no candidate only those two remain. Each candidate is a `group/cand` wrapper (`data-candidate`): its row button carries the whole how-to text from `exercise_texts`, clamped at two lines on the phone and the desktop, and, beside it as a sibling, the More toggle, a bare chevron at the row's top-right with no htmx attribute, so a tap on it never answers the question (ADR-0015). `static/js/exercise_card.js` sets `data-more` on a wrapper whose text overflows the clamp, which shows the toggle and reserves 44 px on the row's right, and `data-open` while it is expanded, which lifts the clamp and flips the chevron; a row whose text fits shows no toggle and keeps its full width, and one with no text (a custom exercise) has none at all. `pictures` holds each candidate's first approved picture by option ID: such a row is the mock's media row, with the picture on a `bg-base-content/10` fill (`bg-primary/10` for a generated one, as the mock and the admin page draw it), 48 px on the phone and 64 px wider, scaled by CSS only; its credit is one quiet line just below the row button, aligned to the text column and always visible (#551, #580). A row without one has no picture and no empty slot. Text-only candidates have no right-hand chevron, which the toggle would double. -#}
-{#- One candidate's row button, or, as `keep`, "Keep my name". `how_id` is the ID of its how-to text, which the toggle controls. -#}
-{% macro exercise_option(question, option, picture=none, keep=false, how_id=none) -%}
-<button type="button" class="lg lg-clear lg-row{% if not keep %} items-start group-data-more/cand:pr-11{% endif %}" hx-post="/clarifications/{{ question.id }}/answer" hx-vals='{{ {"option_ids": option.id} | tojson }}' hx-target="closest [data-choice-card]" hx-swap="outerHTML" hx-disable="[data-choice-card='{{ question.id }}'] button" hx-status:4xx="swap:none" data-choice-option="{{ option.id }}">
+{#- A candidate's how-to line (ADR-0031 *Beginner how-to*, #590 option D, #592), by `howto`'s kind. `short`: the model-written short version in the clamped line, led by the 12 px accent sparkle, with "AI simplified:" for screen readers; `data-simple` makes the script always show the More toggle, since the original is one tap away. `load`: the clamped original, and a POST fired on load that writes the short version and swaps this line for the route's answer; while it runs (htmx's `htmx-request` on the line) the text gives way to the mock's two skeleton lines, and a refusal or an error swaps nothing, so the original stays with no error. Anything else (`keep`, or no entry: a custom exercise, a `rejected` or flagged row): the clamped original, as #581 left it. The line sits inside the row button but has its own target, so loading never answers the question or moves focus. -#}
+{% macro howto_line(question, option, how_id, howto=none) -%}
+{%- set clamp = "text-[13px] leading-[18px] lbl-2 line-clamp-2 group-data-open/cand:line-clamp-none" -%}
+{%- if howto and howto.kind == "short" -%}
+<span id="{{ how_id }}" class="{{ clamp }}" data-howto data-simple>{{ icon("sparkles", "inline size-3 mr-1 align-[-1px] text-[color:light-dark(color-mix(in_oklch,var(--color-primary)_58%,black),color-mix(in_oklch,var(--color-primary)_82%,white))]") }}<span class="sr-only">AI simplified: </span>{{ howto.text }}</span>
+{%- elif howto and howto.kind == "load" -%}
+<span class="group/how flex flex-col" hx-post="/clarifications/{{ question.id }}/howto/{{ option.id }}" hx-trigger="load" hx-target="this" hx-swap="outerHTML" hx-status:4xx="swap:none" hx-status:5xx="swap:none" data-howto-load><span id="{{ how_id }}" class="{{ clamp }} group-[.htmx-request]/how:hidden" data-howto>{{ option.params.how }}</span><span class="hidden group-[.htmx-request]/how:flex flex-col gap-1.5 pt-1" role="status" aria-busy="true" aria-label="Writing a short version" data-skeleton><span class="skeleton h-3 w-full"></span><span class="skeleton h-3 w-2/3"></span></span></span>
+{%- else -%}
+<span id="{{ how_id }}" class="{{ clamp }}" data-howto>{{ option.params.how }}</span>
+{%- endif -%}
+{%- endmacro %}
+{#- Under an open row with a short version (#590's "More open"): the full original, then the line that says who wrote the short one. It is drawn for any line that has or may get a short version, and shows only while its candidate is open and its line carries `data-simple`, so a swapped-in short version needs nothing else. "Looks wrong" is #593's. -#}
+{% macro original_instructions(option, pad) -%}
+<div class="hidden group-[[data-open]:has([data-simple])]/cand:flex {{ pad }} pr-4 flex-col gap-1" data-original>
+      <span class="text-[12px] font-semibold leading-4 lbl-2">Original instructions</span>
+      <p class="text-[13px] leading-[18px] lbl-2">{{ option.params.how }}</p>
+      <span class="flex flex-wrap items-center gap-x-1.5 mt-1 text-[12px] leading-4 lbl-2"><span>Short version simplified by AI</span></span>
+    </div>
+{%- endmacro %}
+{#- One candidate's row button, or, as `keep`, "Keep my name". `how_id` is the ID of its how-to text, which the toggle controls, and `howto` what its line shows. -#}
+{% macro exercise_option(question, option, picture=none, keep=false, how_id=none, howto=none) -%}
+<button type="button" class="lg lg-clear lg-row{% if not keep %} items-start group-data-more/cand:pr-11 group-has-[.htmx-request]/cand:pr-11{% endif %}" hx-post="/clarifications/{{ question.id }}/answer" hx-vals='{{ {"option_ids": option.id} | tojson }}' hx-target="closest [data-choice-card]" hx-swap="outerHTML" hx-disable="[data-choice-card='{{ question.id }}'] button" hx-status:4xx="swap:none" data-choice-option="{{ option.id }}">
       {%- if keep %}
       <span class="flex flex-col flex-1 min-w-0"><span class="text-[16px] font-medium">{{ option_label(option) }}</span><span class="text-[13px] lbl-2">{{ option_hint(option) }}</span></span>
       {{ icon("chevron-right", "size-4 lbl-2") }}
@@ -40,7 +59,7 @@
       {%- if picture %}
       <span class="shrink-0 size-12 sm:size-16 rounded-xl overflow-hidden grid place-items-center {{ 'bg-primary/10' if picture.origin == 'generated' else 'bg-base-content/10' }}"><img src="{{ picture.public_url }}" alt="" class="size-full object-contain" loading="lazy" decoding="async"></span>
       {%- endif %}
-      <span class="flex flex-col flex-1 min-w-0 gap-0.5"><span class="text-[16px] font-medium leading-5">{{ option_label(option) }}</span>{% if how_id %}<span id="{{ how_id }}" class="text-[13px] leading-[18px] lbl-2 line-clamp-2 group-data-open/cand:line-clamp-none" data-howto>{{ option.params.how }}</span>{% endif %}</span>
+      <span class="flex flex-col flex-1 min-w-0 gap-0.5"><span class="text-[16px] font-medium leading-5">{{ option_label(option) }}</span>{% if how_id %}{{ howto_line(question, option, how_id, howto) }}{% endif %}</span>
       {%- endif %}
     </button>
 {%- endmacro %}
@@ -52,7 +71,7 @@
       {{ icon("chevron-down", "size-4 transition-transform duration-300 motion-reduce:transition-none group-data-open/cand:rotate-180") }}
     </button>
 {%- endmacro %}
-{% macro exercise_card(question, pictures={}) -%}
+{% macro exercise_card(question, pictures={}, howtos={}) -%}
 {%- set subject = question.clarification.subject -%}
 {%- set options = question.clarification.options -%}
 <div class="mat-content rounded-box p-4 flex flex-col gap-3" role="group" aria-labelledby="choice-{{ question.id }}-question" data-choice-card="{{ question.id }}">
@@ -65,13 +84,17 @@
     {%- else %}
     {%- set picture = pictures.get(option.id) %}
     {%- set how_id = "choice-" ~ question.id ~ "-how-" ~ loop.index if option.params.get("how") else none %}
+    {%- set howto = howtos.get(option.id) %}
     <div class="group/cand flex flex-col gap-1.5" data-candidate="{{ option.id }}">
       <div class="relative">
-    {{ exercise_option(question, option, picture, how_id=how_id) }}
+    {{ exercise_option(question, option, picture, how_id=how_id, howto=howto) }}
     {%- if how_id %}
     {{ more_toggle(option, how_id) }}
     {%- endif %}
       </div>
+    {%- if how_id and howto and howto.kind in ("short", "load") %}
+    {{ original_instructions(option, "pl-[76px] sm:pl-[92px]" if picture else "pl-4") }}
+    {%- endif %}
     {%- if picture %}
     {{ credit(picture, quiet_line, quiet_line, quiet=true) }}
     {%- endif %}

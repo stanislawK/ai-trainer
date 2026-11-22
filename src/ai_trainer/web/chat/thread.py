@@ -113,6 +113,7 @@ class _ThreadRoutes:
                 labels=await ctx.draft_labels(user, shown, asked),
                 answers=ctx.draft_answers(shown, asked),
                 pictures=await ctx.exercise_pictures(asked),
+                howtos=await ctx.exercise_howtos(asked),
             )
             questions = choice_cards(history, asked, log_id=log_id)
         local_hour = ctx.clock.now().astimezone(ZoneInfo(user.timezone)).hour

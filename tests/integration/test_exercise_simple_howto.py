@@ -36,6 +36,7 @@ from ai_trainer.application.exercise_simple_howto import WriteSimpleHowto
 from ai_trainer.application.ports.decision_gateway import DecisionResult
 from ai_trainer.application.ports.llm_gateway import LlmGatewayResult
 from ai_trainer.domain.exercise_simple_texts import (
+    CardHowtoSource,
     HowtoCallFailed,
     HowtoCheck,
     HowtoCheckRefused,
@@ -655,3 +656,57 @@ async def test_check_writes_one_llm_calls_row_for_the_athlete(
     )
     assert row.outcome is LlmCallOutcome.SUCCESS
     assert row.cost is None
+
+
+# The card reads every candidate's source and stored short version in one query (#592).
+async def test_card_rows_reads_catalogue_sources_with_their_stored_text(
+    db_session_factory: SessionFactory,
+) -> None:
+    written = await _catalogue(db_session_factory, "Zz Howto Card Written", _english(_NEW))
+    fresh = await _catalogue(db_session_factory, "Zz Howto Card Fresh", _english(_OLD))
+    polish_only = await _catalogue(
+        db_session_factory,
+        "Zz Howto Card Polish",
+        ExerciseText(lang="pl", instructions="Połóż się na ławce.", steps=()),
+    )
+    owner = await SqlAlchemyUsersRepository(db_session_factory).create(
+        NewUser(
+            sub=f"sub-{uuid4()}",
+            email="zz-howto-card@example.com",
+            name=None,
+            locale="en",
+            status=UserStatus.ACTIVE,
+        )
+    )
+    custom = await SqlAlchemyExerciseRepository(db_session_factory).create_custom(
+        owner.id, sport_id="gym", name="Zz My Card Press", default_measure=ExerciseMeasure.LOAD_REPS
+    )
+    async with db_session_factory() as session:
+        await session.execute(
+            text(
+                "INSERT INTO exercise_texts (exercise_id, lang, instructions, steps) "
+                "VALUES (:id, 'en', 'Press it.', '{}')"
+            ),
+            {"id": custom.id},
+        )
+        await session.commit()
+    repository = SqlAlchemyExerciseSimpleTextRepository(db_session_factory)
+    await repository.write(_new(written, "Lie down, lower the bar.", _NEW))
+
+    found = await repository.card_rows([written, fresh, polish_only, custom.id, uuid4()], lang="en")
+
+    assert found == {
+        written: CardHowtoSource(
+            instructions=_NEW,
+            stored=StoredSimpleText(
+                source_sha256=source_sha256(_NEW),
+                status=SimpleTextStatus.SHOWN,
+                edited_at=None,
+                has_text=True,
+                check_failures=0,
+            ),
+            text="Lie down, lower the bar.",
+        ),
+        fresh: CardHowtoSource(instructions=_OLD, stored=None, text=None),
+    }
+    assert await repository.card_rows([], lang="en") == {}
