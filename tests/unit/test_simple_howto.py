@@ -293,7 +293,9 @@ def test_simple_howto_match_grades_length_and_digits() -> None:
         "length": True,
         "no_new_digit": True,
     }
-    long = evaluator.evaluate(_ctx(SimpleHowto(text="x" * (DEFAULT_EXERCISE_SIMPLE_HOWTO_MAX_CHARS + 1)), good))
+    long = evaluator.evaluate(
+        _ctx(SimpleHowto(text="x" * (DEFAULT_EXERCISE_SIMPLE_HOWTO_MAX_CHARS + 1)), good)
+    )
     assert long["length"] is False  # type: ignore[index]
     empty = evaluator.evaluate(_ctx(SimpleHowto(text="  "), good))
     assert empty["length"] is False  # type: ignore[index]
