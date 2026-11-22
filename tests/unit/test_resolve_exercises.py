@@ -900,6 +900,32 @@ async def test_card_lists_candidates_by_jev_score_highest_first() -> None:
     assert question.options[-1].id == KEEP_NAME_OPTION
 
 
+async def test_card_keeps_shortlist_order_when_the_shortlist_holds_an_unscored_candidate() -> None:
+    """Review nit: the shortlist changed since Jev scored it, so a candidate it never saw isn't
+    put last; the shortlist's order stands."""
+    resolver = _resolver(ScriptedPicker())
+    partial = {_D.id: 0.6, _B.id: 0.3}
+
+    question = await resolver.next_question(uuid4(), _payload("lateral rises", scores=partial))
+
+    assert question is not None
+    assert [option.id for option in question.options] == [
+        *(str(candidate.id) for candidate in _SHORTLIST),
+        KEEP_NAME_OPTION,
+    ]
+
+
+async def test_a_settle_with_no_scores_clears_an_earlier_calls_scores() -> None:
+    """Review nit: a name asked again that gets no scores (a timeout) loses the old ones, so its
+    card keeps the shortlist's order."""
+    resolver = _resolver(ScriptedPicker())
+
+    settled = await resolver.settle(uuid4(), _payload("lateral rises", scores=_SCORES))
+
+    [exercise] = GymPayload.model_validate(settled).activities
+    assert exercise.candidate_scores == {}
+
+
 async def test_card_keeps_shortlist_order_without_scores() -> None:
     """AC3: no scores (a timeout, an error) keep the shortlist's order, and the log drafts."""
     resolver = _resolver(ScriptedPicker())
@@ -932,24 +958,10 @@ async def test_a_jev_timeout_still_drafts_the_log_with_the_shortlist_order() -> 
     ]
 
 
-async def test_unscored_candidates_follow_the_scored_ones_in_shortlist_order() -> None:
-    resolver = _resolver(ScriptedPicker(scores={"lateral rises": {_C.id: 0.4}}))
-    settled = await resolver.settle(uuid4(), _payload("lateral rises"))
-
-    question = await resolver.next_question(uuid4(), settled)
-
-    assert question is not None
-    assert [option.id for option in question.options[:4]] == [
-        str(_C.id),
-        str(_A.id),
-        str(_B.id),
-        str(_D.id),
-    ]
-
-
 async def test_the_card_makes_no_second_jev_call() -> None:
     """AC4: one call per name in `settle`; each card, the later one too, reads stored scores."""
-    picker = ScriptedPicker(scores={"lateral rises": _SCORES, "rows": {_A.id: 0.7, _D.id: 0.2}})
+    rows = {_A.id: 0.7, _D.id: 0.2, _B.id: 0.05, _C.id: 0.05}
+    picker = ScriptedPicker(scores={"lateral rises": _SCORES, "rows": rows})
     resolver = _resolver(picker)
     user_id = uuid4()
     settled = await resolver.settle(user_id, _payload("lateral rises", "rows", "Lateral  Rises"))

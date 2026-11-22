@@ -46,6 +46,17 @@ def _candidate_option(candidate: ExerciseCandidate) -> ChoiceOption:
     )
 
 
+def _by_score(
+    candidates: Sequence[ExerciseCandidate], scores: Mapping[UUID, float]
+) -> Sequence[ExerciseCandidate]:
+    """Jev's likeliest first (#579). `sorted` is stable, so a tie keeps the shortlist's order.
+    With no scores, or a shortlist holding a candidate Jev never scored (the catalogue or the
+    athlete's exercises changed since), the shortlist's order stands."""
+    if not scores or any(candidate.id not in scores for candidate in candidates):
+        return candidates
+    return sorted(candidates, key=lambda candidate: -scores[candidate.id])
+
+
 def _label_of(typed: str, label: ExerciseLabel, *, answered: bool) -> ExerciseLabel:
     """ "you usually log this as …" for a near match the athlete didn't answer about; otherwise
     "you wrote: …", unless the typed name already reads as the exercise's (F23, ticket #402)."""
@@ -101,9 +112,10 @@ class ResolveExercises:
             for spelling in gym_names.spellings_of(draft, [exercise]):
                 if pick.chosen is not None:
                     chosen[spelling] = pick.chosen.id
-                elif pick.scores:
+                else:
                     # Kept on the draft, so each card, a later request's too, lists Jev's
-                    # likeliest candidate first with no second call (#579).
+                    # likeliest candidate first with no second call (#579). A call with no
+                    # scores clears an earlier call's, so the shortlist order stands.
                     scored[spelling] = pick.scores
         draft = gym_names.with_scores(draft, scored) if scored else draft
         return gym_names.with_exercises(draft, chosen, jev_pick=True) if chosen else draft
@@ -143,12 +155,7 @@ class ResolveExercises:
         if not still_open:
             return None
         exercise = still_open[0]
-        # Jev's likeliest first; `sorted` is stable, so a tie or no score keeps the shortlist's
-        # order, and with no scores at all that order stands (#579).
-        candidates = sorted(
-            await self._shortlist(user_id, exercise),
-            key=lambda candidate: -exercise.candidate_scores.get(candidate.id, 0.0),
-        )
+        candidates = _by_score(await self._shortlist(user_id, exercise), exercise.candidate_scores)
         return Clarification(
             question=self._question().text,
             options=(

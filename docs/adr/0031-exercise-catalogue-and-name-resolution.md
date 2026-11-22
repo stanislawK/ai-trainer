@@ -73,7 +73,7 @@ Shared reference tables. The catalogue rows hold no user data (like ADR-0016's t
    Jev then picks one candidate or "none of these". This is a closed-set draft field (ADR-0020), added with `/add-decision`.
    - **Confident pick:** the draft card shows the canonical name with "you wrote: …" under it. Confirming the draft confirms the mapping and stores a user alias.
    - **Below threshold, "none", a timeout or an error:** an F23 choice card (ADR-0015). It offers the candidates, each with a short description taken from `exercise_texts` and media when approved media exists, plus "Keep my name" and "let me type instead". With no candidate it offers only those two.
-     - **Order (#579).** The candidates are listed by Jev's probability, highest first, with ties in shortlist order. With no scores (a timeout, an error, no call) the shortlist order stands. "Keep my name" is last.
+     - **Order (#579).** The candidates are listed by Jev's probability, highest first, with ties in shortlist order. With no scores (a timeout, an error, no call), or a shortlist holding a candidate Jev never scored because it changed since, the shortlist order stands. "Keep my name" is last.
      - The scores are kept on the gym draft (payload v5, `candidate_scores`), so the card makes no second call. They are probabilities by catalogue ID and carry no identity.
    - **"Keep my name":** creates a custom exercise owned by the athlete.
 

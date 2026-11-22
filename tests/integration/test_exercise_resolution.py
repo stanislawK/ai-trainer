@@ -853,9 +853,13 @@ class _UnsureJev(DecisionModel[None]):
         question = request.questions["exercise"]
         assert isinstance(question, ChoiceQuestion)
         options = [option for option in question.criteria if option != "none"]
-        probabilities = {options[-1]: 0.6, "none": 0.1}
+        # A choice answers the full distribution over its options (ADR-0020): the last one
+        # leads, the first follows, any others share what's left.
+        rest = options[1:-1]
+        probabilities = {option: 0.2 / len(rest) for option in rest}
+        probabilities |= {options[-1]: 0.5, "none": 0.1}
         if len(options) > 1:
-            probabilities[options[0]] = 0.3
+            probabilities[options[0]] = 0.2
         answers: dict[str, DecisionAnswer] = {
             "exercise": ChoiceAnswer(
                 choice=options[-1], confidence=0.6, probabilities=probabilities
