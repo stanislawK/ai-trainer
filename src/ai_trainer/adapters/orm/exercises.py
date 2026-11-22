@@ -1,10 +1,14 @@
 import uuid
+from datetime import datetime
 
 from sqlalchemy import (
     CheckConstraint,
     Computed,
+    DateTime,
     ForeignKey,
     Index,
+    Integer,
+    SmallInteger,
     Text,
     UniqueConstraint,
     text,
@@ -119,3 +123,39 @@ class ExerciseAliasOrm(Base):
         Text, Computed("exercise_name_norm(alias)", persisted=True), nullable=False
     )
     lang: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class ExerciseSimpleTextOrm(Base):
+    """A catalogue exercise's beginner how-to, written by a text model from its own catalogue text
+    (ADR-0031 *Beginner how-to*, #589). Shared, with no user column, like the catalogue.
+    `source_sha256` is the hash of the instructions it was written from; `check_failures` counts
+    Jev's failed checks of that source; `edited_at` marks an admin's edit, never rewritten."""
+
+    __tablename__ = "exercise_simple_texts"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('shown', 'flagged', 'rejected')", name="exercise_simple_texts_status"
+        ),
+        CheckConstraint(
+            "char_length(source_sha256) = 64", name="exercise_simple_texts_source_sha256"
+        ),
+        CheckConstraint("check_failures >= 0", name="exercise_simple_texts_check_failures"),
+    )
+
+    # The key's first column, so it indexes `exercise_id` too.
+    exercise_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("exercises.id", ondelete="CASCADE"), primary_key=True
+    )
+    lang: Mapped[str] = mapped_column(Text, primary_key=True)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    template_id: Mapped[str] = mapped_column(Text, nullable=False)
+    template_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    model: Mapped[str] = mapped_column(Text, nullable=False)
+    source_sha256: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default="shown")
+    # The Jev check set's pinned version; NULL until the check lands (a later ticket).
+    check_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    check_failures: Mapped[int] = mapped_column(SmallInteger, nullable=False, server_default="0")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    flagged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    edited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

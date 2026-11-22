@@ -32,6 +32,7 @@ from ai_trainer.llm.onboarding import onboarding_templates
 from ai_trainer.llm.picture_brief import picture_brief_template
 from ai_trainer.llm.prompts.registry import PromptRegistry
 from ai_trainer.llm.router import ROUTER_VERSIONS, ChatTurn, build_router_deps, router_template
+from ai_trainer.llm.simple_howto import simple_howto_template
 
 NOT_YET_REPLY_ID = "not_yet"
 _NOT_YET_VERSION = 2
@@ -70,6 +71,7 @@ def build_prompt_registry(root: Path, sports: SportRegistry) -> PromptRegistry:
     for answer in answer_templates(sports):
         registry.register(answer)
     registry.register(picture_brief_template())
+    registry.register(simple_howto_template())
     return registry
 
 

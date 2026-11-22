@@ -265,6 +265,24 @@ def _rows() -> dict[str, tuple[Row, ...]]:
                 "steps": ["Row it."] if a else ["Wypchnij.", "Opuść."],
             }
         )
+        # A shared beginner how-to holds no user data; seeded on the exercise above (#589).
+        rows.setdefault("exercise_simple_texts", []).append(
+            {
+                "exercise_id": exercise,
+                "lang": "en" if a else "pl",
+                "text": "Row it, back flat." if a else "  Press it slowly. ",
+                "template_id": "exercise.simple_howto" if a else "seed.template",
+                "template_version": 1 if a else 2,
+                "model": "z-ai/glm-5.3-flash" if a else "seed/model",
+                "source_sha256": ("a" if a else "b") * 64,
+                "status": "shown" if a else "flagged",
+                "check_version": None if a else 1,
+                "check_failures": 0 if a else 2,
+                "created_at": _at(n, 14),
+                "flagged_at": None if a else _at(n, 15),
+                "edited_at": None if a else _at(n, 16),
+            }
+        )
         rows.setdefault("exercise_aliases", []).append(
             {
                 "id": _id(user, 13),

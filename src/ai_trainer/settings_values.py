@@ -77,6 +77,39 @@ DEFAULT_ANSWER_REASONING_EFFORT: ReasoningEffort = "low"
 # `media.picture_brief` (ADR-0031, #532): what the other read templates run on; its smoke set
 # confirms it.
 DEFAULT_PICTURE_BRIEF_MODEL = "z-ai/glm-5.3-flash"
+# `exercise.simple_howto` (ADR-0031 *Beginner how-to*, #589): what the other read templates run
+# on; its smoke set confirms it. 160 characters fill two lines of the exercise card at 390 px.
+DEFAULT_SIMPLE_HOWTO_MODEL = "z-ai/glm-5.3-flash"
+DEFAULT_EXERCISE_SIMPLE_HOWTO_MAX_CHARS = 160
+
+
+class SimpleHowtoSettings(BaseModel):
+    """`exercise.simple_howto`'s model, upstream routing, reasoning effort and timeout (ADR-0026),
+    and the longest text it may store (ADR-0031). A blank model keeps the default; blank
+    preferences or effort leave OpenRouter's and the model's own."""
+
+    simple_howto_model: str = DEFAULT_SIMPLE_HOWTO_MODEL
+    simple_howto_provider_preferences: ProviderPreferencesSetting = None
+    simple_howto_reasoning_effort: ReasoningEffort | None = None
+    exercise_simple_howto_max_chars: int = Field(
+        default=DEFAULT_EXERCISE_SIMPLE_HOWTO_MAX_CHARS, gt=0
+    )
+    # The card falls back to the clamped original, so a slow call is cut short.
+    exercise_simple_howto_timeout_seconds: float = Field(default=8.0, gt=0)
+
+    @field_validator("simple_howto_model", mode="before")
+    @classmethod
+    def _blank_model_is_the_default(cls, value: object) -> object:
+        if isinstance(value, str) and not value.strip():
+            return DEFAULT_SIMPLE_HOWTO_MODEL
+        return value
+
+    @field_validator("simple_howto_reasoning_effort", mode="before")
+    @classmethod
+    def _blank_effort_is_unset(cls, value: object) -> object:
+        return value.strip() or None if isinstance(value, str) else value
+
+
 # The fallback media source's model and its tool-printed price per picture (ADR-0031 #524,
 # 2026-11-08). The catalogue's `image_output` line reads lower; the price only gates the call
 # against the run's cap, so the higher figure is the safe side (#533).

@@ -688,7 +688,10 @@ def test_a_session_merge_window_of_zero_minutes_fails_at_startup(
     assert [error["loc"] for error in excinfo.value.errors()] == [("session_merge_window_min",)]
 
 
-@pytest.mark.parametrize("variable", ["ROUTER_REASONING_EFFORT", "EXTRACT_REASONING_EFFORT"])
+@pytest.mark.parametrize(
+    "variable",
+    ["ROUTER_REASONING_EFFORT", "EXTRACT_REASONING_EFFORT", "SIMPLE_HOWTO_REASONING_EFFORT"],
+)
 def test_a_reasoning_effort_is_unset_unless_given(
     monkeypatch: pytest.MonkeyPatch, variable: str
 ) -> None:
@@ -1087,3 +1090,40 @@ def test_build_cdn_cache_is_none_unset_and_built_when_set(monkeypatch: pytest.Mo
     for key, value in CLOUDFLARE_KEYS.items():
         monkeypatch.setenv(key, value)
     assert build_cdn_cache(Settings(_env_file=None)) is not None
+
+
+def test_simple_howto_settings_default_and_blank_keeps_them(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # `exercise.simple_howto` (ADR-0031, #589): blank keys as copied from `.env.example`.
+    _set_required_keys(monkeypatch)
+    for variable in ("SIMPLE_HOWTO_MODEL", "SIMPLE_HOWTO_PROVIDER_PREFERENCES"):
+        monkeypatch.setenv(variable, "  ")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.simple_howto_model == "z-ai/glm-5.3-flash"
+    assert settings.simple_howto_provider_preferences is None
+    assert settings.exercise_simple_howto_max_chars == 160
+    assert settings.exercise_simple_howto_timeout_seconds == 8.0
+
+    monkeypatch.setenv("SIMPLE_HOWTO_MODEL", "other/model")
+    monkeypatch.setenv("SIMPLE_HOWTO_PROVIDER_PREFERENCES", '{"sort": "latency"}')
+
+    settings = Settings(_env_file=None)
+
+    assert settings.simple_howto_model == "other/model"
+    assert settings.simple_howto_provider_preferences == ProviderPreferences(sort="latency")
+
+
+@pytest.mark.parametrize(
+    "variable", ["EXERCISE_SIMPLE_HOWTO_MAX_CHARS", "EXERCISE_SIMPLE_HOWTO_TIMEOUT_SECONDS"]
+)
+def test_simple_howto_limits_must_be_positive(
+    monkeypatch: pytest.MonkeyPatch, variable: str
+) -> None:
+    _set_required_keys(monkeypatch)
+    monkeypatch.setenv(variable, "0")
+
+    with pytest.raises(ValidationError, match=variable.lower()):
+        Settings(_env_file=None)
