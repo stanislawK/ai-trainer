@@ -46,6 +46,7 @@ from ai_trainer.llm.evals.exercise_shortlist_smoke import (
     run_exercise_shortlist_smoke,
 )
 from ai_trainer.llm.evals.jev_check import JevCheck, configure_jev_check
+from ai_trainer.llm.evals.picture_brief_check_smoke import run_picture_brief_check_smoke
 from ai_trainer.llm.evals.question_sport_smoke import run_question_sport_smoke
 from ai_trainer.llm.evals.router_fast import FastPathAccuracyError, run_router_fast_eval
 from ai_trainer.llm.evals.router_fast_smoke import run_router_fast_smoke
@@ -84,6 +85,11 @@ from ai_trainer.llm.picture_brief import (
     PICTURE_BRIEF_TEMPLATE_ID,
     PICTURE_BRIEF_VERSION,
     PictureBriefMatch,
+)
+from ai_trainer.llm.picture_brief_check import (
+    PICTURE_BRIEF_CHECK_ID,
+    PICTURE_BRIEF_CHECK_VERSION,
+    BriefCheckThresholds,
 )
 from ai_trainer.llm.prompts.registry import PromptRegistry
 from ai_trainer.llm.prompts.template import PromptTemplate, TemplateOutput
@@ -125,6 +131,11 @@ _DECISION_THRESHOLDS: dict[str, dict[str, str]] = {
     SIMPLE_HOWTO_CHECK_ID: {
         "keeps_cues": "exercise_simple_howto_check_threshold",
         "adds_nothing": "exercise_simple_howto_check_adds_threshold",
+    },
+    # Each question at its own threshold: a brief is drawn only when both pass (ADR-0031, #642).
+    PICTURE_BRIEF_CHECK_ID: {
+        "same_movement": "picture_brief_check_movement_threshold",
+        "keeps_rules": "picture_brief_check_rules_threshold",
     },
 }
 
@@ -208,6 +219,7 @@ def _active_versions(sports: SportRegistry) -> dict[str, int]:
         EXERCISE_SHORTLIST_ID: EXERCISE_SHORTLIST_VERSION,
         QUESTION_SPORT_ID: QUESTION_SPORT_VERSION,
         SIMPLE_HOWTO_CHECK_ID: SIMPLE_HOWTO_CHECK_VERSION,
+        PICTURE_BRIEF_CHECK_ID: PICTURE_BRIEF_CHECK_VERSION,
     }
 
 
@@ -605,6 +617,16 @@ def _own_runners(
             ),
         )
 
+    async def picture_brief_check(smoke_set: SmokeSet, model: Model) -> list[SmokeCaseResult]:
+        return await run_picture_brief_check_smoke(
+            smoke_set,
+            model,
+            thresholds=BriefCheckThresholds(
+                same_movement=settings.picture_brief_check_movement_threshold,
+                keeps_rules=settings.picture_brief_check_rules_threshold,
+            ),
+        )
+
     async def answer(smoke_set: SmokeSet, model: Model) -> list[SmokeCaseResult]:
         return await run_answer_smoke(
             smoke_set,
@@ -619,6 +641,7 @@ def _own_runners(
         ROUTER_FAST_ID: router_fast,
         QUESTION_SPORT_ID: question_sport,
         SIMPLE_HOWTO_CHECK_ID: simple_howto_check,
+        PICTURE_BRIEF_CHECK_ID: picture_brief_check,
     }
     answer_runners: dict[str, DecisionSmokeRunner] = {
         plugin.answers.template_id: answer

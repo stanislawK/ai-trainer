@@ -577,6 +577,7 @@ async def test_picture_service_check_rows_do_not_stop_the_run(
     `RunSpend`, so its NULL cost can't stop the run as `cost_unknown`. The other calls still go
     through `RunSpend`."""
     repositories: list[object] = []
+
     def recording(settings: Settings, calls_repository: Any, **kwargs: Any) -> Any:
         repositories.append(calls_repository)
         return OpenRouterDecisionGateway(settings, calls_repository, **kwargs)
