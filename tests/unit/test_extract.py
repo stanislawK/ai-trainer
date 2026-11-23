@@ -397,16 +397,33 @@ def _gym(**overrides: Any) -> GymExtraction:
 
 
 def test_session_match_grades_duration_and_effort() -> None:
-    """#622: the session's length and effort are graded field for field, so an invented RPE or
-    a missing length fails; a sport with no session fields always matches."""
+    """#622: the session's length and RPE are graded as the draft holds them, so an invented
+    RPE or a missing length fails; a sport with no session fields always matches."""
     expected = _gym()
 
     assert SessionMatch().evaluate(_ctx(_gym(), expected)) is True
     assert SessionMatch().evaluate(_ctx(_gym(effort=None), expected)) is False
-    assert SessionMatch().evaluate(_ctx(_gym(rpe=7), expected)) is False
+    assert SessionMatch().evaluate(_ctx(_gym(effort="easy"), expected)) is False
     assert SessionMatch().evaluate(_ctx(_gym(session_duration=None), expected)) is False
     assert SessionMatch().evaluate(_ctx(_gym(effort=None), _gym(effort=None))) is True
     assert SessionMatch().evaluate(_ctx(_extraction(), _extraction())) is True
+
+
+def test_session_match_reads_equal_drafts_as_equal() -> None:
+    """Code review on #622: 1 h and 60 min make the same draft, as do "hard" and RPE 7."""
+    expected = _gym()
+    in_hours = _gym(session_duration={"value": 1, "unit": "h"})
+    stated = _gym(effort=None, rpe=7)
+
+    assert SessionMatch().evaluate(_ctx(in_hours, expected)) is True
+    assert SessionMatch().evaluate(_ctx(stated, expected)) is True
+
+
+def test_session_match_skips_the_fields_a_case_lists_as_ignored() -> None:
+    moderate = _gym(effort="moderate")
+
+    assert SessionMatch().evaluate(_ctx(moderate, _gym())) is False
+    assert SessionMatch().evaluate(_ctx(moderate, _gym(), {"ignore_fields": ["rpe"]})) is True
 
 
 def test_session_match_leaves_a_question_case_to_question_match() -> None:
