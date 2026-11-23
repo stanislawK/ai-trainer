@@ -31,6 +31,11 @@ class GoalOrm(Base):
     __table_args__ = (
         CheckConstraint("char_length(text) BETWEEN 1 AND 200", name="goals_text_length"),
         UniqueConstraint("user_id", "position", name="goals_user_id_position_key"),
+        CheckConstraint(
+            "kind IN ('strength', 'muscle', 'endurance', 'weight_loss', 'mobility', "
+            "'general_fitness')",
+            name="goals_kind",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -44,6 +49,9 @@ class GoalOrm(Base):
     # A `SportRegistry` ID stored as text and checked against `user_sports` in the application
     # layer, never a database enum (ADR-0006); null is a general goal.
     sport_id: Mapped[str | None] = mapped_column(nullable=True)
+    # A `GoalKind` value (PRD 0013 B45, ADR-0028 #618 amendment); null is a goal no kind was
+    # placed on.
+    kind: Mapped[str | None] = mapped_column(Text, nullable=True)
     # timestamptz, UTC (ADR-0004 invariant 5).
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now()

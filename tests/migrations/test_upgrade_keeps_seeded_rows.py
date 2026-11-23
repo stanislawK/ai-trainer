@@ -288,15 +288,15 @@ def test_a_branch_column_backfilled_to_another_value_fails(
         tmp_path,
         """\
         op.add_column(
-            "goals", sa.Column("kind", sa.Text(), server_default="other", nullable=False)
+            "goals", sa.Column("scratch", sa.Text(), server_default="other", nullable=False)
         )
         """,
     )
-    monkeypatch.setattr(upgrade_check, "BACKFILLED", {("goals", "kind"): "admin"})
+    monkeypatch.setattr(upgrade_check, "BACKFILLED", {("goals", "scratch"): "admin"})
 
     problems = run_upgrade_check(config, base=head, head="head")
 
-    assert sum(problem.startswith("goals.kind: row") for problem in problems) == 2, problems
+    assert sum(problem.startswith("goals.scratch: row") for problem in problems) == 2, problems
     assert all("backfilled 'other', expected 'admin'" in p for p in problems), problems
 
 

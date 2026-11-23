@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai_trainer.adapters.onboarding_repository import SqlAlchemyOnboardingRepository
 from ai_trainer.adapters.users_repository import SqlAlchemyUsersRepository
-from ai_trainer.domain.goals import Goal
+from ai_trainer.domain.goals import Goal, GoalKind
 from ai_trainer.domain.users import NewUser, UserStatus
 
 
@@ -389,3 +389,60 @@ async def test_a_new_user_starts_on_utc(
 
     assert user.timezone == "UTC"
     assert user.onboarded_at is None
+
+
+async def test_replace_goals_round_trips_the_kind(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    """A goal's kind (PRD 0013 B45, ADR-0028 #618 amendment) is stored and read back; a goal
+    without one stays without one."""
+    repository = SqlAlchemyOnboardingRepository(db_session_factory)
+    user_id = await _user(db_session_factory, "sub-goal-kind")
+    goals = [
+        Goal(text="Touch my toes by summer", sport_id="gym", kind=GoalKind.MOBILITY),
+        Goal(text="Deadlift 150 kg", sport_id="gym", kind=GoalKind.STRENGTH),
+        Goal(text="Have fun", sport_id="gym"),
+    ]
+
+    await repository.replace_goals(user_id, goals)
+
+    assert list(await repository.list_goals(user_id)) == goals
+
+
+async def test_the_goals_kind_check_refuses_an_unknown_kind(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    user_id = await _user(db_session_factory, "sub-goal-kind-check")
+
+    async with db_session_factory() as session:
+        try:
+            await session.execute(
+                text(
+                    "INSERT INTO goals (id, user_id, text, position, kind) "
+                    "VALUES (gen_random_uuid(), :user_id, 'Be strong', 0, 'body_composition')"
+                ),
+                {"user_id": user_id},
+            )
+            await session.commit()
+        except IntegrityError:
+            await session.rollback()
+        else:
+            raise AssertionError("an unknown goal kind was accepted")
+
+
+async def test_deleting_a_user_cascades_goals_with_a_kind(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    repository = SqlAlchemyOnboardingRepository(db_session_factory)
+    user_id = await _user(db_session_factory, "sub-goal-kind-cascade")
+    await repository.replace_goals(
+        user_id, [Goal(text="Lose 5 kg", sport_id="gym", kind=GoalKind.WEIGHT_LOSS)]
+    )
+
+    await SqlAlchemyUsersRepository(db_session_factory).delete(user_id)
+
+    async with db_session_factory() as session:
+        count = await session.execute(
+            text("SELECT count(*) FROM goals WHERE user_id = :user_id"), {"user_id": user_id}
+        )
+        assert count.scalar_one() == 0
