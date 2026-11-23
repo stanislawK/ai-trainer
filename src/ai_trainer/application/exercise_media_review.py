@@ -190,6 +190,10 @@ class ExerciseMediaReview:
             view=view, groups=self._groups(rows), counts=await self._media.status_counts()
         )
 
+    async def counts(self) -> Mapping[MediaLinkStatus, int]:
+        """The picture chips' counts, for a page that lists something else (#594)."""
+        return await self._media.status_counts()
+
     async def approve(self, link_id: UUID) -> ApproveOutcome | None:
         """None when there is no such link on a catalogue exercise."""
         row = await self._media.review_link(link_id)

@@ -1,7 +1,7 @@
 """What writing one exercise's beginner how-to reads, calls, checks and stores (ADR-0031 *Beginner
 how-to*, #589, #591)."""
 
-from collections.abc import Collection, Mapping
+from collections.abc import Collection, Mapping, Sequence
 from datetime import datetime
 from typing import Protocol
 from uuid import UUID
@@ -13,6 +13,7 @@ from ai_trainer.domain.exercise_simple_texts import (
     HowtoCallFailed,
     HowtoCheck,
     HowtoCheckRefused,
+    HowtoReviewRow,
     HowtoSource,
     NewSimpleText,
     NoHowto,
@@ -58,6 +59,29 @@ class ExerciseSimpleTextsPort(Protocol):
         """Sets a `shown` row with a text `flagged` at `flagged_at` (ADR-0031 *The flag*, #593)
         and returns what wrote it. A flagged, `rejected`, text-less or missing row is left as it
         is and gives `None`, so of two concurrent flags only one returns the row."""
+        ...
+
+
+class HowtoReviewPort(Protocol):
+    """The admin's review of flagged and `rejected` how-tos (ADR-0031, #594). Each write is
+    guarded on `flagged` or `rejected`, so a row an admin already handled, or one shown again
+    since, is left as it is."""
+
+    async def review_rows(self, *, lang: str) -> Sequence[HowtoReviewRow]:
+        """Every `flagged` or `rejected` row with a text, with its exercise's name and text in
+        `lang`, the latest flag first, then by name."""
+        ...
+
+    async def admin_edit(
+        self, exercise_id: UUID, *, lang: str, text: str, edited_at: datetime
+    ) -> bool:
+        """Stores the admin's `text` `shown` with `edited_at`, so it is never rewritten. `False`
+        when the row is no longer flagged or `rejected`, or is gone."""
+        ...
+
+    async def clear(self, exercise_id: UUID, *, lang: str) -> str | None:
+        """Deletes a flagged or `rejected` row, so the next card writes a new one, and returns
+        the exercise's name; `None` when no such row was listed."""
         ...
 
 

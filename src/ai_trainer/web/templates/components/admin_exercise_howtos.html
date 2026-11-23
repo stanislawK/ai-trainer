@@ -1,0 +1,125 @@
+{% from "components/icon.html" import icon %}
+{#- The beginner how-tos under Exercise media (ADR-0031, #594; the How-tos frames of the Exercise
+    Media v2 mock, #588): one `mat-content` card per exercise whose how-to is `flagged` or
+    `rejected`, and the empty card. Flagged and rejected differ by icon and words, not colour
+    alone. Edit and Clear sit in the card's header. Edit redraws the region with that card's text
+    as an `lg-field` (`?view=howtos&edit=`), with Save and Cancel; a refused save comes back the
+    same way with the text kept and its message under the field. Clear deletes the row, so its
+    toast has no Undo. The original instructions are a two-line clamp whose chevron opens the full
+    text: a native `<details>`, so no script, open from the start while editing, as the mock
+    draws it. Every word the admin reads is here (G5). -#}
+
+{% macro status_line(row) -%}
+{%- if row.status.value == "flagged" %}
+<span class="flex items-center gap-1.5 text-[13px] leading-[18px] lbl-2" data-howto-status="flagged">{{ icon("flag", "size-3.5 text-warning") }}Flagged by an athlete{% if row.flagged_at %} · {{ row.flagged_at | shortdate }}{% endif %}</span>
+{%- else %}
+<span class="flex items-center gap-1.5 text-[13px] leading-[18px] lbl-2" data-howto-status="rejected">{{ icon("shield-x", "size-3.5") }}Rejected by the check</span>
+{%- endif %}
+{%- endmacro %}
+
+{% macro header(row, editing) -%}
+<div class="flex items-start gap-3 px-4 pt-3 pb-3">
+  <span class="flex flex-col gap-0.5 flex-1 min-w-0">
+    <span class="text-[17px] font-semibold leading-6">{{ row.name }}</span>
+    {{ status_line(row) }}
+  </span>
+  {%- if not editing %}
+  <span class="flex gap-1 shrink-0">
+    <button
+      type="button"
+      class="lg lg-clear lg-icon lg-sm relative"
+      aria-label="Edit how-to for {{ row.name }}"
+      hx-get="/admin/exercises?view=howtos&edit={{ row.exercise_id }}"
+      hx-target="#exercise-media"
+      hx-swap="outerHTML"
+      data-howto-edit-button
+    ><span class="absolute -inset-1" aria-hidden="true"></span>{{ icon("pencil", "size-4") }}</button>
+    <button
+      type="button"
+      class="lg lg-quiet lg-icon lg-sm relative"
+      aria-label="Clear how-to for {{ row.name }}"
+      hx-post="/admin/exercises/howtos/{{ row.exercise_id }}/clear"
+      hx-target="#exercise-media"
+      hx-swap="outerHTML"
+      data-howto-clear
+    ><span class="absolute -inset-1" aria-hidden="true"></span>{{ icon("eraser", "size-4") }}</button>
+  </span>
+  {%- endif %}
+</div>
+{%- endmacro %}
+
+{% macro edit_field(row, editing) -%}
+{%- set base = "howto-" ~ row.exercise_id %}
+{%- set error = editing.error %}
+<form
+  class="flex flex-col gap-2"
+  novalidate
+  hx-post="/admin/exercises/howtos/{{ row.exercise_id }}/edit"
+  hx-target="#exercise-media"
+  hx-swap="outerHTML"
+  data-howto-edit
+>
+  <textarea
+    class="lg-field w-full min-h-28 text-[15px] leading-6"
+    name="text"
+    rows="4"
+    aria-label="Short how-to for {{ row.name }}"
+    aria-describedby="{% if error %}{{ base }}-error {% endif %}{{ base }}-hint"
+    {%- if error %} aria-invalid="true"{% endif %}
+    autofocus
+  >{{ row.text if editing.text is none else editing.text }}</textarea>
+  {%- if error and error.reason == "empty" %}
+  <span id="{{ base }}-error" class="text-[13px] text-error" role="alert">Write the how-to before saving.</span>
+  {%- elif error %}
+  <span id="{{ base }}-error" class="text-[13px] text-error" role="alert">Keep it to {{ error.limit }} characters or fewer: this one has {{ error.length }}.</span>
+  {%- endif %}
+  <span id="{{ base }}-hint" class="text-[13px] lbl-2">Your edit is kept as written and is never regenerated.</span>
+  <span class="flex gap-2 flex-wrap">
+    <button type="submit" class="lg lg-tinted lg-sm relative"><span class="absolute inset-x-0 -inset-y-1" aria-hidden="true"></span>Save</button>
+    <button
+      type="button"
+      class="lg lg-ghost lg-sm relative"
+      hx-get="/admin/exercises?view=howtos"
+      hx-target="#exercise-media"
+      hx-swap="outerHTML"
+      data-howto-cancel
+    ><span class="absolute inset-x-0 -inset-y-1" aria-hidden="true"></span>Cancel</button>
+  </span>
+</form>
+{%- endmacro %}
+
+{% macro original(row, open) -%}
+<details class="group/orig" {%- if open %} open{% endif %} data-howto-original>
+  <summary class="relative flex flex-col gap-0.5 pr-10 cursor-pointer list-none [&::-webkit-details-marker]:hidden">
+    <span class="text-[13px] font-semibold leading-[18px] lbl-2">Original instructions</span>
+    <span class="text-[13px] leading-5 lbl-2 line-clamp-2 group-open/orig:line-clamp-none">{{ row.original }}</span>
+    <span class="absolute -right-1.5 -top-1.5 size-7 rounded-full grid place-items-center lbl-2 hover:bg-base-content/10 transition-colors" aria-hidden="true"><span class="absolute -inset-2"></span>{{ icon("chevron-down", "size-4 transition-transform duration-300 motion-reduce:transition-none group-open/orig:rotate-180") }}</span>
+  </summary>
+</details>
+{%- endmacro %}
+
+{#- `editing` is the card drawn as a field, if this is it (`web/admin/exercises.py`'s `_Editing`). -#}
+{% macro howto_card(row, editing=none) -%}
+{%- set is_editing = editing is not none and editing.exercise_id == row.exercise_id %}
+<section class="mat-content rounded-box p-0 flex flex-col" aria-label="{{ row.name }}" data-howto="{{ row.status.value }}" data-exercise="{{ row.exercise_id }}">
+  {{ header(row, is_editing) }}
+  <div class="flex flex-col gap-3 px-4 pt-3 pb-4 border-t border-base-content/10">
+    {%- if is_editing %}
+    {{ edit_field(row, editing) }}
+    {%- else %}
+    <p class="text-[15px] leading-6" data-howto-text>{{ row.text }}</p>
+    {%- endif %}
+    {%- if row.original %}
+    {{ original(row, is_editing) }}
+    {%- endif %}
+  </div>
+</section>
+{%- endmacro %}
+
+{% macro empty_card() -%}
+<div class="mat-content rounded-box p-8 flex flex-col items-center text-center gap-3" data-howtos-empty>
+  <span class="size-14 rounded-full bg-base-content/10 grid place-items-center">{{ icon("circle-check", "size-7 lbl-2") }}</span>
+  <span class="text-[17px] font-semibold">Nothing to review</span>
+  <span class="text-[14px] leading-5 lbl-2 max-w-[44ch]">Flagged and rejected how-tos show up here.</span>
+</div>
+{%- endmacro %}

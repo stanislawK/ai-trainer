@@ -12,16 +12,24 @@ counts; the second failed check of the same source stores the row `rejected`, af
 cards make no calls. A check the budget refuses never ran, so it stores and counts nothing.
 
 An athlete's "Looks wrong" flags a shown text for every athlete at once and records one
-content-free `howto_flagged` event with its template and version (ADR-0031 *The flag*, #593)."""
+content-free `howto_flagged` event with its template and version (ADR-0031 *The flag*, #593).
+
+An admin reviews the flagged and `rejected` texts (#594): an edit is a human's text, stored
+`shown` with `edited_at` and never rewritten, kept to the card's cap but not to the no-new-digit
+rule, which guards against a model inventing numbers; Clear deletes the row, so the next card
+writes a new one."""
 
 import logging
-from collections.abc import Collection, Mapping
+from collections.abc import Collection, Mapping, Sequence
+from dataclasses import dataclass
+from typing import Literal
 from uuid import UUID
 
 from ai_trainer.application.feedback import FeedbackRecorder
 from ai_trainer.application.ports.clock import ClockPort
 from ai_trainer.application.ports.exercise_simple_texts import (
     ExerciseSimpleTextsPort,
+    HowtoReviewPort,
     SimpleHowtoCheckPort,
     SimpleHowtoWriterPort,
 )
@@ -35,6 +43,7 @@ from ai_trainer.domain.exercise_simple_texts import (
     HowtoPresent,
     HowtoRejected,
     HowtoResult,
+    HowtoReviewRow,
     HowtoSkipped,
     HowtoSource,
     HowtoStored,
@@ -185,3 +194,52 @@ class CardHowtos:
             template_id=flagged.template_id,
             template_version=flagged.template_version,
         )
+
+
+@dataclass(frozen=True, slots=True)
+class HowtoEdited:
+    """The admin's text is stored `shown`, and the row leaves the list."""
+
+
+@dataclass(frozen=True, slots=True)
+class HowtoEditInvalid:
+    """Nothing was stored: the text was empty, or `length` characters, over `limit`."""
+
+    reason: Literal["empty", "too_long"]
+    length: int
+    limit: int
+
+
+@dataclass(frozen=True, slots=True)
+class HowtoCleared:
+    exercise_name: str
+
+
+class HowtoReview:
+    """The admin's list of flagged and `rejected` how-tos, with Edit and Clear (ADR-0031, #594).
+    A row no longer listed (handled in another tab, or shown again) gives `None`."""
+
+    def __init__(self, *, texts: HowtoReviewPort, clock: ClockPort, max_chars: int) -> None:
+        self._texts = texts
+        self._clock = clock
+        self._max_chars = max_chars
+
+    async def rows(self) -> Sequence[HowtoReviewRow]:
+        """The list, whose length the "How-tos · n" chip counts."""
+        return await self._texts.review_rows(lang=SIMPLE_TEXT_LANG)
+
+    async def edit(self, exercise_id: UUID, text: str) -> HowtoEdited | HowtoEditInvalid | None:
+        # A textarea posts CRLF; the admin sees one character per line break.
+        stripped = text.replace("\r\n", "\n").strip()
+        if not stripped:
+            return HowtoEditInvalid(reason="empty", length=0, limit=self._max_chars)
+        if len(stripped) > self._max_chars:
+            return HowtoEditInvalid(reason="too_long", length=len(stripped), limit=self._max_chars)
+        edited = await self._texts.admin_edit(
+            exercise_id, lang=SIMPLE_TEXT_LANG, text=stripped, edited_at=self._clock.now()
+        )
+        return HowtoEdited() if edited else None
+
+    async def clear(self, exercise_id: UUID) -> HowtoCleared | None:
+        name = await self._texts.clear(exercise_id, lang=SIMPLE_TEXT_LANG)
+        return None if name is None else HowtoCleared(exercise_name=name)

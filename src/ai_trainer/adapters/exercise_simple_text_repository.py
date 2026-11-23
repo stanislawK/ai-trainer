@@ -1,9 +1,9 @@
-from collections.abc import Callable, Collection, Mapping
+from collections.abc import Callable, Collection, Mapping, Sequence
 from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import ColumnElement, and_, case, literal, null, or_, select, update
+from sqlalchemy import ColumnElement, and_, case, delete, literal, null, or_, select, update
 from sqlalchemy.dialects.postgresql import Insert, insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -12,15 +12,20 @@ from ai_trainer.domain.exercise_simple_texts import (
     CardHowtoSource,
     FailedCheckOutcome,
     FlaggedText,
+    HowtoReviewRow,
     HowtoSource,
     NewSimpleText,
     SimpleTextStatus,
     StoredSimpleText,
 )
 
+# The statuses the admin's list shows, and the only ones its Edit and Clear change (#594).
+_REVIEWED = (SimpleTextStatus.FLAGGED.value, SimpleTextStatus.REJECTED.value)
+
 
 class SqlAlchemyExerciseSimpleTextRepository:
-    """Implements `ExerciseSimpleTextsPort` (ADR-0031 *Beginner how-to*, #589, #591): the shared
+    """Implements `ExerciseSimpleTextsPort` (ADR-0031 *Beginner how-to*, #589, #591) and
+    `HowtoReviewPort` (#594): the shared
     catalogue only, so no athlete's exercise is ever sent to a model, and `exercise_simple_texts`,
     which holds no user data."""
 
@@ -162,6 +167,74 @@ class SqlAlchemyExerciseSimpleTextRepository:
         return FlaggedText(
             template_id=flagged.template_id, template_version=flagged.template_version
         )
+
+    async def review_rows(self, *, lang: str) -> Sequence[HowtoReviewRow]:
+        """Flagged and `rejected` rows with a text, joined to the exercise's name and its text
+        in `lang`, the latest flag first (a `rejected` row has none), then by name. The text is
+        an outer join: a flagged row stays hidden from athletes, so it is listed even when its
+        exercise has lost its text, with no original."""
+        row = ExerciseSimpleTextOrm
+        statement = (
+            select(
+                row.exercise_id,
+                ExerciseOrm.name,
+                row.text,
+                row.status,
+                row.flagged_at,
+                ExerciseTextOrm.instructions,
+            )
+            .join(ExerciseOrm, ExerciseOrm.id == row.exercise_id)
+            .outerjoin(
+                ExerciseTextOrm,
+                and_(ExerciseTextOrm.exercise_id == row.exercise_id, ExerciseTextOrm.lang == lang),
+            )
+            .where(row.lang == lang, row.status.in_(_REVIEWED), row.text.is_not(None))
+            .order_by(row.flagged_at.desc().nulls_last(), ExerciseOrm.name)
+        )
+        async with self._session_factory() as session:
+            rows = (await session.execute(statement)).all()
+        return [
+            HowtoReviewRow(
+                exercise_id=found.exercise_id,
+                name=found.name,
+                text=found.text,
+                status=SimpleTextStatus(found.status),
+                flagged_at=found.flagged_at,
+                original=found.instructions,
+            )
+            for found in rows
+        ]
+
+    async def admin_edit(
+        self, exercise_id: UUID, *, lang: str, text: str, edited_at: datetime
+    ) -> bool:
+        """One guarded UPDATE: only a listed row takes the admin's text, `shown` again with
+        `edited_at`, which the upsert's guard never rewrites."""
+        row = ExerciseSimpleTextOrm
+        statement = (
+            update(row)
+            .where(row.exercise_id == exercise_id, row.lang == lang, row.status.in_(_REVIEWED))
+            .values(text=text, status=SimpleTextStatus.SHOWN.value, edited_at=edited_at)
+            .returning(row.exercise_id)
+        )
+        async with self._session_factory() as session:
+            edited = (await session.execute(statement)).scalar_one_or_none()
+            await session.commit()
+        return edited is not None
+
+    async def clear(self, exercise_id: UUID, *, lang: str) -> str | None:
+        """One guarded DELETE, returning the exercise's name: only a listed row goes."""
+        row = ExerciseSimpleTextOrm
+        name = select(ExerciseOrm.name).where(ExerciseOrm.id == row.exercise_id).scalar_subquery()
+        statement = (
+            delete(row)
+            .where(row.exercise_id == exercise_id, row.lang == lang, row.status.in_(_REVIEWED))
+            .returning(name)
+        )
+        async with self._session_factory() as session:
+            cleared = (await session.execute(statement)).scalar_one_or_none()
+            await session.commit()
+        return cleared
 
 
 def _stored(row: ExerciseSimpleTextOrm) -> StoredSimpleText:

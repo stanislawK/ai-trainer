@@ -31,6 +31,7 @@ from ai_trainer.web.templating import build_templates
 from tests.admin_tokens_support import memory_admin_tokens
 from tests.exercise_media_support import FakeCdn, embedded_asset, generated_asset, wger_asset
 from tests.knowledge_support import MemoryStorage, knowledge_wiring
+from tests.simple_howto_support import memory_howto_review
 
 SECRET = b"integration-test-secret"
 BASE = "https://media.example.org"
@@ -133,6 +134,7 @@ async def _page(
                 clock=clock,
                 cdn=cdn,
             ),
+            exercise_howtos=memory_howto_review(),
             **knowledge_wiring(),
         )
     )

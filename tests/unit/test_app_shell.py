@@ -19,6 +19,7 @@ from tests.admin_tokens_support import memory_admin_tokens
 from tests.chat_support import include_chat
 from tests.exercise_media_support import memory_exercise_media_review
 from tests.knowledge_support import knowledge_wiring
+from tests.simple_howto_support import memory_howto_review
 
 WEB = Path(__file__).parents[2] / "src" / "ai_trainer" / "web"
 TEMPLATES = WEB / "templates"
@@ -114,6 +115,7 @@ def _client(*, admin_emails: list[str]) -> TestClient:
             status_changer=FakeUserStatusChanger(),
             tokens=memory_admin_tokens(),
             exercise_media=memory_exercise_media_review(),
+            exercise_howtos=memory_howto_review(),
             **knowledge_wiring(),
         )
     )

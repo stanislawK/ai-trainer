@@ -3,6 +3,7 @@ from starlette.templating import Jinja2Templates
 
 from ai_trainer.application.admin_tokens import AdminTokens
 from ai_trainer.application.exercise_media_review import ExerciseMediaReview
+from ai_trainer.application.exercise_simple_howto import HowtoReview
 from ai_trainer.application.knowledge_sources import KnowledgeSources
 from ai_trainer.application.ports.sessions import SessionsRepositoryPort
 from ai_trainer.application.ports.user_status_changer import UserStatusChangerPort
@@ -23,11 +24,13 @@ def build_admin_router(
     knowledge: KnowledgeSources,
     tokens: AdminTokens,
     exercise_media: ExerciseMediaReview,
+    exercise_howtos: HowtoReview,
     sports: SportRegistry,
     max_upload_mb: int,
 ) -> APIRouter:
     """The admin view, for `ADMIN_EMAILS` users only (ADR-0005): users (F7), knowledge
-    sources (B7, ADR-0033), API tokens (ADR-0036) and exercise media (F24, ADR-0031)."""
+    sources (B7, ADR-0033), API tokens (ADR-0036), and exercise media (F24, ADR-0031) with the
+    flagged and rejected beginner how-tos (#594)."""
     router = APIRouter()
     router.include_router(
         build_users_router(
@@ -40,5 +43,7 @@ def build_admin_router(
         )
     )
     router.include_router(build_tokens_router(templates=templates, tokens=tokens))
-    router.include_router(build_exercises_router(templates=templates, review=exercise_media))
+    router.include_router(
+        build_exercises_router(templates=templates, review=exercise_media, howtos=exercise_howtos)
+    )
     return router
