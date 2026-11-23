@@ -3,6 +3,7 @@
 import mimetypes
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -33,6 +34,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from ai_trainer.adapters.activity_stores import ActivityStores
 from ai_trainer.adapters.admin_token_repository import SqlAlchemyAdminTokensRepository
+from ai_trainer.adapters.card_picture_repository import SqlAlchemyCardPictureRepository
 from ai_trainer.adapters.catalogue_knowledge_repository import SqlAlchemyCatalogueChunks
 from ai_trainer.adapters.catalogue_match import SqlAlchemyCatalogueMatch
 from ai_trainer.adapters.chat_repository import SqlAlchemyChatRepository
@@ -55,7 +57,10 @@ from ai_trainer.adapters.health import PsycopgDatabaseHealth
 from ai_trainer.adapters.knowledge_chunk_repository import SqlAlchemyKnowledgeIngestionRepository
 from ai_trainer.adapters.knowledge_repository import SqlAlchemyKnowledgeSourcesRepository
 from ai_trainer.adapters.knowledge_search_repository import SqlAlchemyKnowledgeSearch
-from ai_trainer.adapters.llm_calls_repository import SqlAlchemyLlmCallsRepository
+from ai_trainer.adapters.llm_calls_repository import (
+    SqlAlchemyLlmCallsRepository,
+    SqlAlchemyPictureDaySpend,
+)
 from ai_trainer.adapters.log_records import configure_logging
 from ai_trainer.adapters.media_repository import SqlAlchemyExerciseMediaRepository
 from ai_trainer.adapters.metrics import OtelMetrics
@@ -78,6 +83,7 @@ from ai_trainer.application.admin_tokens import AdminTokens, TokenAuthenticator
 from ai_trainer.application.background_reads import BackgroundReads
 from ai_trainer.application.budgeted_gateways import (
     BudgetedDecisionGateway,
+    BudgetedImageGeneration,
     BudgetedLlmGateway,
     BudgetedQueryEmbeddings,
 )
@@ -87,6 +93,12 @@ from ai_trainer.application.exercise_candidates import (
     SearchedExerciseNames,
 )
 from ai_trainer.application.exercise_card_media import ExerciseCardMedia
+from ai_trainer.application.exercise_card_picture import (
+    CardPictureLimits,
+    CardPicturePorts,
+    CardPictures,
+    DrawCardPicture,
+)
 from ai_trainer.application.exercise_lookup import ExerciseFinder
 from ai_trainer.application.exercise_media_review import ExerciseMediaReview
 from ai_trainer.application.exercise_picture import ExercisePictureService, PicturePorts, RunSpend
@@ -141,10 +153,14 @@ from ai_trainer.llm.embeddings import OpenRouterEmbeddingGateway
 from ai_trainer.llm.exercise_shortlist import JevExercisePicker
 from ai_trainer.llm.gateway import OpenRouterGateway
 from ai_trainer.llm.goal_kind import JevGoalKind
-from ai_trainer.llm.images import OpenRouterImageGenerator
+from ai_trainer.llm.images import PICTURE_TEMPLATE_ID, OpenRouterImageGenerator
 from ai_trainer.llm.onboarding import LlmOnboardingReader
-from ai_trainer.llm.picture_brief import LlmPictureBriefWriter
-from ai_trainer.llm.picture_brief_check import BriefCheckThresholds, JevPictureBriefCheck
+from ai_trainer.llm.picture_brief import PICTURE_BRIEF_TEMPLATE_ID, LlmPictureBriefWriter
+from ai_trainer.llm.picture_brief_check import (
+    PICTURE_BRIEF_CHECK_ID,
+    BriefCheckThresholds,
+    JevPictureBriefCheck,
+)
 from ai_trainer.llm.question_sport import JevQuestionSport
 from ai_trainer.llm.router_fast import JevFastRouter, RouterFastThresholds
 from ai_trainer.llm.safety_screen import JevSafetyScreen
@@ -366,6 +382,79 @@ def build_simple_howto(
         clock=clock,
         max_chars=settings.exercise_simple_howto_max_chars,
     )
+
+
+@dataclass(frozen=True, slots=True)
+class CardPictureCalls:
+    """What the exercise card's drawn picture calls through: the app's budgeted text and decision
+    gateways, the shared budget the image call is charged to as well, and the client the image
+    call goes out on (ADR-0029, ADR-0031 *Picture on the card*)."""
+
+    gateway: LlmGatewayPort
+    decisions: DecisionGatewayPort
+    budget: ModelCallBudget
+    calls_repository: LlmCallsRepositoryPort
+    http_client: httpx2.AsyncClient
+
+
+def build_card_pictures(
+    settings: Settings,
+    session_factory: Callable[[], AsyncSession],
+    sports: SportRegistry,
+    *,
+    calls: CardPictureCalls,
+    card_media: ExerciseCardMedia,
+    clock: ClockPort,
+) -> CardPictures | None:
+    """The exercise card's missing picture, drawn once when a card shows a drawable candidate
+    (ADR-0031 *Picture on the card*, #643). Its brief, check and image each count against the
+    athlete's budget, and the day's picture spend against `IMAGE_GENERATION_DAILY_CAP_USD`. None
+    while the media bucket or `MEDIA_PUBLIC_BASE_URL` is unset: no picture could be shown."""
+    storage = build_media_storage(settings)
+    if storage is None or settings.media_public_base_url is None:
+        return None
+    media = SqlAlchemyCardPictureRepository(session_factory)
+    draw = DrawCardPicture(
+        CardPicturePorts(
+            media=media,
+            spend=SqlAlchemyPictureDaySpend(
+                session_factory,
+                picture_template=PICTURE_TEMPLATE_ID,
+                other_templates=(PICTURE_BRIEF_TEMPLATE_ID, PICTURE_BRIEF_CHECK_ID),
+            ),
+            briefs=LlmPictureBriefWriter(
+                registry=build_prompt_registry(_PROMPTS_ROOT, sports),
+                gateway=calls.gateway,
+                model=settings.picture_brief_model,
+            ),
+            brief_check=JevPictureBriefCheck(
+                calls.decisions,
+                thresholds=BriefCheckThresholds(
+                    same_movement=settings.picture_brief_check_movement_threshold,
+                    keeps_rules=settings.picture_brief_check_rules_threshold,
+                ),
+            ),
+            images=BudgetedImageGeneration(
+                OpenRouterImageGenerator(
+                    api_key=settings.openrouter_api_key.get_secret_value(),
+                    model=settings.image_generation_model,
+                    timeout_seconds=settings.image_generation_timeout_seconds,
+                    calls_repository=calls.calls_repository,
+                    http_client=calls.http_client,
+                ),
+                calls.budget,
+            ),
+            storage=storage,
+        ),
+        limits=CardPictureLimits(
+            enabled=settings.exercise_card_pictures_enabled,
+            daily_cap_usd=settings.image_generation_daily_cap_usd,
+            price_usd=settings.image_generation_price_usd,
+        ),
+        clock=clock,
+        model=image_model_source_ref(settings.image_generation_model),
+    )
+    return CardPictures(media=media, draw=draw, card_media=card_media)
 
 
 def build_uploads_storage(settings: Settings) -> ObstoreObjectStorage | None:
@@ -768,6 +857,8 @@ def create_app(  # noqa: PLR0915 -- composition root: objects are built only her
     # The onboarding's background reads, held so none is collected mid-read (ADR-0028).
     reads = BackgroundReads()
     search_http = query_http_client(settings)
+    # The exercise card's picture calls (#643).
+    picture_http = httpx2.AsyncClient(timeout=settings.image_generation_timeout_seconds)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -775,6 +866,7 @@ def create_app(  # noqa: PLR0915 -- composition root: objects are built only her
         # A read cut off here stays `pending`; the summary reads it again (ADR-0028).
         await reads.close()
         await search_http.aclose()
+        await picture_http.aclose()
         # Closes the SQLAlchemy pool's connections on shutdown; a fresh engine is otherwise
         # opened by every `create_app` call, so a repeatedly-constructed app (a reload worker,
         # or a test that never uses the app as a context manager) would leak idle connections.
@@ -923,6 +1015,10 @@ def create_app(  # noqa: PLR0915 -- composition root: objects are built only her
         ),
         band_orders={"gym": SqlAlchemyBandOrder(session_factory)},
     )
+    card_media = ExerciseCardMedia(
+        media=SqlAlchemyExerciseMediaRepository(session_factory),
+        public_base_url=settings.media_public_base_url,
+    )
     app.include_router(
         build_chat_router(
             templates,
@@ -930,14 +1026,25 @@ def create_app(  # noqa: PLR0915 -- composition root: objects are built only her
             replies=replies,
             sports=app.state.sport_registry,
             retention_days=settings.conversation_retention_days,
-            card_media=ExerciseCardMedia(
-                media=SqlAlchemyExerciseMediaRepository(session_factory),
-                public_base_url=settings.media_public_base_url,
-            ),
+            card_media=card_media,
             card_howtos=CardHowtos(
                 texts=SqlAlchemyExerciseSimpleTextRepository(session_factory),
                 write=app.state.simple_howto,
                 feedback=feedback,
+                clock=clock,
+            ),
+            card_pictures=build_card_pictures(
+                settings,
+                session_factory,
+                sport_registry,
+                calls=CardPictureCalls(
+                    gateway=gateway,
+                    decisions=decisions,
+                    budget=budget,
+                    calls_repository=llm_calls,
+                    http_client=picture_http,
+                ),
+                card_media=card_media,
                 clock=clock,
             ),
         )

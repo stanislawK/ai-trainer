@@ -26,7 +26,11 @@ def _drawable(lang: str) -> ColumnElement[bool]:
     says how it is done, no live link, and no removed link of a generated picture. A removed link
     from another source doesn't block it."""
     # Aliases, so a query that also selects these tables doesn't correlate them away.
-    texts, links, assets = aliased(ExerciseTextOrm), aliased(ExerciseMediaOrm), aliased(MediaAssetOrm)
+    texts, links, assets = (
+        aliased(ExerciseTextOrm),
+        aliased(ExerciseMediaOrm),
+        aliased(MediaAssetOrm),
+    )
     has_text = exists().where(
         texts.exercise_id == ExerciseOrm.id,
         texts.lang == lang,
@@ -57,9 +61,7 @@ class SqlAlchemyCardPictureRepository:
     async def drawable(self, exercise_ids: Collection[UUID], *, lang: str) -> set[UUID]:
         if not exercise_ids:
             return set()
-        statement = select(ExerciseOrm.id).where(
-            ExerciseOrm.id.in_(exercise_ids), _drawable(lang)
-        )
+        statement = select(ExerciseOrm.id).where(ExerciseOrm.id.in_(exercise_ids), _drawable(lang))
         async with self._session_factory() as session:
             return set((await session.scalars(statement)).all())
 
