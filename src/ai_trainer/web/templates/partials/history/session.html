@@ -1,6 +1,7 @@
 {#- One saved session: a `mat-content` sheet from the bottom over a scrim on a phone, a 460 px panel beside the list from `lg` (History v4 mock, ticket #515). The scrim and Close go back to the list. Under the title, Edit `lg-clear` opens the edit form in the same sheet or panel (#516) and Delete `lg-quiet` asks in `delete.html`'s dialog (#518); each exercise row opens its progress (#517). -#}
 {% from "components/icon.html" import icon %}
 {% from "components/gym_copy.html" import done, exercise_name %}
+{% from "components/session_meta.html" import session_meta %}
 <a
   href="/history"
   hx-get="/history"
@@ -21,6 +22,7 @@
     <div class="flex flex-col min-w-0">
       <h2 class="text-[24px]/[30px] font-semibold tracking-tight">{{ open.day.strftime("%a") }} {{ open.day.day }} {{ open.day.strftime("%b") }}</h2>
       <span class="text-[14px] lbl-2 tabular-nums">{{ open.time.strftime("%H:%M") }} · Gym · {{ open.exercises | length }} exercise{{ "" if open.exercises | length == 1 else "s" }}</span>
+      {{ session_meta(open.duration_min, open.rpe) }}
     </div>
     <a
       href="/history"

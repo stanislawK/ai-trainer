@@ -117,6 +117,8 @@ async def _pending(
     *,
     occurred_on: date = _TODAY,
     date_source: DateSource = "assumed_today",
+    duration_min: int | None = None,
+    rpe: int | None = None,
 ) -> StoredDraft:
     """The same, for a gym payload given as stored."""
     conversation_id = await chat.conversation_of(user_id)
@@ -140,6 +142,8 @@ async def _pending(
             occurred_on=occurred_on,
             date_source=date_source,
             timezone="Europe/Warsaw",
+            duration_min=duration_min,
+            rpe=rpe,
             payload=payload,
         ),
         payload_version=1,
@@ -706,3 +710,92 @@ async def test_a_v1_draft_still_shows_its_card_and_its_edit_form() -> None:
         ("activities.0.sets.2.load", "142.88"),
     ):
         assert re.search(rf'<input[^>]*name="{re.escape(name)}"[^>]*value="{value}"', form), name
+
+
+def _header(html: str) -> str:
+    header: str
+    (header,) = re.findall(r"<header.*?</header>", html, re.S)
+    return header
+
+
+def _logged_row(html: str) -> str:
+    (row,) = re.findall(r'<div[^>]*data-confirmed-draft="[^"]+".*', html, re.S)
+    return _header(row)
+
+
+async def test_gym_draft_header_shows_duration_and_rpe() -> None:
+    client, user_id, chat, drafts = _client()
+    draft = await _pending(chat, drafts, user_id, _PYRAMID_PAYLOAD, duration_min=45, rpe=8)
+
+    header = _header(_card(client.get(f"/drafts/{draft.id}", headers=_HTMX).text))
+
+    assert _text(header) == "Gym · draft 45 min RPE 8"
+    assert str(render_icon("clock", "size-3.5")) in header
+    assert str(render_icon("gauge", "size-3.5")) in header
+
+
+@pytest.mark.parametrize(
+    ("duration", "rpe", "shown"),
+    [(None, 8, "RPE 8"), (45, None, "45 min")],
+)
+async def test_gym_draft_header_shows_only_what_was_given(
+    duration: int | None, rpe: int | None, shown: str
+) -> None:
+    client, user_id, chat, drafts = _client()
+    draft = await _pending(chat, drafts, user_id, _PYRAMID_PAYLOAD, duration_min=duration, rpe=rpe)
+
+    header = _header(_card(client.get(f"/drafts/{draft.id}", headers=_HTMX).text))
+
+    assert _text(header) == f"Gym · draft {shown}"
+
+
+async def test_gym_draft_header_without_duration_and_rpe_has_no_meta_row() -> None:
+    client, user_id, chat, drafts = _client()
+    draft = await _pending(chat, drafts, user_id, _PYRAMID_PAYLOAD)
+
+    header = _header(_card(client.get(f"/drafts/{draft.id}", headers=_HTMX).text))
+
+    assert _text(header) == "Gym · draft"
+    assert "lucide-clock" not in header
+    assert "lucide-gauge" not in header
+    assert "RPE" not in header
+    assert "\N{EM DASH}" not in header
+
+
+async def test_edit_duration_updates_draft_header() -> None:
+    client, user_id, chat, drafts = _client()
+    draft = await _pending(chat, drafts, user_id, _PYRAMID_PAYLOAD, duration_min=45, rpe=8)
+
+    response = client.post(
+        f"/drafts/{draft.id}/edit",
+        headers=_HTMX,
+        data=_pyramid_form(duration_min="50", rpe="8"),
+    )
+
+    assert response.status_code == 200
+    assert _text(_header(_card(response.text))) == "Gym · draft 50 min RPE 8"
+
+
+async def test_logged_gym_header_shows_duration_and_rpe() -> None:
+    client, user_id, chat, drafts = _client()
+    draft = await _pending(chat, drafts, user_id, _PYRAMID_PAYLOAD, duration_min=45, rpe=8)
+    client.post(
+        f"/drafts/{draft.id}/edit", headers=_HTMX, data=_pyramid_form(duration_min="50", rpe="8")
+    )
+
+    response = client.post(f"/drafts/{draft.id}/confirm", headers=_HTMX)
+
+    header = _logged_row(response.text)
+    assert "50 min" in _text(header)
+    assert "RPE 8" in _text(header)
+
+
+async def test_logged_gym_header_without_duration_and_rpe_has_no_meta_row() -> None:
+    client, user_id, chat, drafts = _client()
+    draft = await _pending(chat, drafts, user_id, _PYRAMID_PAYLOAD)
+
+    header = _logged_row(client.post(f"/drafts/{draft.id}/confirm", headers=_HTMX).text)
+
+    assert "lucide-clock" not in header
+    assert "RPE" not in header
+    assert " min" not in _text(header)

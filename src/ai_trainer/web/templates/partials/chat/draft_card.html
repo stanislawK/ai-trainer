@@ -12,13 +12,13 @@
 {%- endfor %}
 <article class="mat-content rounded-box p-4 flex flex-col gap-3" aria-label="Draft session" data-draft-id="{{ card.draft.id }}">
   {%- if card.switch_to %}
-  <header class="flex items-center gap-2 text-[13px] font-medium text-base-content/70">{{ icon(card.sport.icon, "size-4") }}<details class="dropdown" data-sport-chip><summary class="lg lg-clear lg-chip list-none [&::-webkit-details-marker]:hidden"><span class="absolute -inset-x-px -inset-y-[6px]" aria-hidden="true"></span>{{ sport_copy[card.sport.label_key].label }}<span class="sr-only">, change sport</span>{{ icon("chevron-down", "size-3.5") }}</summary><ul class="dropdown-content menu glass-thick glass-rim bg-base-100! rounded-box z-10 mt-2 w-52 p-2 gap-0.5 text-[16px] font-normal text-base-content" aria-label="Change sport">
+  <header class="flex flex-col gap-1"><span class="flex items-center gap-2 text-[13px] font-medium text-base-content/70">{{ icon(card.sport.icon, "size-4") }}<details class="dropdown" data-sport-chip><summary class="lg lg-clear lg-chip list-none [&::-webkit-details-marker]:hidden"><span class="absolute -inset-x-px -inset-y-[6px]" aria-hidden="true"></span>{{ sport_copy[card.sport.label_key].label }}<span class="sr-only">, change sport</span>{{ icon("chevron-down", "size-3.5") }}</summary><ul class="dropdown-content menu glass-thick glass-rim bg-base-100! rounded-box z-10 mt-2 w-52 p-2 gap-0.5 text-[16px] font-normal text-base-content" aria-label="Change sport">
       {%- for sport in card.switch_to %}
       <li><button type="button" class="min-h-11 gap-3" hx-post="/drafts/{{ card.draft.id }}/sport" hx-vals='{{ {"sport_id": sport.id} | tojson }}' hx-target="closest article" hx-swap="outerHTML" hx-disable="[data-draft-id='{{ card.draft.id }}'] button" hx-indicator="closest article" hx-status:4xx="swap:none" data-sport-option="{{ sport.id }}">{{ icon(sport.icon, "size-4") }}{{ sport_copy[sport.label_key].label }}</button></li>
       {%- endfor %}
-    </ul></details> · draft<span class="loading loading-spinner loading-xs hidden [.htmx-request_&]:inline-block" aria-hidden="true"></span></header>
+    </ul></details> · draft<span class="loading loading-spinner loading-xs hidden [.htmx-request_&]:inline-block" aria-hidden="true"></span></span>{% include card.meta_template ignore missing %}</header>
   {%- else %}
-  <header class="flex items-center gap-2 text-[13px] font-medium text-base-content/70">{{ icon(card.sport.icon, "size-4") }}{{ sport_copy[card.sport.label_key].label }} · draft</header>
+  <header class="flex flex-col gap-1"><span class="flex items-center gap-2 text-[13px] font-medium text-base-content/70">{{ icon(card.sport.icon, "size-4") }}{{ sport_copy[card.sport.label_key].label }} · draft</span>{% include card.meta_template ignore missing %}</header>
   {%- endif %}
   {%- if sport_error is defined and sport_error %}
   <p class="text-[13px] text-error" role="alert">Couldn't change the sport. Pick it again to try again.</p>

@@ -56,6 +56,8 @@ async def _session(
     exercises: dict[str, list[_SET]],
     *,
     canonical: dict[str, str] | None = None,
+    duration_min: int | None = None,
+    rpe: int | None = None,
 ) -> UUID:
     """A gym session with its source log and one entry per `exercises` item, its sets as
     (reps, kg, text as typed); `canonical` settles a typed name to a custom exercise."""
@@ -70,6 +72,8 @@ async def _session(
                 timezone="Europe/Warsaw",
                 payload={},
                 payload_version=2,
+                duration_min=duration_min,
+                rpe=rpe,
                 created_at=logged_at,
                 updated_at=logged_at,
             )
@@ -243,6 +247,29 @@ async def test_session_view_shows_exercise_lines(
     assert f'hx-get="/history/{opened}/edit"' in page
     assert 'data-history-delete="history-delete"' in page
     assert 'aria-current="true"' in page
+
+
+async def test_session_view_shows_duration_and_rpe_and_leaves_them_out_when_not_given(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    user = await _user(db_session_factory)
+    timed = await _session(
+        db_session_factory, user, date(2026, 11, 5), datetime(2026, 11, 5, 17, 40, tzinfo=UTC),
+        {"bench": _BENCH}, duration_min=50, rpe=8,
+    )  # fmt: skip
+    bare = await _session(
+        db_session_factory, user, date(2026, 11, 4), datetime(2026, 11, 4, 17, 40, tzinfo=UTC),
+        {"bench": _BENCH},
+    )  # fmt: skip
+    client = _client(db_session_factory, user)
+
+    with_meta = client.get(f"/history/{timed}").text
+    without = client.get(f"/history/{bare}").text
+
+    assert "50 min" in with_meta
+    assert "RPE 8" in with_meta
+    assert "lucide-clock" not in without
+    assert "RPE" not in without
 
 
 async def test_session_rows_link_to_progress(

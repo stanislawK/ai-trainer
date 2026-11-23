@@ -1,0 +1,7 @@
+{#- A session's length and effort on their own row, with icons (Gym Measures v2 `metaRow`, ticket #627, PRD 0013 B41). A value not given is left out, and the whole row when neither is given: no placeholder. -#}
+{%- from "components/icon.html" import icon -%}
+{%- macro session_meta(duration_min, rpe) -%}
+{%- if duration_min or rpe -%}
+<span class="flex gap-3 text-[14px] tabular-nums" data-session-meta>{% if duration_min %}<span class="flex items-center gap-1">{{ icon("clock", "size-3.5") }}{{ duration_min }} min</span>{% endif %}{% if rpe %}<span class="flex items-center gap-1">{{ icon("gauge", "size-3.5") }}RPE {{ rpe }}</span>{% endif %}</span>
+{%- endif -%}
+{%- endmacro -%}

@@ -37,6 +37,8 @@ def _local(stored: StoredGymSession, timezone: ZoneInfo) -> HistorySession:
         updated_at=stored.updated_at,
         exercises=stored.exercises,
         labels=stored.labels,
+        duration_min=stored.duration_min,
+        rpe=stored.rpe,
     )
 
 

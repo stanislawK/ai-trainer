@@ -25,6 +25,9 @@ class StoredGymSession(BaseModel):
     updated_at: datetime
     exercises: tuple[Exercise, ...]
     labels: Mapping[str, ExerciseLabel]
+    # The session's length and effort, left `None` when not given (B41, ticket #627).
+    duration_min: int | None = None
+    rpe: int | None = None
 
 
 class HistorySession(BaseModel):
@@ -40,6 +43,8 @@ class HistorySession(BaseModel):
     updated_at: datetime
     exercises: tuple[Exercise, ...]
     labels: Mapping[str, ExerciseLabel]
+    duration_min: int | None = None
+    rpe: int | None = None
 
 
 class SessionEditError(Exception):

@@ -26,8 +26,17 @@ from ai_trainer.domain.sports.gym.payload import Exercise
 from ai_trainer.domain.training import SessionNotFoundError, SessionSpan
 
 
-def _stored(day: date, first: datetime, exercises: tuple[Exercise, ...] = ()) -> StoredGymSession:
+def _stored(
+    day: date,
+    first: datetime,
+    exercises: tuple[Exercise, ...] = (),
+    *,
+    duration_min: int | None = None,
+    rpe: int | None = None,
+) -> StoredGymSession:
     return StoredGymSession(
+        duration_min=duration_min,
+        rpe=rpe,
         span=SessionSpan(id=uuid4(), occurred_on=day, first_logged_at=first, last_logged_at=first),
         updated_at=first,
         exercises=exercises,
@@ -75,6 +84,19 @@ async def test_orders_newest_first_and_converts_to_user_timezone() -> None:
     assert [s.id for s in sessions] == [evening.span.id, morning.span.id, old.span.id]
     assert [s.time.isoformat() for s in sessions] == ["18:40:00", "07:15:00", "18:30:00"]
     assert sessions[0].day == date(2026, 11, 3)
+
+
+async def test_history_session_carries_duration_and_rpe() -> None:
+    stored = _stored(
+        date(2026, 11, 3), datetime(2026, 11, 3, 17, 40, tzinfo=UTC), duration_min=50, rpe=8
+    )
+    bare = _stored(date(2026, 11, 2), datetime(2026, 11, 2, 17, 40, tzinfo=UTC))
+    history = GymSessionHistory(FakeReader(stored, bare))
+
+    first, second = await history.list(uuid4(), "Europe/Warsaw")
+
+    assert (first.duration_min, first.rpe) == (50, 8)
+    assert (second.duration_min, second.rpe) == (None, None)
 
 
 async def test_get_reads_one_session_in_user_timezone_and_none_for_unknown() -> None:
