@@ -152,7 +152,8 @@ cases:
       timezone: Europe/Warsaw
   metadata:
     ticket: 619
-    synthetic: "#619 code review: a home trainer is cycling, not an indoor machine"
+    synthetic: reported bug
+    source: "#619 code review: a home trainer is cycling, not an indoor machine"
   expected_output:
     occurred_on: '2026-11-23'
     date_source: assumed_today

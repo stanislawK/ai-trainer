@@ -290,7 +290,8 @@ cases:
       sport: cycling
   metadata:
     ticket: 619
-    synthetic: "#619 code review: a home trainer is cycling, not an indoor machine"
+    synthetic: reported bug
+    source: "#619 code review: a home trainer is cycling, not an indoor machine"
     plausible_sports:
     - cycling
 evaluators:
