@@ -229,7 +229,8 @@ class HowtoReview:
         return await self._texts.review_rows(lang=SIMPLE_TEXT_LANG)
 
     async def edit(self, exercise_id: UUID, text: str) -> HowtoEdited | HowtoEditInvalid | None:
-        stripped = text.strip()
+        # A textarea posts CRLF; the admin sees one character per line break.
+        stripped = text.replace("\r\n", "\n").strip()
         if not stripped:
             return HowtoEditInvalid(reason="empty", length=0, limit=self._max_chars)
         if len(stripped) > self._max_chars:

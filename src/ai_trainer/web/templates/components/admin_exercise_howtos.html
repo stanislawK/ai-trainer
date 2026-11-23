@@ -109,7 +109,9 @@
     {%- else %}
     <p class="text-[15px] leading-6" data-howto-text>{{ row.text }}</p>
     {%- endif %}
+    {%- if row.original %}
     {{ original(row, is_editing) }}
+    {%- endif %}
   </div>
 </section>
 {%- endmacro %}

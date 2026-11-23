@@ -481,6 +481,32 @@ async def test_an_unknown_edit_id_draws_the_list(db_session_factory: SessionFact
         assert _SHORT in _card(response.text, exercise_id)
 
 
+async def test_a_flagged_howto_whose_exercise_lost_its_english_text_is_still_listed(
+    db_session_factory: SessionFactory,
+) -> None:
+    # The row stays hidden from athletes while flagged, so the admin must still reach it.
+    page = await _page(db_session_factory, "howtos-no-original")
+    exercise_id = await page.exercise(_name())
+    await page.howto(exercise_id, "flagged")
+    async with page.factory() as session:
+        await session.execute(
+            text("DELETE FROM exercise_texts WHERE exercise_id = :id AND lang = 'en'"),
+            {"id": exercise_id},
+        )
+        await session.commit()
+
+    response = page.client.get("/admin/exercises?view=howtos")
+
+    assert response.status_code == 200
+    card = _card(response.text, exercise_id)
+    assert _SHORT in card
+    assert "data-howto-original" not in card
+    cleared = page.client.post(
+        f"/admin/exercises/howtos/{exercise_id}/clear", headers=page.headers()
+    )
+    assert cleared.status_code == 200
+
+
 async def test_review_rows_leave_out_text_less_rows(db_session_factory: SessionFactory) -> None:
     page = await _page(db_session_factory, "howtos-textless")
     exercise_id = await page.exercise(_name())

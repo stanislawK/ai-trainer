@@ -170,7 +170,9 @@ class SqlAlchemyExerciseSimpleTextRepository:
 
     async def review_rows(self, *, lang: str) -> Sequence[HowtoReviewRow]:
         """Flagged and `rejected` rows with a text, joined to the exercise's name and its text
-        in `lang`, the latest flag first (a `rejected` row has none), then by name."""
+        in `lang`, the latest flag first (a `rejected` row has none), then by name. The text is
+        an outer join: a flagged row stays hidden from athletes, so it is listed even when its
+        exercise has lost its text, with no original."""
         row = ExerciseSimpleTextOrm
         statement = (
             select(
@@ -182,7 +184,7 @@ class SqlAlchemyExerciseSimpleTextRepository:
                 ExerciseTextOrm.instructions,
             )
             .join(ExerciseOrm, ExerciseOrm.id == row.exercise_id)
-            .join(
+            .outerjoin(
                 ExerciseTextOrm,
                 and_(ExerciseTextOrm.exercise_id == row.exercise_id, ExerciseTextOrm.lang == lang),
             )

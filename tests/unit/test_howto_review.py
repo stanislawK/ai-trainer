@@ -52,6 +52,16 @@ async def test_edit_strips_the_text_and_stores_it_at_the_clock_time() -> None:
     assert store.edits == [(row.exercise_id, "Sit, then stand.", NOW)]
 
 
+async def test_edit_counts_and_stores_a_browser_line_break_as_one_character() -> None:
+    # A textarea posts its line breaks as CRLF; the admin sees one character for each.
+    row = _row()
+    review, store = _review(row)
+    typed = "x" * (_MAX - 2) + "\r\n" + "x"
+
+    assert await review.edit(row.exercise_id, typed) == HowtoEdited()
+    assert store.edits[0][1] == "x" * (_MAX - 2) + "\n" + "x"
+
+
 async def test_edit_at_the_cap_is_stored() -> None:
     row = _row()
     review, store = _review(row)

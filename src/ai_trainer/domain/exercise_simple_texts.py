@@ -128,14 +128,14 @@ class FlaggedText:
 class HowtoReviewRow:
     """A `flagged` or `rejected` how-to on the admin's list (ADR-0031 *The flag*, #594): the
     short text, its status, when an athlete flagged it, and the catalogue text it was written
-    from."""
+    from, or `None` when the exercise no longer has one in the list's language."""
 
     exercise_id: UUID
     name: str
     text: str
     status: SimpleTextStatus
     flagged_at: datetime | None
-    original: str
+    original: str | None
 
 
 type FailedCheckOutcome = Literal["counted", "rejected", "present"]
