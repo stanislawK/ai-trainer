@@ -187,7 +187,93 @@ cases:
       sets: 3
       reps: 10
       band: red
+# #622 (PRD 0013 B41): stretching, a class and indoor cardio are gym, worded as the ticket's
+# ACs. No set count and a count of 1 are the same one set (ADR-0032), so `sets` is left open.
+- name: 'stretching: a time alone is one timed entry'
+  inputs:
+    prompt: 20 min stretching
+    deps:
+      <<: *deps
+      message: 20 min stretching
+  metadata: &b41
+    reported: '#622'
+    prd: B41
+    ignore_fields: [sets]
+  expected_output:
+    occurred_on: '2026-10-28'
+    date_source: assumed_today
+    activities:
+    - name: stretching
+      duration:
+        value: 20
+        unit: min
+- name: 'stretch: time per side'
+  inputs:
+    prompt: hip flexor stretch 30 s each side
+    deps:
+      <<: *deps
+      message: hip flexor stretch 30 s each side
+  metadata: *b41
+  expected_output:
+    occurred_on: '2026-10-28'
+    date_source: assumed_today
+    activities:
+    - name: hip flexor stretch
+      duration:
+        value: 30
+        unit: s
+      per_side: true
+- name: 'class: kept by name, with session time and effort'
+  inputs:
+    prompt: yoga class 60 min, hard
+    deps:
+      <<: *deps
+      message: yoga class 60 min, hard
+  metadata: *b41
+  expected_output:
+    occurred_on: '2026-10-28'
+    date_source: assumed_today
+    activities:
+    - name: yoga class
+      duration:
+        value: 60
+        unit: min
+    session_duration:
+      value: 60
+      unit: min
+    effort: hard
+- name: 'treadmill: indoor cardio is gym'
+  inputs:
+    prompt: 30 min treadmill
+    deps:
+      <<: *deps
+      message: 30 min treadmill
+  metadata: *b41
+  expected_output:
+    occurred_on: '2026-10-28'
+    date_source: assumed_today
+    activities:
+    - name: treadmill
+      duration:
+        value: 30
+        unit: min
+- name: 'no effort word: rpe stays empty'
+  inputs:
+    prompt: rozciąganie 15 min
+    deps:
+      <<: *deps
+      message: rozciąganie 15 min
+  metadata: *b41
+  expected_output:
+    occurred_on: '2026-10-28'
+    date_source: assumed_today
+    activities:
+    - name: rozciąganie
+      duration:
+        value: 15
+        unit: min
 evaluators:
 - DateMatch
 - ActivitiesMatch
+- SessionMatch
 - QuestionMatch

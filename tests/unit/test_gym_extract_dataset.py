@@ -7,9 +7,16 @@ from typing import Any
 
 from pydantic_evals import Dataset
 
+from ai_trainer.domain.sports.base import SessionEnvelope
 from ai_trainer.domain.sports.gym.extraction import GymExtraction, GymQuestion
 from ai_trainer.llm.evals.runner import EvalCaseInputs
-from ai_trainer.llm.extract import ActivitiesMatch, DateMatch, ExtractDeps, QuestionMatch
+from ai_trainer.llm.extract import (
+    ActivitiesMatch,
+    DateMatch,
+    ExtractDeps,
+    QuestionMatch,
+    SessionMatch,
+)
 
 _ROOT = Path(__file__).parents[2] / "evals"
 _DATASET = _ROOT / "datasets" / "gym.extract.yaml"
@@ -139,6 +146,54 @@ def test_a_deadlift_in_lb_is_stored_in_kg_with_its_original() -> None:
         "lb",
         142.88,
     )
+
+
+_SMOKE_SET = _ROOT / "smoke" / "gym.extract.yaml"
+
+
+def test_the_smoke_set_holds_the_622_cases_and_grades_the_session() -> None:
+    """Stretching, a stretch per side, a class, a treadmill and a log with no effort word
+    (#622, PRD 0013 B41), each worded as the ticket's AC, graded on the session's fields too."""
+    smoke = Dataset[EvalCaseInputs, GymExtraction | GymQuestion, Any].from_file(
+        _SMOKE_SET,
+        custom_evaluator_types=(DateMatch, ActivitiesMatch, SessionMatch, QuestionMatch),
+    )
+    cases = {str(case.name): case for case in smoke.cases}
+    ours = {
+        name: case
+        for name, case in cases.items()
+        if (case.metadata or {}).get("reported") == "#622"
+    }
+
+    assert SessionMatch in {type(evaluator) for evaluator in smoke.evaluators}
+    assert {case.inputs.prompt for case in ours.values()} == {
+        "20 min stretching",
+        "hip flexor stretch 30 s each side",
+        "yoga class 60 min, hard",
+        "30 min treadmill",
+        "rozciąganie 15 min",
+    }
+    envelopes: dict[str, SessionEnvelope] = {}
+    for name, case in ours.items():
+        assert (case.metadata or {}).get("prd") == "B41", name
+        assert ExtractDeps.model_validate(case.inputs.deps).message == case.inputs.prompt, name
+        expected = case.expected_output
+        assert isinstance(expected, GymExtraction), name
+        envelopes[case.inputs.prompt] = expected.envelope()
+    assert envelopes["yoga class 60 min, hard"] == SessionEnvelope(duration_min=60, rpe=7)
+    assert all(
+        envelope == SessionEnvelope()
+        for prompt, envelope in envelopes.items()
+        if prompt != "yoga class 60 min, hard"
+    )
+    (stretch,) = _expected_in(ours, "hip flexor stretch 30 s each side").to_payload().activities
+    assert (stretch.per_side, [gym_set.duration_s for gym_set in stretch.sets]) == (True, [30])
+
+
+def _expected_in(cases: dict[str, Any], prompt: str) -> GymExtraction:
+    (expected,) = [case.expected_output for case in cases.values() if case.inputs.prompt == prompt]
+    assert isinstance(expected, GymExtraction)
+    return expected
 
 
 def test_the_baseline_is_committed() -> None:

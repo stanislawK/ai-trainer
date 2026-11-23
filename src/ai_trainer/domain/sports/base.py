@@ -2,13 +2,23 @@ from collections.abc import Callable, Mapping, Sequence
 from datetime import date
 from typing import Literal, Self
 
-from pydantic import BaseModel, ConfigDict, JsonValue
+from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
 from ai_trainer.domain.clarification import ChoiceOption
 
 # How an extraction found `occurred_on` (ADR-0014): typed as a date, resolved from a relative
 # expression, or today because the message gave none.
 type DateSource = Literal["stated", "relative", "assumed_today"]
+
+
+class SessionEnvelope(BaseModel):
+    """The session's own length and effort as the log gave them (ADR-0022), which the draft
+    carries as `duration_min` and `rpe`; empty where the log gave none (ticket #622)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    duration_min: int | None = Field(default=None, ge=1, le=1440)
+    rpe: int | None = Field(default=None, ge=1, le=10)
 
 
 class SessionExtraction(BaseModel):
@@ -21,6 +31,11 @@ class SessionExtraction(BaseModel):
     def to_payload(self) -> BaseModel:
         """The sport payload this extraction describes, at the plugin's current version."""
         raise NotImplementedError
+
+    def envelope(self) -> SessionEnvelope:
+        """The session's length and effort this extraction reports, read in code by its plugin
+        (ticket #622); empty for a sport whose template reports neither."""
+        return SessionEnvelope()
 
     def answered(self, answer: ChoiceOption) -> Self:
         """This extraction as the option the athlete picked on its sport's question reads it
