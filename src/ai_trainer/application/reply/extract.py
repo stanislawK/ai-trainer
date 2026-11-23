@@ -80,10 +80,14 @@ async def extract(
     assert spec is not None  # the plan only sends sports that name an extraction
     # The athlete's pick holds whatever the model made of it (ADR-0015 invariant 4).
     output = extraction.output if answer is None else extraction.output.answered(answer)
+    # The session's own length and effort, as its plugin reads them (ticket #622).
+    envelope = output.envelope()
     draft = SessionDraft(
         occurred_on=output.occurred_on,
         date_source=output.date_source,
         timezone=context.timezone,
+        duration_min=envelope.duration_min,
+        rpe=envelope.rpe,
         payload=output.to_payload().model_dump(mode="json"),
     )
     intro = services.conversation.draft_ready()

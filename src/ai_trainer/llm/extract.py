@@ -170,6 +170,32 @@ class ActivitiesMatch(Evaluator[EvalCaseInputs, BaseModel]):
         )
 
 
+# What `DateMatch` and `ActivitiesMatch` grade; `SessionMatch` grades every other field.
+_GRADED_ELSEWHERE = frozenset({"occurred_on", "date_source", "activities"})
+
+
+def _session_fields(output: BaseModel) -> dict[str, Any]:
+    return {
+        name: value
+        for name, value in output.model_dump(mode="json").items()
+        if name not in _GRADED_ELSEWHERE
+    }
+
+
+@dataclass
+class SessionMatch(Evaluator[EvalCaseInputs, BaseModel]):
+    """Code-graded (B41, ticket #622): the session's own fields beside its date and activities,
+    such as gym's length and effort, field for field, so an invented RPE fails; a sport whose
+    extraction has none always matches."""
+
+    def evaluate(self, ctx: EvaluatorContext[EvalCaseInputs, BaseModel]) -> EvaluatorOutput:
+        drafts = _drafts(ctx)
+        if drafts is None:
+            return {}
+        assert ctx.expected_output is not None
+        return drafts and _session_fields(ctx.output) == _session_fields(ctx.expected_output)
+
+
 def _question(output: BaseModel) -> dict[str, Any]:
     """The question as graded: every field, its `readings` in any order (ticket #206)."""
     fields = output.model_dump(mode="json")

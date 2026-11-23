@@ -66,7 +66,7 @@ from ai_trainer.llm.evals.smoke import (
     smoke_ids,
 )
 from ai_trainer.llm.exercise_shortlist import EXERCISE_SHORTLIST_ID, EXERCISE_SHORTLIST_VERSION
-from ai_trainer.llm.extract import ActivitiesMatch, DateMatch, QuestionMatch
+from ai_trainer.llm.extract import ActivitiesMatch, DateMatch, QuestionMatch, SessionMatch
 from ai_trainer.llm.gateway import provider_config, reasoning_at
 from ai_trainer.llm.onboarding import (
     ABOUT_YOU_TEMPLATE_ID,
@@ -148,11 +148,12 @@ _EVALUATORS: dict[str, tuple[type[Evaluator[EvalCaseInputs, BaseModel, object]],
     # Length and the no-new-digits rule in code; the cues by the set's judge (ADR-0031, #589).
     SIMPLE_HOWTO_TEMPLATE_ID: (SimpleHowtoMatch,),
     # Every sport's extraction template is graded the same way, in code (ADR-0006, ADR-0014),
-    # and one that may ask on whether it asked (ticket #164).
+    # one that may ask on whether it asked (ticket #164), and a set may grade the session's own
+    # fields (#622).
     **{
-        plugin.extraction.template_id: (DateMatch, ActivitiesMatch, QuestionMatch)
+        plugin.extraction.template_id: (DateMatch, ActivitiesMatch, SessionMatch, QuestionMatch)
         if plugin.extraction.question is not None
-        else (DateMatch, ActivitiesMatch)
+        else (DateMatch, ActivitiesMatch, SessionMatch)
         for plugin in default_sport_registry().all()
         if plugin.extraction is not None
     },

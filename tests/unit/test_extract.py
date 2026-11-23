@@ -32,7 +32,7 @@ from ai_trainer.domain.sports.climbing.payload import (
     Grade,
 )
 from ai_trainer.domain.sports.cycling.extraction import CyclingExtraction
-from ai_trainer.domain.sports.gym.extraction import GymExtraction
+from ai_trainer.domain.sports.gym.extraction import GymExtraction, GymQuestion
 from ai_trainer.domain.sports.registry import SportRegistry, default_sport_registry
 from ai_trainer.llm.conversation import build_prompt_registry
 from ai_trainer.llm.evals.runner import EvalCaseInputs
@@ -40,6 +40,7 @@ from ai_trainer.llm.extract import (
     ActivitiesMatch,
     DateMatch,
     ExtractDeps,
+    SessionMatch,
     build_extract_deps,
     extract_template,
     extract_templates,
@@ -165,6 +166,7 @@ def test_extract_templates_skip_a_sport_without_an_extraction() -> None:
         ("gym.extract", 3),
         ("gym.extract", 4),
         ("gym.extract", 5),
+        ("gym.extract", 6),
         ("cycling.extract", 1),
         ("cycling.extract", 2),
         ("cycling.extract", 3),
@@ -383,6 +385,37 @@ def test_activities_match_skips_the_fields_a_case_lists_as_ignored() -> None:
     )
 
 
+def _gym(**overrides: Any) -> GymExtraction:
+    values: dict[str, Any] = {
+        "occurred_on": "2026-10-02",
+        "date_source": "assumed_today",
+        "activities": [{"name": "yoga class", "duration": {"value": 60, "unit": "min"}}],
+        "session_duration": {"value": 60, "unit": "min"},
+        "effort": "hard",
+    }
+    return GymExtraction.model_validate(values | overrides)
+
+
+def test_session_match_grades_duration_and_effort() -> None:
+    """#622: the session's length and effort are graded field for field, so an invented RPE or
+    a missing length fails; a sport with no session fields always matches."""
+    expected = _gym()
+
+    assert SessionMatch().evaluate(_ctx(_gym(), expected)) is True
+    assert SessionMatch().evaluate(_ctx(_gym(effort=None), expected)) is False
+    assert SessionMatch().evaluate(_ctx(_gym(rpe=7), expected)) is False
+    assert SessionMatch().evaluate(_ctx(_gym(session_duration=None), expected)) is False
+    assert SessionMatch().evaluate(_ctx(_gym(effort=None), _gym(effort=None))) is True
+    assert SessionMatch().evaluate(_ctx(_extraction(), _extraction())) is True
+
+
+def test_session_match_leaves_a_question_case_to_question_match() -> None:
+    question = GymQuestion(about="movement", exercise="press", readings=["bench press", "ohp"])
+
+    assert SessionMatch().evaluate(_ctx(_gym(), question)) == {}
+    assert SessionMatch().evaluate(_ctx(question, _gym())) is False
+
+
 def test_an_extraction_base_names_no_payload_until_a_sport_defines_one() -> None:
     bare = SessionExtraction(occurred_on=date(2026, 10, 2), date_source="stated")
 
@@ -416,10 +449,11 @@ def _render_active(template_id: str, version: int, deps: ExtractDeps) -> str:
 def test_every_sport_runs_its_active_extraction_version() -> None:
     """Every sport moved to v3 to ask how to read a log (tickets #164 and #206); gym to v4 to
     read "8 x3" as 3 sets of 8 (ticket #373) and to v5 for time, sides, implements and bands
-    (ticket #395); cycling to v4 to leave indoor machines to gym (#619)."""
+    (ticket #395); cycling to v4 to leave indoor machines to gym (#619); gym to v6 for
+    stretching, classes, indoor cardio and the session's length and effort (#622)."""
     assert {(template.id, template.version) for template in _ACTIVE_EXTRACT_TEMPLATES} == {
         ("climbing.extract", 3),
-        ("gym.extract", 5),
+        ("gym.extract", 6),
         ("cycling.extract", 4),
     }
 

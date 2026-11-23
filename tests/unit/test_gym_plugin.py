@@ -2,14 +2,15 @@
 built from (ADR-0006, ADR-0022, ADR-0032, tickets #159 and #395)."""
 
 from datetime import date
-from typing import Any
+from typing import Any, get_args
 
 import pytest
 from pydantic import ValidationError
 
 from ai_trainer.domain.clarification import ChoiceOption
+from ai_trainer.domain.sports.base import SessionEnvelope
 from ai_trainer.domain.sports.gym.edit import apply_gym_edit
-from ai_trainer.domain.sports.gym.extraction import GymExtraction
+from ai_trainer.domain.sports.gym.extraction import RPE_OF_EFFORT, Effort, GymExtraction
 from ai_trainer.domain.sports.gym.normalize import normalize_load, to_kg
 from ai_trainer.domain.sports.gym.payload import (
     GYM_PAYLOAD_VERSION,
@@ -277,7 +278,7 @@ def test_the_registry_wires_gym_to_its_extraction_template_and_payload() -> None
 
     assert (plugin.icon, plugin.label_key) == ("dumbbell", "sport.gym.label")
     assert plugin.extraction is not None
-    assert (plugin.extraction.template_id, plugin.extraction.version) == ("gym.extract", 5)
+    assert (plugin.extraction.template_id, plugin.extraction.version) == ("gym.extract", 6)
     assert plugin.extraction.output_type is GymExtraction
     assert plugin.extraction.payload_type is GymPayload
     assert plugin.extraction.payload_version == GYM_PAYLOAD_VERSION
@@ -379,3 +380,107 @@ def test_a_movement_answer_still_names_every_scheme() -> None:
 
     (entry,) = extraction.to_payload().activities
     assert entry.name_as_typed == "bench press"
+
+
+# Stretching, mobility, classes and indoor cardio are gym (PRD 0013 B41, ticket #622): each is
+# an entry of timed sets, and a class's length and effort are also the session's.
+
+
+def _timed(name: str, value: float, unit: str, **fields: Any) -> dict[str, Any]:
+    return {"name": name, "duration": {"value": value, "unit": unit}} | fields
+
+
+def test_twenty_minutes_of_stretching_is_one_set_of_1200_s() -> None:
+    (entry,) = _extraction(activities=[_timed("stretching", 20, "min")]).to_payload().activities
+
+    assert (entry.name_as_typed, entry.measure, entry.per_side) == ("stretching", "time", False)
+    assert [gym_set.duration_s for gym_set in entry.sets] == [1200]
+
+
+def test_a_stretch_each_side_is_one_per_side_set_of_30_s() -> None:
+    extraction = _extraction(activities=[_timed("hip flexor stretch", 30, "s", per_side=True)])
+
+    (entry,) = extraction.to_payload().activities
+    assert (entry.name_as_typed, entry.per_side) == ("hip flexor stretch", True)
+    assert [gym_set.duration_s for gym_set in entry.sets] == [30]
+
+
+def test_a_class_is_one_timed_entry_with_the_session_duration_and_rpe() -> None:
+    extraction = _extraction(
+        activities=[_timed("yoga class", 60, "min")],
+        session_duration={"value": 60, "unit": "min"},
+        effort="hard",
+    )
+
+    (entry,) = extraction.to_payload().activities
+    assert entry.name_as_typed == "yoga class"
+    assert [gym_set.duration_s for gym_set in entry.sets] == [3600]
+    assert extraction.envelope() == SessionEnvelope(duration_min=60, rpe=7)
+
+
+def test_thirty_minutes_on_the_treadmill_is_kept_as_a_timed_entry() -> None:
+    (entry,) = _extraction(activities=[_timed("treadmill", 30, "min")]).to_payload().activities
+
+    assert (entry.name_as_typed, entry.measure) == ("treadmill", "time")
+    assert [gym_set.duration_s for gym_set in entry.sets] == [1800]
+
+
+def test_no_effort_word_leaves_rpe_empty() -> None:
+    extraction = _extraction(activities=[_timed("stretching", 20, "min")])
+
+    assert extraction.envelope() == SessionEnvelope(duration_min=None, rpe=None)
+
+
+def test_a_stated_rpe_is_kept_as_typed() -> None:
+    """A number the athlete typed wins over an effort word beside it."""
+    assert _extraction(rpe=8).envelope().rpe == 8
+    assert _extraction(rpe=8, effort="easy").envelope().rpe == 8
+
+
+@pytest.mark.parametrize("rpe", [0, 11])
+def test_a_stated_rpe_outside_1_to_10_is_refused(rpe: int) -> None:
+    with pytest.raises(ValidationError):
+        _extraction(rpe=rpe)
+
+
+def test_effort_table_covers_every_word() -> None:
+    assert set(RPE_OF_EFFORT) == set(get_args(Effort.__value__))
+    assert RPE_OF_EFFORT == {
+        "very_easy": 2,
+        "easy": 3,
+        "moderate": 5,
+        "hard": 7,
+        "very_hard": 9,
+        "max": 10,
+    }
+    for word, rpe in RPE_OF_EFFORT.items():
+        assert _extraction(effort=word).envelope().rpe == rpe
+
+
+@pytest.mark.parametrize(
+    ("value", "unit", "minutes"),
+    [
+        (1, "h", 60),
+        (1.5, "h", 90),
+        (90, "min", 90),
+        (45, "s", 1),
+        (61, "s", 2),
+        (0.4, "s", 1),
+        (24, "h", 1440),
+    ],
+)
+def test_session_duration_converts_to_minutes(value: float, unit: str, minutes: int) -> None:
+    extraction = _extraction(session_duration={"value": value, "unit": unit})
+
+    assert extraction.envelope().duration_min == minutes
+
+
+def test_a_session_longer_than_a_day_is_refused() -> None:
+    with pytest.raises(ValidationError):
+        _extraction(session_duration={"value": 25, "unit": "h"})
+
+
+def test_a_set_timed_in_hours_is_kept_in_seconds() -> None:
+    (entry,) = _extraction(activities=[_timed("spin class", 1, "h")]).to_payload().activities
+
+    assert [gym_set.duration_s for gym_set in entry.sets] == [3600]

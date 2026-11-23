@@ -5,6 +5,7 @@ converts to kg, seconds and metres, and reads the measure. A log it can't read s
 question instead: which movement an exercise name means, or which unit a load typed without one
 is in, its readings likeliest first (B17, ticket #206)."""
 
+import math
 import re
 from collections.abc import Mapping, Sequence
 from typing import Literal, Self, get_args
@@ -12,8 +13,9 @@ from typing import Literal, Self, get_args
 from pydantic import BaseModel, Field, JsonValue, field_validator, model_validator
 
 from ai_trainer.domain.clarification import ChoiceOption
-from ai_trainer.domain.sports.base import ExtractionQuestion, SessionExtraction
+from ai_trainer.domain.sports.base import ExtractionQuestion, SessionEnvelope, SessionExtraction
 from ai_trainer.domain.sports.gym.normalize import (
+    SECONDS_PER_MINUTE,
     DistanceUnit,
     DurationUnit,
     normalize_load,
@@ -121,8 +123,44 @@ _MOVEMENT_COPY_KEY = "gym_reading_movement"
 _UNIT_COPY_KEY = "gym_reading_"
 
 
+MAX_RPE = 10
+
+# How hard the athlete said the session was, as a closed word the model picks ("hard",
+# "ciężko"); code reads it as an RPE through `RPE_OF_EFFORT` (owner's table, ticket #622).
+type Effort = Literal["very_easy", "easy", "moderate", "hard", "very_hard", "max"]
+
+RPE_OF_EFFORT: Mapping[Effort, int] = {
+    "very_easy": 2,
+    "easy": 3,
+    "moderate": 5,
+    "hard": 7,
+    "very_hard": 9,
+    "max": 10,
+}
+
+
 class GymExtraction(SessionExtraction):
+    """Besides the exercises, the session's own length when the log states it or is one class
+    alone, and its effort as a word or a stated RPE (PRD 0013 B41, ticket #622); each is empty
+    when the log doesn't give it. Every one is optional, so v1 to v5 outputs still read."""
+
     activities: list[ExtractedExercise] = Field(min_length=1)
+    session_duration: ExtractedDuration | None = None
+    effort: Effort | None = None
+    rpe: int | None = Field(default=None, ge=1, le=MAX_RPE)
+
+    def envelope(self) -> SessionEnvelope:
+        """The length in whole minutes, a part minute counted as one; a stated RPE over the
+        effort word's."""
+        duration = self.session_duration
+        return SessionEnvelope(
+            duration_min=None
+            if duration is None
+            else max(1, math.ceil(to_seconds(duration.value, duration.unit) / SECONDS_PER_MINUTE)),
+            rpe=self.rpe
+            if self.rpe is not None
+            else (None if self.effort is None else RPE_OF_EFFORT[self.effort]),
+        )
 
     def answered(self, answer: ChoiceOption) -> Self:
         """A movement pick names every exercise typed as the question asked, or written as one
