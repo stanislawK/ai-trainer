@@ -17,7 +17,7 @@ from ai_trainer.adapters.orm import (
     UserSportOrm,
 )
 from ai_trainer.domain.athlete_profile import AthleteProfile
-from ai_trainer.domain.goals import Goal
+from ai_trainer.domain.goals import Goal, GoalKind
 from ai_trainer.domain.onboarding import AnswerStatus, OnboardingAnswer, OnboardingStep
 from ai_trainer.domain.sport_profile import SportProfile
 
@@ -72,13 +72,18 @@ class SqlAlchemyOnboardingRepository:
     async def list_goals(self, user_id: UUID) -> Sequence[Goal]:
         async with self._session_factory() as session:
             rows = await session.execute(
-                select(GoalOrm.text, GoalOrm.target_date, GoalOrm.sport_id)
+                select(GoalOrm.text, GoalOrm.target_date, GoalOrm.sport_id, GoalOrm.kind)
                 .where(GoalOrm.user_id == user_id)
                 .order_by(GoalOrm.position)
             )
             return [
-                Goal(text=text, target_date=target_date, sport_id=sport_id)
-                for text, target_date, sport_id in rows
+                Goal(
+                    text=text,
+                    target_date=target_date,
+                    sport_id=sport_id,
+                    kind=GoalKind(kind) if kind is not None else None,
+                )
+                for text, target_date, sport_id, kind in rows
             ]
 
     async def set_onboarded_at(self, user_id: UUID, when: datetime | None) -> None:
@@ -368,6 +373,7 @@ async def _replace_goals(session: AsyncSession, user_id: UUID, goals: Sequence[G
                         "text": goal.text,
                         "target_date": goal.target_date,
                         "sport_id": goal.sport_id,
+                        "kind": goal.kind.value if goal.kind is not None else None,
                     }
                     for position, goal in enumerate(goals)
                 ]

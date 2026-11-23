@@ -1,0 +1,244 @@
+{
+  "template_id": "goal_kind",
+  "version": 1,
+  "model": "typesafe/jev-1.13",
+  "assertions": 1.0,
+  "scores": {},
+  "thresholds": {
+    "max_assertions_drop": 0.0,
+    "max_score_drop": 0.05
+  },
+  "decision_thresholds": {},
+  "cases": {
+    "strength: Deadlift 150 kg": {
+      "kind": {
+        "mean": 1.0,
+        "min": 1.0,
+        "max": 1.0,
+        "runs": 1,
+        "flips": false,
+        "spread": 0.0
+      }
+    },
+    "strength: Squat 120 kg": {
+      "kind": {
+        "mean": 1.0,
+        "min": 1.0,
+        "max": 1.0,
+        "runs": 1,
+        "flips": false,
+        "spread": 0.0
+      }
+    },
+    "strength: Pull-up with +10 kg": {
+      "kind": {
+        "mean": 1.0,
+        "min": 1.0,
+        "max": 1.0,
+        "runs": 1,
+        "flips": false,
+        "spread": 0.0
+      }
+    },
+    "strength: Wycisnąć 100 kg na ławce": {
+      "kind": {
+        "mean": 1.0,
+        "min": 1.0,
+        "max": 1.0,
+        "runs": 1,
+        "flips": false,
+        "spread": 0.0
+      }
+    },
+    "muscle: Build bigger arms": {
+      "kind": {
+        "mean": 1.0,
+        "min": 1.0,
+        "max": 1.0,
+        "runs": 1,
+        "flips": false,
+        "spread": 0.0
+      }
+    },
+    "muscle: Put on 3 kg of muscle": {
+      "kind": {
+        "mean": 1.0,
+        "min": 1.0,
+        "max": 1.0,
+        "runs": 1,
+        "flips": false,
+        "spread": 0.0
+      }
+    },
+    "muscle: Zbudować masę mięśniową": {
+      "kind": {
+        "mean": 1.0,
+        "min": 1.0,
+        "max": 1.0,
+        "runs": 1,
+        "flips": false,
+        "spread": 0.0
+      }
+    },
+    "endurance: Run 10 km under 50 minutes": {
+      "kind": {
+        "mean": 1.0,
+        "min": 1.0,
+        "max": 1.0,
+        "runs": 1,
+        "flips": false,
+        "spread": 0.0
+      }
+    },
+    "endurance: Ride a 160 km sportive": {
+      "kind": {
+        "mean": 0.99,
+        "min": 0.99,
+        "max": 0.99,
+        "runs": 1,
+        "flips": false,
+        "spread": 0.0
+      }
+    },
+    "endurance: Row 5 km without stopping": {
+      "kind": {
+        "mean": 1.0,
+        "min": 1.0,
+        "max": 1.0,
+        "runs": 1,
+        "flips": false,
+        "spread": 0.0
+      }
+    },
+    "weight_loss: Lose 5 kg": {
+      "kind": {
+        "mean": 1.0,
+        "min": 1.0,
+        "max": 1.0,
+        "runs": 1,
+        "flips": false,
+        "spread": 0.0
+      }
+    },
+    "weight_loss: Get down to 75 kg by summer": {
+      "kind": {
+        "mean": 1.0,
+        "min": 1.0,
+        "max": 1.0,
+        "runs": 1,
+        "flips": false,
+        "spread": 0.0
+      }
+    },
+    "weight_loss: Schudnąć 8 kg": {
+      "kind": {
+        "mean": 1.0,
+        "min": 1.0,
+        "max": 1.0,
+        "runs": 1,
+        "flips": false,
+        "spread": 0.0
+      }
+    },
+    "mobility: Touch my toes by summer": {
+      "kind": {
+        "mean": 1.0,
+        "min": 1.0,
+        "max": 1.0,
+        "runs": 1,
+        "flips": false,
+        "spread": 0.0
+      }
+    },
+    "mobility: Do the front splits": {
+      "kind": {
+        "mean": 1.0,
+        "min": 1.0,
+        "max": 1.0,
+        "runs": 1,
+        "flips": false,
+        "spread": 0.0
+      }
+    },
+    "mobility: Loosen my tight hips": {
+      "kind": {
+        "mean": 1.0,
+        "min": 1.0,
+        "max": 1.0,
+        "runs": 1,
+        "flips": false,
+        "spread": 0.0
+      }
+    },
+    "general_fitness: Get back in shape after the winter": {
+      "kind": {
+        "mean": 1.0,
+        "min": 1.0,
+        "max": 1.0,
+        "runs": 1,
+        "flips": false,
+        "spread": 0.0
+      }
+    },
+    "general_fitness: Stay active and healthy": {
+      "kind": {
+        "mean": 1.0,
+        "min": 1.0,
+        "max": 1.0,
+        "runs": 1,
+        "flips": false,
+        "spread": 0.0
+      }
+    },
+    "general_fitness: Get fitter and lose a bit of weight": {
+      "kind": {
+        "mean": 0.99,
+        "min": 0.99,
+        "max": 0.99,
+        "runs": 1,
+        "flips": false,
+        "spread": 0.0
+      }
+    },
+    "strength: Get stronger and lose some fat": {
+      "kind": {
+        "mean": 1.0,
+        "min": 1.0,
+        "max": 1.0,
+        "runs": 1,
+        "flips": false,
+        "spread": 0.0
+      }
+    },
+    "none: Have fun": {
+      "kind": {
+        "mean": 1.0,
+        "min": 1.0,
+        "max": 1.0,
+        "runs": 1,
+        "flips": false,
+        "spread": 0.0
+      }
+    },
+    "none: Climb with my friends": {
+      "kind": {
+        "mean": 1.0,
+        "min": 1.0,
+        "max": 1.0,
+        "runs": 1,
+        "flips": false,
+        "spread": 0.0
+      }
+    },
+    "none: Try the new gym in town": {
+      "kind": {
+        "mean": 1.0,
+        "min": 1.0,
+        "max": 1.0,
+        "runs": 1,
+        "flips": false,
+        "spread": 0.0
+      }
+    }
+  }
+}

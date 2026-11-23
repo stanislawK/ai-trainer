@@ -45,6 +45,7 @@ from ai_trainer.llm.evals.exercise_shortlist_smoke import (
     has_live_cases,
     run_exercise_shortlist_smoke,
 )
+from ai_trainer.llm.evals.goal_kind_smoke import run_goal_kind_smoke
 from ai_trainer.llm.evals.jev_check import JevCheck, configure_jev_check
 from ai_trainer.llm.evals.picture_brief_check_smoke import run_picture_brief_check_smoke
 from ai_trainer.llm.evals.question_sport_smoke import run_question_sport_smoke
@@ -69,6 +70,7 @@ from ai_trainer.llm.evals.smoke import (
 from ai_trainer.llm.exercise_shortlist import EXERCISE_SHORTLIST_ID, EXERCISE_SHORTLIST_VERSION
 from ai_trainer.llm.extract import ActivitiesMatch, DateMatch, QuestionMatch, SessionMatch
 from ai_trainer.llm.gateway import provider_config, reasoning_at
+from ai_trainer.llm.goal_kind import GOAL_KIND_ID, GOAL_KIND_VERSION
 from ai_trainer.llm.onboarding import (
     ABOUT_YOU_TEMPLATE_ID,
     ABOUT_YOU_VERSION,
@@ -221,6 +223,7 @@ def _active_versions(sports: SportRegistry) -> dict[str, int]:
         QUESTION_SPORT_ID: QUESTION_SPORT_VERSION,
         SIMPLE_HOWTO_CHECK_ID: SIMPLE_HOWTO_CHECK_VERSION,
         PICTURE_BRIEF_CHECK_ID: PICTURE_BRIEF_CHECK_VERSION,
+        GOAL_KIND_ID: GOAL_KIND_VERSION,
     }
 
 
@@ -628,6 +631,9 @@ def _own_runners(
             ),
         )
 
+    async def goal_kind(smoke_set: SmokeSet, model: Model) -> list[SmokeCaseResult]:
+        return await run_goal_kind_smoke(smoke_set, model, threshold=settings.goal_kind_threshold)
+
     async def answer(smoke_set: SmokeSet, model: Model) -> list[SmokeCaseResult]:
         return await run_answer_smoke(
             smoke_set,
@@ -643,6 +649,7 @@ def _own_runners(
         QUESTION_SPORT_ID: question_sport,
         SIMPLE_HOWTO_CHECK_ID: simple_howto_check,
         PICTURE_BRIEF_CHECK_ID: picture_brief_check,
+        GOAL_KIND_ID: goal_kind,
     }
     answer_runners: dict[str, DecisionSmokeRunner] = {
         plugin.answers.template_id: answer

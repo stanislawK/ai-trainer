@@ -140,6 +140,7 @@ from ai_trainer.llm.decision_gateway import OpenRouterDecisionGateway
 from ai_trainer.llm.embeddings import OpenRouterEmbeddingGateway
 from ai_trainer.llm.exercise_shortlist import JevExercisePicker
 from ai_trainer.llm.gateway import OpenRouterGateway
+from ai_trainer.llm.goal_kind import JevGoalKind
 from ai_trainer.llm.images import OpenRouterImageGenerator
 from ai_trainer.llm.onboarding import LlmOnboardingReader
 from ai_trainer.llm.picture_brief import LlmPictureBriefWriter
@@ -309,9 +310,15 @@ def build_exercise_names(
 
 
 def build_onboarding_reader(
-    settings: Settings, sports: SportRegistry, gateway: LlmGatewayPort, clock: ClockPort
+    settings: Settings,
+    sports: SportRegistry,
+    gateway: LlmGatewayPort,
+    clock: ClockPort,
+    *,
+    decisions: DecisionGatewayPort,
 ) -> LlmOnboardingReader:
-    """The onboarding reads' one settings group (ADR-0028)."""
+    """The onboarding reads' one settings group (ADR-0028), with Jev picking each goal's kind in
+    the goals read (`goal_kind`, the #618 amendment) on the budgeted decision gateway."""
     return LlmOnboardingReader(
         registry=build_prompt_registry(_PROMPTS_ROOT, sports),
         gateway=gateway,
@@ -320,6 +327,7 @@ def build_onboarding_reader(
         provider=settings.onboarding_provider_preferences,
         reasoning_effort=settings.onboarding_reasoning_effort,
         timeout_seconds=settings.onboarding_call_timeout_seconds,
+        goal_kinds=JevGoalKind(decisions, threshold=settings.goal_kind_threshold),
     )
 
 
@@ -1023,7 +1031,9 @@ def create_app(  # noqa: PLR0915 -- composition root: objects are built only her
             registry=sport_registry,
             answers=onboarding,
             reads=reads,
-            reader=build_onboarding_reader(settings, sport_registry, gateway, clock),
+            reader=build_onboarding_reader(
+                settings, sport_registry, gateway, clock, decisions=decisions
+            ),
             clock=clock,
         )
     )

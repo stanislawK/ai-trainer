@@ -6,7 +6,7 @@ from datetime import date
 import pytest
 
 from ai_trainer.domain.athlete_profile import FieldProblem
-from ai_trainer.domain.goals import Goal
+from ai_trainer.domain.goals import Goal, GoalKind
 from ai_trainer.domain.sport_profile import (
     LengthUnit,
     SportProfile,
@@ -156,6 +156,26 @@ def test_a_read_goal_with_a_bad_date_keeps_its_text() -> None:
     )
 
     assert section.goals == (Goal(text="Deadlift 150 kg", sport_id="gym"),)
+
+
+def test_goals_from_read_reads_a_valid_kind_and_drops_an_unknown_one() -> None:
+    """The kind Jev picked in the background (PRD 0013 B45) reaches the summary; an unknown
+    value, a missing key (a read stored before #625) or `None` is no kind."""
+    section = sport_from_read(
+        "gym",
+        goals={
+            "goals": [
+                {"text": "Touch my toes by summer", "kind": "mobility"},
+                {"text": "Lose 5 kg", "kind": "body_composition"},
+                {"text": "Deadlift 150 kg"},
+                {"text": "Have fun", "kind": None},
+            ]
+        },
+        level=None,
+        schedule=None,
+    )
+
+    assert [goal.kind for goal in section.goals] == [GoalKind.MOBILITY, None, None, None]
 
 
 def test_at_most_five_goals_are_read() -> None:

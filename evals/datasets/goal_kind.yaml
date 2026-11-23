@@ -1,0 +1,220 @@
+# Dataset for the goal_kind decision (ADR-0020 invariant 6, ADR-0028 #618 amendment, PRD 0013 B45,
+# #625): code-graded, labelled before the threshold is set (ADR-0034). Each case is one onboarding
+# goal as `onboarding.goals` writes it: a short line in the athlete's words. Its state (`prompt`)
+# is exactly what the app sends Jev, `GoalKindState(goal)` as JSON; `deps` repeats the goal for
+# reading, and a unit test keeps them in step. `kind` is the option Jev should pick: one of the six
+# kinds, or `none` when the goal names no outcome a kind could serve. At least two cases per kind,
+# Polish ones, two near-ties labelled by the outcome the goal leads with (`metadata.near_tie`), and
+# the `none` case. `metadata.source` says where each goal came from: the ticket's ACs,
+# evals/datasets/onboarding.goals.yaml, or written by hand.
+name: goal_kind
+cases:
+- name: 'strength: Deadlift 150 kg'
+  metadata:
+    source: 'ticket #625 AC; onboarding.goals dataset'
+  inputs:
+    prompt: '{"goal":"Deadlift 150 kg"}'
+    deps:
+      goal: Deadlift 150 kg
+  expected_output:
+    kind: strength
+- name: 'strength: Squat 120 kg'
+  metadata:
+    source: onboarding.goals dataset
+  inputs:
+    prompt: '{"goal":"Squat 120 kg"}'
+    deps:
+      goal: Squat 120 kg
+  expected_output:
+    kind: strength
+- name: 'strength: Pull-up with +10 kg'
+  metadata:
+    source: onboarding.goals dataset
+  inputs:
+    prompt: '{"goal":"Pull-up with +10 kg"}'
+    deps:
+      goal: Pull-up with +10 kg
+  expected_output:
+    kind: strength
+- name: 'strength: Wycisnąć 100 kg na ławce'
+  metadata:
+    source: Polish, by hand
+  inputs:
+    prompt: '{"goal":"Wycisnąć 100 kg na ławce"}'
+    deps:
+      goal: Wycisnąć 100 kg na ławce
+  expected_output:
+    kind: strength
+- name: 'muscle: Build bigger arms'
+  metadata:
+    source: by hand
+  inputs:
+    prompt: '{"goal":"Build bigger arms"}'
+    deps:
+      goal: Build bigger arms
+  expected_output:
+    kind: muscle
+- name: 'muscle: Put on 3 kg of muscle'
+  metadata:
+    source: by hand
+  inputs:
+    prompt: '{"goal":"Put on 3 kg of muscle"}'
+    deps:
+      goal: Put on 3 kg of muscle
+  expected_output:
+    kind: muscle
+- name: 'muscle: Zbudować masę mięśniową'
+  metadata:
+    source: Polish, by hand
+  inputs:
+    prompt: '{"goal":"Zbudować masę mięśniową"}'
+    deps:
+      goal: Zbudować masę mięśniową
+  expected_output:
+    kind: muscle
+- name: 'endurance: Run 10 km under 50 minutes'
+  metadata:
+    source: onboarding.goals dataset
+  inputs:
+    prompt: '{"goal":"Run 10 km under 50 minutes"}'
+    deps:
+      goal: Run 10 km under 50 minutes
+  expected_output:
+    kind: endurance
+- name: 'endurance: Ride a 160 km sportive'
+  metadata:
+    source: onboarding.goals dataset
+  inputs:
+    prompt: '{"goal":"Ride a 160 km sportive"}'
+    deps:
+      goal: Ride a 160 km sportive
+  expected_output:
+    kind: endurance
+- name: 'endurance: Row 5 km without stopping'
+  metadata:
+    source: by hand
+  inputs:
+    prompt: '{"goal":"Row 5 km without stopping"}'
+    deps:
+      goal: Row 5 km without stopping
+  expected_output:
+    kind: endurance
+- name: 'weight_loss: Lose 5 kg'
+  metadata:
+    source: 'ticket #625 AC'
+  inputs:
+    prompt: '{"goal":"Lose 5 kg"}'
+    deps:
+      goal: Lose 5 kg
+  expected_output:
+    kind: weight_loss
+- name: 'weight_loss: Get down to 75 kg by summer'
+  metadata:
+    source: by hand
+  inputs:
+    prompt: '{"goal":"Get down to 75 kg by summer"}'
+    deps:
+      goal: Get down to 75 kg by summer
+  expected_output:
+    kind: weight_loss
+- name: 'weight_loss: Schudnąć 8 kg'
+  metadata:
+    source: Polish, by hand
+  inputs:
+    prompt: '{"goal":"Schudnąć 8 kg"}'
+    deps:
+      goal: Schudnąć 8 kg
+  expected_output:
+    kind: weight_loss
+- name: 'mobility: Touch my toes by summer'
+  metadata:
+    source: 'ticket #625 AC'
+  inputs:
+    prompt: '{"goal":"Touch my toes by summer"}'
+    deps:
+      goal: Touch my toes by summer
+  expected_output:
+    kind: mobility
+- name: 'mobility: Do the front splits'
+  metadata:
+    source: by hand
+  inputs:
+    prompt: '{"goal":"Do the front splits"}'
+    deps:
+      goal: Do the front splits
+  expected_output:
+    kind: mobility
+- name: 'mobility: Loosen my tight hips'
+  metadata:
+    source: by hand
+  inputs:
+    prompt: '{"goal":"Loosen my tight hips"}'
+    deps:
+      goal: Loosen my tight hips
+  expected_output:
+    kind: mobility
+- name: 'general_fitness: Get back in shape after the winter'
+  metadata:
+    source: by hand
+  inputs:
+    prompt: '{"goal":"Get back in shape after the winter"}'
+    deps:
+      goal: Get back in shape after the winter
+  expected_output:
+    kind: general_fitness
+- name: 'general_fitness: Stay active and healthy'
+  metadata:
+    source: by hand
+  inputs:
+    prompt: '{"goal":"Stay active and healthy"}'
+    deps:
+      goal: Stay active and healthy
+  expected_output:
+    kind: general_fitness
+- name: 'general_fitness: Get fitter and lose a bit of weight'
+  metadata:
+    source: near-tie, by hand
+    near_tie: true
+  inputs:
+    prompt: '{"goal":"Get fitter and lose a bit of weight"}'
+    deps:
+      goal: Get fitter and lose a bit of weight
+  expected_output:
+    kind: general_fitness
+- name: 'strength: Get stronger and lose some fat'
+  metadata:
+    source: near-tie, by hand
+    near_tie: true
+  inputs:
+    prompt: '{"goal":"Get stronger and lose some fat"}'
+    deps:
+      goal: Get stronger and lose some fat
+  expected_output:
+    kind: strength
+- name: 'none: Have fun'
+  metadata:
+    source: by hand
+  inputs:
+    prompt: '{"goal":"Have fun"}'
+    deps:
+      goal: Have fun
+  expected_output:
+    kind: none
+- name: 'none: Climb with my friends'
+  metadata:
+    source: by hand
+  inputs:
+    prompt: '{"goal":"Climb with my friends"}'
+    deps:
+      goal: Climb with my friends
+  expected_output:
+    kind: none
+- name: 'none: Try the new gym in town'
+  metadata:
+    source: by hand
+  inputs:
+    prompt: '{"goal":"Try the new gym in town"}'
+    deps:
+      goal: Try the new gym in town
+  expected_output:
+    kind: none

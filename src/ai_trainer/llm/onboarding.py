@@ -3,6 +3,7 @@ fields in the background. Values come back with the unit the athlete used, and d
 parts, and code converts them (invariant 6). A detail the answer leaves unclear stays empty
 (B34)."""
 
+import asyncio
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date
@@ -13,6 +14,7 @@ from pydantic import BaseModel, Field, JsonValue
 from pydantic_evals.evaluators import Evaluator, EvaluatorContext, EvaluatorOutput
 
 from ai_trainer.application.ports.clock import ClockPort
+from ai_trainer.application.ports.goal_kind import GoalKindPort
 from ai_trainer.application.ports.llm_gateway import LlmGatewayPort
 from ai_trainer.domain.athlete_profile import (
     AboutYou,
@@ -263,6 +265,7 @@ class LlmOnboardingReader:
         provider: ProviderPreferences | None = None,
         reasoning_effort: ReasoningEffort | None = None,
         timeout_seconds: float | None = None,
+        goal_kinds: GoalKindPort | None = None,
     ) -> None:
         self._registry = registry
         self._gateway = gateway
@@ -271,6 +274,7 @@ class LlmOnboardingReader:
         self._provider = provider
         self._reasoning_effort = reasoning_effort
         self._timeout_seconds = timeout_seconds
+        self._goal_kinds = goal_kinds
 
     async def read(
         self, user_id: UUID, answer: OnboardingAnswer, *, sport_id: str, timezone: str
@@ -298,7 +302,29 @@ class LlmOnboardingReader:
         )
         if result.output is None:
             return None
-        return step.fields(result.output, deps.today)
+        fields = step.fields(result.output, deps.today)
+        if answer.step is OnboardingStep.GOALS and self._goal_kinds is not None:
+            return await _with_kinds(self._goal_kinds, user_id, fields)
+        return fields
+
+
+async def _with_kinds(
+    kinds: GoalKindPort, user_id: UUID, fields: dict[str, JsonValue]
+) -> dict[str, JsonValue]:
+    """Each kept goal with the kind Jev picked from its text (`goal_kind`, ADR-0028 #618
+    amendment), asked at once in this same background read. The kind is stored with the read
+    and reaches `goals` only through the summary's confirm (invariant 1); the port never raises,
+    so a failed pick is an empty kind and the read is kept."""
+    read = fields.get("goals")
+    goals = [goal for goal in read if isinstance(goal, dict)] if isinstance(read, list) else []
+    picked = await asyncio.gather(*(kinds.kind_of(user_id, str(goal["text"])) for goal in goals))
+    return {
+        **fields,
+        "goals": [
+            {**goal, "kind": kind.value if kind is not None else None}
+            for goal, kind in zip(goals, picked, strict=True)
+        ],
+    }
 
 
 @dataclass

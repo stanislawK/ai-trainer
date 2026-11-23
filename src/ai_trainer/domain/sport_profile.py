@@ -14,7 +14,7 @@ from typing import assert_never
 from pydantic import BaseModel, ConfigDict
 
 from ai_trainer.domain.athlete_profile import FieldProblem, typed_whole
-from ai_trainer.domain.goals import Goal
+from ai_trainer.domain.goals import Goal, GoalKind
 
 MAX_GOALS = 5
 MAX_GOAL_LENGTH = 200
@@ -186,9 +186,18 @@ def _goals_from_read(sport_id: str, parsed: Mapping[str, object]) -> tuple[Goal,
                 text=text,
                 target_date=_iso_date(when) if isinstance(when, str) else None,
                 sport_id=sport_id,
+                kind=_goal_kind(item.get("kind")),
             )
         )
     return tuple(goals[:MAX_GOALS])
+
+
+def _goal_kind(value: object) -> GoalKind | None:
+    """The kind a read stored (B45), or `None` for no kind, an unknown value, or a read stored
+    before kinds were picked."""
+    if isinstance(value, str) and value in GoalKind:
+        return GoalKind(value)
+    return None
 
 
 def sport_from_read(

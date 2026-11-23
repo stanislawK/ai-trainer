@@ -54,6 +54,18 @@ class PictureBriefCheckSettings(BaseModel):
     picture_brief_check_rules_threshold: float = Field(default=0.45, ge=0, le=1)
 
 
+class GoalKindSettings(BaseModel):
+    """Jev's pick of an onboarding goal's kind (`goal_kind`, PRD 0013 B45, ADR-0028 #618
+    amendment, #625)."""
+
+    # P(kind) at or above this proposes that kind on the summary. A wrong kind is seen and fixed
+    # there, but if confirmed it shapes later gym answers (B46); a missing kind costs only an
+    # empty pick. So a new set starts on the side of missing (ADR-0034), and it moves via
+    # /tune-prompt goal_kind. First run (2026-11-23, 23 cases x 3): every pick right at P 0.99 or
+    # more, near-ties included, so 0.7 drops only a pick Jev is split on.
+    goal_kind_threshold: float = Field(default=0.7, ge=0, le=1)
+
+
 def split_comma_separated(value: Any) -> Any:  # noqa: ANN401 -- raw env input of any type
     if isinstance(value, str):
         return [item.strip() for item in value.split(",") if item.strip()]
