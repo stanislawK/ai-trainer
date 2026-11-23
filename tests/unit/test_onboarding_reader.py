@@ -5,7 +5,7 @@ them, and every read writes an `llm_calls` row under the athlete."""
 import json
 from datetime import UTC, date, datetime
 from pathlib import Path
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from pydantic import PostgresDsn, SecretStr
 from pydantic_ai import ModelMessage, ModelResponse, TextPart
@@ -13,6 +13,7 @@ from pydantic_ai.models.function import AgentInfo, FunctionModel
 from pydantic_evals.evaluators import EvaluatorContext
 
 from ai_trainer.domain.athlete_profile import AboutYou, HeightUnit, WeightUnit
+from ai_trainer.domain.goals import GoalKind
 from ai_trainer.domain.llm_calls import LlmCallOutcome, ProviderPreferences
 from ai_trainer.domain.onboarding import AnswerStatus, OnboardingAnswer, OnboardingStep
 from ai_trainer.domain.sports.registry import default_sport_registry
@@ -280,3 +281,101 @@ def test_the_eval_fails_a_guessed_value() -> None:
         "weight_kg": False,
         "limits_present": False,
     }
+
+
+# --- each goal's kind (PRD 0013 B45, ADR-0028 #618 amendment, #625) ---------------------------
+
+_GOAL_KINDS = {
+    "Touch my toes by summer": GoalKind.MOBILITY,
+    "Lose 5 kg": GoalKind.WEIGHT_LOSS,
+    "Deadlift 150 kg": GoalKind.STRENGTH,
+}
+
+
+class FakeGoalKinds:
+    """A fake `GoalKindPort`: a kind per goal text, `None` for the rest, or `None` for every
+    goal when `failing` (it never raises, as the port promises)."""
+
+    def __init__(self, *, failing: bool = False) -> None:
+        self._failing = failing
+        self.asked: list[str] = []
+
+    async def kind_of(self, user_id: UUID, goal: str) -> GoalKind | None:
+        self.asked.append(goal)
+        return None if self._failing else _GOAL_KINDS.get(goal)
+
+
+def _read_goals(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+    read = {"goals": [{"text": text} for text in [*_GOAL_KINDS, "Have fun"]]}
+    return ModelResponse(parts=[TextPart(json.dumps(read))], provider_details={"cost": 0.0001})
+
+
+def _goals_answer() -> OnboardingAnswer:
+    return OnboardingAnswer(
+        step=OnboardingStep.GOALS,
+        sport_id="gym",
+        text="Touch my toes by summer, lose 5 kg, deadlift 150 kg, have fun",
+        revision=1,
+        status=AnswerStatus.PENDING,
+    )
+
+
+async def _read_with(kinds: FakeGoalKinds, answer: OnboardingAnswer) -> object:
+    gateway = OpenRouterGateway(_settings(), FakeLlmCallsRepository())
+    reader = _reader(gateway, goal_kinds=kinds)
+    model = _read_goals if answer.step is OnboardingStep.GOALS else _read_ac_answer
+    with gateway.agent.override(model=FunctionModel(model)):
+        return await reader.read(uuid4(), answer, sport_id="gym", timezone="Europe/Warsaw")
+
+
+async def test_goals_read_adds_each_goals_kind() -> None:
+    """AC: each kept goal's text is asked for its kind in the same background read, and the
+    kind is stored with the read, never on `goals` (invariant 1)."""
+    kinds = FakeGoalKinds()
+
+    parsed = await _read_with(kinds, _goals_answer())
+
+    assert sorted(kinds.asked) == sorted([*_GOAL_KINDS, "Have fun"])
+    assert parsed == {
+        "goals": [
+            {"text": "Touch my toes by summer", "target_date": None, "kind": "mobility"},
+            {"text": "Lose 5 kg", "target_date": None, "kind": "weight_loss"},
+            {"text": "Deadlift 150 kg", "target_date": None, "kind": "strength"},
+            {"text": "Have fun", "target_date": None, "kind": None},
+        ]
+    }
+
+
+async def test_goals_read_is_kept_when_every_kind_pick_fails() -> None:
+    """AC edge: Jev below the threshold or failing leaves each kind empty; the read is kept and
+    onboarding goes on."""
+    parsed = await _read_with(FakeGoalKinds(failing=True), _goals_answer())
+
+    assert isinstance(parsed, dict)
+    goals = parsed["goals"]
+    assert isinstance(goals, list)
+    assert [goal["text"] for goal in goals if isinstance(goal, dict)] == [*_GOAL_KINDS, "Have fun"]
+    assert all(isinstance(goal, dict) and goal["kind"] is None for goal in goals)
+
+
+async def test_only_the_goals_step_asks_for_kinds() -> None:
+    kinds = FakeGoalKinds()
+
+    await _read_with(kinds, _answer())
+
+    assert kinds.asked == []
+
+
+async def test_a_failed_goals_read_asks_for_no_kind() -> None:
+    def fail(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        raise RuntimeError("upstream is down")
+
+    kinds = FakeGoalKinds()
+    gateway = OpenRouterGateway(_settings(), FakeLlmCallsRepository())
+    with gateway.agent.override(model=FunctionModel(fail)):
+        parsed = await _reader(gateway, goal_kinds=kinds).read(
+            uuid4(), _goals_answer(), sport_id="gym", timezone="Europe/Warsaw"
+        )
+
+    assert parsed is None
+    assert kinds.asked == []
