@@ -41,14 +41,17 @@ class PictureBriefCheckSettings(BaseModel):
     #642): the brief is drawn only when each question's P(yes) is at or above its own threshold.
     A false pass draws a wrong picture (another movement, printed labels) that shows until an
     athlete flags it; a false fail only leaves the card without a picture until the next try. So
-    both lean to a false fail. They start at a conservative 0.5 until a calibration run on the
-    labelled dataset sets them, and move via /tune-prompt picture_brief_check (ADR-0034)."""
+    both lean to a false fail. Calibrated on `typesafe/jev-1.13`, 22 dataset cases x 3 repeats,
+    2026-11-23; they move via /tune-prompt picture_brief_check (ADR-0034)."""
 
     # `same_movement`: the brief shows the movement, body position and equipment the instructions
-    # describe.
+    # describe. Good briefs scored 0.94-0.99, briefs for another movement 0.02-0.04: the middle of
+    # the gap. (A deadlift brief showing only the top position scored 0.43; it fails its rules.)
     picture_brief_check_movement_threshold: float = Field(default=0.5, ge=0, le=1)
-    # `keeps_rules`: one figure, start and end position, plain background, no printed text.
-    picture_brief_check_rules_threshold: float = Field(default=0.5, ge=0, le=1)
+    # `keeps_rules`: one figure, start and end position, plain background, no printed text. Good
+    # briefs scored 0.58-0.98, ones asking for labels, two figures or one position 0.04-0.22.
+    # Above the gap's middle, to lean to a false fail, and clear of a plank brief at 0.39-0.41.
+    picture_brief_check_rules_threshold: float = Field(default=0.45, ge=0, le=1)
 
 
 def split_comma_separated(value: Any) -> Any:  # noqa: ANN401 -- raw env input of any type

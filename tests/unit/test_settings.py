@@ -1211,21 +1211,21 @@ def test_simple_howto_limits_must_be_positive(
 
 
 @pytest.mark.parametrize(
-    ("variable", "field"),
+    ("variable", "field", "calibrated"),
     [
-        ("PICTURE_BRIEF_CHECK_MOVEMENT_THRESHOLD", "picture_brief_check_movement_threshold"),
-        ("PICTURE_BRIEF_CHECK_RULES_THRESHOLD", "picture_brief_check_rules_threshold"),
+        ("PICTURE_BRIEF_CHECK_MOVEMENT_THRESHOLD", "picture_brief_check_movement_threshold", 0.5),
+        ("PICTURE_BRIEF_CHECK_RULES_THRESHOLD", "picture_brief_check_rules_threshold", 0.45),
     ],
     ids=["same_movement", "keeps_rules"],
 )
-def test_picture_brief_check_thresholds_start_conservative(
-    monkeypatch: pytest.MonkeyPatch, variable: str, field: str
+def test_picture_brief_check_thresholds_default_to_the_calibration(
+    monkeypatch: pytest.MonkeyPatch, variable: str, field: str, calibrated: float
 ) -> None:
-    # Jev's check of a picture brief, one threshold per question (ADR-0031, #642), at 0.5 until
-    # calibration sets them.
+    # Jev's check of a picture brief, one threshold per question (ADR-0031, #642), at the values
+    # its calibration run set (jev-1.13, 22 cases x 3, 2026-11-23).
     _set_required_keys(monkeypatch)
 
-    assert getattr(Settings(_env_file=None), field) == 0.5
+    assert getattr(Settings(_env_file=None), field) == calibrated
 
     monkeypatch.setenv(variable, "0.65")
 
