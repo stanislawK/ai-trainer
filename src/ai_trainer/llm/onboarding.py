@@ -30,9 +30,11 @@ from ai_trainer.domain.sport_profile import (
     MAX_GOAL_LENGTH,
     MAX_LEVEL_LENGTH,
     LengthUnit,
+    Season,
     Weekday,
     bounded_sessions,
     bounded_text,
+    season_month,
     session_minutes,
     target_date,
 )
@@ -43,6 +45,8 @@ from ai_trainer.llm.prompts.template import PromptTemplate
 ABOUT_YOU_TEMPLATE_ID = "onboarding.about_you"
 ABOUT_YOU_VERSION = 1
 GOALS_TEMPLATE_ID = "onboarding.goals"
+# v2 reads a season as a part the athlete named (#624).
+GOALS_VERSION = 2
 LEVEL_TEMPLATE_ID = "onboarding.level"
 SCHEDULE_TEMPLATE_ID = "onboarding.schedule"
 SPORT_STEP_VERSION = 1
@@ -94,11 +98,19 @@ class AboutYouRead(BaseModel):
 
 class ReadTargetDate(BaseModel):
     """A goal's target date as the parts the athlete named; code picks the year a month alone
-    falls in and the day a month or a year alone means (ADR-0028 invariant 6)."""
+    falls in and the day a month or a year alone means (ADR-0028 invariant 6). A season is its
+    first month, and a month named with it wins (#624)."""
 
     year: int | None = None
     month: int | None = Field(default=None, ge=1, le=12)
     day: int | None = Field(default=None, ge=1, le=31)
+    season: Season | None = None
+
+    def resolved(self, *, today: date) -> date | None:
+        month = self.month
+        if month is None and self.season is not None:
+            month = season_month(self.season)
+        return target_date(self.year, month, self.day, today=today)
 
 
 class ReadGoal(BaseModel):
@@ -117,11 +129,7 @@ class GoalsRead(BaseModel):
         for goal in self.goals:
             if (text := bounded_text(goal.text, MAX_GOAL_LENGTH)) is None:
                 continue
-            when = (
-                target_date(goal.target.year, goal.target.month, goal.target.day, today=today)
-                if goal.target is not None
-                else None
-            )
+            when = goal.target.resolved(today=today) if goal.target is not None else None
             goals.append({"text": text, "target_date": when.isoformat() if when else None})
         return {"goals": goals}
 
@@ -196,7 +204,7 @@ def about_you_template() -> PromptTemplate[OnboardingDeps, AboutYouRead]:
 
 
 def goals_template() -> PromptTemplate[OnboardingDeps, GoalsRead]:
-    return _onboarding_template(GOALS_TEMPLATE_ID, SPORT_STEP_VERSION, GoalsRead)
+    return _onboarding_template(GOALS_TEMPLATE_ID, GOALS_VERSION, GoalsRead)
 
 
 def level_template() -> PromptTemplate[OnboardingDeps, LevelRead]:

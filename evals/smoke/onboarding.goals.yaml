@@ -1,6 +1,8 @@
 # Smoke set for onboarding.goals (ADR-0034, #374): 5 cases taken from
 # evals/datasets/onboarding.goals.yaml, named in each case's `metadata.dataset`, until real chats
-# arrive in evals/field/. Graded in code, run once, no judge.
+# arrive in evals/field/. Graded in code, run once, no judge. #624 adds 4 cases worded from its
+# acceptance criteria and PRD 0013 B45 (ADR-0034's #622 amendment), named in `metadata.prd`:
+# mobility, body composition with a season, endurance and general health goals.
 name: onboarding.goals
 cases:
 - name: 'dates: the AC answer, a month already past this year is next year'
@@ -68,5 +70,59 @@ cases:
     dataset: evals/datasets/onboarding.goals.yaml
   expected_output:
     goals: []
+- name: 'mobility: move without back pain'
+  inputs:
+    prompt: I want to move without back pain
+    deps:
+      sport: gym
+      today: '2026-11-23'
+      timezone: Europe/Warsaw
+  metadata:
+    prd: PRD 0013 B45
+    reported: '#624'
+  expected_output:
+    goals:
+    - text: Move without back pain
+- name: 'body composition: lose 5 kg before summer'
+  inputs:
+    prompt: I want to lose 5 kg before summer
+    deps:
+      sport: gym
+      today: '2026-11-23'
+      timezone: Europe/Warsaw
+  metadata:
+    prd: PRD 0013 B45
+    reported: '#624'
+  expected_output:
+    goals:
+    - text: Lose 5 kg
+      target:
+        season: summer
+- name: 'endurance: run up the stairs without gasping'
+  inputs:
+    prompt: I want to run up the stairs without gasping
+    deps:
+      sport: gym
+      today: '2026-11-23'
+      timezone: Europe/Warsaw
+  metadata:
+    prd: PRD 0013 B45
+    reported: '#624'
+  expected_output:
+    goals:
+    - text: Run up the stairs without gasping
+- name: 'general health: just stay healthy'
+  inputs:
+    prompt: Just stay healthy, no real goal
+    deps:
+      sport: gym
+      today: '2026-11-23'
+      timezone: Europe/Warsaw
+  metadata:
+    prd: PRD 0013 B45
+    reported: '#624'
+  expected_output:
+    goals:
+    - text: Stay healthy
 evaluators:
 - GoalsMatch

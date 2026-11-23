@@ -161,7 +161,7 @@ cases:
       assertion:
         evaluation_name: goals_faithful
         include_reason: true
-- name: 'unclear: a season is no date'
+- name: 'dates: a season'
   inputs:
     prompt: Climb outside more next summer
     deps:
@@ -172,6 +172,8 @@ cases:
   expected_output:
     goals:
     - text: Climb outside more
+      target:
+        season: summer
 - name: 'unclear: soon is no date'
   inputs:
     prompt: Get stronger on pulling soon

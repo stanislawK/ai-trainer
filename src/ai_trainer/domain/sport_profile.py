@@ -9,6 +9,7 @@ import re
 from collections.abc import Mapping, Sequence
 from datetime import date
 from enum import StrEnum
+from typing import assert_never
 
 from pydantic import BaseModel, ConfigDict
 
@@ -45,6 +46,30 @@ class Weekday(StrEnum):
     def number(self) -> int:
         """0 for Monday to 6 for Sunday, as `date.weekday()` counts."""
         return list(Weekday).index(self)
+
+
+class Season(StrEnum):
+    SPRING = "spring"
+    SUMMER = "summer"
+    AUTUMN = "autumn"
+    WINTER = "winter"
+
+
+def season_month(season: Season) -> int:
+    """A season's first meteorological month in the northern hemisphere (#624, Europe first,
+    G15); a goal "before summer" resolves as that month alone. Southern-hemisphere athletes are
+    best effort."""
+    match season:
+        case Season.SPRING:
+            return 3
+        case Season.SUMMER:
+            return 6
+        case Season.AUTUMN:
+            return 9
+        case Season.WINTER:
+            return 12
+        case _:  # pragma: no cover -- unreachable: mypy checks the match is exhaustive
+            assert_never(season)
 
 
 class SportProfile(BaseModel):
