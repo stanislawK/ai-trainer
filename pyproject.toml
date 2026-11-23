@@ -57,7 +57,7 @@ dev = [
     "pytest-playwright[base-url]>=0.10.0",
     "pytest-xdist>=3.8.0",
     "ruff>=0.17.3",
-    "squawk-cli==2.70.0",
+    "squawk-cli==2.71.0",
     "types-pyyaml>=6.0.12.20261103",
 ]
 
