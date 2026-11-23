@@ -119,7 +119,7 @@ The owner requires that the athlete never wait between steps. Only the summary m
 - Owner-directed 2026-11-23 (#618), for the owner's review with the draft PR: a kind on each goal ([PRD 0013](../prd/0013-ai-training-companion.md) B45, B46). Built by M2f's tickets once PRD 0013 is Approved; nothing is built yet.
   - **`goals.kind`:** text NULL, `CHECK (kind IN ('strength','muscle','endurance','weight_loss','mobility','general_fitness'))`, added expand-only (ADR-0024).
   - **A Jev decision set `goal_kind`** (ADR-0020) picks the kind from each goal's text after `onboarding.goals` has read it, in the same background read. Below `goal_kind_threshold` (from evals) or on failure, the kind stays NULL: that is the fallback. Jev's state carries the goal text only, no identity.
-  - **The summary** (B35, F21) shows the kind as a select the athlete can change; confirm writes it with the goal.
+  - **The summary** (B35, F21) shows the kind as a row of six chips the athlete can change, no chip picked meaning no kind (the design picked at #621, see [docs/design/README.md](../design/README.md)); confirm writes it with the goal.
   - **"No Jev"** above gives way for this one closed-set field. Every other onboarding output stays open-valued and Jev-free.
   - **Invariant 1** extends to `goals.kind`: nothing Jev picked reaches `goals` before the confirm.
   - ADR-0020's decision-set list gains `goal_kind`'s row with the build ticket, not here.
