@@ -723,6 +723,7 @@ def _header(html: str) -> str:
 def _logged_row(html: str) -> str:
     """The logged row's top block: its "Logged … Undo" line and the meta row, which ends where
     the exercise list starts."""
+    row: str
     (row,) = re.findall(r'<div[^>]*data-confirmed-draft="[^"]+".*?(?=<ul)', html, re.S)
     return row
 
