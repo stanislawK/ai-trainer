@@ -5,7 +5,7 @@ core code knows the sport: the cards are the plugin's own partials."""
 
 import re
 from datetime import date, timedelta
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 from fastapi import FastAPI
@@ -17,7 +17,9 @@ from ai_trainer.domain.conversation import Intent
 from ai_trainer.domain.sports.base import DateSource
 from ai_trainer.domain.sports.gym.extraction import GymExtraction
 from ai_trainer.domain.sports.gym.payload import GymPayload
-from ai_trainer.domain.training import SessionDraft, StoredDraft
+from ai_trainer.domain.sports.registry import default_sport_registry
+from ai_trainer.domain.training import SessionDraft, SessionSpan, StoredDraft
+from ai_trainer.web.drafts import draft_card
 from ai_trainer.web.icons import render_icon
 from ai_trainer.web.templating import build_templates
 from tests.chat_support import (
@@ -719,8 +721,10 @@ def _header(html: str) -> str:
 
 
 def _logged_row(html: str) -> str:
-    (row,) = re.findall(r'<div[^>]*data-confirmed-draft="[^"]+".*', html, re.S)
-    return _header(row)
+    """The logged row's top block: its "Logged … Undo" line and the meta row, which ends where
+    the exercise list starts."""
+    (row,) = re.findall(r'<div[^>]*data-confirmed-draft="[^"]+".*?(?=<ul)', html, re.S)
+    return row
 
 
 async def test_gym_draft_header_shows_duration_and_rpe() -> None:
@@ -799,3 +803,28 @@ async def test_logged_gym_header_without_duration_and_rpe_has_no_meta_row() -> N
     assert "lucide-clock" not in header
     assert "RPE" not in header
     assert " min" not in _text(header)
+
+
+async def test_a_gym_log_added_to_a_session_does_not_show_its_own_duration_and_rpe() -> None:
+    """The "Added … to the session" row isn't the session's header: the draft's 20 min can
+    differ from the session's stored 60, so the row leaves the meta row to History (#627)."""
+    _, user_id, chat, drafts = _client()
+    draft = await _pending(chat, drafts, user_id, _PYRAMID_PAYLOAD, duration_min=20, rpe=9)
+    session = SessionSpan(
+        id=uuid4(),
+        occurred_on=_TODAY,
+        first_logged_at=FROZEN_NOW - timedelta(minutes=20),
+        last_logged_at=FROZEN_NOW - timedelta(minutes=5),
+    )
+    stored = draft.model_copy(
+        update={"status": "confirmed", "extends": session, "session_id": session.id}
+    )
+    card = draft_card(stored, sports=default_sport_registry(), today=_TODAY)
+    assert card is not None
+
+    template = build_templates().env.get_template(card.template)
+    html = " ".join(template.render(card=card, draft=stored).split())
+
+    assert "Added" in html
+    assert "lucide-clock" not in html
+    assert "RPE" not in html
