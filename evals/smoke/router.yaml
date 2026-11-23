@@ -1,6 +1,6 @@
 # Smoke set for router (ADR-0034, #374): 5 cases taken from
 # evals/datasets/router.yaml, named in each case's `metadata.dataset`, until real chats
-# arrive in evals/field/, plus #421's two, #577's one and #619's four below (12 cases). Graded in
+# arrive in evals/field/, plus #421's two, #577's one and #619's five below (13 cases). Graded in
 # code, run once, no judge.
 name: router
 cases:
@@ -268,6 +268,29 @@ cases:
   metadata:
     ticket: 619
     synthetic: reported bug
+    plausible_sports:
+    - cycling
+- name: home trainer ride stays cycling (#619)
+  inputs:
+    prompt: 1h on the trainer, 200 W avg
+    deps:
+      message: 1h on the trainer, 200 W avg
+      history: []
+      athlete_sports:
+      - gym
+      - cycling
+      today: '2026-11-23'
+      now_local: '2026-11-23T18:30:00+01:00'
+      timezone: Europe/Warsaw
+  expected_output:
+    intents:
+    - kind: log_session
+      confidence: 0.9
+      span: ''
+      sport: cycling
+  metadata:
+    ticket: 619
+    synthetic: "#619 code review: a home trainer is cycling, not an indoor machine"
     plausible_sports:
     - cycling
 evaluators:

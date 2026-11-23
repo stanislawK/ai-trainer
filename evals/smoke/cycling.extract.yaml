@@ -1,6 +1,6 @@
 # Smoke set for cycling.extract (ADR-0034, #374): 5 cases taken from
 # evals/datasets/cycling.extract.yaml, named in each case's `metadata.dataset`, until real chats
-# arrive in evals/field/, plus #619's one below (6 cases). Graded in code, run once, no judge.
+# arrive in evals/field/, plus #619's two below (7 cases). Graded in code, run once, no judge.
 name: cycling.extract
 cases:
 - name: 'relative: 62 km with 800 m this morning (AC)'
@@ -140,6 +140,29 @@ cases:
       moving_time_min: null
       elevation: null
       zones: []
+- name: 'other sports: a home trainer ride is still cycling (#619)'
+  inputs:
+    prompt: 1:30 on the trainer, Z2
+    deps:
+      message: 1:30 on the trainer, Z2
+      history: []
+      today: '2026-11-23'
+      weekday: Monday
+      now_local: '2026-11-23T19:00:00+01:00'
+      timezone: Europe/Warsaw
+  metadata:
+    ticket: 619
+    synthetic: "#619 code review: a home trainer is cycling, not an indoor machine"
+  expected_output:
+    occurred_on: '2026-11-23'
+    date_source: assumed_today
+    activities:
+    - distance: null
+      moving_time_min: 90
+      elevation: null
+      zones:
+      - zone: 2
+        minutes: 90
 evaluators:
 - DateMatch
 - ActivitiesMatch
