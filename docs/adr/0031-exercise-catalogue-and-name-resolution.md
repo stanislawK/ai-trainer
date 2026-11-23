@@ -4,7 +4,7 @@
 |---|---|
 | Status | Accepted |
 | Date | 2026-10-30 |
-| Related | PRD-0010 (B37, B38, F23, F24, G5, G10, G14), PRD-0011 (F23), PRD-0012 (F24, G16, G17), PRD-0013 (B41, B42), ADR-0006, ADR-0008, ADR-0010, ADR-0012, ADR-0015, ADR-0016, ADR-0018, ADR-0020, ADR-0026, ADR-0029, ADR-0032, ADR-0033, ADR-0034 |
+| Related | PRD-0010 (B37, B38, F23, F24, G5, G10, G14), PRD-0011 (F23), PRD-0012 (F24, G16, G17), PRD-0013 (B41, B42, F24), ADR-0006, ADR-0008, ADR-0010, ADR-0012, ADR-0015, ADR-0016, ADR-0018, ADR-0020, ADR-0026, ADR-0029, ADR-0032, ADR-0033, ADR-0034 |
 
 ## Context
 
@@ -139,7 +139,7 @@ Owner-directed 2026-11-08, at #524. Evidence: [exercise-media.md](../research/ex
 
 - **Model:** `google/gemini-3.1-flash-lite-image` on OpenRouter, $0.0336 per picture (tool-printed, 2026-11-08). **Tier:** `licensed` (G16): our own generated output, with no third-party licence. `license` names Google's terms: "Google won't claim ownership over that content" ([Gemini API additional terms](https://aistudio.google.com/docs/terms), read 2026-11-08). **Delivery:** `stored` in the media bucket. **`kind`:** `image`, because the model returns a JPEG (1024×1024), not a drawing or a GIF; the enum above is unchanged.
 - **Attribution**, shown beside the picture: `AI generated with Gemini 3.1 Flash Lite Image (Google) via OpenRouter · <date>`, where `<date>` is the generation date. Google's terms say use of generated content "may require" attribution to users, so the credit is always shown.
-- **Approval (F24):** each picture is written `suggested`, never `approved` on import, and an admin approves it one picture at a time before it shows. It is never bulk-approved. Gemini printed wrong labels on some samples (finding 8), so the admin checks each picture for that.
+- **Approval (F24):** each picture is written `suggested`, never `approved` on import, and an admin approves it one picture at a time before it shows. It is never bulk-approved. Gemini printed wrong labels on some samples (finding 8), so the admin checks each picture for that. The exception is *Picture on the card (#640)*.
 - **Stable/GA:** `get-model`, 2026-11-08, shows no preview, beta or `-exp` marker in the ID and no `expiration_date`. The dated slug `google/gemini-3.1-flash-lite-image-20260630` is pinned in `source_ref`.
 - **Risk:** whether such pictures can be copyrighted at all is not settled (finding 4). The owner accepts that as a non-commercial side project (G17), and `removed` is the takedown path (G16).
 - **Scope:** `wger` stays the first source. This one only fills gaps where `wger` has no picture for an exercise.
@@ -156,9 +156,32 @@ Owner-directed 2026-11-08, at #531. Evidence: [exercise-media.md](../research/ex
 - **Accounting:** an `llm_calls` row per call (ADR-0018), recording the admin who runs the generation, as admin-run ingestion does. The command takes the admin's email and checks it against `ADMIN_EMAILS`; it refuses otherwise, so no unverified `user_id` is written. Traces are content-free. The image adapter has its own timeout, error translation and accounting, since it does not go through the text gateway.
 - **Cap:** `Settings.image_generation_spend_cap_usd`, one cap per run, summed from the run's own `llm_calls` cost. A call whose cost is unknown (null) stops the run, so the cap can't be passed by missing figures. The run stops before any call that would take the spend over the cap, using the model's price from `Settings`.
 - **No description:** an exercise with neither an `exercise_texts` row nor a `search_knowledge` passage is skipped and listed in the run's report, never drawn from its name alone (finding 8).
-- **Run on purpose:** an admin-run command, never from a chat, a page or any request. Nothing is generated at request time, and every picture is written `suggested` for admin approval (#524). Invariant 6 is not the basis for this: it covers names, aliases and descriptions, not pictures.
+- **Run on purpose:** an admin-run command, never from a chat, a page or any request. Nothing is generated at request time, and every picture is written `suggested` for admin approval (#524). Invariant 6 is not the basis for this: it covers names, aliases and descriptions, not pictures. The exception is *Picture on the card (#640)*.
 - **Cap hit:** the run stops before the next call and keeps the pictures already made as `suggested` (approval rule above). It reports the number done and the spend. Raising the cap is the owner's edit of `Settings`.
 - **Budget (owner-directed 2026-11-08, at #533):** the command is outside ADR-0029's per-user model-call budget, as admin-run ingestion's embeddings are. Its spend cap and one exercise per run bound it instead. The picture's price in `Settings` (`IMAGE_GENERATION_PRICE_USD`, 0.0336 USD) only checks the cap before the call; the row records the cost the response bills (`usage.cost`).
+
+#### Picture on the card (#640)
+
+Owner-directed 2026-11-23, at #640. Many exercises have no `wger` picture. The card draws a missing one once and keeps it for every athlete, as the beginner how-to does with its text ([PRD 0013](../prd/0013-ai-training-companion.md) F24). Built by #641 (design states), #642 (the decision set), #643 (the path) and #644 (the flag).
+
+- **When:** the exercise card shows a catalogue candidate (`owner_user_id IS NULL`) with an English `exercise_texts` row and no link in `suggested` or `approved`.
+  - The card renders at once. The picture slot loads from a user-scoped route (`hx-trigger="load"`, ADR-0012), as the how-to does.
+  - A custom exercise, or one with no English text, never triggers a call.
+  - A `wger` picture awaiting review (`suggested`) triggers none: the admin's review comes first.
+  - An exercise whose `ai-generated` link is `removed` is not redrawn, since the same input would most likely give the same mistake. An admin's Restore or a new admin-run generation is the way back.
+- **Flow:** `media.picture_brief` writes a brief from `exercise_texts` only, with no `search_knowledge` on this path (the admin command keeps it). Jev scores the brief, then `media.picture` draws, the picture is stored in the media bucket, and the link is written. Jev takes no image input (ADR-0020), so it checks the brief, not the picture.
+- **Decision set:** `picture_brief_check` (#642), added with `/add-decision`. Two closed `probability` questions: does the brief describe the same movement as the instructions, and does it keep the brief rules (one figure, start and end position, plain background, no printed text)? State: the English instructions and the brief, built in code, with no identity. Thresholds `PICTURE_BRIEF_CHECK_MOVEMENT_THRESHOLD` and `PICTURE_BRIEF_CHECK_RULES_THRESHOLD`, one per question, calibrated on a labelled dataset before they are set (ADR-0034). It fails closed. The admin command uses it too.
+- **Write:** the asset is `licensed`, `stored`, `kind = image`, `source = ai-generated`, with the attribution of #524. The link is written `approved`. First write wins: the check and insert run under a transaction-scoped advisory lock on the exercise ID, and a writer that finds a live link discards its own object and writes no row. Two cards at once may pay for one extra picture, accepted as with the how-to.
+- **Budget and caps:**
+  - Each call (brief, Jev, image) writes one `llm_calls` row under the athlete whose card triggered it (ADR-0018) and counts against that athlete's model-call budget. On this path the image port is wrapped by the same budget (ADR-0029).
+  - `IMAGE_GENERATION_DAILY_CAP_USD` (1.00 USD) caps all athletes together: today's `media.picture` cost on this path, summed per UTC day from the `Clock` port, with a null cost counted at `IMAGE_GENERATION_PRICE_USD`. The image call is skipped when it would pass the cap.
+  - `EXERCISE_CARD_PICTURES_ENABLED` (default `true`) is the owner's switch to turn the path off.
+- **Fallbacks:** no English text, a custom exercise, the switch off, a brief timeout or error, a brief check under threshold, timed out or failed (`brief_check_failed`), a budget refusal, the daily cap, an image timeout or error, and a store failure. Each stores nothing, the row stays text-only, and the next card tries again. The log line names the reason and the exercise ID only.
+- **Flag:** a "Looks wrong" control on a drawn picture, outside the row button, as the how-to's (#644).
+  - It moves the link to `removed` (`removed_from = approved`) through the takedown path above (quarantine, cache purge, #556, #557), hiding it for every athlete at once.
+  - It writes one content-free `feedback_events` row of kind `picture_flagged`; the `kind` check is widened expand only (ADR-0024).
+  - One tap, no reason asked. Only `ai-generated` pictures carry it.
+  - The admin sees it as removed at `/admin/exercises`, with Restore.
 
 ### Beginner how-to (F23)
 
@@ -199,7 +222,7 @@ Owner-directed 2026-11-22. F23 asks for "two short beginner-friendly lines on ho
 2. History is checked before the catalogue. A name the athlete already confirmed is never asked about again.
 3. User aliases and custom exercises are the athlete's own data: user-scoped, deleted with the account (G1, G7). Catalogue queries read rows where `owner_user_id IS NULL OR owner_user_id = :user_id`.
 4. The typed name is always kept next to the resolved exercise.
-5. Imported text and media keep their source, license and attribution, and only `approved` media is shown (G10, ADR-0016). `unstated` media is only ever `embedded`, and is shown only while the app is non-commercial (PRD 0012 G16, G17); hiding it is one query on `rights`.
+5. Imported text and media keep their source, license and attribution, and only `approved` media is shown (G10, ADR-0016). Every `approved` link is an admin's, except a picture drawn on the card (*Picture on the card*): it is written `approved` from the exercise's own catalogue text, labelled "AI generated", and moved to `removed` as soon as any athlete flags it (amended 2026-11-23, #640). `unstated` media is only ever `embedded`, and is shown only while the app is non-commercial (PRD 0012 G16, G17); hiding it is one query on `rights`.
 6. No exercise name or alias is written by a model at request time. Descriptions come from `exercise_texts`. The one exception is the beginner how-to in `exercise_simple_texts`: it is written from the exercise's own catalogue text only, is labelled as AI simplified, keeps the original one tap away, and is hidden as soon as it is flagged (amended 2026-11-22).
 7. An exercise's `category` is set only by the importer, or by code when the athlete's custom exercise is created, never by a model at request time (extends invariant 6; amended 2026-11-23).
 
@@ -222,6 +245,11 @@ Owner-directed 2026-11-22. F23 asks for "two short beginner-friendly lines on ho
 - The F23 card needs a Claude Design mock with a media slot before its web ticket (ADR-0019).
 - ⚠ The media source is `wger` (see "First media source (#514)", 2026-11-07). The import is the M2m ticket's work. Until it lands, cards show text only.
 - ⚠ A fallback source fills `wger`'s gaps (see "Fallback media source (#524)", 2026-11-08). The generation flow, the brief rules against printed text, and the spend cap are recorded in "Picture generation (#531)", 2026-11-08. The import and the code are M2m's work.
+- Owner-directed amendment, 2026-11-23, at [#640](https://github.com/stanislawK/ai-trainer/issues/640), approved by the owner at its plan gate: it adds "Picture on the card (#640)", points the #524 approval and #531 "Run on purpose" bullets at it, and amends invariant 5. It is proposed for the owner's review with this branch's PR. It changes no other Decision or Invariant.
+  - **Why no admin gate.** A drawn picture is shared catalogue media that no athlete owns, made from public catalogue text with no athlete data. Reviewing every picture first leaves most cards bare. Its safeguards are the text-only input, Jev's check of the brief, the "AI generated" label and credit, and the flag. Admins still review drawn pictures afterwards.
+  - **Risk accepted.** A wrong picture, such as another movement or printed labels (finding 8), may show until an athlete flags it.
+  - **Cost** is one brief, one Jev call and one picture per catalogue exercise opened, bounded by `IMAGE_GENERATION_DAILY_CAP_USD` and each athlete's budget.
+  - **Follow-up tickets:** #641 (design states), #642 (`picture_brief_check`), #643 (the path and its settings), #644 (the flag, `picture_flagged`, Restore).
 - Owner-directed 2026-11-23 (#618), for the owner's review with the draft PR: gym covers stretching, mobility, classes and cardio machines ([PRD 0013](../prd/0013-ai-training-companion.md) B41, B42). Built by M2f's tickets once PRD 0013 is Approved; nothing is built yet.
   - **`exercises.category`:** text NOT NULL, `CHECK (category IN ('strength','cardio','stretching','mobility','class'))`, added expand-only (ADR-0024) with a default of `'strength'` and then backfilled by the importer.
   - **Derived in code at import,** as `default_measure` is: the dataset's body part `cardio` or a cardio-machine equipment → `cardio`, the rest `strength`. `overrides.yaml` sets the exceptions (stretches → `stretching`).
