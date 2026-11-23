@@ -900,20 +900,21 @@ def test_onboarding_about_you_runs_at_its_version_graded_on_converted_values() -
 
 
 @pytest.mark.parametrize(
-    ("template_id", "evaluator"),
+    ("template_id", "evaluator", "version"),
     [
-        ("onboarding.goals", GoalsMatch),
-        ("onboarding.level", LevelMatch),
-        ("onboarding.schedule", ScheduleMatch),
+        ("onboarding.goals", GoalsMatch, 2),
+        ("onboarding.level", LevelMatch, 1),
+        ("onboarding.schedule", ScheduleMatch, 1),
     ],
 )
 def test_the_sport_steps_run_at_their_version_graded_in_code(
-    template_id: str, evaluator: type[object]
+    template_id: str, evaluator: type[object], version: int
 ) -> None:
-    """ADR-0028, ticket #255: each sport step's template is registered and graded in code."""
-    assert cli_module._active_versions(default_sport_registry())[template_id] == 1
+    """ADR-0028, tickets #255 and #624: each sport step's template is registered and graded in
+    code, at the version the app reads with (goals v2 reads a season)."""
+    assert cli_module._active_versions(default_sport_registry())[template_id] == version
     assert cli_module._evaluators_for(template_id) == (evaluator,)
-    assert cli_module._default_registry().versions(template_id) == [1]
+    assert cli_module._default_registry().versions(template_id) == [version]
 
 
 def test_the_default_follows_a_plugins_active_version() -> None:

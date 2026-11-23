@@ -518,8 +518,13 @@ def test_every_new_smoke_case_names_its_dataset_origin() -> None:
                 assert ticket > 0, (smoke_id, case.name)
                 continue
             if "dataset" not in case.metadata:
-                # Worded by the Approved PRD until field chats replace it (ADR-0034, #421).
-                assert str(case.metadata["prd"]).startswith("PRD 0011"), (smoke_id, case.name)
+                # Worded by the Approved PRD until field chats replace it (ADR-0034, #421), or
+                # by a requirement's acceptance criteria for new scope (ADR-0034's #622
+                # amendment, first used here at #624).
+                assert str(case.metadata["prd"]).startswith(("PRD 0011", "PRD 0013 B")), (
+                    smoke_id,
+                    case.name,
+                )
                 continue
             origin = ROOT / str(case.metadata["dataset"])
             assert origin.is_file(), (smoke_id, case.metadata["dataset"])

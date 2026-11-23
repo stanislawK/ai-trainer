@@ -6,6 +6,7 @@ from datetime import date
 from pathlib import Path
 
 import pytest
+import yaml
 from pydantic import BaseModel
 from pydantic_evals import Dataset
 from pydantic_evals.evaluators import Evaluator
@@ -22,6 +23,7 @@ from ai_trainer.llm.onboarding import (
 )
 
 _DATASETS = Path(__file__).parents[2] / "evals" / "datasets"
+_SMOKE = Path(__file__).parents[2] / "evals" / "smoke"
 _STEPS: list[tuple[str, type[BaseModel], type[Evaluator[EvalCaseInputs, BaseModel]]]] = [
     ("onboarding.goals", GoalsRead, GoalsMatch),
     ("onboarding.level", LevelRead, LevelMatch),
@@ -94,3 +96,27 @@ def test_the_level_ac_answer_is_expected_with_the_lift_under_level() -> None:
     expected = _case("onboarding.level", "Deadlift 125 kg, push pull legs")
 
     assert expected == LevelRead(level="Deadlift 125 kg", exercises="Push pull legs")
+
+
+def test_the_smoke_case_before_summer_sent_in_november_is_expected_next_june() -> None:
+    """#624 AC: "lose 5 kg before summer", sent in November, gets a target date next summer."""
+    smoke = yaml.safe_load((_SMOKE / "onboarding.goals.yaml").read_text())
+    [case] = [
+        c for c in smoke["cases"] if c["inputs"]["prompt"] == "I want to lose 5 kg before summer"
+    ]
+    today = OnboardingDeps.model_validate(case["inputs"]["deps"]).today
+
+    assert today == date(2026, 11, 23)
+    assert GoalsRead.model_validate(case["expected_output"]).converted(today=today)["goals"] == [
+        {"text": "Lose 5 kg", "target_date": "2027-06-30"}
+    ]
+
+
+def test_next_summer_sent_in_october_is_expected_next_june() -> None:
+    """#624: a season is a date too, its first month in the northern hemisphere."""
+    expected = _case("onboarding.goals", "Climb outside more next summer")
+
+    assert isinstance(expected, GoalsRead)
+    assert expected.converted(today=date(2026, 10, 25))["goals"] == [
+        {"text": "Climb outside more", "target_date": "2027-06-30"}
+    ]

@@ -18,12 +18,13 @@ from pydantic_evals.evaluators import EvaluatorContext
 from ai_trainer.application.ports.llm_gateway import LlmGatewayResult
 from ai_trainer.domain.llm_calls import LlmCallOutcome
 from ai_trainer.domain.onboarding import AnswerStatus, OnboardingAnswer, OnboardingStep
-from ai_trainer.domain.sport_profile import LengthUnit, Weekday
+from ai_trainer.domain.sport_profile import LengthUnit, Season, Weekday, season_month
 from ai_trainer.domain.sports.registry import default_sport_registry
 from ai_trainer.llm.conversation import build_prompt_registry
 from ai_trainer.llm.evals.inputs import EvalCaseInputs
 from ai_trainer.llm.gateway import OpenRouterGateway
 from ai_trainer.llm.onboarding import (
+    ABOUT_YOU_TEMPLATE_ID,
     GOALS_TEMPLATE_ID,
     LEVEL_TEMPLATE_ID,
     SCHEDULE_TEMPLATE_ID,
@@ -144,15 +145,15 @@ async def test_the_level_ac_answer_puts_the_lift_under_level_and_the_split_under
 
 
 @pytest.mark.parametrize(
-    ("step", "template_id", "output"),
+    ("step", "template_id", "version", "output"),
     [
-        (OnboardingStep.GOALS, GOALS_TEMPLATE_ID, GoalsRead()),
-        (OnboardingStep.LEVEL, LEVEL_TEMPLATE_ID, LevelRead()),
-        (OnboardingStep.SCHEDULE, SCHEDULE_TEMPLATE_ID, ScheduleRead()),
+        (OnboardingStep.GOALS, GOALS_TEMPLATE_ID, 2, GoalsRead()),
+        (OnboardingStep.LEVEL, LEVEL_TEMPLATE_ID, 1, LevelRead()),
+        (OnboardingStep.SCHEDULE, SCHEDULE_TEMPLATE_ID, 1, ScheduleRead()),
     ],
 )
 async def test_each_step_reads_with_its_own_template_and_the_athletes_day(
-    step: OnboardingStep, template_id: str, output: BaseModel
+    step: OnboardingStep, template_id: str, version: int, output: BaseModel
 ) -> None:
     sent: dict[str, object] = {}
 
@@ -169,7 +170,7 @@ async def test_each_step_reads_with_its_own_template_and_the_athletes_day(
 
     assert parsed is not None
     assert sent["template_id"] == template_id
-    assert sent["template_version"] == 1
+    assert sent["template_version"] == version
     assert sent["prompt"] == "Whatever"
     assert sent["temperature"] == 0
     instructions = sent["instructions"]
@@ -194,8 +195,8 @@ def test_each_template_renders_its_deps() -> None:
     registry = build_prompt_registry(_PROMPTS_ROOT, default_sport_registry())
     deps = OnboardingDeps(sport="gym", today=date(2026, 10, 25), timezone="Europe/Warsaw")
 
-    for template_id in (GOALS_TEMPLATE_ID, LEVEL_TEMPLATE_ID, SCHEDULE_TEMPLATE_ID):
-        rendered = registry.render_instructions(template_id, 1, deps)
+    for template in onboarding_templates():
+        rendered = registry.render_instructions(template.id, template.version, deps)
         assert "gym" in rendered
         assert "2026-10-25" in rendered
 
@@ -332,3 +333,104 @@ async def test_a_month_alone_is_resolved_on_the_athletes_own_day() -> None:
         )
 
     assert parsed == {"goals": [{"text": "Ride 160 km", "target_date": "2027-12-31"}]}
+
+
+# A November day in Warsaw, when "before summer" means next summer (#624).
+_NOVEMBER = date(2026, 11, 23)
+
+
+@pytest.mark.parametrize(
+    ("season", "month"),
+    [(Season.SPRING, 3), (Season.SUMMER, 6), (Season.AUTUMN, 9), (Season.WINTER, 12)],
+)
+def test_season_maps_to_its_first_month(season: Season, month: int) -> None:
+    """A season named is its first meteorological month, northern hemisphere (#624, G15)."""
+    assert season_month(season) == month
+
+
+def test_summer_sent_in_november_is_next_june() -> None:
+    """AC (#624): "lose 5 kg before summer", sent in November, gets a target date next summer:
+    the season resolves as its month alone, at the month's last day."""
+    read = GoalsRead(
+        goals=[ReadGoal(text="Lose 5 kg", target=ReadTargetDate(season=Season.SUMMER))]
+    )
+
+    assert read.converted(today=_NOVEMBER) == {
+        "goals": [{"text": "Lose 5 kg", "target_date": "2027-06-30"}]
+    }
+
+
+def test_season_with_a_named_year_keeps_it() -> None:
+    read = GoalsRead(
+        goals=[ReadGoal(text="Ride 200 km", target=ReadTargetDate(year=2028, season=Season.SPRING))]
+    )
+
+    assert read.converted(today=_NOVEMBER) == {
+        "goals": [{"text": "Ride 200 km", "target_date": "2028-03-31"}]
+    }
+
+
+def test_a_month_named_with_a_season_wins() -> None:
+    """The month is the more exact part the athlete named."""
+    read = GoalsRead(
+        goals=[ReadGoal(text="Send 7a", target=ReadTargetDate(month=7, season=Season.SUMMER))]
+    )
+
+    assert read.converted(today=_NOVEMBER) == {
+        "goals": [{"text": "Send 7a", "target_date": "2027-07-31"}]
+    }
+
+
+async def test_goals_read_converts_a_season_on_the_athletes_day() -> None:
+    """At 23:30 UTC on 31 May it is already 1 June in Warsaw, so "before summer" is this June
+    there, not next year's (B15, ADR-0014)."""
+
+    class LateMay:
+        def now(self) -> datetime:
+            return datetime(2027, 5, 31, 23, 30, tzinfo=UTC)
+
+    gateway = OpenRouterGateway(_settings(), FakeLlmCallsRepository())
+    read = {"goals": [{"text": "Lose 5 kg", "target": {"season": "summer"}}]}
+    reader = LlmOnboardingReader(
+        registry=build_prompt_registry(_PROMPTS_ROOT, default_sport_registry()),
+        gateway=gateway,
+        clock=LateMay(),
+        model="test/onboarding-model",
+    )
+    with gateway.agent.override(model=_replying(read)):
+        parsed = await reader.read(
+            uuid4(),
+            _answer(OnboardingStep.GOALS, "lose 5 kg before summer"),
+            sport_id="gym",
+            timezone="Europe/Warsaw",
+        )
+
+    assert parsed == {"goals": [{"text": "Lose 5 kg", "target_date": "2027-06-30"}]}
+
+
+def test_the_goals_eval_grades_a_season_as_its_month() -> None:
+    """A model that reads "before summer" as `month: 6` names the same date as the season."""
+    expected = GoalsRead(
+        goals=[ReadGoal(text="Lose 5 kg", target=ReadTargetDate(season=Season.SUMMER))]
+    )
+    output = GoalsRead(goals=[ReadGoal(text="Lose 5 kg", target=ReadTargetDate(month=6))])
+
+    assert GoalsMatch().evaluate(_ctx(output, expected)) == {  # type: ignore[arg-type]
+        "goal_count": True,
+        "target_dates": True,
+    }
+
+
+def test_goals_template_is_v2() -> None:
+    """#624: the goals step reads with v2; about you, level and schedule stay on v1."""
+    templates = {template.id: template for template in onboarding_templates()}
+    registry = build_prompt_registry(_PROMPTS_ROOT, default_sport_registry())
+    deps = OnboardingDeps(sport="gym", today=_NOVEMBER, timezone="Europe/Warsaw")
+
+    assert templates[GOALS_TEMPLATE_ID].version == 2
+    assert {
+        template_id: template.version
+        for template_id, template in templates.items()
+        if template_id != GOALS_TEMPLATE_ID
+    } == {ABOUT_YOU_TEMPLATE_ID: 1, LEVEL_TEMPLATE_ID: 1, SCHEDULE_TEMPLATE_ID: 1}
+    assert "`season`" in registry.render_instructions(GOALS_TEMPLATE_ID, 2, deps)
