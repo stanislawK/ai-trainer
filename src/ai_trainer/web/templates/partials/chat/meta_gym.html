@@ -1,0 +1,3 @@
+{#- The gym card's session length and effort under its header (Gym Measures v2, ticket #627). -#}
+{%- from "components/session_meta.html" import session_meta -%}
+{{ session_meta(card.draft.draft.duration_min, card.draft.draft.rpe) }}

@@ -116,6 +116,12 @@ class DraftCard:
         return f"partials/chat/logged_{self.sport.id}_lines.html"
 
     @property
+    def meta_template(self) -> str:
+        """What a sport shows under the card's header, when it has such a partial (ticket
+        #627: the gym's session time and RPE); a sport without one shows the header alone."""
+        return f"partials/chat/meta_{self.sport.id}.html"
+
+    @property
     def template(self) -> str:
         """The pending card, or the row a confirm, a discard or an undo collapses it to
         (tickets #155, #156 and #157). A confirmed draft without a session was undone."""
