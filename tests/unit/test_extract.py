@@ -168,6 +168,7 @@ def test_extract_templates_skip_a_sport_without_an_extraction() -> None:
         ("cycling.extract", 1),
         ("cycling.extract", 2),
         ("cycling.extract", 3),
+        ("cycling.extract", 4),
     ]
 
 
@@ -415,11 +416,11 @@ def _render_active(template_id: str, version: int, deps: ExtractDeps) -> str:
 def test_every_sport_runs_its_active_extraction_version() -> None:
     """Every sport moved to v3 to ask how to read a log (tickets #164 and #206); gym to v4 to
     read "8 x3" as 3 sets of 8 (ticket #373) and to v5 for time, sides, implements and bands
-    (ticket #395)."""
+    (ticket #395); cycling to v4 to leave indoor machines to gym (#619)."""
     assert {(template.id, template.version) for template in _ACTIVE_EXTRACT_TEMPLATES} == {
         ("climbing.extract", 3),
         ("gym.extract", 5),
-        ("cycling.extract", 3),
+        ("cycling.extract", 4),
     }
 
 

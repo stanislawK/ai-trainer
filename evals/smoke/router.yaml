@@ -1,7 +1,7 @@
 # Smoke set for router (ADR-0034, #374): 5 cases taken from
 # evals/datasets/router.yaml, named in each case's `metadata.dataset`, until real chats
-# arrive in evals/field/, plus #421's two and #577's one below (8 cases). Graded in code, run
-# once, no judge.
+# arrive in evals/field/, plus #421's two, #577's one and #619's four below (12 cases). Graded in
+# code, run once, no judge.
 name: router
 cases:
 - name: log gym with units
@@ -176,6 +176,100 @@ cases:
     synthetic: reported bug
     plausible_sports:
     - gym
+# #619: a reported bug with no field transcript. Rule 3's "km and watts are cycling" sent indoor
+# machines and classes to cycling; they are gym, and an outdoor ride stays cycling.
+- name: rower 5 km is gym (#619)
+  inputs:
+    prompt: 5 km on the rower in 22 min
+    deps:
+      message: 5 km on the rower in 22 min
+      history: []
+      athlete_sports:
+      - gym
+      - cycling
+      today: '2026-11-23'
+      now_local: '2026-11-23T18:30:00+01:00'
+      timezone: Europe/Warsaw
+  expected_output:
+    intents:
+    - kind: log_session
+      confidence: 0.9
+      span: ''
+      sport: gym
+  metadata:
+    ticket: 619
+    synthetic: reported bug
+    plausible_sports:
+    - gym
+- name: bike erg is gym, no card (#619)
+  inputs:
+    prompt: bike erg 20 min
+    deps:
+      message: bike erg 20 min
+      history: []
+      athlete_sports:
+      - gym
+      - cycling
+      today: '2026-11-23'
+      now_local: '2026-11-23T18:30:00+01:00'
+      timezone: Europe/Warsaw
+  expected_output:
+    intents:
+    - kind: log_session
+      confidence: 0.9
+      span: ''
+      sport: gym
+  metadata:
+    ticket: 619
+    synthetic: reported bug
+    plausible_sports:
+    - gym
+- name: spinning class is gym (#619)
+  inputs:
+    prompt: spinning class 45 min
+    deps:
+      message: spinning class 45 min
+      history: []
+      athlete_sports:
+      - gym
+      - cycling
+      today: '2026-11-23'
+      now_local: '2026-11-23T18:30:00+01:00'
+      timezone: Europe/Warsaw
+  expected_output:
+    intents:
+    - kind: log_session
+      confidence: 0.9
+      span: ''
+      sport: gym
+  metadata:
+    ticket: 619
+    synthetic: reported bug
+    plausible_sports:
+    - gym
+- name: outdoor ride stays cycling (#619)
+  inputs:
+    prompt: rode 40 km outside
+    deps:
+      message: rode 40 km outside
+      history: []
+      athlete_sports:
+      - gym
+      - cycling
+      today: '2026-11-23'
+      now_local: '2026-11-23T18:30:00+01:00'
+      timezone: Europe/Warsaw
+  expected_output:
+    intents:
+    - kind: log_session
+      confidence: 0.9
+      span: ''
+      sport: cycling
+  metadata:
+    ticket: 619
+    synthetic: reported bug
+    plausible_sports:
+    - cycling
 evaluators:
 - IntentKindsMatch
 - LogSessionSportMatch

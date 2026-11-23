@@ -313,8 +313,8 @@ def test_build_router_deps_resolves_today_and_now_local_in_the_user_timezone() -
     assert deps.athlete_sports == ["gym"]
 
 
-def test_the_active_router_version_is_four() -> None:
-    assert ACTIVE_ROUTER_VERSION == 4
+def test_the_active_router_version_is_five() -> None:
+    assert ACTIVE_ROUTER_VERSION == 5
     assert router_template(default_sport_registry()).version == ACTIVE_ROUTER_VERSION
 
 
@@ -325,7 +325,7 @@ def test_an_earlier_router_version_can_still_be_built_for_comparison() -> None:
 def test_the_prompt_registry_holds_every_router_version_with_a_body() -> None:
     registry = build_prompt_registry(_PROMPTS_ROOT, default_sport_registry())
 
-    for version in (1, 2, 3, 4):
+    for version in (1, 2, 3, 4, 5):
         assert registry.get(ROUTER_TEMPLATE_ID, version).version == version
         assert registry.build_agent(ROUTER_TEMPLATE_ID, version) is not None
 
@@ -527,3 +527,22 @@ def test_v4_body_is_v3_word_for_word() -> None:
     router_dir = _PROMPTS_ROOT / ROUTER_TEMPLATE_ID
     v3 = (router_dir / "v3.en.md").read_text(encoding="utf-8")
     assert (router_dir / "v4.en.md").read_text(encoding="utf-8") == v3
+
+
+def test_router_v5_reads_indoor_machines_as_gym() -> None:
+    """Indoor machines and classes are gym even with km or watts; outdoor rides stay cycling
+    (#619)."""
+    body = (_PROMPTS_ROOT / ROUTER_TEMPLATE_ID / "v5.en.md").read_text(encoding="utf-8")
+    v4 = (_PROMPTS_ROOT / ROUTER_TEMPLATE_ID / "v4.en.md").read_text(encoding="utf-8")
+    for machine in ("rower", "ski erg", "bike erg", "treadmill", "spin"):
+        assert machine in body
+        assert machine not in v4
+    assert "outdoor" in body
+
+    registry = build_prompt_registry(_PROMPTS_ROOT, default_sport_registry())
+    agent = registry.build_agent(ROUTER_TEMPLATE_ID, 5)
+    assert agent is not None
+    rendered = registry.render_instructions(
+        ROUTER_TEMPLATE_ID, 5, _deps(message="bike erg 20 min", athlete_sports=["gym", "cycling"])
+    )
+    assert "bike erg 20 min" in rendered

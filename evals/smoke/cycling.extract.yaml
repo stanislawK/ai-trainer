@@ -1,6 +1,6 @@
 # Smoke set for cycling.extract (ADR-0034, #374): 5 cases taken from
 # evals/datasets/cycling.extract.yaml, named in each case's `metadata.dataset`, until real chats
-# arrive in evals/field/. Graded in code, run once, no judge.
+# arrive in evals/field/, plus #619's one below (6 cases). Graded in code, run once, no judge.
 name: cycling.extract
 cases:
 - name: 'relative: 62 km with 800 m this morning (AC)'
@@ -115,6 +115,31 @@ cases:
     readings:
     - km
     - mi
+# #619: a reported bug with no field transcript. Rower work is gym, so only the ride is drafted.
+- name: 'other sports: the rower is left to gym (#619)'
+  inputs:
+    prompt: Rode 30 km outside, then 5 km on the rower
+    deps:
+      message: Rode 30 km outside, then 5 km on the rower
+      history: []
+      today: '2026-11-23'
+      weekday: Monday
+      now_local: '2026-11-23T19:00:00+01:00'
+      timezone: Europe/Warsaw
+  metadata:
+    ticket: 619
+    synthetic: reported bug
+  expected_output:
+    occurred_on: '2026-11-23'
+    date_source: assumed_today
+    activities:
+    - distance:
+        original: 30 km
+        value: 30
+        unit: km
+      moving_time_min: null
+      elevation: null
+      zones: []
 evaluators:
 - DateMatch
 - ActivitiesMatch

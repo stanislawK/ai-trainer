@@ -181,7 +181,7 @@ async def test_route_runs_the_router_template_and_returns_its_intents_in_order()
     [call] = gateway.runs
     assert (call["template_id"], call["template_version"], call["model_id"]) == (
         "router",
-        4,
+        5,
         "test/router-model",
     )
     assert (call["user_id"], call["prompt"]) == (context.user_id, "log my ride, also hi")

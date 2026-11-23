@@ -98,7 +98,7 @@ def default_sport_registry() -> SportRegistry:
                 icon="bike",
                 extraction=ExtractionSpec(
                     template_id="cycling.extract",
-                    version=3,
+                    version=4,
                     output_type=CyclingExtraction,
                     payload_type=CyclingPayload,
                     payload_version=CYCLING_PAYLOAD_VERSION,

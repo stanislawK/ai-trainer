@@ -16,8 +16,8 @@ from ai_trainer.llm.prompts.template import PromptTemplate
 ROUTER_TEMPLATE_ID = "router"
 # Every version with a body file stays registered so evals can compare them (ADR-0008
 # invariant 2); the app runs the active one.
-ROUTER_VERSIONS = (1, 2, 3, 4)
-ACTIVE_ROUTER_VERSION = 4
+ROUTER_VERSIONS = (1, 2, 3, 4, 5)
+ACTIVE_ROUTER_VERSION = 5
 # From this version the router names one flat intent object and does without the persona
 # (ADR-0026 steps 6-7); earlier versions keep their union and persona for comparison.
 _LEAN_ROUTER_VERSION = 3
