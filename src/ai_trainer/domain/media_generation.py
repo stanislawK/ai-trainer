@@ -82,14 +82,6 @@ def picture_brief_deps(
     )
 
 
-def needs_no_model(deps: PictureBriefDeps) -> NoBrief | None:
-    """`NoBrief` when there is nothing to draw from but the name (ADR-0031): no model is
-    called then. `None` when the template should run."""
-    if (deps.description or "").strip() or deps.passages:
-        return None
-    return NoBrief(reason="no exercise text and no knowledge passage")
-
-
 @dataclass(frozen=True, slots=True)
 class PictureSubject:
     """A catalogue exercise to draw: its ID, name and sport, and its text in the language asked
