@@ -7,7 +7,7 @@ Create Date: 2026-11-23 21:00:00.000000
 Expand only (ADR-0024), first of two for #625 (ADR-0028's #618 amendment, PRD 0013 B45):
 `goals.kind` is a nullable text column, so every existing goal reads NULL (no kind, which B45
 allows) and none is rewritten or backfilled. The CHECK is added NOT VALID and enforced on writes
-at once; `9a6c3f1e5b27` validates it in a transaction of its own. Release N-1's code never names
+at once; `9a6c3f1e5b27` validates it in a revision of its own. Release N-1's code never names
 the column, so it runs on this schema.
 """
 
