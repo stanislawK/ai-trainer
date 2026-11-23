@@ -158,6 +158,12 @@ class SimpleHowtoSettings(BaseModel):
         return value
 
 
+class ExerciseCatalogueSettings(
+    ExerciseSearchSettings, SimpleHowtoSettings, PictureBriefCheckSettings
+):
+    """The catalogue's search, how-to and picture-check settings, as one base of `Settings`."""
+
+
 # The fallback media source's model and its tool-printed price per picture (ADR-0031 #524,
 # 2026-11-08). The catalogue's `image_output` line reads lower; the price only gates the call
 # against the run's cap, so the higher figure is the safe side (#533).
