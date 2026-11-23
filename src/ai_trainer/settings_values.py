@@ -61,7 +61,8 @@ class GoalKindSettings(BaseModel):
     # P(kind) at or above this proposes that kind on the summary. A wrong kind is seen and fixed
     # there, but if confirmed it shapes later gym answers (B46); a missing kind costs only an
     # empty pick. So a new set starts on the side of missing (ADR-0034), and it moves via
-    # /tune-prompt goal_kind.
+    # /tune-prompt goal_kind. First run (2026-11-23, 23 cases x 3): every pick right at P 0.99 or
+    # more, near-ties included, so 0.7 drops only a pick Jev is split on.
     goal_kind_threshold: float = Field(default=0.7, ge=0, le=1)
 
 
