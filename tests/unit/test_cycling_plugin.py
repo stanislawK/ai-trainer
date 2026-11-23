@@ -2,6 +2,7 @@
 (ADR-0006, ADR-0022, ticket #160)."""
 
 from datetime import date
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -184,8 +185,18 @@ def test_the_registry_wires_cycling_to_its_extraction_template_and_payload() -> 
 
     assert (plugin.icon, plugin.label_key) == ("bike", "sport.cycling.label")
     assert plugin.extraction is not None
-    assert (plugin.extraction.template_id, plugin.extraction.version) == ("cycling.extract", 3)
+    assert (plugin.extraction.template_id, plugin.extraction.version) == ("cycling.extract", 4)
     assert plugin.extraction.output_type is CyclingExtraction
     assert plugin.extraction.payload_type is CyclingPayload
     assert plugin.extraction.payload_version == CYCLING_PAYLOAD_VERSION
     assert plugin.extraction.apply_edit is apply_cycling_edit
+
+
+def test_cycling_extract_v4_leaves_indoor_machines_to_gym() -> None:
+    """Rower, erg, spin and treadmill work is gym, so cycling's extraction leaves it out (#619)."""
+    root = Path(__file__).parents[2] / "src" / "ai_trainer" / "llm" / "prompts" / "cycling.extract"
+    body = (root / "v4.en.md").read_text(encoding="utf-8")
+    leave_out = body[body.index("Leave out other sports") :].split("Give only")[0]
+    for machine in ("rower", "bike erg", "spin", "treadmill", "gym"):
+        assert machine in leave_out
+    assert default_sport_registry().get("cycling").extraction.version == 4  # type: ignore[union-attr]

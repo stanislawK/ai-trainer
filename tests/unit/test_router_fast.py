@@ -529,3 +529,21 @@ def test_the_app_asks_its_latest_version_and_v1_stays_registered_for_comparison(
 
     assert ROUTER_FAST_VERSION == versions[-1] > 1
     assert versions[0] == 1
+
+
+def test_router_fast_active_version_is_three() -> None:
+    assert ROUTER_FAST_VERSION == 3
+
+
+def test_router_fast_v3_gym_option_names_indoor_machines() -> None:
+    """Jev reads only the option descriptions, so ergs and spinning sit under gym, not cycling
+    (#619)."""
+    decision_set = router_fast_set(["gym", "cycling"], loader=DecisionSetLoader(), version=3)
+    decision_set.output_type.model_validate(
+        {"multi_request": 0.1, "intent": "log_session", "sport": "gym"}
+    )
+    path = DECISIONS_ROOT / ROUTER_FAST_ID / "v3.en.yaml"
+    options = yaml.safe_load(path.read_text())["questions"]["sport"]["options"]
+    for machine in ("rower", "ski erg", "bike erg", "spinning"):
+        assert machine in options["gym"]
+        assert machine not in options["cycling"]
