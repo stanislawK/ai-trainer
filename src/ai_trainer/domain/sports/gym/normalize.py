@@ -10,7 +10,9 @@ KG_PER_LB = 0.45359237
 SECONDS_PER_MINUTE = 60
 METRES_PER_KM = 1000
 
-type DurationUnit = Literal["s", "min"]
+SECONDS_PER_HOUR = 3600
+
+type DurationUnit = Literal["s", "min", "h"]
 type DistanceUnit = Literal["m", "km"]
 
 
@@ -20,7 +22,13 @@ def to_kg(value: float, unit: LoadUnit) -> float:
 
 
 def to_seconds(value: float, unit: DurationUnit) -> int:
-    return round(value if unit == "s" else value * SECONDS_PER_MINUTE)
+    match unit:
+        case "s":
+            return round(value)
+        case "min":
+            return round(value * SECONDS_PER_MINUTE)
+        case "h":
+            return round(value * SECONDS_PER_HOUR)
 
 
 def to_metres(value: float, unit: DistanceUnit) -> float:

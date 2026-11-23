@@ -170,6 +170,34 @@ class ActivitiesMatch(Evaluator[EvalCaseInputs, BaseModel]):
         )
 
 
+def _session_fields(output: BaseModel, *, ignore: set[str]) -> dict[str, Any]:
+    """The session fields as the draft holds them (`duration_min`, `rpe`), so 1 h and 60 min,
+    or "hard" and RPE 7, grade alike (code review on #622)."""
+    assert isinstance(output, SessionExtraction)
+    return {
+        name: value
+        for name, value in output.envelope().model_dump(mode="json").items()
+        if name not in ignore
+    }
+
+
+@dataclass
+class SessionMatch(Evaluator[EvalCaseInputs, BaseModel]):
+    """Code-graded (B41, ticket #622): the session's length and RPE as the draft would hold
+    them, so an invented RPE fails; a sport whose extraction gives none always matches. A case
+    may list `duration_min` or `rpe` in `metadata.ignore_fields`."""
+
+    def evaluate(self, ctx: EvaluatorContext[EvalCaseInputs, BaseModel]) -> EvaluatorOutput:
+        drafts = _drafts(ctx)
+        if drafts is None:
+            return {}
+        assert ctx.expected_output is not None
+        ignore = set((ctx.metadata or {}).get("ignore_fields", []))
+        return drafts and _session_fields(ctx.output, ignore=ignore) == _session_fields(
+            ctx.expected_output, ignore=ignore
+        )
+
+
 def _question(output: BaseModel) -> dict[str, Any]:
     """The question as graded: every field, its `readings` in any order (ticket #206)."""
     fields = output.model_dump(mode="json")

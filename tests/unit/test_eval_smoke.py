@@ -350,14 +350,29 @@ def test_the_parser_takes_one_id_or_all() -> None:
         main(["smoke", "gym.extract", "--all"])
 
 
-def test_gym_smoke_cases_cite_a_transcript_verbatim_or_the_ticket_that_reported_them() -> None:
-    # ADR-0034: mostly cut from field transcripts, synthetic only for a reported bug.
+def _defined_in_a_prd(requirement: str) -> bool:
+    return any(
+        f"**{requirement}**" in prd.read_text() for prd in (ROOT / "docs" / "prd").glob("0*.md")
+    )
+
+
+def test_gym_smoke_cases_cite_a_transcript_a_reported_ticket_or_a_prd_requirement() -> None:
+    # ADR-0034: mostly cut from field transcripts, synthetic only for a reported bug. Scope no
+    # field chat covers yet may be worded from a PRD requirement (#622 amendment); those cases
+    # stand apart from the field majority.
     smoke_set = read_smoke_set("gym.extract", smoke_root=ROOT / "evals" / "smoke")
 
     assert smoke_set.cases
     cited = 0
+    prd_worded = 0
     for case in smoke_set.cases:
         assert case.metadata is not None, case.name
+        if "prd" in case.metadata:
+            requirement = str(case.metadata["prd"])
+            assert re.fullmatch(r"[BFG]\d+", requirement), case.name
+            assert _defined_in_a_prd(requirement), case.name
+            prd_worded += 1
+            continue
         if "reported" in case.metadata:
             assert re.fullmatch(r"#\d+", str(case.metadata["reported"])), case.name
             continue
@@ -365,7 +380,7 @@ def test_gym_smoke_cases_cite_a_transcript_verbatim_or_the_ticket_that_reported_
         assert transcript.is_file(), case.metadata["field"]
         assert case.inputs.prompt in transcript.read_text(), case.name
         cited += 1
-    assert cited > len(smoke_set.cases) - cited
+    assert cited > len(smoke_set.cases) - prd_worded - cited
 
 
 def _gym_smoke_case(prompt: str) -> dict[str, Any]:
