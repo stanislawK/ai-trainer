@@ -1,0 +1,6 @@
+{#- A drawn picture's slot after its load (ADR-0031 *Picture on the card*, #643; #641 option B, "picture: arrived" and "picture: failed"): the picture, with its credit out of band into the candidate's credit slot, or nothing, which removes the slot and leaves the text-only row. -#}
+{%- from "components/choice_card.html" import picture_thumb, credit_slot -%}
+{%- if picture -%}
+{{ picture_thumb(picture) }}
+{{ credit_slot(question, option, picture, oob=true) }}
+{%- endif -%}

@@ -49,6 +49,21 @@
       <span class="flex flex-wrap items-center gap-x-1.5 mt-1 text-[12px] leading-4 lbl-2"><span>Short version simplified by AI</span><span aria-hidden="true">·</span><button type="button" class="relative z-10 underline decoration-base-content/25 underline-offset-2 hover:decoration-base-content/70" hx-post="/clarifications/{{ question.id }}/howto/{{ option.id }}/flag" hx-target="closest [data-candidate]" hx-swap="outerHTML" hx-status:4xx="swap:none" hx-status:5xx="swap:none" data-howto-flag><span class="absolute -inset-x-2 -inset-y-3.5" aria-hidden="true"></span>Looks wrong</button></span>
     </div>
 {%- endmacro %}
+{#- A candidate's picture on its fill: `bg-primary/10` for a generated one, as the mock and the admin page draw it, else `bg-base-content/10`; 48 px on the phone and 64 px wider. -#}
+{% macro picture_thumb(picture) -%}
+<span class="shrink-0 size-12 sm:size-16 rounded-xl overflow-hidden grid place-items-center {{ 'bg-primary/10' if picture.origin == 'generated' else 'bg-base-content/10' }}" data-picture><img src="{{ picture.public_url }}" alt="" class="size-full object-contain" loading="lazy" decoding="async"></span>
+{%- endmacro %}
+{#- The picture the card draws for a catalogue candidate with none (ADR-0031 *Picture on the card*, #643; #641 option B, "picture: loading"): the slot is a `skeleton` with a 20 px sparkle, read as "Drawing a picture", that posts on load. The route answers with the picture, and its credit out of band into the candidate's `credit_slot`, so the how-to line, which may still be loading, is never drawn again. On any fallback the route answers with nothing and the slot goes, leaving exactly the text-only row; an error response removes it too. The slot sits inside the row button with its own target, so it never answers the question. -#}
+{% macro picture_slot(question, option) -%}
+<span class="shrink-0 size-12 sm:size-16 rounded-xl skeleton grid place-items-center" hx-post="/clarifications/{{ question.id }}/picture/{{ option.id }}" hx-trigger="load" hx-target="this" hx-swap="outerHTML" hx-status:4xx="swap:delete" hx-status:5xx="swap:delete" data-picture-load>{{ icon("sparkles", "size-5 lbl-2") }}<span class="sr-only" role="status" aria-busy="true">Drawing a picture</span></span>
+{%- endmacro %}
+{#- Where the drawn picture's credit lands: hidden and empty until the route fills it. -#}
+{% macro credit_slot(question, option, picture=none, oob=false) -%}
+{%- set line = "pl-[76px] sm:pl-[92px] pr-4 flex flex-wrap items-center gap-x-1.5 gap-y-3 text-[12px] leading-4 lbl-2" -%}
+<div id="choice-{{ question.id }}-credit-{{ option.id }}"{% if picture %} class="contents"{% else %} hidden{% endif %}{% if oob %} hx-swap-oob="true"{% endif %} data-credit-slot>
+{%- if picture %}{{ credit(picture, line, line, quiet=true) }}{% endif -%}
+</div>
+{%- endmacro %}
 {#- One candidate's row button, or, as `keep`, "Keep my name". `how_id` is the ID of its how-to text, which the toggle controls, and `howto` what its line shows. -#}
 {% macro exercise_option(question, option, picture=none, keep=false, how_id=none, howto=none) -%}
 <button type="button" class="lg lg-clear lg-row{% if not keep %} items-start group-data-more/cand:pr-11 group-has-[.htmx-request]/cand:pr-11{% endif %}" hx-post="/clarifications/{{ question.id }}/answer" hx-vals='{{ {"option_ids": option.id} | tojson }}' hx-target="closest [data-choice-card]" hx-swap="outerHTML" hx-disable="[data-choice-card='{{ question.id }}'] button" hx-status:4xx="swap:none" data-choice-option="{{ option.id }}">
@@ -56,8 +71,10 @@
       <span class="flex flex-col flex-1 min-w-0"><span class="text-[16px] font-medium">{{ option_label(option) }}</span><span class="text-[13px] lbl-2">{{ option_hint(option) }}</span></span>
       {{ icon("chevron-right", "size-4 lbl-2") }}
       {%- else %}
-      {%- if picture %}
-      <span class="shrink-0 size-12 sm:size-16 rounded-xl overflow-hidden grid place-items-center {{ 'bg-primary/10' if picture.origin == 'generated' else 'bg-base-content/10' }}"><img src="{{ picture.public_url }}" alt="" class="size-full object-contain" loading="lazy" decoding="async"></span>
+      {%- if picture and picture.loading %}
+      {{ picture_slot(question, option) }}
+      {%- elif picture %}
+      {{ picture_thumb(picture) }}
       {%- endif %}
       <span class="flex flex-col flex-1 min-w-0 gap-0.5"><span class="text-[16px] font-medium leading-5">{{ option_label(option) }}</span>{% if how_id %}{{ howto_line(question, option, how_id, howto) }}{% endif %}</span>
       {%- endif %}
@@ -89,7 +106,9 @@
     {%- if how_id and howto and howto.kind in ("short", "load") %}
     {{ original_instructions(question, option, pad) }}
     {%- endif %}
-    {%- if picture %}
+    {%- if picture and picture.loading %}
+    {{ credit_slot(question, option) }}
+    {%- elif picture %}
     {{ credit(picture, quiet_line, quiet_line, quiet=true) }}
     {%- endif %}
     </div>

@@ -46,6 +46,10 @@ class PictureToDraw:
     loading: ClassVar[bool] = True
 
 
+# What a candidate's picture slot shows: its picture, or the slot that draws one.
+type CardSlot = CardPicture | PictureToDraw
+
+
 class ExerciseCardMedia:
     """Facade for the chat's exercise card."""
 

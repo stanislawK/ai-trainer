@@ -14,6 +14,7 @@ from pydantic import JsonValue
 from starlette.templating import Jinja2Templates
 
 from ai_trainer.application.exercise_card_media import ExerciseCardMedia
+from ai_trainer.application.exercise_card_picture import CardPictures
 from ai_trainer.application.exercise_simple_howto import CardHowtos
 from ai_trainer.application.feedback import FeedbackRecorder
 from ai_trainer.application.ports.band_order import BandOrderPort
@@ -991,10 +992,12 @@ def include_chat(
     band_orders: Mapping[str, BandOrderPort] | None = None,
     card_media: ExerciseCardMedia | None = None,
     card_howtos: CardHowtos | None = None,
+    card_pictures: CardPictures | None = None,
 ) -> InMemoryChatRepository:
     """Mounts the chat router on an in-memory repository and a scripted conversation, and
-    returns the repository. Without `card_media` the exercise card is text only (#558), and
-    without `card_howtos` it shows no short how-to (#592)."""
+    returns the repository. Without `card_media` the exercise card is text only (#558),
+    without `card_howtos` it shows no short how-to (#592), and without `card_pictures` it draws
+    no missing picture (#643)."""
     repository = chat or InMemoryChatRepository()
     services = reply_services(
         repository,
@@ -1018,6 +1021,7 @@ def include_chat(
             retention_days=14,
             card_media=card_media,
             card_howtos=card_howtos,
+            card_pictures=card_pictures,
         )
     )
     return repository

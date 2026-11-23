@@ -1938,6 +1938,55 @@
         "summary": "Keep Name"
       }
     },
+    "/clarifications/{clarification_id}/picture/{option_id}": {
+      "post": {
+        "description": "A drawable candidate's loading picture slot (ADR-0031 *Picture on the card*, #643):\ndraws its picture under the athlete whose card asked and returns it with its credit, or,\non any fallback, nothing, which leaves the text-only row. It never answers the question.\nThe guards are `howto`'s: 404 for another user's or an unknown question or option, or\nwhen pictures aren't drawn, 409 for an answered one.",
+        "operationId": "picture_clarifications__clarification_id__picture__option_id__post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "clarification_id",
+            "required": true,
+            "schema": {
+              "title": "Clarification Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "option_id",
+            "required": true,
+            "schema": {
+              "title": "Option Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Picture"
+      }
+    },
     "/drafts/{draft_id}": {
       "get": {
         "description": "The draft as it is stored: the pending card, or the row it collapsed to. The edit\nform's Cancel swaps it back in (ticket #158).",
