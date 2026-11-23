@@ -15,7 +15,12 @@ from ai_trainer.adapters.db import build_engine, build_session_factory
 from ai_trainer.adapters.exercise_repository import SqlAlchemyExerciseRepository
 from ai_trainer.adapters.media_repository import SqlAlchemyExerciseMediaRepository
 from ai_trainer.application.exercise_picture_store import StoreExercisePicture
-from ai_trainer.domain.exercises import CatalogueExercise, ExerciseMeasure, ExerciseText
+from ai_trainer.domain.exercises import (
+    CatalogueExercise,
+    ExerciseCategory,
+    ExerciseMeasure,
+    ExerciseText,
+)
 from ai_trainer.domain.media_generation import (
     GeneratedImage,
     PictureBrief,
@@ -69,6 +74,7 @@ async def exercise_id(engine: AsyncEngine) -> UUID:
                 target="lats",
                 secondary_muscles=(),
                 default_measure=ExerciseMeasure.REPS,
+                category=ExerciseCategory.STRENGTH,
                 attribution="test",
                 texts=(ExerciseText(lang="en", instructions="Hang, then pull.", steps=()),),
             )

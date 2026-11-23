@@ -31,6 +31,10 @@ class ExerciseOrm(Base):
             "default_measure IN ('load_reps', 'reps', 'time', 'distance', 'band_reps')",
             name="exercises_default_measure",
         ),
+        CheckConstraint(
+            "category IN ('strength', 'cardio', 'stretching', 'mobility', 'class')",
+            name="exercises_category",
+        ),
         Index(
             "ix_exercises_name_trgm",
             text("exercise_name_norm(name) gin_trgm_ops"),
@@ -57,6 +61,7 @@ class ExerciseOrm(Base):
     target: Mapped[str | None] = mapped_column(Text, nullable=True)
     secondary_muscles: Mapped[list[str] | None] = mapped_column(ARRAY(Text), nullable=True)
     default_measure: Mapped[str] = mapped_column(Text, nullable=False)
+    category: Mapped[str] = mapped_column(Text, nullable=False, server_default="strength")
     attribution: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 

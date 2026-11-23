@@ -190,6 +190,13 @@ async def test_mcp_exercise_find_returns_settled_exercise_first(world: _World) -
     assert only["equipment"] == "barbell"
 
 
+async def test_find_exercise_returns_category(world: _World) -> None:
+    found = await _call(world, world.alice, "find_exercise", {"name": "bench press"})
+
+    (only,) = found["data"]["exercises"]
+    assert only["category"] == "strength"
+
+
 class _SearchFinds:
     """The catalogue search, scripted: it ranks one exercise for any name."""
 

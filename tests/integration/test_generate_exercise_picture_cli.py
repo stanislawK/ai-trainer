@@ -20,7 +20,12 @@ from ai_trainer.adapters.db import build_engine, build_session_factory
 from ai_trainer.adapters.exercise_repository import SqlAlchemyExerciseRepository
 from ai_trainer.adapters.users_repository import SqlAlchemyUsersRepository
 from ai_trainer.cli_media import GENERATE_EXERCISE_PICTURE, PictureHooks
-from ai_trainer.domain.exercises import CatalogueExercise, ExerciseMeasure, ExerciseText
+from ai_trainer.domain.exercises import (
+    CatalogueExercise,
+    ExerciseCategory,
+    ExerciseMeasure,
+    ExerciseText,
+)
 from ai_trainer.domain.media_generation import (
     BriefFailed,
     NoBrief,
@@ -80,6 +85,7 @@ async def admin_id(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[UUID]:
                 target="lats",
                 secondary_muscles=(),
                 default_measure=ExerciseMeasure.REPS,
+                category=ExerciseCategory.STRENGTH,
                 attribution="test",
                 texts=(
                     ExerciseText(
@@ -308,6 +314,7 @@ async def test_a_name_in_more_than_one_sport_is_refused_before_any_call(
                     target="lats",
                     secondary_muscles=(),
                     default_measure=ExerciseMeasure.REPS,
+                    category=ExerciseCategory.STRENGTH,
                     attribution="test",
                     texts=(ExerciseText(lang="en", instructions="Hang, then pull.", steps=()),),
                 )

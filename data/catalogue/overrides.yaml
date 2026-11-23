@@ -102,6 +102,63 @@ measure:
   "3548": distance  # dumbbell single arm overhead carry
   "3656": distance  # short stride run
 
+# Held stretches, which the body part and equipment can't tell from a lift. A row with no entry
+# is `cardio` for the cardio body part and cardio-machine equipment, `strength` otherwise.
+category:
+  "0257": stretching  # circles knee stretch
+  "0613": stretching  # lying (side) quads stretch
+  "0643": stretching  # overhead triceps stretch
+  "0669": stretching  # rear deltoid stretch
+  "0690": stretching  # seated lower back stretch
+  "0716": stretching  # side push neck stretch
+  "0721": stretching  # side wrist pull stretch
+  "0794": stretching  # standing lateral stretch
+  "0817": stretching  # triceps stretch
+  "1259": stretching  # behind head chest stretch
+  "1271": stretching  # chest and front of shoulder stretch
+  "1272": stretching  # chest stretch with exercise ball
+  "1339": stretching  # exercise ball lat stretch
+  "1341": stretching  # exercise ball lower back stretch (pyramid)
+  "1342": stretching  # exercise ball lying side lat stretch
+  "1346": stretching  # kneeling lat stretch
+  "1358": stretching  # side lying floor stretch
+  "1363": stretching  # spine stretch
+  "1365": stretching  # upper back stretch
+  "1377": stretching  # calf stretch with hands against wall
+  "1378": stretching  # calf stretch with rope
+  "1388": stretching  # peroneals stretch
+  "1389": stretching  # posterior tibialis stretch
+  "1390": stretching  # seated calf stretch (male)
+  "1398": stretching  # standing calves calf stretch
+  "1403": stretching  # neck side stretch
+  "1405": stretching  # back pec stretch
+  "1407": stretching  # calf push stretch with hands against wall
+  "1419": stretching  # iron cross stretch
+  "1424": stretching  # seated glute stretch
+  "1511": stretching  # hamstring stretch
+  "1512": stretching  # all fours squad stretch
+  "1548": stretching  # chair leg extended stretch
+  "1559": stretching  # exercise ball hip flexor stretch
+  "1560": stretching  # exercise ball seated hamstring stretch
+  "1564": stretching  # intermediate hip flexor and quad stretch
+  "1576": stretching  # leg up hamstring stretch
+  "1585": stretching  # runners stretch
+  "1599": stretching  # standing hamstring and calf stretch with strap
+  "1604": stretching  # world greatest stretch
+  "1708": stretching  # assisted lying calves stretch
+  "1709": stretching  # assisted lying glutes stretch
+  "1710": stretching  # assisted lying gluteus and piriformis stretch
+  "1712": stretching  # assisted side lying adductor stretch
+  "1713": stretching  # assisted prone lying quads stretch
+  "1714": stretching  # assisted prone rectus femoris stretch
+  "1716": stretching  # assisted seated pectoralis major stretch with stability ball
+  "1745": stretching  # exercise ball seated triceps stretch
+  "2202": stretching  # roller hip stretch
+  "2205": stretching  # roller hip lat stretch
+  "2207": stretching  # roller side lat stretch
+  "2208": stretching  # roller back stretch
+  "2567": stretching  # seated piriformis stretch
+
 # Words plain title-casing gets wrong.
 words:
   ez: EZ

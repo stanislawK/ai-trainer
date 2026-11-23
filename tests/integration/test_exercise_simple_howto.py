@@ -56,7 +56,12 @@ from ai_trainer.domain.exercise_simple_texts import (
     StoredSimpleText,
     source_sha256,
 )
-from ai_trainer.domain.exercises import CatalogueExercise, ExerciseMeasure, ExerciseText
+from ai_trainer.domain.exercises import (
+    CatalogueExercise,
+    ExerciseCategory,
+    ExerciseMeasure,
+    ExerciseText,
+)
 from ai_trainer.domain.llm_calls import LlmCallOutcome
 from ai_trainer.domain.sports.registry import default_sport_registry
 from ai_trainer.domain.users import NewUser, UserStatus
@@ -125,6 +130,7 @@ def _exercise(name: str, *texts: ExerciseText) -> CatalogueExercise:
         target="pectorals",
         secondary_muscles=(),
         default_measure=ExerciseMeasure.LOAD_REPS,
+        category=ExerciseCategory.STRENGTH,
         attribution="test",
         texts=texts,
     )

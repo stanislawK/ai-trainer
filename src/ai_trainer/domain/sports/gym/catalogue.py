@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from ai_trainer.domain.exercises import (
     CatalogueExercise,
     ExerciseCatalogueError,
+    ExerciseCategory,
     ExerciseMeasure,
     ExerciseText,
     ImportedCatalogue,
@@ -28,6 +29,15 @@ _GENDER_SUFFIX = re.compile(r"\s*\((?:male|female)\)\s*$", re.IGNORECASE)
 _WORD = re.compile(r"[^\s()/-]+")
 _NOT_A_NAME_CHARACTER = re.compile(r"[^\w°]+")
 _MAX_NAME_LENGTH = 200
+_CARDIO_EQUIPMENT = frozenset(
+    {
+        "stationary bike",
+        "elliptical machine",
+        "stepmill machine",
+        "skierg machine",
+        "upper body ergometer",
+    }
+)
 
 
 class DatasetRow(BaseModel):
@@ -62,6 +72,7 @@ class CatalogueOverrides(BaseModel):
     skip: frozenset[str] = frozenset()
     rename: Mapping[str, str] = Field(default_factory=dict)
     measure: Mapping[str, ExerciseMeasure] = Field(default_factory=dict)
+    category: Mapping[str, ExerciseCategory] = Field(default_factory=dict)
     words: Mapping[str, str] = Field(default_factory=dict)
 
 
@@ -77,6 +88,7 @@ class ExtraExercise(BaseModel):
     target: str
     secondary_muscles: tuple[str, ...]
     default_measure: ExerciseMeasure
+    category: ExerciseCategory = ExerciseCategory.STRENGTH
     texts: tuple[ExerciseText, ...] = Field(min_length=1)
 
     @model_validator(mode="after")
@@ -112,6 +124,14 @@ def derive_measure(equipment: str) -> ExerciseMeasure:
             return ExerciseMeasure.BAND_REPS
         case _:
             return ExerciseMeasure.LOAD_REPS
+
+
+def derive_category(body_part: str, equipment: str) -> ExerciseCategory:
+    """The dataset's own `category` only repeats `body_part`, so it is derived here; a stretch or
+    a mobility drill is an `overrides.yaml` entry (ADR-0031)."""
+    if body_part == "cardio" or equipment in _CARDIO_EQUIPMENT:
+        return ExerciseCategory.CARDIO
+    return ExerciseCategory.STRENGTH
 
 
 def build_catalogue(
@@ -155,6 +175,7 @@ def _from_row(
         target=row.target,
         secondary_muscles=row.secondary_muscles,
         default_measure=overrides.measure.get(row.id) or derive_measure(row.equipment),
+        category=overrides.category.get(row.id) or derive_category(row.body_part, row.equipment),
         attribution=attribution,
         texts=tuple(
             ExerciseText(
@@ -176,13 +197,16 @@ def _from_extra(extra: ExtraExercise) -> CatalogueExercise:
         target=extra.target,
         secondary_muscles=extra.secondary_muscles,
         default_measure=extra.default_measure,
+        category=extra.category,
         attribution=EXTRA_SOURCE,
         texts=extra.texts,
     )
 
 
 def _require_known_rows(rows: Sequence[DatasetRow], overrides: CatalogueOverrides) -> None:
-    named = overrides.skip | set(overrides.rename) | set(overrides.measure)
+    named = (
+        overrides.skip | set(overrides.rename) | set(overrides.measure) | set(overrides.category)
+    )
     unknown = named - {row.id for row in rows}
     if unknown:
         raise ExerciseCatalogueError(f"overrides name unknown rows: {sorted(unknown)}")

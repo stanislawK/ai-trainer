@@ -6,7 +6,12 @@ from pathlib import Path
 import pytest
 import yaml
 
-from ai_trainer.domain.exercises import ExerciseCatalogueError, ExerciseMeasure, ExerciseText
+from ai_trainer.domain.exercises import (
+    ExerciseCatalogueError,
+    ExerciseCategory,
+    ExerciseMeasure,
+    ExerciseText,
+)
 from ai_trainer.domain.sports.gym.catalogue import (
     CatalogueOverrides,
     DatasetPin,
@@ -14,6 +19,7 @@ from ai_trainer.domain.sports.gym.catalogue import (
     ExtraExercise,
     build_catalogue,
     clean_name,
+    derive_category,
     derive_measure,
 )
 from tests.exercise_support import COMMIT, FETCHED_ON, SAMPLE
@@ -255,3 +261,53 @@ def test_the_committed_files_keep_the_mit_notice() -> None:
 
     assert "Copyright (c) 2026 Hasan Emir " in notice
     assert "MIT License" in notice
+
+
+@pytest.mark.parametrize(
+    ("body_part", "equipment", "category"),
+    [
+        ("chest", "barbell", ExerciseCategory.STRENGTH),
+        ("cardio", "body weight", ExerciseCategory.CARDIO),
+        ("upper legs", "stationary bike", ExerciseCategory.CARDIO),
+        ("cardio", "elliptical machine", ExerciseCategory.CARDIO),
+        ("waist", "stepmill machine", ExerciseCategory.CARDIO),
+        ("back", "skierg machine", ExerciseCategory.CARDIO),
+        ("upper arms", "upper body ergometer", ExerciseCategory.CARDIO),
+    ],
+)
+def test_derive_category_follows_the_body_part_and_the_equipment(
+    body_part: str, equipment: str, category: ExerciseCategory
+) -> None:
+    assert derive_category(body_part, equipment) == category
+
+
+def test_build_catalogue_derives_category() -> None:
+    rower = _extra("rower", "Rower").model_copy(update={"category": ExerciseCategory.CARDIO})
+    built = build_catalogue(
+        [
+            _row("1", "bike", equipment="stationary bike"),
+            _row("2", "hamstring stretch"),
+            _row("3", "bench press"),
+        ],
+        overrides=CatalogueOverrides(category={"2": ExerciseCategory.STRETCHING}),
+        extras=[_extra(), rower],
+        pin=_PIN,
+    )
+
+    assert {row.source_ref: row.category for row in built.exercises} == {
+        "1": ExerciseCategory.CARDIO,
+        "2": ExerciseCategory.STRETCHING,
+        "3": ExerciseCategory.STRENGTH,
+        "extra": ExerciseCategory.STRENGTH,
+        "rower": ExerciseCategory.CARDIO,
+    }
+
+
+def test_build_refuses_a_category_override_naming_an_unknown_row() -> None:
+    with pytest.raises(ExerciseCatalogueError, match="unknown rows"):
+        build_catalogue(
+            [_row("1", "bench press")],
+            overrides=CatalogueOverrides(category={"9": ExerciseCategory.MOBILITY}),
+            extras=[],
+            pin=_PIN,
+        )

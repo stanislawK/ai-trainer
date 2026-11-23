@@ -52,6 +52,9 @@ BACKFILLED: Mapping[tuple[str, str], object] = {
     # #422's free-text notes become `other`, set by an admin (ADR-0036, #453).
     ("knowledge_sources", "license_id"): "other",
     ("knowledge_sources", "license_source"): "admin",
+    # Every exercise row, catalogue or custom, reads `strength` until the import says otherwise
+    # (ADR-0031, #623).
+    ("exercises", "category"): "strength",
 }
 
 _VERSIONS = "migrations/versions"
