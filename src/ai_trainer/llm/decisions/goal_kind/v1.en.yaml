@@ -1,0 +1,34 @@
+goal: >-
+  A training goal an amateur athlete (gym, climbing or cycling) named when they signed up, in
+  their own words, as one short line. It may be in any language, Polish included.
+questions:
+  kind:
+    kind: choice
+    question: >-
+      What is this goal mainly about? Judge by what the athlete wants to change in their body or
+      performance. When it names two things, pick the one it leads with. Pick "none" when it names
+      no outcome a training kind could serve.
+    options:
+      strength: >-
+        Strength: lifting, pulling or pushing more weight, such as a heavier deadlift, squat or
+        bench press, a one-rep max, more pull-ups or a weighted pull-up, or a harder climbing
+        grade won by stronger fingers.
+      muscle: >-
+        Muscle: building muscle size or shape, such as bigger arms, a fuller chest, putting on
+        lean mass, bulking or a more muscular look.
+      endurance: >-
+        Endurance: lasting longer or going further, such as running a 10 km or a marathon, a long
+        bike ride, better stamina or cardio fitness, or rowing or swimming farther.
+      weight_loss: >-
+        Weight loss: losing weight or body fat, such as losing kilograms, getting leaner, slimming
+        down or reaching a target body weight.
+      mobility: >-
+        Mobility: moving more freely, such as flexibility, touching the toes, the splits, a deeper
+        squat, looser hips or shoulders, stretching, or moving without stiffness.
+      general_fitness: >-
+        General fitness: being healthier and fitter overall with no single focus, such as getting
+        back in shape, staying active, feeling better, keeping fit as they age, or training
+        regularly.
+      none: >-
+        None: it names no outcome of training, such as having fun, climbing with friends, trying a
+        new gym or a place to visit, or it is not a goal at all.
