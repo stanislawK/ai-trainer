@@ -201,7 +201,7 @@ Owner-directed 2026-11-22. F23 asks for "two short beginner-friendly lines on ho
 4. The typed name is always kept next to the resolved exercise.
 5. Imported text and media keep their source, license and attribution, and only `approved` media is shown (G10, ADR-0016). `unstated` media is only ever `embedded`, and is shown only while the app is non-commercial (PRD 0012 G16, G17); hiding it is one query on `rights`.
 6. No exercise name or alias is written by a model at request time. Descriptions come from `exercise_texts`. The one exception is the beginner how-to in `exercise_simple_texts`: it is written from the exercise's own catalogue text only, is labelled as AI simplified, keeps the original one tap away, and is hidden as soon as it is flagged (amended 2026-11-22).
-7. An exercise's `category` is set only by the importer or by the athlete's own custom exercise, never by a model at request time (extends invariant 6; amended 2026-11-23).
+7. An exercise's `category` is set only by the importer, or by code when the athlete's custom exercise is created, never by a model at request time (extends invariant 6; amended 2026-11-23).
 
 ## Alternatives considered
 
@@ -222,10 +222,11 @@ Owner-directed 2026-11-22. F23 asks for "two short beginner-friendly lines on ho
 - The F23 card needs a Claude Design mock with a media slot before its web ticket (ADR-0019).
 - ⚠ The media source is `wger` (see "First media source (#514)", 2026-11-07). The import is the M2m ticket's work. Until it lands, cards show text only.
 - ⚠ A fallback source fills `wger`'s gaps (see "Fallback media source (#524)", 2026-11-08). The generation flow, the brief rules against printed text, and the spend cap are recorded in "Picture generation (#531)", 2026-11-08. The import and the code are M2m's work.
-- Owner-directed 2026-11-23 (#618), for the owner's review with the draft PR: gym covers stretching, mobility, classes and cardio machines ([PRD 0013](../prd/0013-ai-training-companion.md) B41, B42). Built by M2f's tickets.
+- Owner-directed 2026-11-23 (#618), for the owner's review with the draft PR: gym covers stretching, mobility, classes and cardio machines ([PRD 0013](../prd/0013-ai-training-companion.md) B41, B42). Built by M2f's tickets once PRD 0013 is Approved; nothing is built yet.
   - **`exercises.category`:** text NOT NULL, `CHECK (category IN ('strength','cardio','stretching','mobility','class'))`, added expand-only (ADR-0024) with a default of `'strength'` and then backfilled by the importer.
   - **Derived in code at import,** as `default_measure` is: the dataset's body part `cardio` or a cardio-machine equipment → `cardio`, the rest `strength`. `overrides.yaml` sets the exceptions (stretches → `stretching`).
   - **Classes and mobility drills** the dataset lacks go in `extra.yaml` (human-reviewed). A class settles on confirm as its own catalogue row or as the athlete's custom exercise with `category = 'class'`, never on the exercise card.
+  - **A custom exercise's category** is set in code when it is created: `class` when it settles a class, `cardio` when its entry's measure is `distance_time` or `distance`, otherwise `strength`. The column's `'strength'` default is only the expand step's placeholder until the importer and this rule run, never a classification.
   - **`default_measure`** may be `distance_time` (ADR-0032) for cardio machines.
   - **Invariant 7** (new) keeps `category` out of a model's hands at request time.
 - Owner-directed amendment, 2026-11-22: it adds "Beginner how-to (F23)", relaxes invariant 6 for that one text, and adds two alternatives. It is proposed for the owner's review with this branch's PR. It changes no other Decision or Invariant.
