@@ -29,6 +29,7 @@ from ai_trainer.domain.exercises import (
     Exercise,
     ExerciseAlias,
     ExerciseCandidate,
+    ExerciseCategory,
     ExerciseDetail,
     ExerciseLabel,
     ExerciseMeasure,
@@ -49,6 +50,7 @@ _IMPORTED_COLUMNS = (
     "target",
     "secondary_muscles",
     "default_measure",
+    "category",
     "attribution",
 )
 _TEXT_COLUMNS = ("instructions", "steps")
@@ -154,6 +156,7 @@ async def _upsert_exercises(
                 "target": exercise.target,
                 "secondary_muscles": list(exercise.secondary_muscles),
                 "default_measure": exercise.default_measure.value,
+                "category": exercise.category.value,
                 "attribution": exercise.attribution,
             }
             for exercise in exercises
@@ -426,6 +429,7 @@ class SqlAlchemyExerciseRepository:
                 name=by_id[exercise_id].name,
                 equipment=by_id[exercise_id].equipment,
                 target=by_id[exercise_id].target,
+                category=ExerciseCategory(by_id[exercise_id].category),
                 description=_short(first.get(exercise_id)),
             )
             for exercise_id in exercise_ids

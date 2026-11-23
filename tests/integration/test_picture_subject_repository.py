@@ -15,7 +15,12 @@ from ai_trainer.adapters.exercise_repository import SqlAlchemyExerciseRepository
 from ai_trainer.adapters.llm_calls_repository import SqlAlchemyLlmCallsRepository
 from ai_trainer.adapters.picture_subject_repository import SqlAlchemyPictureSubjectsRepository
 from ai_trainer.adapters.users_repository import SqlAlchemyUsersRepository
-from ai_trainer.domain.exercises import CatalogueExercise, ExerciseMeasure, ExerciseText
+from ai_trainer.domain.exercises import (
+    CatalogueExercise,
+    ExerciseCategory,
+    ExerciseMeasure,
+    ExerciseText,
+)
 from ai_trainer.domain.media_generation import AmbiguousExerciseName, PictureSubject
 from ai_trainer.domain.users import NewUser, User, UserStatus
 from ai_trainer.llm.images import OpenRouterImageGenerator
@@ -35,6 +40,7 @@ def _exercise(name: str, *texts: ExerciseText, sport_id: str = "gym") -> Catalog
         target="lats",
         secondary_muscles=(),
         default_measure=ExerciseMeasure.REPS,
+        category=ExerciseCategory.STRENGTH,
         attribution="test",
         texts=texts,
     )

@@ -159,3 +159,65 @@ async def test_custom_exercise_and_user_alias_survive_a_reimport(
 
     assert await repository.get(user.id, custom.id) == custom
     assert await repository.user_aliases(user.id) == [alias]
+
+
+async def test_import_stores_category(db_session_factory: SessionFactory) -> None:
+    repository = SqlAlchemyExerciseRepository(db_session_factory)
+
+    await import_catalogue(source=sample_source(), exercises=repository)
+
+    rows = await _column(
+        db_session_factory,
+        f"SELECT source_ref || '=' || category FROM exercises WHERE {_SAMPLE_ROWS}",
+    )
+    by_ref = dict(str(row).split("=") for row in rows)
+    assert by_ref["zz-test-01"] == "strength"
+    assert by_ref["zz-test-02"] == "cardio"
+    assert by_ref["zz-test-08"] == "stretching"
+
+
+async def test_second_import_changes_nothing_with_category(
+    db_session_factory: SessionFactory,
+) -> None:
+    repository = SqlAlchemyExerciseRepository(db_session_factory)
+    await import_catalogue(source=sample_source(), exercises=repository)
+    async with db_session_factory() as session:
+        await session.execute(
+            text("UPDATE exercises SET category = 'mobility' WHERE source_ref = 'zz-test-01'")
+        )
+        await session.commit()
+
+    fixed = await import_catalogue(source=sample_source(), exercises=repository)
+    again = await import_catalogue(source=sample_source(), exercises=repository)
+
+    assert fixed.write.updated == 1
+    assert again.write.updated == 0
+    assert again.write.unchanged == SAMPLE_EXERCISES
+
+
+async def test_import_leaves_custom_exercise_category(db_session_factory: SessionFactory) -> None:
+    repository = SqlAlchemyExerciseRepository(db_session_factory)
+    await import_catalogue(source=sample_source(), exercises=repository)
+    user = await SqlAlchemyUsersRepository(db_session_factory).create(
+        NewUser(
+            sub="category-user",
+            email="category-user@example.com",
+            name=None,
+            locale="en",
+            status=UserStatus.ACTIVE,
+        )
+    )
+    custom = await repository.create_custom(
+        user.id, sport_id="gym", name="Odd Class", default_measure=ExerciseMeasure.TIME
+    )
+    async with db_session_factory() as session:
+        await session.execute(
+            text("UPDATE exercises SET category = 'class' WHERE id = :id"), {"id": custom.id}
+        )
+        await session.commit()
+
+    await import_catalogue(source=sample_source(), exercises=repository)
+
+    assert await _column(
+        db_session_factory, f"SELECT category FROM exercises WHERE id = '{custom.id}'"
+    ) == ["class"]

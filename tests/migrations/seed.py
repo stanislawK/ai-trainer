@@ -254,6 +254,7 @@ def _rows() -> dict[str, tuple[Row, ...]]:
                 "target": None if a else "pectorals",
                 "secondary_muscles": None if a else ["triceps"],
                 "default_measure": "reps" if a else "load_reps",
+                "category": "cardio" if a else "stretching",
                 "attribution": None if a else "Seed attribution",
             }
         )

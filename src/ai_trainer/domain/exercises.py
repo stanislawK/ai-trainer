@@ -20,6 +20,16 @@ class ExerciseMeasure(StrEnum):
     BAND_REPS = "band_reps"
 
 
+class ExerciseCategory(StrEnum):
+    """What kind of exercise a row is (ADR-0031), set in code, never by a model."""
+
+    STRENGTH = "strength"
+    CARDIO = "cardio"
+    STRETCHING = "stretching"
+    MOBILITY = "mobility"
+    CLASS = "class"
+
+
 class ExerciseText(BaseModel):
     """An imported description of an exercise in one language (ADR-0031, G5)."""
 
@@ -45,6 +55,7 @@ class CatalogueExercise(BaseModel):
     target: str
     secondary_muscles: tuple[str, ...]
     default_measure: ExerciseMeasure
+    category: ExerciseCategory
     attribution: str
     texts: tuple[ExerciseText, ...]
 
@@ -166,6 +177,7 @@ class ExerciseDetail(BaseModel):
     name: str
     equipment: str | None = None
     target: str | None = None
+    category: ExerciseCategory | None = None
     description: str | None = None
 
 

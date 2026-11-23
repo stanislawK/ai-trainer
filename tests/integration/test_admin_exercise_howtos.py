@@ -37,7 +37,12 @@ from ai_trainer.domain.exercise_simple_texts import (
     SimpleHowtoDraft,
     source_sha256,
 )
-from ai_trainer.domain.exercises import CatalogueExercise, ExerciseMeasure, ExerciseText
+from ai_trainer.domain.exercises import (
+    CatalogueExercise,
+    ExerciseCategory,
+    ExerciseMeasure,
+    ExerciseText,
+)
 from ai_trainer.domain.sessions import NewSession
 from ai_trainer.domain.users import NewUser, UserStatus
 from ai_trainer.web.active_user_gate import ActiveUserGateMiddleware
@@ -104,6 +109,7 @@ class Page:
             target="delts",
             secondary_muscles=(),
             default_measure=ExerciseMeasure.LOAD_REPS,
+            category=ExerciseCategory.STRENGTH,
             attribution="test",
             texts=(ExerciseText(lang="en", instructions=instructions, steps=()),),
         )

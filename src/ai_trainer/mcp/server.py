@@ -87,9 +87,10 @@ def build_mcp_server(
     @server.tool
     async def find_exercise(ctx: Context, name: str) -> ToolResult[ExerciseLookup]:
         """Find which exercise a gym exercise name means for this athlete, with each exercise's
-        ID, name, equipment, target muscle and a short description. Use it to turn a name the
-        athlete typed ("bench press", "wyciskanie") into an exercise ID before reading its
-        history or comparing progress; don't use it to save or rename anything, it only reads.
+        ID, name, equipment, target muscle, category (strength, cardio, stretching, mobility or
+        class) and a short description. Use it to turn a name the athlete typed ("bench press",
+        "wyciskanie") into an exercise ID before reading its history or comparing progress;
+        don't use it to save or rename anything, it only reads.
         `name` is the exercise as the athlete wrote it. When the athlete already settled this
         name before, `source` is `history` and that one exercise comes first and alone;
         otherwise `source` is `catalogue` and up to 4 candidates follow, best first, from the
