@@ -5,12 +5,14 @@ is unset there is no URL to show one by, so nothing is read and the card is text
 
 from collections.abc import Collection, Mapping
 from dataclasses import dataclass
+from typing import ClassVar
 from uuid import UUID
 
 from ai_trainer.application.media_credit import (
     PictureOrigin,
     WgerCredit,
     ai_flagged,
+    drawn_on_card,
     page_url,
     picture_origin,
     wger_credit,
@@ -30,6 +32,18 @@ class CardPicture:
     attribution: str | None
     # A wger picture its uploader marked as AI-made gets the "AI generated" mark.
     ai_flagged: bool
+    # Drawn on the exercise card rather than by an admin (#643), so the athlete may flag it (#644).
+    drawn_on_card: bool = False
+    # A picture already in hand is never the loading slot (see `PictureToDraw`).
+    loading: ClassVar[bool] = False
+
+
+@dataclass(frozen=True, slots=True)
+class PictureToDraw:
+    """The card's slot for a drawable candidate with no picture yet: a skeleton that asks for one
+    as soon as it shows (ADR-0031 *Picture on the card*, #643)."""
+
+    loading: ClassVar[bool] = True
 
 
 class ExerciseCardMedia:
@@ -47,6 +61,7 @@ class ExerciseCardMedia:
             page_url=page_url(asset),
             attribution=asset.attribution,
             ai_flagged=ai_flagged(asset),
+            drawn_on_card=drawn_on_card(asset),
         )
 
     async def pictures(self, exercise_ids: Collection[UUID]) -> Mapping[UUID, CardPicture]:

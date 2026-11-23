@@ -90,6 +90,9 @@ class LlmPictureBriefWriter:
         )
         if isinstance(result.output, PictureBrief | NoBrief):
             return result.output
+        if result.outcome is LlmCallOutcome.RATE_LIMITED:
+            # The athlete's budget refused it on the card's path (ADR-0029, #643).
+            return BriefFailed(reason="rate_limited")
         return BriefFailed(
             reason="timeout" if result.outcome is LlmCallOutcome.TIMEOUT else "error"
         )

@@ -69,10 +69,11 @@ def exercise_description(text: ExerciseText | None) -> str | None:
 def picture_brief_deps(
     exercise_name: str,
     text: ExerciseText | None,
-    search: KnowledgeSearchPage | KnowledgeSearchFailed,
+    search: KnowledgeSearchPage | KnowledgeSearchFailed | None = None,
 ) -> PictureBriefDeps:
     """The deps for one exercise: its catalogue text, and only the passages its own search
-    returned, best first. A failed search gives none."""
+    returned, best first. A failed search gives none, and so does no search: the card's path
+    writes its brief from `exercise_texts` only (ADR-0031 *Picture on the card*, #643)."""
     hits = search.hits if isinstance(search, KnowledgeSearchPage) else ()
     return PictureBriefDeps(
         exercise_name=exercise_name,
@@ -124,11 +125,13 @@ type ImageFailureCause = Literal[
 
 @dataclass(frozen=True, slots=True)
 class ImageGenerationFailed:
-    """The image call ended without a picture; its `llm_calls` row is written either way.
+    """The image call ended without a picture; its `llm_calls` row is written either way, but
+    for `rate_limited`: the athlete's budget refused it on the card's path, so it was never sent
+    and wrote no row (ADR-0029, #643).
     `cause` and what follows say why an `error` failed (#543): the HTTP status and the
     provider's own error code and message, never the prompt or a key. A timeout has no cause."""
 
-    reason: Literal["timeout", "error"]
+    reason: Literal["timeout", "error", "rate_limited"]
     cause: ImageFailureCause | None = None
     status: int | None = None
     error_code: str | None = None
@@ -137,9 +140,10 @@ class ImageGenerationFailed:
 
 @dataclass(frozen=True, slots=True)
 class BriefFailed:
-    """The brief call ended without a brief; its `llm_calls` row is written either way."""
+    """The brief call ended without a brief; its `llm_calls` row is written either way, but for
+    `rate_limited`: the athlete's budget refused it, so it was never sent (ADR-0029, #643)."""
 
-    reason: Literal["timeout", "error"]
+    reason: Literal["timeout", "error", "rate_limited"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -208,7 +212,7 @@ class SpendCapReached:
 @dataclass(frozen=True, slots=True)
 class PictureFailed:
     step: Literal["brief", "image"]
-    reason: Literal["timeout", "error"]
+    reason: Literal["timeout", "error", "rate_limited"]
     spent_usd: Decimal | None
     image: ImageGenerationFailed | None = None
 
@@ -272,3 +276,53 @@ def generated_picture_asset(
         ),
         sha256=hashlib.sha256(image.data).hexdigest(),
     )
+
+
+# A picture drawn on the exercise card ends its `source_ref` in this, as wger's AI-made pictures
+# end in `#ai-generated`, so the admin's page can list them apart (ADR-0031 *Picture on the
+# card*, #643).
+CARD_PICTURE_FRAGMENT = "#card"
+
+
+def card_picture_asset(
+    *, exercise_id: UUID, image: GeneratedImage, model: str, generated_on: date
+) -> MediaAsset:
+    """A generated picture's asset as the card writes it: `generated_picture_asset`, with the
+    `#card` marker after the model's slug."""
+    asset = generated_picture_asset(
+        exercise_id=exercise_id, image=image, model=model, generated_on=generated_on
+    )
+    return asset.model_copy(update={"source_ref": model + CARD_PICTURE_FRAGMENT})
+
+
+# Why the card drew no picture (ADR-0031 *Picture on the card*, *Fallbacks*): the row stays text
+# only, nothing is stored, and the next card tries again. `already_drawn` is a picture another
+# card wrote first, which this card then shows.
+type CardPictureFailure = Literal[
+    "switch_off",
+    "not_drawable",
+    "daily_cap",
+    "rate_limited",
+    "brief_timeout",
+    "brief_error",
+    "no_brief",
+    "brief_check_failed",
+    "image_timeout",
+    "image_error",
+    "already_stored",
+    "storage_error",
+    "database_error",
+    "already_drawn",
+]
+
+
+@dataclass(frozen=True, slots=True)
+class CardPictureDrawn:
+    """The picture is in the media bucket, with its `approved` link on the exercise."""
+
+    asset_id: UUID
+
+
+@dataclass(frozen=True, slots=True)
+class CardPictureSkipped:
+    reason: CardPictureFailure

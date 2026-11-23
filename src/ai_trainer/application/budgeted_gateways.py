@@ -19,8 +19,10 @@ from ai_trainer.application.ports.llm_gateway import (
     StreamEnd,
     ToolLoop,
 )
+from ai_trainer.application.ports.media_generation import ImageGenerationPort
 from ai_trainer.domain.embeddings import EmbeddingOutcome, QueryTask, RateLimited
 from ai_trainer.domain.llm_calls import LlmCallOutcome, ProviderPreferences, ReasoningEffort
+from ai_trainer.domain.media_generation import GeneratedImage, ImageGenerationFailed
 
 
 def _refused_text() -> LlmGatewayResult[str]:
@@ -153,3 +155,21 @@ class BudgetedDecisionGateway:
                 output_type=output_type,
                 state=state,
             )
+
+
+class BudgetedImageGeneration:
+    """Implements `ImageGenerationPort` on the exercise card's picture path (ADR-0031 *Picture on
+    the card*, #643), sharing the text gateway's budget. A refused call is not sent, writes no
+    `llm_calls` row and reads as `rate_limited`. The admin's CLI is not wrapped."""
+
+    def __init__(self, inner: ImageGenerationPort, budget: ModelCallBudget) -> None:
+        self._inner = inner
+        self._budget = budget
+
+    async def generate(
+        self, *, user_id: UUID, prompt: str
+    ) -> GeneratedImage | ImageGenerationFailed:
+        async with self._budget.hold(user_id) as allowed:
+            if not allowed:
+                return ImageGenerationFailed(reason="rate_limited")
+            return await self._inner.generate(user_id=user_id, prompt=prompt)

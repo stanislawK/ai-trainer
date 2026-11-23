@@ -9,6 +9,7 @@ from ai_trainer.domain.media import (
     MediaAsset,
     MediaLinkStatus,
 )
+from ai_trainer.domain.media_generation import PictureSubject
 
 
 class ExerciseMediaRepositoryPort(Protocol):
@@ -105,4 +106,33 @@ class ExerciseCardMediaPort(Protocol):
     ) -> Mapping[UUID, MediaAsset]:
         """Each catalogue exercise's first `approved` stored picture by `position`, in one query;
         an exercise without one is left out (invariant 5). No IDs reads nothing."""
+        ...
+
+
+class CardPictureRepositoryPort(Protocol):
+    """The picture drawn on the exercise card (ADR-0031 *Picture on the card*, #643). An exercise
+    is drawable when it is a catalogue exercise (`owner_user_id IS NULL`) with an `exercise_texts`
+    row in `lang` that says how it is done, no `suggested` or `approved` link, and no `removed`
+    link of an `ai-generated` asset. Catalogue media holds no user data; the IDs come from the
+    athlete's own, user-scoped question."""
+
+    async def drawable(self, exercise_ids: Collection[UUID], *, lang: str) -> set[UUID]:
+        """Those of `exercise_ids` that are drawable, in one query. No IDs reads nothing."""
+        ...
+
+    async def card_subject(self, exercise_id: UUID, *, lang: str) -> PictureSubject | None:
+        """The exercise with its text in `lang`, or None unless it is drawable."""
+        ...
+
+    async def has_sha256(self, sha256: str) -> bool:
+        """Whether an asset with these bytes is already catalogued."""
+        ...
+
+    async def add_card_picture(
+        self, asset: MediaAsset, exercise_id: UUID, *, lang: str
+    ) -> UUID | None:
+        """Under a transaction-scoped advisory lock on the exercise ID: if it is still drawable,
+        store `asset` and its `approved` link at the next free position in one transaction and
+        return the asset's ID; otherwise write nothing and return None (first write wins).
+        Raises `MediaRepositoryError` when the write fails, and then writes nothing."""
         ...
