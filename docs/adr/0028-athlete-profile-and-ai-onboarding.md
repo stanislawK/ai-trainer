@@ -4,7 +4,7 @@
 |---|---|
 | Status | Accepted |
 | Date | 2026-10-24 |
-| Related | PRD-0007, superseded by [PRD 0008](../prd/0008-ai-training-companion.md) (B9, B10, B15, B24, B33–B36, F6, F18–F21, G1, G7, G15), ADR-0004, ADR-0006, ADR-0008, ADR-0012, ADR-0014, ADR-0018, ADR-0019, ADR-0020, ADR-0024, ADR-0026, ADR-0027 |
+| Related | PRD-0007, superseded by [PRD 0008](../prd/0008-ai-training-companion.md) (B9, B10, B15, B24, B33–B36, F6, F18–F21, G1, G7, G15), PRD-0013 (B45, B46), ADR-0004, ADR-0006, ADR-0008, ADR-0012, ADR-0014, ADR-0018, ADR-0019, ADR-0020, ADR-0024, ADR-0026, ADR-0027 |
 
 ## Context
 
@@ -19,7 +19,7 @@ The owner requires that the athlete never wait between steps. Only the summary m
 **Profile storage.** Two new user-owned tables, each with `user_id` (FK `users` ON DELETE CASCADE, so they join account deletion, G7) and an index. Both are expand-only migrations (ADR-0024).
 - `athlete_profiles`: `user_id` as PK, `birth_year` smallint, `height_cm` smallint, `weight_kg` numeric(4,1), `limits` varchar(300). All are nullable. Age is stored as `birth_year`, derived from the stated age and the `Clock`'s current year (ADR-0014), so it doesn't go stale. The summary shows it as an age again.
 - `sport_profiles`: PK `(user_id, sport_id)`, `level` varchar(200), `exercises` varchar(300), `sessions_per_week` smallint (1–14), `session_minutes` smallint (5–600), `preferred_days` smallint[] (0–6). All are nullable.
-- Goals go to the existing `goals` table (`text`, `target_date`, `sport_id`), and sports to `user_sports`.
+- Goals go to the existing `goals` table (`text`, `target_date`, `sport_id`, and `kind` from the 2026-11-23 amendment, see Consequences), and sports to `user_sports`.
 - `weekly_availability` is no longer written. The schedule is per sport now (B33). Dropping that table is a later contract ticket, approved by the owner (ADR-0024).
 
 **Answers are durable; reading them is not.**
@@ -50,7 +50,7 @@ The owner requires that the athlete never wait between steps. Only the summary m
   - The default model is picked on evals (ADR-0009) and on facts from the OpenRouter MCP.
 - Every read writes an `llm_calls` row under the athlete's `user_id` (ADR-0018).
 
-**No Jev.** Every output here is an open value: free text, numbers, dates. ADR-0020 is for closed-set picks, so it doesn't apply.
+**No Jev.** Every output here is an open value: free text, numbers, dates. ADR-0020 is for closed-set picks, so it doesn't apply. The one exception is `goal_kind`'s closed-set pick (amended 2026-11-23, see Consequences).
 
 **Confirm.**
 - `POST /onboarding/confirm` validates the edited summary.
@@ -64,7 +64,7 @@ The owner requires that the athlete never wait between steps. Only the summary m
 
 ### Invariants
 
-1. Nothing an onboarding read produced reaches the profile tables, `goals` or `user_sports` before the athlete confirms the summary.
+1. Nothing an onboarding read produced reaches the profile tables, `goals` or `user_sports` before the athlete confirms the summary. That includes the kind Jev picked for `goals.kind` (amended 2026-11-23).
 2. No onboarding request waits on a model call, except the summary stream.
 3. A stale read never overwrites a newer answer. The revision is checked on every write.
 4. After confirm, the athlete has no `onboarding_answers` rows.
@@ -116,3 +116,10 @@ The owner requires that the athlete never wait between steps. Only the summary m
   - "No, show my summary" stores nothing. The summary opens while the offer is due, and a reload of `/onboarding` comes back to the offer, so the flow state still comes only from `user_sports` and `onboarding_answers`.
   - Back from a later sport's goals goes to the previous sport's schedule, not to the offer as in the mock: the added sport is already stored, so the offer has nothing to undo (owner-approved at the plan gate, 2026-10-25).
   - The form onboarding's availability and timezone steps, `web/onboarding.py`, their templates, JS and tests are gone, along with the repository's `replace_availability`, `list_availability` and `finish_onboarding`. `weekly_availability` stays until its contract ticket.
+- Owner-directed 2026-11-23 (#618), for the owner's review with the draft PR: a kind on each goal ([PRD 0013](../prd/0013-ai-training-companion.md) B45, B46). Built by M2f's tickets once PRD 0013 is Approved; nothing is built yet.
+  - **`goals.kind`:** text NULL, `CHECK (kind IN ('strength','muscle','endurance','weight_loss','mobility','general_fitness'))`, added expand-only (ADR-0024).
+  - **A Jev decision set `goal_kind`** (ADR-0020) picks the kind from each goal's text after `onboarding.goals` has read it, in the same background read. Below `goal_kind_threshold` (from evals) or on failure, the kind stays NULL: that is the fallback. Jev's state carries the goal text only, no identity.
+  - **The summary** (B35, F21) shows the kind as a select the athlete can change; confirm writes it with the goal.
+  - **"No Jev"** above gives way for this one closed-set field. Every other onboarding output stays open-valued and Jev-free.
+  - **Invariant 1** extends to `goals.kind`: nothing Jev picked reaches `goals` before the confirm.
+  - ADR-0020's decision-set list gains `goal_kind`'s row with the build ticket, not here.

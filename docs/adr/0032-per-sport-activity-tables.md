@@ -4,7 +4,7 @@
 |---|---|
 | Status | Accepted |
 | Date | 2026-10-30 |
-| Related | PRD-0010 (G4, B4, B5, B6, B37, B38, B39, F12, G13), ADR-0004, ADR-0006 (supersedes invariant 2's "no schema migration"), ADR-0022 (supersedes "Inside the payload" for gym), ADR-0024, ADR-0027, ADR-0031 |
+| Related | PRD-0010 (G4, B4, B5, B6, B37, B38, B39, F12, G13), PRD-0013 (B38, B42–B44), ADR-0004, ADR-0006 (supersedes invariant 2's "no schema migration"), ADR-0022 (supersedes "Inside the payload" for gym), ADR-0024, ADR-0027, ADR-0031 |
 
 ## Context
 
@@ -30,7 +30,8 @@ Production holds no athlete data yet (the first deploy follows M1g, PRD 0010), s
   - `position`: smallint, unique with `session_id`.
   - `exercise_id`: nullable FK `exercises` (ADR-0031). It is null only while the entry is typed-only.
   - `name_as_typed`: text NOT NULL.
-  - `measure`: text with `CHECK (measure IN ('load_reps','reps','time','distance','band_reps'))`.
+  - `measure`: text with `CHECK (measure IN ('load_reps','reps','time','distance','band_reps'))`; `'distance_time'` joins it (amended 2026-11-23, see Consequences).
+  - `circuit` and `rounds`: smallint NULL, both set or both NULL (amended 2026-11-23).
   - `per_side`: boolean NOT NULL default false. "12 each side" means 12 reps per side.
   - `implements`: smallint NULL, `CHECK (implements BETWEEN 1 AND 4)`. "Two dumbbells, 6 kg each" means 2, and `load_kg` is per implement.
   - `rir`: smallint NULL, 0–10.
@@ -45,6 +46,7 @@ Production holds no athlete data yet (the first deploy follows M1g, PRD 0010), s
   - `distance_m`: `numeric(8,1)` NULL.
   - `band_id`: NULL, FK `athlete_bands` `ON DELETE SET NULL (band_id)`.
   - `band_label`: text NULL, as typed.
+  - `incline_pct`, `machine_level`, `watts`: NULL, as the athlete states them (amended 2026-11-23).
   - A set with every measure empty is allowed: "4 sets", reps unknown. Missing values are never invented (B38).
 - **`athlete_bands`**: the athlete's resistance bands (B39).
   - `label` and `label_norm`, unique with `user_id`.
@@ -70,6 +72,7 @@ If athlete gym data reaches production before this ships, stop and amend this AD
 3. Only the athlete's confirm or edit writes these rows (ADR-0022 invariant 3).
 4. A measure the athlete didn't give is stored as NULL, never estimated.
 5. A sport's tables are created and changed only by migrations that ship with that sport's tickets. Core tables never gain sport-specific columns.
+6. A pace, a round count or a machine setting is never estimated; pace is computed in code from a set's distance and time and never stored (amended 2026-11-23).
 
 ## Alternatives considered
 
@@ -111,3 +114,10 @@ If athlete gym data reaches production before this ships, stop and amend this AD
   - A band first named in a History edit joins `athlete_bands` with `rank` NULL through the store's `_band_ids`, as a skipped band does. History asks no band card; the chat's next band question asks about it.
 - Proposed 2026-11-08 at #518's plan gate (owner-approved), for the owner's review with the draft PR:
   - History's delete is ADR-0022's hard delete: one `DELETE` of the `training_sessions` row filtered by `id` and `user_id` (`SqlAlchemySessionDeleter` in `adapters/training_session_editor.py`), with no `ActivityStore` call. Its sources, `gym_exercise_entries` and `gym_sets` go by their existing cascades; the drafts that made it keep their row with `session_id` NULL. The athlete's bands, aliases and custom exercises stay (ADR-0031 invariant 3). An unknown session, another user's or one already deleted deletes nothing and is a 404. No migration.
+- Owner-directed 2026-11-23 (#618), for the owner's review with the draft PR: cardio, circuits and machine settings ([PRD 0013](../prd/0013-ai-training-companion.md) B38, B42–B44). Built by M2f's tickets once PRD 0013 is Approved; nothing is built yet.
+  - **`measure`** gains `'distance_time'`: a set holding both `distance_m` and `duration_s`. Code's derivation becomes distance and time → `distance_time`, then time, distance, band, load, else reps. Machine settings alone hold no measure: a set with only incline, level or watts counts as blank there, so the edit form's rule (the athlete's measure pick counts while every set is blank, #398) still applies.
+  - **Pace** is never stored. Code computes it as `duration_s / (distance_m / 1000)` seconds per km from a set holding both, and lower is better when progress is read (B40, B42). A set with only one of the two, or with either at 0, has no pace.
+  - **Machine columns** on `gym_sets`, all NULL and set only when the athlete states them: `incline_pct numeric(4,1)` (`CHECK BETWEEN -10 AND 40`), `machine_level smallint` (`CHECK BETWEEN 1 AND 50`), `watts smallint` (`CHECK BETWEEN 1 AND 2000`).
+  - **Circuits** on `gym_exercise_entries`: `circuit smallint NULL` (a group number within the session; entries with the same number form one circuit) and `rounds smallint NULL` (`CHECK BETWEEN 1 AND 100`), with `CHECK ((circuit IS NULL) = (rounds IS NULL))`. Each round is a set (`set_no` is the round). No new table, so G7's coverage is unchanged.
+  - **Migration:** expand-only (ADR-0024), nullable columns. The `measure` CHECK is replaced by adding the wider one `NOT VALID`, validating it, then dropping the old one, as squawk requires.
+  - **Invariants** 4 and 5 hold. Invariant 6 (new): a pace, a round count or a machine setting is never estimated, and pace is computed in code only.
