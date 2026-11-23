@@ -143,6 +143,7 @@ from ai_trainer.llm.gateway import OpenRouterGateway
 from ai_trainer.llm.images import OpenRouterImageGenerator
 from ai_trainer.llm.onboarding import LlmOnboardingReader
 from ai_trainer.llm.picture_brief import LlmPictureBriefWriter
+from ai_trainer.llm.picture_brief_check import BriefCheckThresholds, JevPictureBriefCheck
 from ai_trainer.llm.question_sport import JevQuestionSport
 from ai_trainer.llm.router_fast import JevFastRouter, RouterFastThresholds
 from ai_trainer.llm.safety_screen import JevSafetyScreen
@@ -454,15 +455,20 @@ def build_exercise_picture_service(
     http_client: httpx2.AsyncClient,
     search_http_client: httpx2.AsyncClient,
     brief_writer: PictureBriefWriterPort | None = None,
+    decisions: DecisionGatewayPort | None = None,
 ) -> ExercisePictureService:
     """One `generate-exercise-picture` run (ADR-0031 *Picture generation*, #533). Its calls go
     through `RunSpend`, built here per run, so only this run's costs count toward
-    `IMAGE_GENERATION_SPEND_CAP_USD`. Admin-run, so no gateway is wrapped in ADR-0029's budget
-    (ADR-0031, owner-directed 2026-11-08). The caller owns both clients and closes them:
-    `http_client` carries the brief and the image, `search_http_client` the search's embedding
-    call (`query_http_client`). `brief_writer` is for tests."""
+    `IMAGE_GENERATION_SPEND_CAP_USD`. Jev's brief check (#642) is the exception: its row is
+    written to `llm_calls` directly, outside `RunSpend`, since a decision row carries no cost and
+    an unknown cost would stop every run (#642 D1). Admin-run, so no gateway is wrapped in
+    ADR-0029's budget (ADR-0031, owner-directed 2026-11-08). The caller owns both clients and
+    closes them: `http_client` carries the brief, the check and the image, `search_http_client`
+    the search's embedding call (`query_http_client`). `brief_writer` and `decisions` are for
+    tests."""
     sports = default_sport_registry()
-    spend = RunSpend(SqlAlchemyLlmCallsRepository(session_factory))
+    calls = SqlAlchemyLlmCallsRepository(session_factory)
+    spend = RunSpend(calls)
     briefs = brief_writer or LlmPictureBriefWriter(
         registry=build_prompt_registry(_PROMPTS_ROOT, sports),
         gateway=OpenRouterGateway(settings, spend, http_client=http_client),
@@ -485,6 +491,13 @@ def build_exercise_picture_service(
             timeout_seconds=settings.image_generation_timeout_seconds,
             calls_repository=spend,
             http_client=http_client,
+        ),
+        brief_check=JevPictureBriefCheck(
+            decisions or OpenRouterDecisionGateway(settings, calls, http_client=http_client),
+            thresholds=BriefCheckThresholds(
+                same_movement=settings.picture_brief_check_movement_threshold,
+                keeps_rules=settings.picture_brief_check_rules_threshold,
+            ),
         ),
     )
     return ExercisePictureService(

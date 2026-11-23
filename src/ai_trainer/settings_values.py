@@ -36,6 +36,21 @@ class ExerciseSearchSettings(BaseModel):
     exercise_name_match_floor: float = Field(default=0.5, ge=0, le=1)
 
 
+class PictureBriefCheckSettings(BaseModel):
+    """Jev's check of a picture brief before the image call (`picture_brief_check`, ADR-0031,
+    #642): the brief is drawn only when each question's P(yes) is at or above its own threshold.
+    A false pass draws a wrong picture (another movement, printed labels) that shows until an
+    athlete flags it; a false fail only leaves the card without a picture until the next try. So
+    both lean to a false fail. They start at a conservative 0.5 until a calibration run on the
+    labelled dataset sets them, and move via /tune-prompt picture_brief_check (ADR-0034)."""
+
+    # `same_movement`: the brief shows the movement, body position and equipment the instructions
+    # describe.
+    picture_brief_check_movement_threshold: float = Field(default=0.5, ge=0, le=1)
+    # `keeps_rules`: one figure, start and end position, plain background, no printed text.
+    picture_brief_check_rules_threshold: float = Field(default=0.5, ge=0, le=1)
+
+
 def split_comma_separated(value: Any) -> Any:  # noqa: ANN401 -- raw env input of any type
     if isinstance(value, str):
         return [item.strip() for item in value.split(",") if item.strip()]

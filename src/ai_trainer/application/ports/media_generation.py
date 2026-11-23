@@ -10,6 +10,8 @@ from ai_trainer.domain.knowledge_search import (
 )
 from ai_trainer.domain.media_generation import (
     AmbiguousExerciseName,
+    BriefCheck,
+    BriefCheckRefused,
     BriefFailed,
     GeneratedImage,
     ImageGenerationFailed,
@@ -36,6 +38,15 @@ class PictureBriefWriterPort(Protocol):
     async def write(
         self, *, user_id: UUID, deps: PictureBriefDeps
     ) -> PictureBrief | NoBrief | BriefFailed: ...
+
+
+class PictureBriefCheckPort(Protocol):
+    """`picture_brief_check` on Jev (ADR-0031, #642): whether a brief shows the movement the
+    instructions describe and keeps the brief rules. It never raises, and fails closed."""
+
+    async def check(
+        self, *, user_id: UUID, instructions: str, brief: str
+    ) -> BriefCheck | BriefCheckRefused: ...
 
 
 class PictureSubjectsPort(Protocol):

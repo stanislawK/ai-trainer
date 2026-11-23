@@ -5,15 +5,20 @@
 
 An admin generates one picture of one catalogue exercise, to look at before anything is linked:
 the brief is written from the exercise's public texts and its `search_knowledge` passages, then
-the image model draws it. With `--out` it writes `<dir>/<slug>.brief.json` and
-`<dir>/<slug>.jpg` (or `.png`, `.webp`), both or neither. With `--store` (#535) it also uploads
-the picture to the media bucket and writes its asset and a `suggested` link in one transaction
+Jev checks the brief against the catalogue instructions (#642), then the image model draws it.
+An exercise with no catalogue instructions is skipped (`reason=no_description`) before any call,
+and a brief that fails the check, or whose check times out or errors, is skipped
+(`reason=brief_check_failed`) with no image call. With `--out` it writes
+`<dir>/<slug>.brief.json` and `<dir>/<slug>.jpg` (or `.png`, `.webp`), both or neither. With
+`--store` (#535) it also uploads the picture to the media bucket and writes its asset and a
+`suggested` link in one transaction
 (`StoreExercisePicture`): a storage or database failure leaves no row, and the picture shows
 only once an admin approves it. Neither flag is refused (`reason=no_destination`), and `--store`
 with no media bucket configured is refused (`reason=storage_not_configured`), both before any
 call. Without `--store` it writes nothing to the media tables. Every call is an `llm_calls` row
 under the admin; the run stops before a call that would take it past
-`IMAGE_GENERATION_SPEND_CAP_USD`, and when a call's cost is unknown. A name in more than one
+`IMAGE_GENERATION_SPEND_CAP_USD`, and when a call's cost is unknown. The check's row, which
+carries no cost, doesn't count toward the cap. A name in more than one
 sport is refused (`reason=ambiguous_name`) before any call. It costs money, so it is run on
 purpose, never from a test.
 
@@ -52,6 +57,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai_trainer.application.exercise_picture_store import StoreExercisePicture
 from ai_trainer.application.operator_admin import default_admin_email
+from ai_trainer.application.ports.decision_gateway import DecisionGatewayPort
 from ai_trainer.application.ports.media_generation import PictureBriefWriterPort
 from ai_trainer.application.ports.object_storage import ObjectStoragePort
 from ai_trainer.domain.media_generation import (
@@ -87,10 +93,12 @@ _UNSPLIT = str.maketrans({"ł": "l", "ø": "o", "đ": "d", "ß": "ss", "æ": "ae
 @dataclass(frozen=True, slots=True)
 class PictureHooks:
     """For tests: the transport every OpenRouter HTTP call goes through, a brief writer in
-    place of the text model, and a media bucket in place of the configured one."""
+    place of the text model, a decision gateway in place of Jev's, and a media bucket in place of
+    the configured one."""
 
     transport: httpx2.AsyncBaseTransport | None = None
     brief_writer: PictureBriefWriterPort | None = None
+    decisions: DecisionGatewayPort | None = None
     storage: ObjectStoragePort | None = None
 
 
@@ -186,6 +194,7 @@ async def generate_exercise_picture(
             http_client=http_client,
             search_http_client=search_http_client,
             brief_writer=hooks.brief_writer,
+            decisions=hooks.decisions,
         )
         result = await service.generate(admin_email=admin, exercise_name=args.name)
     if store is not None and isinstance(result, PictureMade):

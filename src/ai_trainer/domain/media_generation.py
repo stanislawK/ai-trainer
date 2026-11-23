@@ -56,7 +56,9 @@ class NoBrief(BaseModel):
     reason: str
 
 
-def _description(text: ExerciseText | None) -> str | None:
+def exercise_description(text: ExerciseText | None) -> str | None:
+    """The catalogue's instructions, else its steps joined, else None: what the brief is written
+    from and what Jev checks it against (#642)."""
     if text is None:
         return None
     if text.instructions.strip():
@@ -74,7 +76,7 @@ def picture_brief_deps(
     hits = search.hits if isinstance(search, KnowledgeSearchPage) else ()
     return PictureBriefDeps(
         exercise_name=exercise_name,
-        description=_description(text),
+        description=exercise_description(text),
         # A passage with no text says nothing, so it can't stand in for a description.
         passages=[BriefPassage(title=hit.title, text=hit.text) for hit in hits if hit.text.strip()],
     )
@@ -149,6 +151,20 @@ class BriefFailed:
 
 
 @dataclass(frozen=True, slots=True)
+class BriefCheck:
+    """Jev's check of a brief (ADR-0031 *Picture on the card*, #642): `passed` only when both
+    questions are at or above their own threshold. A timeout or an error is a failed check."""
+
+    passed: bool
+    version: int
+
+
+@dataclass(frozen=True, slots=True)
+class BriefCheckRefused:
+    """The athlete's budget refused the check, so it never ran (ADR-0029): no picture is drawn."""
+
+
+@dataclass(frozen=True, slots=True)
 class PictureSpendLimits:
     """`IMAGE_GENERATION_SPEND_CAP_USD` for one run, and the picture's price from `Settings`,
     which the run checks against the cap before the image call (ADR-0031)."""
@@ -171,9 +187,10 @@ class PictureMade:
 
 @dataclass(frozen=True, slots=True)
 class PictureSkipped:
-    """Nothing to draw from: no such catalogue exercise, or no text that says how it's done."""
+    """Nothing to draw: no such catalogue exercise, no text that says how it's done, or a brief
+    Jev's check didn't pass (#642)."""
 
-    reason: Literal["no_such_exercise", "no_description"]
+    reason: Literal["no_such_exercise", "no_description", "brief_check_failed"]
     spent_usd: Decimal | None
 
 

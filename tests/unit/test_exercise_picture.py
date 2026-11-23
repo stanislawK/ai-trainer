@@ -1,12 +1,14 @@
 """Generating one exercise picture (ADR-0031 *Picture generation*, #533): an active admin only, a
-catalogue exercise with a text, its brief through the text model, then the picture through the
-image port, stopping before the image call when its price would pass the run's cap or a cost is
-unknown. Every port is a fake: no network in pytest."""
+catalogue exercise with a text, its brief through the text model, Jev's check of the brief (#642),
+then the picture through the image port, stopping before the image call when its price would
+pass the run's cap or a cost is unknown. Every port is a fake: no network in pytest."""
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
+
+import pytest
 
 from ai_trainer.application.exercise_picture import ExercisePictureService, PicturePorts, RunSpend
 from ai_trainer.domain.exercises import ExerciseText
@@ -21,6 +23,8 @@ from ai_trainer.domain.knowledge_search import (
 from ai_trainer.domain.llm_calls import LlmCall, LlmCallOutcome, NewLlmCall
 from ai_trainer.domain.media_generation import (
     AmbiguousExerciseName,
+    BriefCheck,
+    BriefCheckRefused,
     BriefFailed,
     GeneratedImage,
     ImageGenerationFailed,
@@ -161,6 +165,23 @@ class FakeImageGenerator:
         return self.reply
 
 
+@dataclass
+class FakeCheck:
+    """Implements `PictureBriefCheckPort`. Its row is written outside `RunSpend` (#642 D1), so it
+    records nothing here."""
+
+    reply: BriefCheck | BriefCheckRefused = field(
+        default_factory=lambda: BriefCheck(passed=True, version=1)
+    )
+    checked: list[tuple[UUID, str, str]] = field(default_factory=list)
+
+    async def check(
+        self, *, user_id: UUID, instructions: str, brief: str
+    ) -> BriefCheck | BriefCheckRefused:
+        self.checked.append((user_id, instructions, brief))
+        return self.reply
+
+
 def _user(email: str = "owner@example.com", status: UserStatus = UserStatus.ACTIVE) -> User:
     return User(
         id=uuid4(),
@@ -200,6 +221,7 @@ class Run:
     search: FakeSearch
     briefs: FakeBriefs
     images: FakeImageGenerator
+    check: FakeCheck
 
 
 def _run(
@@ -224,15 +246,21 @@ def _run(
     searcher = FakeSearch(spend, search or KnowledgeSearchFailed(reason="no_match"))
     briefs = FakeBriefs(spend)
     images = FakeImageGenerator(spend)
+    check = FakeCheck()
     service = ExercisePictureService(
         PicturePorts(
-            admins=admins, subjects=subjects, search=searcher, briefs=briefs, images=images
+            admins=admins,
+            subjects=subjects,
+            search=searcher,
+            briefs=briefs,
+            images=images,
+            brief_check=check,
         ),
         spend=spend,
         limits=PictureSpendLimits(cap_usd=cap, price_usd=_PRICE),
         admin_emails=admin_emails,
     )
-    return Run(service, calls, admins, subjects, searcher, briefs, images)
+    return Run(service, calls, admins, subjects, searcher, briefs, images, check)
 
 
 async def test_service_uses_only_the_fake_image_port() -> None:
@@ -372,15 +400,32 @@ async def test_no_such_exercise_ends_the_run_with_no_call() -> None:
     assert run.calls.recorded == []
 
 
-async def test_no_text_and_no_passage_is_skipped_without_a_brief_or_image_call() -> None:
-    """Never drawn from the name alone (ADR-0031, finding 8)."""
-    run = _run(text=None)
+async def test_no_description_skips_before_the_brief() -> None:
+    """Never drawn from the name alone (ADR-0031, finding 8), nor from passages alone: with no
+    catalogue instructions there is nothing to check the brief against (#642 D2). No model is
+    called, not even the search's embedding."""
+    run = _run(
+        text=None,
+        search=KnowledgeSearchPage(hits=(_hit("Pull until the chin clears."),), truncated=False),
+    )
 
     result = await run.service.generate(admin_email=_ADMIN_EMAIL, exercise_name="pull-up")
 
-    assert result == PictureSkipped(reason="no_description", spent_usd=Decimal("0.00001"))
+    assert result == PictureSkipped(reason="no_description", spent_usd=Decimal(0))
+    assert run.search.queries == []
     assert run.briefs.written == []
+    assert run.check.checked == []
     assert run.images.prompts == []
+    assert run.calls.recorded == []
+
+
+async def test_a_text_with_only_blank_instructions_and_steps_is_skipped() -> None:
+    run = _run(text=ExerciseText(lang="en", instructions="  ", steps=(" ",)))
+
+    result = await run.service.generate(admin_email=_ADMIN_EMAIL, exercise_name="pull-up")
+
+    assert result == PictureSkipped(reason="no_description", spent_usd=Decimal(0))
+    assert run.briefs.written == []
 
 
 async def test_a_model_no_brief_is_skipped_without_an_image_call() -> None:
@@ -463,15 +508,6 @@ async def test_a_failed_or_empty_brief_with_no_billed_cost_reports_the_spend_as_
     ) == PictureSkipped(reason="no_description", spent_usd=None)
 
 
-async def test_a_search_with_no_billed_cost_and_no_text_reports_the_spend_as_unknown() -> None:
-    run = _run(text=None)
-    run.search.cost = None
-
-    result = await run.service.generate(admin_email=_ADMIN_EMAIL, exercise_name="pull-up")
-
-    assert result == PictureSkipped(reason="no_description", spent_usd=None)
-
-
 async def test_a_picture_with_no_billed_cost_reports_the_spend_as_unknown() -> None:
     run = _run()
     run.images.cost = None
@@ -501,3 +537,56 @@ async def test_run_spend_passes_rows_through_and_reads_them_back() -> None:
     assert [row.cost for row in await spend.list_for_user(user_id)] == [Decimal("0.5")]
     assert spend.spent_usd == Decimal("0.5")
     assert spend.cost_unknown is False
+
+
+# AC 1 (#642): a good brief passes and the image call follows.
+async def test_a_brief_that_passes_the_check_is_drawn() -> None:
+    run = _run()
+
+    result = await run.service.generate(admin_email=_ADMIN_EMAIL, exercise_name="pull-up")
+
+    assert isinstance(result, PictureMade)
+    [admin] = run.admins.users
+    assert run.check.checked == [(admin.id, _PULL_UP_TEXT.instructions, _BRIEF.image_prompt)]
+    assert run.images.prompts == [(admin.id, _BRIEF.image_prompt)]
+
+
+# AC 2 (#642): a brief for another movement fails, and no image call is made.
+async def test_a_failed_check_skips_the_picture_without_an_image_call() -> None:
+    run = _run()
+    run.check.reply = BriefCheck(passed=False, version=1)
+
+    result = await run.service.generate(admin_email=_ADMIN_EMAIL, exercise_name="pull-up")
+
+    assert result == PictureSkipped(reason="brief_check_failed", spent_usd=Decimal("0.00021"))
+    assert len(run.check.checked) == 1
+    assert run.images.prompts == []
+
+
+# AC 4 (#642): a Jev timeout fails the check closed (the port maps it to a failed check), so the
+# picture is skipped as `brief_check_failed`; a budget refusal skips it the same way.
+@pytest.mark.parametrize(
+    "reply",
+    [BriefCheck(passed=False, version=1), BriefCheckRefused()],
+    ids=["timeout", "refused"],
+)
+async def test_a_check_timeout_skips_with_brief_check_failed(
+    reply: BriefCheck | BriefCheckRefused,
+) -> None:
+    run = _run()
+    run.check.reply = reply
+
+    result = await run.service.generate(admin_email=_ADMIN_EMAIL, exercise_name="pull-up")
+
+    assert isinstance(result, PictureSkipped)
+    assert result.reason == "brief_check_failed"
+    assert run.images.prompts == []
+
+
+async def test_a_failed_brief_is_never_checked() -> None:
+    run = _run()
+    run.briefs.reply = BriefFailed(reason="error")
+
+    await run.service.generate(admin_email=_ADMIN_EMAIL, exercise_name="pull-up")
+
+    assert run.check.checked == []

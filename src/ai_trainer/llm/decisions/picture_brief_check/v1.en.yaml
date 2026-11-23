@@ -1,0 +1,23 @@
+goal: >-
+  Two texts about one gym exercise, given as a JSON object. `instructions` is how the exercise is
+  done, from a public exercise catalogue. `brief` is the text an image model will draw a picture
+  of the exercise from.
+questions:
+  same_movement:
+    kind: probability
+    question: >-
+      Does the brief show the same exercise as the instructions: the same movement, the same body
+      position (standing, seated, lying, hanging, kneeling) and the same equipment? Shorter or
+      plainer wording is fine, and so is leaving out breathing, a pause or the line about
+      repeating. Answer no if the brief shows a different movement, even a close one (raising the
+      arms to the front instead of out to the sides, a lunge instead of a squat), another body
+      position, or other equipment.
+  keeps_rules:
+    kind: probability
+    question: >-
+      Does the brief ask for exactly one person, shown in both the start position and the end
+      position of the movement, on a plain background, with no printed text in the picture?
+      Saying that the picture has no text, letters, numbers, labels or arrows is fine. Answer no
+      if the brief asks for two or more people, shows only one position, asks for a busy scene,
+      or asks for any words, labels, captions, numbers, repetition counts or arrows with words to
+      appear in the picture.

@@ -1208,3 +1208,44 @@ def test_simple_howto_limits_must_be_positive(
 
     with pytest.raises(ValidationError, match=variable.lower()):
         Settings(_env_file=None)
+
+
+@pytest.mark.parametrize(
+    ("variable", "field"),
+    [
+        ("PICTURE_BRIEF_CHECK_MOVEMENT_THRESHOLD", "picture_brief_check_movement_threshold"),
+        ("PICTURE_BRIEF_CHECK_RULES_THRESHOLD", "picture_brief_check_rules_threshold"),
+    ],
+    ids=["same_movement", "keeps_rules"],
+)
+def test_picture_brief_check_thresholds_start_conservative(
+    monkeypatch: pytest.MonkeyPatch, variable: str, field: str
+) -> None:
+    # Jev's check of a picture brief, one threshold per question (ADR-0031, #642), at 0.5 until
+    # calibration sets them.
+    _set_required_keys(monkeypatch)
+
+    assert getattr(Settings(_env_file=None), field) == 0.5
+
+    monkeypatch.setenv(variable, "0.65")
+
+    assert getattr(Settings(_env_file=None), field) == 0.65
+
+
+@pytest.mark.parametrize(
+    ("variable", "field"),
+    [
+        ("PICTURE_BRIEF_CHECK_MOVEMENT_THRESHOLD", "picture_brief_check_movement_threshold"),
+        ("PICTURE_BRIEF_CHECK_RULES_THRESHOLD", "picture_brief_check_rules_threshold"),
+    ],
+    ids=["same_movement", "keeps_rules"],
+)
+@pytest.mark.parametrize("value", ["-0.1", "1.1"])
+def test_picture_brief_check_thresholds_are_probabilities(
+    monkeypatch: pytest.MonkeyPatch, variable: str, field: str, value: str
+) -> None:
+    _set_required_keys(monkeypatch)
+    monkeypatch.setenv(variable, value)
+
+    with pytest.raises(ValidationError, match=field):
+        Settings(_env_file=None)

@@ -34,6 +34,7 @@ from ai_trainer.settings_values import (
     CommaSeparated,
     ExerciseSearchSettings,
     ObjectStorageSettings,
+    PictureBriefCheckSettings,
     ProviderPreferencesSetting,
     PublicOrigin,
     SimpleHowtoSettings,
@@ -41,7 +42,13 @@ from ai_trainer.settings_values import (
 )
 
 
-class Settings(ExerciseSearchSettings, SimpleHowtoSettings, ObjectStorageSettings, BaseSettings):
+class Settings(
+    ExerciseSearchSettings,
+    SimpleHowtoSettings,
+    PictureBriefCheckSettings,
+    ObjectStorageSettings,
+    BaseSettings,
+):
     """All configuration; the only reader of the environment (ADR-0002)."""
 
     model_config = SettingsConfigDict(
