@@ -1,3 +1,4 @@
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -1230,6 +1231,32 @@ def test_picture_brief_check_thresholds_default_to_the_calibration(
     monkeypatch.setenv(variable, "0.65")
 
     assert getattr(Settings(_env_file=None), field) == 0.65
+
+
+def test_card_picture_settings_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The exercise card draws a missing picture by default, under 1 USD a day (ADR-0031, #643).
+    _set_required_keys(monkeypatch)
+
+    settings = Settings(_env_file=None)
+
+    assert settings.exercise_card_pictures_enabled is True
+    assert settings.image_generation_daily_cap_usd == Decimal("1.00")
+
+    monkeypatch.setenv("EXERCISE_CARD_PICTURES_ENABLED", "false")
+    monkeypatch.setenv("IMAGE_GENERATION_DAILY_CAP_USD", "0")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.exercise_card_pictures_enabled is False
+    assert settings.image_generation_daily_cap_usd == 0
+
+
+def test_card_picture_daily_cap_is_never_negative(monkeypatch: pytest.MonkeyPatch) -> None:
+    _set_required_keys(monkeypatch)
+    monkeypatch.setenv("IMAGE_GENERATION_DAILY_CAP_USD", "-0.01")
+
+    with pytest.raises(ValidationError, match="image_generation_daily_cap_usd"):
+        Settings(_env_file=None)
 
 
 @pytest.mark.parametrize(

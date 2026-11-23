@@ -173,10 +173,20 @@ class SimpleHowtoSettings(BaseModel):
         return value
 
 
+class CardPictureSettings(BaseModel):
+    """The picture the exercise card draws when a catalogue exercise has none (ADR-0031 *Picture
+    on the card*, #643). The cap sums every athlete's brief, check and picture calls per UTC
+    day, a picture with no reported cost at `IMAGE_GENERATION_PRICE_USD`."""
+
+    exercise_card_pictures_enabled: bool = True
+    image_generation_daily_cap_usd: Decimal = Field(default=Decimal("1.00"), ge=0)
+
+
 class ExerciseCatalogueSettings(
-    ExerciseSearchSettings, SimpleHowtoSettings, PictureBriefCheckSettings
+    ExerciseSearchSettings, SimpleHowtoSettings, PictureBriefCheckSettings, CardPictureSettings
 ):
-    """The catalogue's search, how-to and picture-check settings, as one base of `Settings`."""
+    """The catalogue's search, how-to, picture-check and card-picture settings, as one base of
+    `Settings`."""
 
 
 # The fallback media source's model and its tool-printed price per picture (ADR-0031 #524,

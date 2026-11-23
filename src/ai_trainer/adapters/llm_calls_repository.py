@@ -1,7 +1,9 @@
-from collections.abc import Callable
+from collections.abc import Callable, Collection
+from datetime import datetime
+from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import case, func, literal, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai_trainer.adapters.orm import LlmCallOrm
@@ -52,3 +54,38 @@ class SqlAlchemyLlmCallsRepository:
         async with self._session_factory() as session:
             rows = await session.scalars(select(LlmCallOrm).where(LlmCallOrm.user_id == user_id))
             return [_to_domain(row) for row in rows]
+
+
+class SqlAlchemyPictureDaySpend:
+    """Implements `PictureDaySpendPort` (ADR-0031 *Picture on the card*, #643): one sum over
+    every athlete's rows, so it reads no user data. The template IDs come from the composition
+    root, which knows the writers."""
+
+    def __init__(
+        self,
+        session_factory: Callable[[], AsyncSession],
+        *,
+        picture_template: str,
+        other_templates: Collection[str],
+    ) -> None:
+        self._session_factory = session_factory
+        self._picture_template = picture_template
+        self._templates = (picture_template, *other_templates)
+
+    async def spent_between(
+        self, start: datetime, end: datetime, *, picture_price: Decimal
+    ) -> Decimal:
+        # A picture with no cost counts at its price, for the cap only; it is never written.
+        unknown = case(
+            (LlmCallOrm.template_id == self._picture_template, literal(picture_price)),
+            else_=literal(Decimal(0)),
+        )
+        statement = select(
+            func.coalesce(func.sum(func.coalesce(LlmCallOrm.cost, unknown)), Decimal(0))
+        ).where(
+            LlmCallOrm.template_id.in_(self._templates),
+            LlmCallOrm.created_at >= start,
+            LlmCallOrm.created_at < end,
+        )
+        async with self._session_factory() as session:
+            return Decimal((await session.execute(statement)).scalar_one())
