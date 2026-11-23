@@ -4,7 +4,7 @@
 |---|---|
 | Status | Accepted |
 | Date | 2026-10-30 |
-| Related | PRD-0010 (B37, B38, F23, F24, G5, G10, G14), PRD-0011 (F23), PRD-0012 (F24, G16, G17), ADR-0006, ADR-0008, ADR-0010, ADR-0012, ADR-0015, ADR-0016, ADR-0018, ADR-0020, ADR-0026, ADR-0029, ADR-0032, ADR-0033, ADR-0034 |
+| Related | PRD-0010 (B37, B38, F23, F24, G5, G10, G14), PRD-0011 (F23), PRD-0012 (F24, G16, G17), PRD-0013 (B41, B42), ADR-0006, ADR-0008, ADR-0010, ADR-0012, ADR-0015, ADR-0016, ADR-0018, ADR-0020, ADR-0026, ADR-0029, ADR-0032, ADR-0033, ADR-0034 |
 
 ## Context
 
@@ -34,6 +34,7 @@ Shared reference tables. The catalogue rows hold no user data (like ADR-0016's t
   - `name`: the canonical English name
   - `equipment`, `body_part`, `target`, `secondary_muscles`
   - `default_measure`: one of ADR-0032's measures
+  - `category`: `strength`, `cardio`, `stretching`, `mobility` or `class`, set at import (amended 2026-11-23, see Consequences)
   - `attribution`
 - **`exercise_texts`**
   - `exercise_id`, `lang`, `instructions`, `steps` (`text[]`)
@@ -200,6 +201,7 @@ Owner-directed 2026-11-22. F23 asks for "two short beginner-friendly lines on ho
 4. The typed name is always kept next to the resolved exercise.
 5. Imported text and media keep their source, license and attribution, and only `approved` media is shown (G10, ADR-0016). `unstated` media is only ever `embedded`, and is shown only while the app is non-commercial (PRD 0012 G16, G17); hiding it is one query on `rights`.
 6. No exercise name or alias is written by a model at request time. Descriptions come from `exercise_texts`. The one exception is the beginner how-to in `exercise_simple_texts`: it is written from the exercise's own catalogue text only, is labelled as AI simplified, keeps the original one tap away, and is hidden as soon as it is flagged (amended 2026-11-22).
+7. An exercise's `category` is set only by the importer or by the athlete's own custom exercise, never by a model at request time (extends invariant 6; amended 2026-11-23).
 
 ## Alternatives considered
 
@@ -220,6 +222,12 @@ Owner-directed 2026-11-22. F23 asks for "two short beginner-friendly lines on ho
 - The F23 card needs a Claude Design mock with a media slot before its web ticket (ADR-0019).
 - ⚠ The media source is `wger` (see "First media source (#514)", 2026-11-07). The import is the M2m ticket's work. Until it lands, cards show text only.
 - ⚠ A fallback source fills `wger`'s gaps (see "Fallback media source (#524)", 2026-11-08). The generation flow, the brief rules against printed text, and the spend cap are recorded in "Picture generation (#531)", 2026-11-08. The import and the code are M2m's work.
+- Owner-directed 2026-11-23 (#618), for the owner's review with the draft PR: gym covers stretching, mobility, classes and cardio machines ([PRD 0013](../prd/0013-ai-training-companion.md) B41, B42). Built by M2f's tickets.
+  - **`exercises.category`:** text NOT NULL, `CHECK (category IN ('strength','cardio','stretching','mobility','class'))`, added expand-only (ADR-0024) with a default of `'strength'` and then backfilled by the importer.
+  - **Derived in code at import,** as `default_measure` is: the dataset's body part `cardio` or a cardio-machine equipment → `cardio`, the rest `strength`. `overrides.yaml` sets the exceptions (stretches → `stretching`).
+  - **Classes and mobility drills** the dataset lacks go in `extra.yaml` (human-reviewed). A class settles on confirm as its own catalogue row or as the athlete's custom exercise with `category = 'class'`, never on the exercise card.
+  - **`default_measure`** may be `distance_time` (ADR-0032) for cardio machines.
+  - **Invariant 7** (new) keeps `category` out of a model's hands at request time.
 - Owner-directed amendment, 2026-11-22: it adds "Beginner how-to (F23)", relaxes invariant 6 for that one text, and adds two alternatives. It is proposed for the owner's review with this branch's PR. It changes no other Decision or Invariant.
   - **Why no draft.** The non-negotiable "AI-made data changes are drafts the user confirms" covers an athlete's own data. A beginner how-to is shared catalogue text that no athlete owns and nothing is logged from. Its safeguards are the source-only input, the code check, Jev's check, the label, the original one tap away, and the flag. `CLAUDE.md` says so in the same change.
   - **Safety is the risk accepted.** An athlete may read a rewrite no human has checked. A dropped or changed form cue is the failure that matters, which is why the template keeps cues, Jev checks each text before it is stored, the judged smoke set checks the template, and one flag hides the text.
