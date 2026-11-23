@@ -1,0 +1,583 @@
+# Dataset for the picture_brief_check decision (ADR-0020 invariant 6, ADR-0031 *Picture on the
+# card*, #642): code-graded, at least 20 cases, labelled before the thresholds are set (ADR-0034).
+# Each case's state (`prompt`) is exactly what the app sends Jev: `BriefCheckState(instructions,
+# brief)` as JSON; `deps` repeats the two texts for reading, and a unit test keeps them in step.
+# The instructions are the catalogue texts quoted in evals/smoke/media.picture_brief.yaml and
+# evals/smoke/exercise.simple_howto.yaml, copied verbatim (pinned dataset commit 7455efae; Face
+# Pull from data/catalogue/extra.yaml). The briefs are written by hand. `metadata.kind` names each
+# case's kind: `good`, or broken by `another_movement` (a near neighbour), `labels` (printed text
+# asked for), `two_figures` or `no_positions` (one position only). The labels are P(yes) at each
+# question's own threshold (PICTURE_BRIEF_CHECK_MOVEMENT_THRESHOLD for same_movement,
+# PICTURE_BRIEF_CHECK_RULES_THRESHOLD for keeps_rules): both questions are phrased so that "yes"
+# is good, and a brief is drawn only when both are true.
+name: picture_brief_check
+cases:
+- name: 'pull-up: good'
+  metadata:
+    kind: good
+    exercise: Pull-Up
+    instructions_source: exercises-dataset 0652
+  inputs:
+    prompt: '{"instructions":"Hang from a pull-up bar with your palms facing away from you and your arms
+      fully extended. Engage your core and squeeze your shoulder blades together. Pull your body up towards
+      the bar by bending your elbows and bringing your chest towards the bar. Pause at the top of the
+      movement, then slowly lower your body back down to the starting position. Repeat for the desired
+      number of repetitions.","brief":"One person hanging from a pull-up bar, palms facing away and arms
+      fully extended, then with the chest at the bar and elbows bent. Plain background. No text, letters,
+      numbers, labels or arrows in the picture."}'
+    deps:
+      instructions: Hang from a pull-up bar with your palms facing away from you and your arms fully extended.
+        Engage your core and squeeze your shoulder blades together. Pull your body up towards the bar
+        by bending your elbows and bringing your chest towards the bar. Pause at the top of the movement,
+        then slowly lower your body back down to the starting position. Repeat for the desired number
+        of repetitions.
+      brief: One person hanging from a pull-up bar, palms facing away and arms fully extended, then with
+        the chest at the bar and elbows bent. Plain background. No text, letters, numbers, labels or arrows
+        in the picture.
+  expected_output:
+    same_movement: true
+    keeps_rules: true
+- name: 'pull-up: good, other wording'
+  metadata:
+    kind: good
+    exercise: Pull-Up
+    instructions_source: exercises-dataset 0652
+  inputs:
+    prompt: '{"instructions":"Hang from a pull-up bar with your palms facing away from you and your arms
+      fully extended. Engage your core and squeeze your shoulder blades together. Pull your body up towards
+      the bar by bending your elbows and bringing your chest towards the bar. Pause at the top of the
+      movement, then slowly lower your body back down to the starting position. Repeat for the desired
+      number of repetitions.","brief":"A single figure in two poses: first a dead hang from an overhead
+      bar with straight arms and an overhand grip, then pulled up so the chest reaches the bar. Plain
+      white background, no writing of any kind."}'
+    deps:
+      instructions: Hang from a pull-up bar with your palms facing away from you and your arms fully extended.
+        Engage your core and squeeze your shoulder blades together. Pull your body up towards the bar
+        by bending your elbows and bringing your chest towards the bar. Pause at the top of the movement,
+        then slowly lower your body back down to the starting position. Repeat for the desired number
+        of repetitions.
+      brief: 'A single figure in two poses: first a dead hang from an overhead bar with straight arms
+        and an overhand grip, then pulled up so the chest reaches the bar. Plain white background, no
+        writing of any kind.'
+  expected_output:
+    same_movement: true
+    keeps_rules: true
+- name: 'barbell bench press: good'
+  metadata:
+    kind: good
+    exercise: Barbell Bench Press
+    instructions_source: exercises-dataset 0025
+  inputs:
+    prompt: '{"instructions":"Lie flat on a bench with your feet flat on the ground and your back pressed
+      against the bench. Grasp the barbell with an overhand grip slightly wider than shoulder-width apart.
+      Lift the barbell off the rack and hold it directly above your chest with your arms fully extended.
+      Lower the barbell slowly towards your chest, keeping your elbows tucked in. Pause for a moment when
+      the barbell touches your chest. Push the barbell back up to the starting position by extending your
+      arms. Repeat for the desired number of repetitions.","brief":"One person lying flat on a bench,
+      feet flat on the floor, barbell held above the chest with arms extended, then the barbell lowered
+      to the chest with elbows tucked in. Plain background. No text, letters, numbers, labels or arrows
+      in the picture."}'
+    deps:
+      instructions: Lie flat on a bench with your feet flat on the ground and your back pressed against
+        the bench. Grasp the barbell with an overhand grip slightly wider than shoulder-width apart. Lift
+        the barbell off the rack and hold it directly above your chest with your arms fully extended.
+        Lower the barbell slowly towards your chest, keeping your elbows tucked in. Pause for a moment
+        when the barbell touches your chest. Push the barbell back up to the starting position by extending
+        your arms. Repeat for the desired number of repetitions.
+      brief: One person lying flat on a bench, feet flat on the floor, barbell held above the chest with
+        arms extended, then the barbell lowered to the chest with elbows tucked in. Plain background.
+        No text, letters, numbers, labels or arrows in the picture.
+  expected_output:
+    same_movement: true
+    keeps_rules: true
+- name: 'face pull: good'
+  metadata:
+    kind: good
+    exercise: Face Pull
+    instructions_source: data/catalogue/extra.yaml face-pull
+  inputs:
+    prompt: '{"instructions":"Set a cable pulley at about face height with a rope attachment and hold
+      one end of the rope in each hand, palms facing each other. Step back until your arms are straight
+      and the weight lifts off the stack. Pull the rope towards your face, keeping your elbows high and
+      moving your hands apart so they finish beside your ears. Squeeze your shoulder blades together for
+      a moment, then straighten your arms slowly under control.","brief":"One person at a cable pulley
+      set at face height, arms straight holding a rope, then pulling it to the face with elbows high and
+      hands beside the ears. Plain background. No text, letters, numbers, labels or arrows in the picture."}'
+    deps:
+      instructions: Set a cable pulley at about face height with a rope attachment and hold one end of
+        the rope in each hand, palms facing each other. Step back until your arms are straight and the
+        weight lifts off the stack. Pull the rope towards your face, keeping your elbows high and moving
+        your hands apart so they finish beside your ears. Squeeze your shoulder blades together for a
+        moment, then straighten your arms slowly under control.
+      brief: One person at a cable pulley set at face height, arms straight holding a rope, then pulling
+        it to the face with elbows high and hands beside the ears. Plain background. No text, letters,
+        numbers, labels or arrows in the picture.
+  expected_output:
+    same_movement: true
+    keeps_rules: true
+- name: 'dumbbell lateral raise: good'
+  metadata:
+    kind: good
+    exercise: Dumbbell Lateral Raise
+    instructions_source: exercises-dataset 0334
+  inputs:
+    prompt: '{"instructions":"Stand with your feet shoulder-width apart and hold a dumbbell in each hand,
+      palms facing your body. Keep your back straight and engage your core. Raise your arms out to the
+      sides until they are parallel to the floor, keeping a slight bend in your elbows. Pause for a moment
+      at the top, then slowly lower your arms back down to the starting position. Repeat for the desired
+      number of repetitions.","brief":"One person standing with a dumbbell in each hand at the sides,
+      palms facing the body, then with the arms raised out to the sides parallel to the floor, elbows
+      slightly bent. Plain background. No text, letters, numbers, labels or arrows in the picture."}'
+    deps:
+      instructions: Stand with your feet shoulder-width apart and hold a dumbbell in each hand, palms
+        facing your body. Keep your back straight and engage your core. Raise your arms out to the sides
+        until they are parallel to the floor, keeping a slight bend in your elbows. Pause for a moment
+        at the top, then slowly lower your arms back down to the starting position. Repeat for the desired
+        number of repetitions.
+      brief: One person standing with a dumbbell in each hand at the sides, palms facing the body, then
+        with the arms raised out to the sides parallel to the floor, elbows slightly bent. Plain background.
+        No text, letters, numbers, labels or arrows in the picture.
+  expected_output:
+    same_movement: true
+    keeps_rules: true
+- name: 'dumbbell standing triceps extension: good'
+  metadata:
+    kind: good
+    exercise: Dumbbell Standing Triceps Extension
+    instructions_source: exercises-dataset 0430
+  inputs:
+    prompt: '{"instructions":"Stand with your feet shoulder-width apart and hold a dumbbell in one hand.
+      Raise the dumbbell overhead, keeping your arm straight. Bend your elbow and lower the dumbbell behind
+      your head, keeping your upper arm stationary. Extend your arm back up to the starting position.
+      Repeat for the desired number of repetitions.","brief":"One person standing with a dumbbell overhead
+      in one straight arm, then with the elbow bent and the dumbbell lowered behind the head, upper arm
+      still. Plain background. No text, letters, numbers, labels or arrows in the picture."}'
+    deps:
+      instructions: Stand with your feet shoulder-width apart and hold a dumbbell in one hand. Raise the
+        dumbbell overhead, keeping your arm straight. Bend your elbow and lower the dumbbell behind your
+        head, keeping your upper arm stationary. Extend your arm back up to the starting position. Repeat
+        for the desired number of repetitions.
+      brief: One person standing with a dumbbell overhead in one straight arm, then with the elbow bent
+        and the dumbbell lowered behind the head, upper arm still. Plain background. No text, letters,
+        numbers, labels or arrows in the picture.
+  expected_output:
+    same_movement: true
+    keeps_rules: true
+- name: 'band horizontal pallof press: good'
+  metadata:
+    kind: good
+    exercise: Band Horizontal Pallof Press
+    instructions_source: exercises-dataset 0979
+  inputs:
+    prompt: '{"instructions":"Attach the band to a sturdy anchor point at waist height. Stand perpendicular
+      to the anchor point with your feet shoulder-width apart. Grasp the band handle with both hands and
+      step away from the anchor point to create tension in the band. Bring your hands to your chest, keeping
+      your elbows bent and close to your body. Engage your core and maintain a stable stance. Extend your
+      arms straight out in front of you, pushing the band away from your body. Hold the extended position
+      for a few seconds, focusing on maintaining tension in your core. Slowly bring your hands back to
+      your chest, resisting the pull of the band. Repeat for the desired number of repetitions.","brief":"One
+      person standing side-on to a band anchored at waist height, band handle held at the chest with elbows
+      bent, then arms extended straight in front of the chest. Plain background. No text, letters, numbers,
+      labels or arrows in the picture."}'
+    deps:
+      instructions: Attach the band to a sturdy anchor point at waist height. Stand perpendicular to the
+        anchor point with your feet shoulder-width apart. Grasp the band handle with both hands and step
+        away from the anchor point to create tension in the band. Bring your hands to your chest, keeping
+        your elbows bent and close to your body. Engage your core and maintain a stable stance. Extend
+        your arms straight out in front of you, pushing the band away from your body. Hold the extended
+        position for a few seconds, focusing on maintaining tension in your core. Slowly bring your hands
+        back to your chest, resisting the pull of the band. Repeat for the desired number of repetitions.
+      brief: One person standing side-on to a band anchored at waist height, band handle held at the chest
+        with elbows bent, then arms extended straight in front of the chest. Plain background. No text,
+        letters, numbers, labels or arrows in the picture.
+  expected_output:
+    same_movement: true
+    keeps_rules: true
+- name: 'barbell deadlift: good'
+  metadata:
+    kind: good
+    exercise: Barbell Deadlift
+    instructions_source: exercises-dataset 0032
+  inputs:
+    prompt: '{"instructions":"Stand with your feet shoulder-width apart and the barbell on the ground
+      in front of you. Bend your knees and hinge at the hips to lower your torso and grip the barbell
+      with an overhand grip, hands slightly wider than shoulder-width apart. Keep your back straight and
+      chest lifted as you drive through your heels to lift the barbell off the ground, extending your
+      hips and knees. As you stand up straight, squeeze your glutes and keep your core engaged. Lower
+      the barbell back down to the ground by bending at the hips and knees, keeping your back straight.
+      Repeat for the desired number of repetitions.","brief":"One person with hips hinged and knees bent,
+      back straight, gripping a barbell on the floor, then standing tall holding the barbell at the hips.
+      Plain background. No text, letters, numbers, labels or arrows in the picture."}'
+    deps:
+      instructions: Stand with your feet shoulder-width apart and the barbell on the ground in front of
+        you. Bend your knees and hinge at the hips to lower your torso and grip the barbell with an overhand
+        grip, hands slightly wider than shoulder-width apart. Keep your back straight and chest lifted
+        as you drive through your heels to lift the barbell off the ground, extending your hips and knees.
+        As you stand up straight, squeeze your glutes and keep your core engaged. Lower the barbell back
+        down to the ground by bending at the hips and knees, keeping your back straight. Repeat for the
+        desired number of repetitions.
+      brief: One person with hips hinged and knees bent, back straight, gripping a barbell on the floor,
+        then standing tall holding the barbell at the hips. Plain background. No text, letters, numbers,
+        labels or arrows in the picture.
+  expected_output:
+    same_movement: true
+    keeps_rules: true
+- name: 'push-up: good'
+  metadata:
+    kind: good
+    exercise: Push-Up
+    instructions_source: exercises-dataset 0662
+  inputs:
+    prompt: '{"instructions":"Start in a high plank position with your hands slightly wider than shoulder-width
+      apart and your feet together. Engage your core and lower your body towards the ground by bending
+      your elbows, keeping your body in a straight line. Pause for a moment when your chest is just above
+      the ground, then push yourself back up to the starting position by straightening your arms. Repeat
+      for the desired number of repetitions.","brief":"Show one person in a high plank, hands just wider
+      than the shoulders, body in a straight line, then lowered with the chest just above the floor and
+      elbows bent. Keep the background plain and leave out any text or symbols."}'
+    deps:
+      instructions: Start in a high plank position with your hands slightly wider than shoulder-width
+        apart and your feet together. Engage your core and lower your body towards the ground by bending
+        your elbows, keeping your body in a straight line. Pause for a moment when your chest is just
+        above the ground, then push yourself back up to the starting position by straightening your arms.
+        Repeat for the desired number of repetitions.
+      brief: Show one person in a high plank, hands just wider than the shoulders, body in a straight
+        line, then lowered with the chest just above the floor and elbows bent. Keep the background plain
+        and leave out any text or symbols.
+  expected_output:
+    same_movement: true
+    keeps_rules: true
+- name: 'cable lateral raise: good'
+  metadata:
+    kind: good
+    exercise: Cable Lateral Raise
+    instructions_source: exercises-dataset 0178
+  inputs:
+    prompt: '{"instructions":"Stand with your feet shoulder-width apart and grasp the cable handles with
+      an overhand grip. Keep your arms straight and your core engaged. Raise your arms out to the sides
+      until they are parallel to the floor. Pause for a moment at the top, then slowly lower your arms
+      back down to the starting position. Repeat for the desired number of repetitions.","brief":"One
+      person standing between cable handles with straight arms at the sides, then with the arms raised
+      out to the sides parallel to the floor. Plain background. No text, letters, numbers, labels or arrows
+      in the picture."}'
+    deps:
+      instructions: Stand with your feet shoulder-width apart and grasp the cable handles with an overhand
+        grip. Keep your arms straight and your core engaged. Raise your arms out to the sides until they
+        are parallel to the floor. Pause for a moment at the top, then slowly lower your arms back down
+        to the starting position. Repeat for the desired number of repetitions.
+      brief: One person standing between cable handles with straight arms at the sides, then with the
+        arms raised out to the sides parallel to the floor. Plain background. No text, letters, numbers,
+        labels or arrows in the picture.
+  expected_output:
+    same_movement: true
+    keeps_rules: true
+- name: 'dumbbell lateral raise: a front raise'
+  metadata:
+    kind: another_movement
+    exercise: Dumbbell Lateral Raise
+    instructions_source: exercises-dataset 0334
+  inputs:
+    prompt: '{"instructions":"Stand with your feet shoulder-width apart and hold a dumbbell in each hand,
+      palms facing your body. Keep your back straight and engage your core. Raise your arms out to the
+      sides until they are parallel to the floor, keeping a slight bend in your elbows. Pause for a moment
+      at the top, then slowly lower your arms back down to the starting position. Repeat for the desired
+      number of repetitions.","brief":"One person standing with a dumbbell in each hand in front of the
+      thighs, then with both arms raised straight in front of the body to shoulder height. Plain background.
+      No text, letters, numbers, labels or arrows in the picture."}'
+    deps:
+      instructions: Stand with your feet shoulder-width apart and hold a dumbbell in each hand, palms
+        facing your body. Keep your back straight and engage your core. Raise your arms out to the sides
+        until they are parallel to the floor, keeping a slight bend in your elbows. Pause for a moment
+        at the top, then slowly lower your arms back down to the starting position. Repeat for the desired
+        number of repetitions.
+      brief: One person standing with a dumbbell in each hand in front of the thighs, then with both arms
+        raised straight in front of the body to shoulder height. Plain background. No text, letters, numbers,
+        labels or arrows in the picture.
+  expected_output:
+    same_movement: false
+    keeps_rules: true
+- name: 'pull-up: a lat pulldown'
+  metadata:
+    kind: another_movement
+    exercise: Pull-Up
+    instructions_source: exercises-dataset 0652
+  inputs:
+    prompt: '{"instructions":"Hang from a pull-up bar with your palms facing away from you and your arms
+      fully extended. Engage your core and squeeze your shoulder blades together. Pull your body up towards
+      the bar by bending your elbows and bringing your chest towards the bar. Pause at the top of the
+      movement, then slowly lower your body back down to the starting position. Repeat for the desired
+      number of repetitions.","brief":"One person seated at a lat pulldown machine, thighs under the pads,
+      arms extended up to the bar, then pulling the bar down to the upper chest. Plain background. No
+      text, letters, numbers, labels or arrows in the picture."}'
+    deps:
+      instructions: Hang from a pull-up bar with your palms facing away from you and your arms fully extended.
+        Engage your core and squeeze your shoulder blades together. Pull your body up towards the bar
+        by bending your elbows and bringing your chest towards the bar. Pause at the top of the movement,
+        then slowly lower your body back down to the starting position. Repeat for the desired number
+        of repetitions.
+      brief: One person seated at a lat pulldown machine, thighs under the pads, arms extended up to the
+        bar, then pulling the bar down to the upper chest. Plain background. No text, letters, numbers,
+        labels or arrows in the picture.
+  expected_output:
+    same_movement: false
+    keeps_rules: true
+- name: 'barbell bench press: a standing overhead press'
+  metadata:
+    kind: another_movement
+    exercise: Barbell Bench Press
+    instructions_source: exercises-dataset 0025
+  inputs:
+    prompt: '{"instructions":"Lie flat on a bench with your feet flat on the ground and your back pressed
+      against the bench. Grasp the barbell with an overhand grip slightly wider than shoulder-width apart.
+      Lift the barbell off the rack and hold it directly above your chest with your arms fully extended.
+      Lower the barbell slowly towards your chest, keeping your elbows tucked in. Pause for a moment when
+      the barbell touches your chest. Push the barbell back up to the starting position by extending your
+      arms. Repeat for the desired number of repetitions.","brief":"One person standing with a barbell
+      at the shoulders, then pressing it straight overhead with the arms locked out. Plain background.
+      No text, letters, numbers, labels or arrows in the picture."}'
+    deps:
+      instructions: Lie flat on a bench with your feet flat on the ground and your back pressed against
+        the bench. Grasp the barbell with an overhand grip slightly wider than shoulder-width apart. Lift
+        the barbell off the rack and hold it directly above your chest with your arms fully extended.
+        Lower the barbell slowly towards your chest, keeping your elbows tucked in. Pause for a moment
+        when the barbell touches your chest. Push the barbell back up to the starting position by extending
+        your arms. Repeat for the desired number of repetitions.
+      brief: One person standing with a barbell at the shoulders, then pressing it straight overhead with
+        the arms locked out. Plain background. No text, letters, numbers, labels or arrows in the picture.
+  expected_output:
+    same_movement: false
+    keeps_rules: true
+- name: 'barbell deadlift: a back squat'
+  metadata:
+    kind: another_movement
+    exercise: Barbell Deadlift
+    instructions_source: exercises-dataset 0032
+  inputs:
+    prompt: '{"instructions":"Stand with your feet shoulder-width apart and the barbell on the ground
+      in front of you. Bend your knees and hinge at the hips to lower your torso and grip the barbell
+      with an overhand grip, hands slightly wider than shoulder-width apart. Keep your back straight and
+      chest lifted as you drive through your heels to lift the barbell off the ground, extending your
+      hips and knees. As you stand up straight, squeeze your glutes and keep your core engaged. Lower
+      the barbell back down to the ground by bending at the hips and knees, keeping your back straight.
+      Repeat for the desired number of repetitions.","brief":"One person standing with a barbell across
+      the upper back, then squatting down until the thighs are parallel to the floor, the bar still on
+      the back. Plain background. No text, letters, numbers, labels or arrows in the picture."}'
+    deps:
+      instructions: Stand with your feet shoulder-width apart and the barbell on the ground in front of
+        you. Bend your knees and hinge at the hips to lower your torso and grip the barbell with an overhand
+        grip, hands slightly wider than shoulder-width apart. Keep your back straight and chest lifted
+        as you drive through your heels to lift the barbell off the ground, extending your hips and knees.
+        As you stand up straight, squeeze your glutes and keep your core engaged. Lower the barbell back
+        down to the ground by bending at the hips and knees, keeping your back straight. Repeat for the
+        desired number of repetitions.
+      brief: One person standing with a barbell across the upper back, then squatting down until the thighs
+        are parallel to the floor, the bar still on the back. Plain background. No text, letters, numbers,
+        labels or arrows in the picture.
+  expected_output:
+    same_movement: false
+    keeps_rules: true
+- name: 'push-up: a plank hold'
+  metadata:
+    kind: another_movement
+    exercise: Push-Up
+    instructions_source: exercises-dataset 0662
+  inputs:
+    prompt: '{"instructions":"Start in a high plank position with your hands slightly wider than shoulder-width
+      apart and your feet together. Engage your core and lower your body towards the ground by bending
+      your elbows, keeping your body in a straight line. Pause for a moment when your chest is just above
+      the ground, then push yourself back up to the starting position by straightening your arms. Repeat
+      for the desired number of repetitions.","brief":"One person holding a forearm plank, elbows under
+      the shoulders, body straight, then the same forearm plank seen from the side. Plain background.
+      No text, letters, numbers, labels or arrows in the picture."}'
+    deps:
+      instructions: Start in a high plank position with your hands slightly wider than shoulder-width
+        apart and your feet together. Engage your core and lower your body towards the ground by bending
+        your elbows, keeping your body in a straight line. Pause for a moment when your chest is just
+        above the ground, then push yourself back up to the starting position by straightening your arms.
+        Repeat for the desired number of repetitions.
+      brief: One person holding a forearm plank, elbows under the shoulders, body straight, then the same
+        forearm plank seen from the side. Plain background. No text, letters, numbers, labels or arrows
+        in the picture.
+  expected_output:
+    same_movement: false
+    keeps_rules: true
+- name: 'pull-up: start and end labelled'
+  metadata:
+    kind: labels
+    exercise: Pull-Up
+    instructions_source: exercises-dataset 0652
+  inputs:
+    prompt: '{"instructions":"Hang from a pull-up bar with your palms facing away from you and your arms
+      fully extended. Engage your core and squeeze your shoulder blades together. Pull your body up towards
+      the bar by bending your elbows and bringing your chest towards the bar. Pause at the top of the
+      movement, then slowly lower your body back down to the starting position. Repeat for the desired
+      number of repetitions.","brief":"One person hanging from a pull-up bar with arms extended, then
+      with the chest at the bar. Label the first pose ''START'' and the second ''END'' in bold letters
+      under each figure. Plain background."}'
+    deps:
+      instructions: Hang from a pull-up bar with your palms facing away from you and your arms fully extended.
+        Engage your core and squeeze your shoulder blades together. Pull your body up towards the bar
+        by bending your elbows and bringing your chest towards the bar. Pause at the top of the movement,
+        then slowly lower your body back down to the starting position. Repeat for the desired number
+        of repetitions.
+      brief: One person hanging from a pull-up bar with arms extended, then with the chest at the bar.
+        Label the first pose 'START' and the second 'END' in bold letters under each figure. Plain background.
+  expected_output:
+    same_movement: true
+    keeps_rules: false
+- name: 'face pull: arrows with words'
+  metadata:
+    kind: labels
+    exercise: Face Pull
+    instructions_source: data/catalogue/extra.yaml face-pull
+  inputs:
+    prompt: '{"instructions":"Set a cable pulley at about face height with a rope attachment and hold
+      one end of the rope in each hand, palms facing each other. Step back until your arms are straight
+      and the weight lifts off the stack. Pull the rope towards your face, keeping your elbows high and
+      moving your hands apart so they finish beside your ears. Squeeze your shoulder blades together for
+      a moment, then straighten your arms slowly under control.","brief":"One person at a cable pulley
+      set at face height, arms straight holding a rope, then pulling it to the face with elbows high.
+      Add arrows showing the pull with the words ''elbows high'' and ''squeeze''. Plain background."}'
+    deps:
+      instructions: Set a cable pulley at about face height with a rope attachment and hold one end of
+        the rope in each hand, palms facing each other. Step back until your arms are straight and the
+        weight lifts off the stack. Pull the rope towards your face, keeping your elbows high and moving
+        your hands apart so they finish beside your ears. Squeeze your shoulder blades together for a
+        moment, then straighten your arms slowly under control.
+      brief: One person at a cable pulley set at face height, arms straight holding a rope, then pulling
+        it to the face with elbows high. Add arrows showing the pull with the words 'elbows high' and
+        'squeeze'. Plain background.
+  expected_output:
+    same_movement: true
+    keeps_rules: false
+- name: 'bench press: rep count'
+  metadata:
+    kind: labels
+    exercise: Barbell Bench Press
+    instructions_source: exercises-dataset 0025
+  inputs:
+    prompt: '{"instructions":"Lie flat on a bench with your feet flat on the ground and your back pressed
+      against the bench. Grasp the barbell with an overhand grip slightly wider than shoulder-width apart.
+      Lift the barbell off the rack and hold it directly above your chest with your arms fully extended.
+      Lower the barbell slowly towards your chest, keeping your elbows tucked in. Pause for a moment when
+      the barbell touches your chest. Push the barbell back up to the starting position by extending your
+      arms. Repeat for the desired number of repetitions.","brief":"One person lying flat on a bench with
+      the barbell above the chest, then lowered to the chest. Write ''3 x 8'' in the top corner and the
+      exercise name across the bottom. Plain background."}'
+    deps:
+      instructions: Lie flat on a bench with your feet flat on the ground and your back pressed against
+        the bench. Grasp the barbell with an overhand grip slightly wider than shoulder-width apart. Lift
+        the barbell off the rack and hold it directly above your chest with your arms fully extended.
+        Lower the barbell slowly towards your chest, keeping your elbows tucked in. Pause for a moment
+        when the barbell touches your chest. Push the barbell back up to the starting position by extending
+        your arms. Repeat for the desired number of repetitions.
+      brief: One person lying flat on a bench with the barbell above the chest, then lowered to the chest.
+        Write '3 x 8' in the top corner and the exercise name across the bottom. Plain background.
+  expected_output:
+    same_movement: true
+    keeps_rules: false
+- name: 'lateral raise: two people side by side'
+  metadata:
+    kind: two_figures
+    exercise: Dumbbell Lateral Raise
+    instructions_source: exercises-dataset 0334
+  inputs:
+    prompt: '{"instructions":"Stand with your feet shoulder-width apart and hold a dumbbell in each hand,
+      palms facing your body. Keep your back straight and engage your core. Raise your arms out to the
+      sides until they are parallel to the floor, keeping a slight bend in your elbows. Pause for a moment
+      at the top, then slowly lower your arms back down to the starting position. Repeat for the desired
+      number of repetitions.","brief":"Two people standing side by side, one with dumbbells at the sides
+      and the other with arms raised out to the sides parallel to the floor. Plain background. No text,
+      letters, numbers, labels or arrows in the picture."}'
+    deps:
+      instructions: Stand with your feet shoulder-width apart and hold a dumbbell in each hand, palms
+        facing your body. Keep your back straight and engage your core. Raise your arms out to the sides
+        until they are parallel to the floor, keeping a slight bend in your elbows. Pause for a moment
+        at the top, then slowly lower your arms back down to the starting position. Repeat for the desired
+        number of repetitions.
+      brief: Two people standing side by side, one with dumbbells at the sides and the other with arms
+        raised out to the sides parallel to the floor. Plain background. No text, letters, numbers, labels
+        or arrows in the picture.
+  expected_output:
+    same_movement: true
+    keeps_rules: false
+- name: 'pallof press: a coach beside the athlete'
+  metadata:
+    kind: two_figures
+    exercise: Band Horizontal Pallof Press
+    instructions_source: exercises-dataset 0979
+  inputs:
+    prompt: '{"instructions":"Attach the band to a sturdy anchor point at waist height. Stand perpendicular
+      to the anchor point with your feet shoulder-width apart. Grasp the band handle with both hands and
+      step away from the anchor point to create tension in the band. Bring your hands to your chest, keeping
+      your elbows bent and close to your body. Engage your core and maintain a stable stance. Extend your
+      arms straight out in front of you, pushing the band away from your body. Hold the extended position
+      for a few seconds, focusing on maintaining tension in your core. Slowly bring your hands back to
+      your chest, resisting the pull of the band. Repeat for the desired number of repetitions.","brief":"One
+      person standing side-on to a band anchored at waist height, pressing the handle out from the chest,
+      with a coach standing next to them pointing at their core. Plain background. No text, letters, numbers,
+      labels or arrows in the picture."}'
+    deps:
+      instructions: Attach the band to a sturdy anchor point at waist height. Stand perpendicular to the
+        anchor point with your feet shoulder-width apart. Grasp the band handle with both hands and step
+        away from the anchor point to create tension in the band. Bring your hands to your chest, keeping
+        your elbows bent and close to your body. Engage your core and maintain a stable stance. Extend
+        your arms straight out in front of you, pushing the band away from your body. Hold the extended
+        position for a few seconds, focusing on maintaining tension in your core. Slowly bring your hands
+        back to your chest, resisting the pull of the band. Repeat for the desired number of repetitions.
+      brief: One person standing side-on to a band anchored at waist height, pressing the handle out from
+        the chest, with a coach standing next to them pointing at their core. Plain background. No text,
+        letters, numbers, labels or arrows in the picture.
+  expected_output:
+    same_movement: true
+    keeps_rules: false
+- name: 'triceps extension: only the bottom position'
+  metadata:
+    kind: no_positions
+    exercise: Dumbbell Standing Triceps Extension
+    instructions_source: exercises-dataset 0430
+  inputs:
+    prompt: '{"instructions":"Stand with your feet shoulder-width apart and hold a dumbbell in one hand.
+      Raise the dumbbell overhead, keeping your arm straight. Bend your elbow and lower the dumbbell behind
+      your head, keeping your upper arm stationary. Extend your arm back up to the starting position.
+      Repeat for the desired number of repetitions.","brief":"One person standing with the elbow bent
+      and a dumbbell lowered behind the head. Plain background. No text, letters, numbers, labels or arrows
+      in the picture."}'
+    deps:
+      instructions: Stand with your feet shoulder-width apart and hold a dumbbell in one hand. Raise the
+        dumbbell overhead, keeping your arm straight. Bend your elbow and lower the dumbbell behind your
+        head, keeping your upper arm stationary. Extend your arm back up to the starting position. Repeat
+        for the desired number of repetitions.
+      brief: One person standing with the elbow bent and a dumbbell lowered behind the head. Plain background.
+        No text, letters, numbers, labels or arrows in the picture.
+  expected_output:
+    same_movement: true
+    keeps_rules: false
+- name: 'deadlift: only the top position'
+  metadata:
+    kind: no_positions
+    exercise: Barbell Deadlift
+    instructions_source: exercises-dataset 0032
+  inputs:
+    prompt: '{"instructions":"Stand with your feet shoulder-width apart and the barbell on the ground
+      in front of you. Bend your knees and hinge at the hips to lower your torso and grip the barbell
+      with an overhand grip, hands slightly wider than shoulder-width apart. Keep your back straight and
+      chest lifted as you drive through your heels to lift the barbell off the ground, extending your
+      hips and knees. As you stand up straight, squeeze your glutes and keep your core engaged. Lower
+      the barbell back down to the ground by bending at the hips and knees, keeping your back straight.
+      Repeat for the desired number of repetitions.","brief":"One person standing tall holding a barbell
+      at the hips, arms straight. Plain background. No text, letters, numbers, labels or arrows in the
+      picture."}'
+    deps:
+      instructions: Stand with your feet shoulder-width apart and the barbell on the ground in front of
+        you. Bend your knees and hinge at the hips to lower your torso and grip the barbell with an overhand
+        grip, hands slightly wider than shoulder-width apart. Keep your back straight and chest lifted
+        as you drive through your heels to lift the barbell off the ground, extending your hips and knees.
+        As you stand up straight, squeeze your glutes and keep your core engaged. Lower the barbell back
+        down to the ground by bending at the hips and knees, keeping your back straight. Repeat for the
+        desired number of repetitions.
+      brief: One person standing tall holding a barbell at the hips, arms straight. Plain background.
+        No text, letters, numbers, labels or arrows in the picture.
+  expected_output:
+    same_movement: true
+    keeps_rules: false

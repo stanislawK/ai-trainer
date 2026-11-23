@@ -52,6 +52,10 @@ _BRIEF = PictureBrief(
             "result=failed step=image reason=timeout spent_usd=unknown",
         ),
         (
+            PictureSkipped(reason="brief_check_failed", spent_usd=Decimal("0.0002")),
+            "result=skipped reason=brief_check_failed spent_usd=0.0002",
+        ),
+        (
             SpendCapReached(
                 spent_usd=Decimal("0.2"), price_usd=Decimal("0.0336"), cap_usd=Decimal("0.25")
             ),
@@ -73,6 +77,7 @@ _BRIEF = PictureBrief(
         "ambiguous",
         "skipped_unknown",
         "failed_unknown",
+        "brief_check_failed",
         "over_cap",
         "cost_unknown",
         "failed",

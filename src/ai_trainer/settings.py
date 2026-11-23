@@ -32,16 +32,15 @@ from ai_trainer.settings_values import (
     VERSIONED_DECISION_MODEL,
     CallTimeout,
     CommaSeparated,
-    ExerciseSearchSettings,
+    ExerciseCatalogueSettings,
     ObjectStorageSettings,
     ProviderPreferencesSetting,
     PublicOrigin,
-    SimpleHowtoSettings,
     http_origin,
 )
 
 
-class Settings(ExerciseSearchSettings, SimpleHowtoSettings, ObjectStorageSettings, BaseSettings):
+class Settings(ExerciseCatalogueSettings, ObjectStorageSettings, BaseSettings):
     """All configuration; the only reader of the environment (ADR-0002)."""
 
     model_config = SettingsConfigDict(

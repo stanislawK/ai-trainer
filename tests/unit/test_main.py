@@ -26,8 +26,11 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from ai_trainer import main as main_module
+from ai_trainer.adapters.llm_calls_repository import SqlAlchemyLlmCallsRepository
 from ai_trainer.application.budgeted_gateways import BudgetedDecisionGateway, BudgetedLlmGateway
+from ai_trainer.application.exercise_picture import RunSpend
 from ai_trainer.application.exercise_simple_howto import WriteSimpleHowto
+from ai_trainer.llm.decision_gateway import OpenRouterDecisionGateway
 from ai_trainer.llm.gateway import OpenRouterGateway
 from ai_trainer.main import _build_tracer_provider, _traces_endpoint, app_factory, create_app
 from ai_trainer.settings import Settings
@@ -565,3 +568,30 @@ async def test_build_media_storage_uses_the_media_bucket() -> None:
 def test_build_media_storage_is_none_while_unset() -> None:
     assert main_module.build_media_storage(_settings(**_STORAGE)) is None
     assert main_module.build_media_storage(_settings()) is None
+
+
+async def test_picture_service_check_rows_do_not_stop_the_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#642 D1: Jev's brief check writes its row to `llm_calls` directly, never through the run's
+    `RunSpend`, so its NULL cost can't stop the run as `cost_unknown`. The other calls still go
+    through `RunSpend`."""
+    repositories: list[object] = []
+
+    def recording(settings: Settings, calls_repository: Any, **kwargs: Any) -> Any:
+        repositories.append(calls_repository)
+        return OpenRouterDecisionGateway(settings, calls_repository, **kwargs)
+
+    monkeypatch.setattr(main_module, "OpenRouterDecisionGateway", recording)
+
+    def no_session() -> Any:
+        raise AssertionError("no session is opened while wiring")
+
+    async with httpx2.AsyncClient() as client:
+        main_module.build_exercise_picture_service(
+            _settings(), no_session, http_client=client, search_http_client=client
+        )
+
+    [repository] = repositories
+    assert isinstance(repository, SqlAlchemyLlmCallsRepository)
+    assert not isinstance(repository, RunSpend)

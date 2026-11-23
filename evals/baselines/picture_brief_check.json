@@ -1,0 +1,413 @@
+{
+  "template_id": "picture_brief_check",
+  "version": 1,
+  "model": "typesafe/jev-1.13",
+  "assertions": 0.9545454545454546,
+  "scores": {},
+  "thresholds": {
+    "max_assertions_drop": 0.0,
+    "max_score_drop": 0.05
+  },
+  "decision_thresholds": {
+    "same_movement": 0.5,
+    "keeps_rules": 0.45
+  },
+  "cases": {
+    "pull-up: good": {
+      "same_movement": {
+        "mean": 0.9833333333333334,
+        "min": 0.98,
+        "max": 0.99,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.010000000000000009
+      },
+      "keeps_rules": {
+        "mean": 0.9033333333333333,
+        "min": 0.9,
+        "max": 0.91,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.010000000000000009
+      }
+    },
+    "pull-up: good, other wording": {
+      "same_movement": {
+        "mean": 0.9833333333333334,
+        "min": 0.98,
+        "max": 0.99,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.010000000000000009
+      },
+      "keeps_rules": {
+        "mean": 0.98,
+        "min": 0.98,
+        "max": 0.98,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.0
+      }
+    },
+    "barbell bench press: good": {
+      "same_movement": {
+        "mean": 0.9866666666666667,
+        "min": 0.98,
+        "max": 0.99,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.010000000000000009
+      },
+      "keeps_rules": {
+        "mean": 0.6166666666666667,
+        "min": 0.61,
+        "max": 0.62,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.010000000000000009
+      }
+    },
+    "face pull: good": {
+      "same_movement": {
+        "mean": 0.9533333333333333,
+        "min": 0.95,
+        "max": 0.96,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.010000000000000009
+      },
+      "keeps_rules": {
+        "mean": 0.6766666666666667,
+        "min": 0.66,
+        "max": 0.7,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.039999999999999925
+      }
+    },
+    "dumbbell lateral raise: good": {
+      "same_movement": {
+        "mean": 0.9833333333333334,
+        "min": 0.98,
+        "max": 0.99,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.010000000000000009
+      },
+      "keeps_rules": {
+        "mean": 0.8866666666666667,
+        "min": 0.87,
+        "max": 0.9,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.030000000000000027
+      }
+    },
+    "dumbbell standing triceps extension: good": {
+      "same_movement": {
+        "mean": 0.9666666666666667,
+        "min": 0.96,
+        "max": 0.97,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.010000000000000009
+      },
+      "keeps_rules": {
+        "mean": 0.8466666666666667,
+        "min": 0.83,
+        "max": 0.86,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.030000000000000027
+      }
+    },
+    "band horizontal pallof press: good": {
+      "same_movement": {
+        "mean": 0.9700000000000001,
+        "min": 0.97,
+        "max": 0.97,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.0
+      },
+      "keeps_rules": {
+        "mean": 0.5766666666666667,
+        "min": 0.56,
+        "max": 0.6,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.039999999999999925
+      }
+    },
+    "barbell deadlift: good": {
+      "same_movement": {
+        "mean": 0.98,
+        "min": 0.98,
+        "max": 0.98,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.0
+      },
+      "keeps_rules": {
+        "mean": 0.7966666666666667,
+        "min": 0.78,
+        "max": 0.81,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.030000000000000027
+      }
+    },
+    "push-up: good": {
+      "same_movement": {
+        "mean": 0.98,
+        "min": 0.98,
+        "max": 0.98,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.0
+      },
+      "keeps_rules": {
+        "mean": 0.8133333333333334,
+        "min": 0.77,
+        "max": 0.85,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.07999999999999996
+      }
+    },
+    "cable lateral raise: good": {
+      "same_movement": {
+        "mean": 0.96,
+        "min": 0.96,
+        "max": 0.96,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.0
+      },
+      "keeps_rules": {
+        "mean": 0.9700000000000001,
+        "min": 0.97,
+        "max": 0.97,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.0
+      }
+    },
+    "dumbbell lateral raise: a front raise": {
+      "same_movement": {
+        "mean": 0.03,
+        "min": 0.03,
+        "max": 0.03,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.0
+      },
+      "keeps_rules": {
+        "mean": 0.8266666666666667,
+        "min": 0.8,
+        "max": 0.86,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.05999999999999994
+      }
+    },
+    "pull-up: a lat pulldown": {
+      "same_movement": {
+        "mean": 0.02,
+        "min": 0.02,
+        "max": 0.02,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.0
+      },
+      "keeps_rules": {
+        "mean": 0.7600000000000001,
+        "min": 0.72,
+        "max": 0.78,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.06000000000000005
+      }
+    },
+    "barbell bench press: a standing overhead press": {
+      "same_movement": {
+        "mean": 0.02,
+        "min": 0.02,
+        "max": 0.02,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.0
+      },
+      "keeps_rules": {
+        "mean": 0.7799999999999999,
+        "min": 0.77,
+        "max": 0.8,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.030000000000000027
+      }
+    },
+    "barbell deadlift: a back squat": {
+      "same_movement": {
+        "mean": 0.023333333333333334,
+        "min": 0.02,
+        "max": 0.03,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.009999999999999998
+      },
+      "keeps_rules": {
+        "mean": 0.58,
+        "min": 0.56,
+        "max": 0.6,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.039999999999999925
+      }
+    },
+    "push-up: a plank hold": {
+      "same_movement": {
+        "mean": 0.04,
+        "min": 0.04,
+        "max": 0.04,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.0
+      },
+      "keeps_rules": {
+        "mean": 0.39666666666666667,
+        "min": 0.36,
+        "max": 0.42,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.06
+      }
+    },
+    "pull-up: start and end labelled": {
+      "same_movement": {
+        "mean": 0.98,
+        "min": 0.98,
+        "max": 0.98,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.0
+      },
+      "keeps_rules": {
+        "mean": 0.05333333333333334,
+        "min": 0.05,
+        "max": 0.06,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.009999999999999995
+      }
+    },
+    "face pull: arrows with words": {
+      "same_movement": {
+        "mean": 0.9499999999999998,
+        "min": 0.95,
+        "max": 0.95,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.0
+      },
+      "keeps_rules": {
+        "mean": 0.04,
+        "min": 0.04,
+        "max": 0.04,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.0
+      }
+    },
+    "bench press: rep count": {
+      "same_movement": {
+        "mean": 0.98,
+        "min": 0.98,
+        "max": 0.98,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.0
+      },
+      "keeps_rules": {
+        "mean": 0.04666666666666667,
+        "min": 0.04,
+        "max": 0.05,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.010000000000000002
+      }
+    },
+    "lateral raise: two people side by side": {
+      "same_movement": {
+        "mean": 0.96,
+        "min": 0.96,
+        "max": 0.96,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.0
+      },
+      "keeps_rules": {
+        "mean": 0.056666666666666664,
+        "min": 0.05,
+        "max": 0.06,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.009999999999999995
+      }
+    },
+    "pallof press: a coach beside the athlete": {
+      "same_movement": {
+        "mean": 0.9533333333333333,
+        "min": 0.95,
+        "max": 0.96,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.010000000000000009
+      },
+      "keeps_rules": {
+        "mean": 0.14,
+        "min": 0.13,
+        "max": 0.15,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.01999999999999999
+      }
+    },
+    "triceps extension: only the bottom position": {
+      "same_movement": {
+        "mean": 0.9433333333333334,
+        "min": 0.94,
+        "max": 0.95,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.010000000000000009
+      },
+      "keeps_rules": {
+        "mean": 0.11666666666666665,
+        "min": 0.11,
+        "max": 0.12,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.009999999999999995
+      }
+    },
+    "deadlift: only the top position": {
+      "same_movement": {
+        "mean": 0.4466666666666666,
+        "min": 0.42,
+        "max": 0.47,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.04999999999999999
+      },
+      "keeps_rules": {
+        "mean": 0.18666666666666668,
+        "min": 0.18,
+        "max": 0.19,
+        "runs": 3,
+        "flips": false,
+        "spread": 0.010000000000000009
+      }
+    }
+  }
+}

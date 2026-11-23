@@ -4,9 +4,10 @@ and end position, one figure on a plain background, and no printed text, since a
 from a bare name printed wrong labels (docs/research/exercise-media.md finding 8).
 
 Its input is public text only, never athlete data: the catalogue's `exercise_texts` and the
-passages the run's own `search_knowledge` returned. An exercise with neither gets no brief, and
-no model call (`needs_no_model`). The deps, the brief and that check are in
-`domain/media_generation.py`; the template, its grader and the writer are here."""
+passages the run's own `search_knowledge` returned. An exercise with no catalogue description
+gets no brief and no model call: the service skips it first, since Jev's brief check needs the
+instructions (#642). The deps and the brief are in `domain/media_generation.py`; the template,
+its grader and the writer are here."""
 
 import re
 from collections.abc import Sequence

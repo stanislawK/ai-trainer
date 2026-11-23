@@ -1,0 +1,116 @@
+# Smoke set for the picture_brief_check decision (ADR-0034, #642): graded in code, run once on
+# Jev, one case of each kind, cut from evals/datasets/picture_brief_check.yaml (no field
+# transcript covers pictures yet). Each case's deps are the catalogue instructions (verbatim from
+# evals/smoke/media.picture_brief.yaml or exercise.simple_howto.yaml) and a hand-written brief;
+# `passes` is what the app would decide at each question's Settings threshold, through its own
+# `check_passes`. `metadata.kind` names the case's kind. A false pass draws a wrong picture; a
+# false fail leaves the card without one.
+name: picture_brief_check
+cases:
+- name: 'pull-up: good'
+  metadata:
+    kind: good
+    exercise: Pull-Up
+    instructions_source: exercises-dataset 0652
+  inputs:
+    prompt: Pull-Up
+    deps:
+      instructions: Hang from a pull-up bar with your palms facing away from you and your arms fully extended.
+        Engage your core and squeeze your shoulder blades together. Pull your body up towards the bar
+        by bending your elbows and bringing your chest towards the bar. Pause at the top of the movement,
+        then slowly lower your body back down to the starting position. Repeat for the desired number
+        of repetitions.
+      brief: One person hanging from a pull-up bar, palms facing away and arms fully extended, then with
+        the chest at the bar and elbows bent. Plain background. No text, letters, numbers, labels or arrows
+        in the picture.
+  expected_output:
+    passes: true
+- name: 'barbell deadlift: good'
+  metadata:
+    kind: good
+    exercise: Barbell Deadlift
+    instructions_source: exercises-dataset 0032
+  inputs:
+    prompt: Barbell Deadlift
+    deps:
+      instructions: Stand with your feet shoulder-width apart and the barbell on the ground in front of
+        you. Bend your knees and hinge at the hips to lower your torso and grip the barbell with an overhand
+        grip, hands slightly wider than shoulder-width apart. Keep your back straight and chest lifted
+        as you drive through your heels to lift the barbell off the ground, extending your hips and knees.
+        As you stand up straight, squeeze your glutes and keep your core engaged. Lower the barbell back
+        down to the ground by bending at the hips and knees, keeping your back straight. Repeat for the
+        desired number of repetitions.
+      brief: One person with hips hinged and knees bent, back straight, gripping a barbell on the floor,
+        then standing tall holding the barbell at the hips. Plain background. No text, letters, numbers,
+        labels or arrows in the picture.
+  expected_output:
+    passes: true
+- name: 'dumbbell lateral raise: a front raise'
+  metadata:
+    kind: another_movement
+    exercise: Dumbbell Lateral Raise
+    instructions_source: exercises-dataset 0334
+  inputs:
+    prompt: Dumbbell Lateral Raise
+    deps:
+      instructions: Stand with your feet shoulder-width apart and hold a dumbbell in each hand, palms
+        facing your body. Keep your back straight and engage your core. Raise your arms out to the sides
+        until they are parallel to the floor, keeping a slight bend in your elbows. Pause for a moment
+        at the top, then slowly lower your arms back down to the starting position. Repeat for the desired
+        number of repetitions.
+      brief: One person standing with a dumbbell in each hand in front of the thighs, then with both arms
+        raised straight in front of the body to shoulder height. Plain background. No text, letters, numbers,
+        labels or arrows in the picture.
+  expected_output:
+    passes: false
+- name: 'pull-up: start and end labelled'
+  metadata:
+    kind: labels
+    exercise: Pull-Up
+    instructions_source: exercises-dataset 0652
+  inputs:
+    prompt: Pull-Up
+    deps:
+      instructions: Hang from a pull-up bar with your palms facing away from you and your arms fully extended.
+        Engage your core and squeeze your shoulder blades together. Pull your body up towards the bar
+        by bending your elbows and bringing your chest towards the bar. Pause at the top of the movement,
+        then slowly lower your body back down to the starting position. Repeat for the desired number
+        of repetitions.
+      brief: One person hanging from a pull-up bar with arms extended, then with the chest at the bar.
+        Label the first pose 'START' and the second 'END' in bold letters under each figure. Plain background.
+  expected_output:
+    passes: false
+- name: 'lateral raise: two people side by side'
+  metadata:
+    kind: two_figures
+    exercise: Dumbbell Lateral Raise
+    instructions_source: exercises-dataset 0334
+  inputs:
+    prompt: Dumbbell Lateral Raise
+    deps:
+      instructions: Stand with your feet shoulder-width apart and hold a dumbbell in each hand, palms
+        facing your body. Keep your back straight and engage your core. Raise your arms out to the sides
+        until they are parallel to the floor, keeping a slight bend in your elbows. Pause for a moment
+        at the top, then slowly lower your arms back down to the starting position. Repeat for the desired
+        number of repetitions.
+      brief: Two people standing side by side, one with dumbbells at the sides and the other with arms
+        raised out to the sides parallel to the floor. Plain background. No text, letters, numbers, labels
+        or arrows in the picture.
+  expected_output:
+    passes: false
+- name: 'triceps extension: only the bottom position'
+  metadata:
+    kind: no_positions
+    exercise: Dumbbell Standing Triceps Extension
+    instructions_source: exercises-dataset 0430
+  inputs:
+    prompt: Dumbbell Standing Triceps Extension
+    deps:
+      instructions: Stand with your feet shoulder-width apart and hold a dumbbell in one hand. Raise the
+        dumbbell overhead, keeping your arm straight. Bend your elbow and lower the dumbbell behind your
+        head, keeping your upper arm stationary. Extend your arm back up to the starting position. Repeat
+        for the desired number of repetitions.
+      brief: One person standing with the elbow bent and a dumbbell lowered behind the head. Plain background.
+        No text, letters, numbers, labels or arrows in the picture.
+  expected_output:
+    passes: false

@@ -2,7 +2,10 @@
 for one catalogue exercise, writing nothing to the media tables.
 
 The brief is written from the exercise's name and public texts only (`exercise_texts` and the
-run's own `search_knowledge` passages), never from the name alone. The run is bounded by
+run's own `search_knowledge` passages), never from the name alone, and only for an exercise with
+catalogue instructions. Jev checks the brief against those instructions before the image call,
+and anything but a pass skips the picture (`brief_check_failed`, #642). The check's row is
+written outside the run's spend, since decision rows carry no cost (#642 D1). The run is bounded by
 `IMAGE_GENERATION_SPEND_CAP_USD`, summed from its own `llm_calls` costs: a call whose cost is
 unknown stops it, and it stops before the image call when the picture's price from `Settings`
 would take it over the cap. Admin-run, so it is outside ADR-0029's per-user budget; the cap and
@@ -18,6 +21,7 @@ from ai_trainer.application.ports.llm_calls import LlmCallsRepositoryPort
 from ai_trainer.application.ports.media_generation import (
     ImageGenerationPort,
     PassageSearchPort,
+    PictureBriefCheckPort,
     PictureBriefWriterPort,
     PictureSubjectsPort,
 )
@@ -26,6 +30,7 @@ from ai_trainer.domain.knowledge_search import KnowledgeSearchQuery
 from ai_trainer.domain.llm_calls import LlmCall, NewLlmCall
 from ai_trainer.domain.media_generation import (
     AmbiguousExerciseName,
+    BriefCheck,
     BriefFailed,
     ImageGenerationFailed,
     NoBrief,
@@ -38,7 +43,7 @@ from ai_trainer.domain.media_generation import (
     PictureSpendLimits,
     PictureSubject,
     SpendCapReached,
-    needs_no_model,
+    exercise_description,
     picture_brief_deps,
 )
 
@@ -83,6 +88,7 @@ class PicturePorts:
     search: PassageSearchPort
     briefs: PictureBriefWriterPort
     images: ImageGenerationPort
+    brief_check: PictureBriefCheckPort
 
 
 class ExercisePictureService:
@@ -108,9 +114,18 @@ class ExercisePictureService:
             return PictureSkipped(reason="no_such_exercise", spent_usd=self._spend.reported_usd)
         if isinstance(subject, AmbiguousExerciseName):
             return PictureRefused(reason="ambiguous_name")
+        instructions = exercise_description(subject.text)
+        if instructions is None:
+            # Nothing to check a brief against, so no brief (#642 D2).
+            return PictureSkipped(reason="no_description", spent_usd=self._spend.reported_usd)
         brief = await self._brief(admin, subject)
         if not isinstance(brief, PictureBrief):
             return brief
+        checked = await self._ports.brief_check.check(
+            user_id=admin, instructions=instructions, brief=brief.image_prompt
+        )
+        if not (isinstance(checked, BriefCheck) and checked.passed):
+            return PictureSkipped(reason="brief_check_failed", spent_usd=self._spend.reported_usd)
         if stop := self._stop_before(self._limits.price_usd):
             return stop
         image = await self._ports.images.generate(user_id=admin, prompt=brief.image_prompt)
@@ -138,9 +153,8 @@ class ExercisePictureService:
         search = await self._ports.search.search(
             admin, KnowledgeSearchQuery(text=subject.name, sport_id=subject.sport_id)
         )
+        # The instructions are there (checked before the search), so the template runs.
         deps = picture_brief_deps(subject.name, subject.text, search)
-        if needs_no_model(deps) is not None:
-            return PictureSkipped(reason="no_description", spent_usd=self._spend.reported_usd)
         # The brief's price isn't in `Settings`: only a cost already unknown or over the cap
         # stops the run here.
         if stop := self._stop_before(Decimal(0)):

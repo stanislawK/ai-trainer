@@ -28,7 +28,6 @@ from ai_trainer.domain.media_generation import (
     NoBrief,
     PictureBrief,
     PictureBriefDeps,
-    needs_no_model,
     picture_brief_deps,
 )
 from ai_trainer.domain.sports.registry import default_sport_registry
@@ -253,18 +252,6 @@ def test_picture_brief_match_fails_a_forbidden_detail() -> None:
     assert result["forbids"] is False  # type: ignore[index]
 
 
-# AC: no description and no passage is "no brief", with no model call.
-def test_no_description_and_no_passage_is_no_brief_without_a_model() -> None:
-    empty = PictureBriefDeps(exercise_name="Pull-Up", description=None, passages=[])
-    blank = PictureBriefDeps(exercise_name="Pull-Up", description="  ", passages=[])
-
-    assert isinstance(needs_no_model(empty), NoBrief)
-    assert isinstance(needs_no_model(blank), NoBrief)
-    assert needs_no_model(empty.model_copy(update={"description": "Hang from a bar."})) is None
-    passage_only = empty.model_copy(update={"passages": [BriefPassage(title="t", text="Hang.")]})
-    assert needs_no_model(passage_only) is None
-
-
 # AC: passages come only from the run's own search.
 def test_deps_take_passages_only_from_the_search_page() -> None:
     page = KnowledgeSearchPage(
@@ -284,13 +271,12 @@ def test_deps_take_passages_only_from_the_search_page() -> None:
     assert failed.description is None
 
 
-def test_deps_drop_a_passage_with_no_text_so_no_model_is_called() -> None:
+def test_deps_drop_a_passage_with_no_text() -> None:
     page = KnowledgeSearchPage(hits=(_hit("Book A", "  "),), truncated=False)
 
     deps = picture_brief_deps("Pull-Up", None, page)
 
     assert deps.passages == []
-    assert isinstance(needs_no_model(deps), NoBrief)
 
 
 def test_deps_fall_back_to_the_steps_when_the_instructions_are_blank() -> None:

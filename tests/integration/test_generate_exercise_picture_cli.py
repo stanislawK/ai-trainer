@@ -1,7 +1,9 @@
 """`ai-trainer generate-exercise-picture` wired end to end (ADR-0031 *Picture generation*, #533):
-real PostgreSQL, OpenRouter's embeddings and images faked at the HTTP transport, and the brief
-writer faked through its port, so nothing leaves the machine. The command opens its own engine
-and commits, so the admin and the catalogue exercise are real rows, removed after."""
+real PostgreSQL, OpenRouter's embeddings and images faked at the HTTP transport, the brief
+writer faked through its port, and Jev's brief check (#642) faked behind `DecisionGatewayPort`
+(or behind the real gateway as a fake `DecisionModel`), so nothing leaves the machine. The
+command opens its own engine and commits, so the admin and the catalogue exercise are real rows,
+removed after."""
 
 import base64
 import io
@@ -13,12 +15,25 @@ from uuid import UUID, uuid4
 
 import httpx2
 import pytest
+from pydantic import BaseModel
+from pydantic_ai import models
+from pydantic_ai.models.decision import (
+    DecisionAnswer,
+    DecisionModel,
+    DecisionModelSettings,
+    DecisionRequest,
+    DecisionResponse,
+    NoulAnswer,
+)
+from pydantic_ai.usage import RequestUsage
 from sqlalchemy import text
 
 from ai_trainer import cli
 from ai_trainer.adapters.db import build_engine, build_session_factory
 from ai_trainer.adapters.exercise_repository import SqlAlchemyExerciseRepository
+from ai_trainer.adapters.llm_calls_repository import SqlAlchemyLlmCallsRepository
 from ai_trainer.adapters.users_repository import SqlAlchemyUsersRepository
+from ai_trainer.application.ports.decision_gateway import DecisionResult
 from ai_trainer.cli_media import GENERATE_EXERCISE_PICTURE, PictureHooks
 from ai_trainer.domain.exercises import (
     CatalogueExercise,
@@ -26,6 +41,7 @@ from ai_trainer.domain.exercises import (
     ExerciseMeasure,
     ExerciseText,
 )
+from ai_trainer.domain.llm_calls import LlmCallOutcome
 from ai_trainer.domain.media_generation import (
     BriefFailed,
     NoBrief,
@@ -33,6 +49,8 @@ from ai_trainer.domain.media_generation import (
     PictureBriefDeps,
 )
 from ai_trainer.domain.users import NewUser, UserStatus
+from ai_trainer.llm.decision_gateway import OpenRouterDecisionGateway
+from ai_trainer.llm.picture_brief_check import PICTURE_BRIEF_CHECK_ID, PICTURE_BRIEF_CHECK_VERSION
 from ai_trainer.settings import Settings
 from tests.ingestion_support import spread_vector
 from tests.picture_support import InMemoryBucket
@@ -57,6 +75,30 @@ class FakeBriefs:
     ) -> PictureBrief | NoBrief | BriefFailed:
         self.seen.append(deps)
         return _BRIEF
+
+
+@dataclass
+class FakeDecisions:
+    """A `DecisionGatewayPort` answering both brief-check questions with `probability`. It
+    records each call's state and writes no row."""
+
+    probability: float = 0.95
+    states: list[str] = field(default_factory=list)
+
+    async def decide[OutputT: BaseModel](
+        self,
+        *,
+        user_id: UUID,
+        decision_id: str,
+        decision_version: int,
+        output_type: type[OutputT],
+        state: str,
+    ) -> DecisionResult[OutputT]:
+        self.states.append(state)
+        answers = dict.fromkeys(output_type.model_json_schema()["properties"], self.probability)
+        return DecisionResult(
+            output=output_type.model_validate(answers), outcome=LlmCallOutcome.SUCCESS
+        )
 
 
 @pytest.fixture
@@ -173,7 +215,9 @@ async def test_writes_brief_and_picture(admin_id: UUID, tmp_path: Path) -> None:
     code = await cli.run(
         [GENERATE_EXERCISE_PICTURE, "zz pic cli pull-up", "--out", str(out)],
         output=output,
-        picture=PictureHooks(transport=_openrouter(_picture, seen), brief_writer=briefs),
+        picture=PictureHooks(
+            transport=_openrouter(_picture, seen), brief_writer=briefs, decisions=FakeDecisions()
+        ),
     )
 
     assert code == 0
@@ -208,6 +252,7 @@ async def test_provider_error_exits_non_zero_and_writes_nothing(
         picture=PictureHooks(
             transport=_openrouter(lambda: httpx2.Response(502, json={"error": {}}), []),
             brief_writer=FakeBriefs(),
+            decisions=FakeDecisions(),
         ),
     )
 
@@ -229,7 +274,11 @@ async def test_provider_error_prints_status_and_error_code(admin_id: UUID, tmp_p
     code = await cli.run(
         [GENERATE_EXERCISE_PICTURE, _NAME, "--out", str(tmp_path / "p"), "--admin", _ADMIN_EMAIL],
         output=output,
-        picture=PictureHooks(transport=_openrouter(lambda: reply, []), brief_writer=FakeBriefs()),
+        picture=PictureHooks(
+            transport=_openrouter(lambda: reply, []),
+            brief_writer=FakeBriefs(),
+            decisions=FakeDecisions(),
+        ),
     )
 
     assert code == 1
@@ -259,7 +308,11 @@ async def test_the_failed_line_and_logs_never_hold_prompt_or_key(
     code = await cli.run(
         [GENERATE_EXERCISE_PICTURE, _NAME, "--out", str(tmp_path / "p"), "--admin", _ADMIN_EMAIL],
         output=output,
-        picture=PictureHooks(transport=_openrouter(lambda: reply, []), brief_writer=FakeBriefs()),
+        picture=PictureHooks(
+            transport=_openrouter(lambda: reply, []),
+            brief_writer=FakeBriefs(),
+            decisions=FakeDecisions(),
+        ),
     )
 
     assert code == 1
@@ -285,7 +338,11 @@ async def test_stops_before_the_image_call_over_the_cap(
     code = await cli.run(
         [GENERATE_EXERCISE_PICTURE, _NAME, "--out", str(out)],
         output=output,
-        picture=PictureHooks(transport=_openrouter(_picture, seen), brief_writer=FakeBriefs()),
+        picture=PictureHooks(
+            transport=_openrouter(_picture, seen),
+            brief_writer=FakeBriefs(),
+            decisions=FakeDecisions(),
+        ),
     )
 
     assert code == 1
@@ -330,7 +387,9 @@ async def test_a_name_in_more_than_one_sport_is_refused_before_any_call(
     code = await cli.run(
         [GENERATE_EXERCISE_PICTURE, _NAME, "--out", str(out)],
         output=output,
-        picture=PictureHooks(transport=_openrouter(_picture, seen), brief_writer=briefs),
+        picture=PictureHooks(
+            transport=_openrouter(_picture, seen), brief_writer=briefs, decisions=FakeDecisions()
+        ),
     )
 
     assert code == 1
@@ -369,7 +428,10 @@ async def test_store_writes_a_suggested_link(admin_id: UUID) -> None:
         [GENERATE_EXERCISE_PICTURE, _NAME, "--store"],
         output=output,
         picture=PictureHooks(
-            transport=_openrouter(_picture, []), brief_writer=FakeBriefs(), storage=bucket
+            transport=_openrouter(_picture, []),
+            brief_writer=FakeBriefs(),
+            decisions=FakeDecisions(),
+            storage=bucket,
         ),
     )
 
@@ -392,7 +454,10 @@ async def test_store_with_out_writes_the_files_too(admin_id: UUID, tmp_path: Pat
         [GENERATE_EXERCISE_PICTURE, _NAME, "--store", "--out", str(out)],
         output=io.StringIO(),
         picture=PictureHooks(
-            transport=_openrouter(_picture, []), brief_writer=FakeBriefs(), storage=InMemoryBucket()
+            transport=_openrouter(_picture, []),
+            brief_writer=FakeBriefs(),
+            decisions=FakeDecisions(),
+            storage=InMemoryBucket(),
         ),
     )
 
@@ -409,7 +474,10 @@ async def test_a_failed_file_write_writes_no_rows(admin_id: UUID, tmp_path: Path
         [GENERATE_EXERCISE_PICTURE, _NAME, "--store", "--out", str(blocked / "pictures")],
         output=io.StringIO(),
         picture=PictureHooks(
-            transport=_openrouter(_picture, []), brief_writer=FakeBriefs(), storage=InMemoryBucket()
+            transport=_openrouter(_picture, []),
+            brief_writer=FakeBriefs(),
+            decisions=FakeDecisions(),
+            storage=InMemoryBucket(),
         ),
     )
 
@@ -426,6 +494,7 @@ async def test_a_storage_failure_prints_the_reason_and_writes_no_row(admin_id: U
         picture=PictureHooks(
             transport=_openrouter(_picture, []),
             brief_writer=FakeBriefs(),
+            decisions=FakeDecisions(),
             storage=InMemoryBucket(fail_put=True),
         ),
     )
@@ -446,6 +515,7 @@ async def test_a_failed_store_leaves_no_file_in_out(admin_id: UUID, tmp_path: Pa
         picture=PictureHooks(
             transport=_openrouter(_picture, []),
             brief_writer=FakeBriefs(),
+            decisions=FakeDecisions(),
             storage=InMemoryBucket(fail_put=True),
         ),
     )
@@ -467,7 +537,9 @@ async def test_store_without_a_media_bucket_is_refused_before_any_call(
     code = await cli.run(
         [GENERATE_EXERCISE_PICTURE, _NAME, "--store"],
         output=output,
-        picture=PictureHooks(transport=_openrouter(_picture, seen), brief_writer=briefs),
+        picture=PictureHooks(
+            transport=_openrouter(_picture, seen), brief_writer=briefs, decisions=FakeDecisions()
+        ),
     )
 
     assert code == 1
@@ -485,7 +557,11 @@ async def test_no_out_and_no_store_is_refused(admin_id: UUID) -> None:
     code = await cli.run(
         [GENERATE_EXERCISE_PICTURE, _NAME],
         output=output,
-        picture=PictureHooks(transport=_openrouter(_picture, seen), brief_writer=FakeBriefs()),
+        picture=PictureHooks(
+            transport=_openrouter(_picture, seen),
+            brief_writer=FakeBriefs(),
+            decisions=FakeDecisions(),
+        ),
     )
 
     assert code == 1
@@ -510,7 +586,9 @@ async def _run_recorded(
         [GENERATE_EXERCISE_PICTURE, _NAME, "--out", str(tmp_path / "p"), "--admin", _ADMIN_EMAIL],
         output=output,
         picture=PictureHooks(
-            transport=_recording(seen, _openrouter(images, [])), brief_writer=FakeBriefs()
+            transport=_recording(seen, _openrouter(images, [])),
+            brief_writer=FakeBriefs(),
+            decisions=FakeDecisions(),
         ),
     )
     return code, output.getvalue(), seen
@@ -556,3 +634,111 @@ async def test_image_read_timeout_is_reported_as_transport_error(
     [row] = await _image_rows(admin_id)
     assert row["outcome"] == "error"
     assert row["cost"] is None
+
+
+# AC 2 (#642): a brief that fails Jev's check is skipped, with no image call.
+async def test_a_brief_that_fails_the_check_is_not_drawn(admin_id: UUID, tmp_path: Path) -> None:
+    output = io.StringIO()
+    seen: list[str] = []
+    decisions = FakeDecisions(probability=0.1)
+    out = tmp_path / "pictures"
+
+    code = await cli.run(
+        [GENERATE_EXERCISE_PICTURE, _NAME, "--out", str(out)],
+        output=output,
+        picture=PictureHooks(
+            transport=_openrouter(_picture, seen), brief_writer=FakeBriefs(), decisions=decisions
+        ),
+    )
+
+    assert code == 1
+    assert output.getvalue() == (
+        "generate-exercise-picture: result=skipped reason=brief_check_failed spent_usd=0.0000004\n"
+    )
+    assert "/api/v1/images" not in seen
+    assert not out.exists()
+    assert await _image_rows(admin_id) == []
+    # The state is the catalogue instructions and the brief's image prompt only.
+    [state] = decisions.states
+    assert json.loads(state) == {
+        "instructions": "Hang from a bar, then pull.",
+        "brief": _BRIEF.image_prompt,
+    }
+    assert "@" not in state
+
+
+class _Jev(DecisionModel[None]):
+    """Jev behind the real gateway, no network: P(yes) 0.95 on every question."""
+
+    max_choice_options = 255
+    max_score_levels = 10
+
+    @property
+    def model_name(self) -> str:
+        return "typesafe/jev-1.13"
+
+    @property
+    def system(self) -> str:
+        return "fake"
+
+    @property
+    def base_url(self) -> str:
+        return "https://jev.invalid"
+
+    async def decide(
+        self, request: DecisionRequest, model_settings: DecisionModelSettings
+    ) -> DecisionResponse:
+        answers: dict[str, DecisionAnswer] = {
+            name: NoulAnswer(noul=0.95) for name in request.questions
+        }
+        return DecisionResponse(
+            answers=answers, model_name=self.model_name, usage=RequestUsage(input_tokens=150)
+        )
+
+
+# AC 1 and AC 5 (#642), and D1: a passing check is followed by the image call; its row is written
+# under the admin with no cost, and doesn't stop the run as `cost_unknown`.
+async def test_a_passing_check_writes_its_row_and_the_picture_follows(
+    admin_id: UUID, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(models, "ALLOW_MODEL_REQUESTS", True)
+    output = io.StringIO()
+    seen: list[str] = []
+    engine = build_engine(str(Settings().database_url))
+    try:
+        gateway = OpenRouterDecisionGateway(
+            Settings(), SqlAlchemyLlmCallsRepository(build_session_factory(engine))
+        )
+        with gateway.agent.override(model=_Jev()):
+            code = await cli.run(
+                [GENERATE_EXERCISE_PICTURE, _NAME, "--out", str(tmp_path / "p")],
+                output=output,
+                picture=PictureHooks(
+                    transport=_openrouter(_picture, seen),
+                    brief_writer=FakeBriefs(),
+                    decisions=gateway,
+                ),
+            )
+        async with engine.connect() as connection:
+            rows = await connection.execute(
+                text(
+                    "SELECT template_id, template_version, cost, outcome FROM llm_calls "
+                    "WHERE user_id = :id AND template_id = :check"
+                ),
+                {"id": admin_id, "check": PICTURE_BRIEF_CHECK_ID},
+            )
+            check_rows = [dict(row) for row in rows.mappings()]
+    finally:
+        await engine.dispose()
+
+    assert code == 0
+    assert output.getvalue().endswith(" spent_usd=0.0336004\n")
+    assert seen[-1] == "/api/v1/images"
+    assert check_rows == [
+        {
+            "template_id": PICTURE_BRIEF_CHECK_ID,
+            "template_version": PICTURE_BRIEF_CHECK_VERSION,
+            "cost": None,
+            "outcome": "success",
+        }
+    ]
