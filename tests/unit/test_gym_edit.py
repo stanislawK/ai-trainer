@@ -152,6 +152,18 @@ def test_a_changed_measure_pick_stands_and_an_unchanged_one_follows_the_sets() -
     assert cleared.activities[0].measure == "reps"
 
 
+def test_edit_picks_distance_time_measure() -> None:
+    """A rower edited to hold a distance and a time reads `distance_time`, and the pick stands
+    on a blank set (ADR-0032, #626)."""
+    blank = _set(reps="", load="", duration="", distance="", band="")
+    rowed = apply_gym_edit(_PYRAMID, _form({**blank, "duration": "470", "distance": "2000"}))
+    picked = apply_gym_edit(_PYRAMID, _form(blank, measure="distance_time"))
+
+    assert rowed.activities[0].measure == "distance_time"
+    assert rowed.activities[0].sets[0] == GymSet(duration_s=470, distance_m=2000)
+    assert picked.activities[0].measure == "distance_time"
+
+
 def test_removing_a_middle_set_keeps_the_sets_after_it_as_they_were_typed() -> None:
     payload: dict[str, JsonValue] = {
         "sport": "gym",

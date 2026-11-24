@@ -2,7 +2,7 @@
 `payload`; a change bumps `GYM_PAYLOAD_VERSION` and older versions are upcast on read
 (ADR-0022 invariant 4). A value the message didn't give stays empty (B38)."""
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Annotated, Literal
 from uuid import UUID
 
@@ -11,11 +11,13 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_vali
 # Version 3 added `keep_name`; a v2 document reads as it is, with the flag off (ticket #397).
 # Version 4 added `jev_pick`, the same way (ticket #399).
 # Version 5 added `candidate_scores`, the same way, with no scores (ticket #579).
-GYM_PAYLOAD_VERSION = 5
+# Version 6 added the `distance_time` measure: a `time` or `distance` exercise whose first set
+# with a value holds both reads as `distance_time` (ticket #626).
+GYM_PAYLOAD_VERSION = 6
 
 type LoadUnit = Literal["kg", "lb"]
 # `gym_exercise_entries.measure`.
-type Measure = Literal["load_reps", "reps", "time", "distance", "band_reps"]
+type Measure = Literal["load_reps", "reps", "time", "distance", "distance_time", "band_reps"]
 # An exercise as the athlete named it ("squat", "RDL", "przysiad"), never blank.
 type ExerciseName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 # A resistance band as the athlete named it ("red", "czerwona"), never ranked or converted (B39).
@@ -59,8 +61,15 @@ class GymSet(BaseModel):
     band_label: BandLabel | None = None
 
 
+def first_given(sets: Sequence[GymSet]) -> GymSet | None:
+    """The first set that holds any value, which an exercise's measure is read from."""
+    return next((gym_set for gym_set in sets if gym_set != GymSet()), None)
+
+
 def measure_of(gym_set: GymSet) -> Measure:
     """What a set is measured by, read in code from what it holds, never by the model."""
+    if gym_set.duration_s is not None and gym_set.distance_m is not None:
+        return "distance_time"
     if gym_set.duration_s is not None:
         return "time"
     if gym_set.distance_m is not None:
@@ -120,6 +129,15 @@ class Exercise(BaseModel):
         if isinstance(data, Mapping) and "name" in data:
             return _ExerciseV1.model_validate(data).upcast()
         return data
+
+    @model_validator(mode="after")
+    def _upcast_v5(self) -> Exercise:
+        # A v5 draft read a timed distance as `time` (ticket #626); no version is in hand here
+        # either, so it goes by what the sets hold, as the migration does for saved entries.
+        given = first_given(self.sets)
+        if self.measure in ("time", "distance") and given and measure_of(given) == "distance_time":
+            self.measure = "distance_time"
+        return self
 
 
 class GymPayload(BaseModel):

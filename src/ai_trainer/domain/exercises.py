@@ -17,6 +17,8 @@ class ExerciseMeasure(StrEnum):
     REPS = "reps"
     TIME = "time"
     DISTANCE = "distance"
+    # A set with both a distance and a time, whose pace code works out (ADR-0032, #626).
+    DISTANCE_TIME = "distance_time"
     BAND_REPS = "band_reps"
 
 

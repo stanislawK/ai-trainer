@@ -98,7 +98,7 @@ class SqlAlchemyGymSessionReader:
                 Exercise.model_construct(
                     exercise_id=entry.exercise_id,
                     name_as_typed=entry.name_as_typed,
-                    # The check constraint keeps `measure` to the five values.
+                    # The check constraint keeps `measure` to the six values.
                     measure=cast(Measure, entry.measure),
                     per_side=entry.per_side,
                     implements=entry.implements,

@@ -3,6 +3,8 @@
 from datetime import date
 from uuid import uuid4
 
+import pytest
+
 from ai_trainer.domain.exercise_progress import EntryBest, best_of
 from ai_trainer.domain.exercises import ExerciseEntry, ExerciseMeasure, LoggedSet
 
@@ -94,3 +96,40 @@ def test_fallback_reads_any_other_value_a_set_carries() -> None:
     assert best_of(
         _entry(ExerciseMeasure.REPS, LoggedSet(set_no=1, band_label="red")), []
     ) == EntryBest(value=None, text="red band")
+
+
+def test_distance_time_plots_speed_of_the_fastest_set_and_says_its_pace() -> None:
+    """Faster is higher: the value is km/h, the text the pace per split (B42, #626)."""
+    entry = _entry(
+        ExerciseMeasure.DISTANCE_TIME,
+        LoggedSet(set_no=1, distance_m=2000.0, duration_s=480),
+        LoggedSet(set_no=2, distance_m=2000.0, duration_s=470),
+        LoggedSet(set_no=3, duration_s=300),
+    )
+
+    per_500m = best_of(entry, [], split="500m")
+    per_km = best_of(entry, [])
+
+    assert per_500m is not None
+    assert per_500m.value == pytest.approx(15.319, abs=1e-3)
+    assert per_500m.text == "1:57.5"
+    assert per_km is not None
+    assert per_km.text == "3:55"
+
+
+def test_distance_time_without_a_pace_is_not_plotted() -> None:
+    """A time with no distance has no pace: its text is the time, and nothing is plotted."""
+    entry = _entry(ExerciseMeasure.DISTANCE_TIME, LoggedSet(set_no=1, duration_s=470))
+
+    assert best_of(entry, []) == EntryBest(value=None, text="470 s")
+
+
+def test_an_entry_is_read_by_the_charts_measure_when_given() -> None:
+    """A rower logged with only a time is a `time` entry, and on a `distance_time` chart it is
+    read by that chart's measure: no pace, so no point."""
+    timed = _entry(ExerciseMeasure.TIME, LoggedSet(set_no=1, duration_s=470))
+
+    assert best_of(timed, []) == EntryBest(value=470.0, text="470 s")
+    assert best_of(timed, [], measure=ExerciseMeasure.DISTANCE_TIME) == EntryBest(
+        value=None, text="470 s"
+    )
