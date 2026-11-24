@@ -99,9 +99,13 @@ DEFAULT_ONBOARDING_PROVIDER = ProviderPreferences(sort="latency", quantizations=
 DEFAULT_ONBOARDING_REASONING_EFFORT: ReasoningEffort = "low"
 
 # The starting point for `<sport>.answer` (#421), confirmed by its smoke set: what the other
-# templates run on, at `low` effort so a tool loop stays quick.
+# templates run on, at `low` effort so a tool loop stays quick. Pinned at #629 to one fp8 upstream:
+# latency-sorted fp8/nvfp4 routing made `gym.answer` v3's smoke set swing between runs (a case
+# failed 4 of 7), and pinned it passed. BaseTen's fp8 endpoint: p50 386 ms, 100% uptime over a
+# day, tools and tool choice (`list-model-endpoints`, 2026-11-24). `only` leaves no other upstream
+# to fall back to, as `simple_howto`'s pin does; `ANSWER_PROVIDER_PREFERENCES` overrides it.
 DEFAULT_ANSWER_MODEL = "z-ai/glm-5.3-flash"
-DEFAULT_ANSWER_PROVIDER = ProviderPreferences(sort="latency", quantizations=["fp8", "nvfp4"])
+DEFAULT_ANSWER_PROVIDER = ProviderPreferences(only=["baseten/fp8"])
 DEFAULT_ANSWER_REASONING_EFFORT: ReasoningEffort = "low"
 
 # `media.picture_brief` (ADR-0031, #532): what the other read templates run on; its smoke set

@@ -300,8 +300,9 @@ cases:
     expect:
       called: [find_exercise, exercise_history]
       mentions: ['2:02[.,]5', '1:57[.,]5', '13 Nov|Nov(ember)? 13|2026-11-13', '20 Nov|Nov(ember)? 20|2026-11-20']
-      # A pace the tool didn't give: per km, as speed, or a rounded split.
-      forbids: ['/ ?km\b', 'km/h', '\b2:0[0-2](?![.,]5)\b', '\bnext (time|session|week)\b']
+      # A pace the tool didn't give: per km, as speed, or a rounded split. A round mark it is
+      # compared with ("under 2:00 /500 m") is no pace of a set (#629 smoke run).
+      forbids: ['/ ?km\b', 'km/h', '(?<!under a )(?<!under )(?<!below )(?<!sub-)\b2:0[0-2](?![.,]5)\b', '\bnext (time|session|week)\b']
   inputs:
     prompt: How is my rowing going?
     deps:

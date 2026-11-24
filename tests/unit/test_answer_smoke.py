@@ -228,6 +228,26 @@ async def test_each_way_a_reply_can_miss_fails_the_case(
     assert reply in result.detail
 
 
+async def test_no_digits_reads_past_a_numbered_lists_markers(tmp_path: Path) -> None:
+    """A list's "1." is layout, not a value from history (#629 smoke run)."""
+    reply = "Two things:\n1. Nothing is logged.\n2) I have no source for that."
+    root = _set_with(tmp_path, _case({"logged": [_BENCH], "expect": {"no_digits": True}}))
+
+    (result,) = await _run(root, _reading(lambda _: reply))
+
+    assert result.passed, result.detail
+
+
+async def test_no_digits_still_catches_a_number_in_a_list_item(tmp_path: Path) -> None:
+    reply = "Two things:\n1. Bench is 45 kg.\n2. That's all."
+    root = _set_with(tmp_path, _case({"logged": [_BENCH], "expect": {"no_digits": True}}))
+
+    (result,) = await _run(root, _reading(lambda _: reply))
+
+    assert not result.passed
+    assert "gives a number" in result.detail
+
+
 async def test_a_number_said_before_the_tools_fails_the_case(tmp_path: Path) -> None:
     """The app shows every request's text, so the grader reads all of it, not the last."""
     root = _set_with(tmp_path, _case({"logged": [_BENCH], "expect": {"forbids": [r"\b80\b"]}}))

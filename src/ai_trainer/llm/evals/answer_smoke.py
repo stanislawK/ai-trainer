@@ -118,6 +118,10 @@ def _sport_of(template_id: str) -> str:
     raise SmokeError(f"no sport names {template_id!r} as its answer template")
 
 
+# A numbered list's marker at a line's start ("1.", "2)"): layout, not a value (#629).
+_LIST_MARKER = re.compile(r"^\s*\d+[.)]\s", re.MULTILINE)
+
+
 def _misses(reply: str, called: set[str], cited: list[str], expect: _Expect) -> list[str]:
     """What the reply got wrong, in words for the run's output."""
     misses = [
@@ -130,7 +134,7 @@ def _misses(reply: str, called: set[str], cited: list[str], expect: _Expect) -> 
         for pattern in expect.forbids
         if re.search(pattern, reply, re.IGNORECASE)
     ]
-    if expect.no_digits and re.search(r"\d", reply):
+    if expect.no_digits and re.search(r"\d", _LIST_MARKER.sub("", reply)):
         misses.append("gives a number")
     misses += [f"never called {tool}" for tool in expect.called if tool not in called]
     if expect.cites is not None and sorted(set(cited)) != sorted(expect.cites):

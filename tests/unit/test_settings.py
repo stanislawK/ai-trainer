@@ -538,8 +538,9 @@ def test_answer_settings_default_and_blank_to_their_defaults(
     settings = Settings(_env_file=None)
 
     assert settings.answer_model == "z-ai/glm-5.3-flash"
-    assert settings.answer_provider_preferences is not None
-    assert settings.answer_provider_preferences.sort == "latency"
+    # Pinned to one fp8 upstream: latency-sorted routing spread the tool loop over fp8 and nvfp4
+    # endpoints and its smoke set swung from run to run (#629).
+    assert settings.answer_provider_preferences == ProviderPreferences(only=["baseten/fp8"])
     assert settings.answer_reasoning_effort == "low"
     assert settings.answer_call_timeout_seconds is None
     assert settings.answer_max_requests == 8
