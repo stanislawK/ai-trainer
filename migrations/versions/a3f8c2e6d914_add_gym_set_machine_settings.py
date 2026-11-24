@@ -24,6 +24,8 @@ down_revision: str | Sequence[str] | None = "5e9a2c7b4f18"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
+# squawk-ignore prefer-bigint-over-smallint: ADR-0032 types, bounded by their CHECKs (#630)
+
 # (name, condition), as `GymSetOrm` declares them.
 CHECKS = (
     ("gym_sets_incline_pct", "incline_pct BETWEEN -10 AND 40"),
