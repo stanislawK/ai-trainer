@@ -36,6 +36,16 @@
 {% set field_id = name | replace(".", "-") %}
 <label class="flex flex-col gap-1 min-w-0{{ ' col-span-2' if wide }}">
   <span class="text-[12px] text-base-content/70">{{ label }}</span>
+  {% if kind == "textarea" %}
+  <textarea
+    class="lg-field [field-sizing:content] min-h-11 resize-none py-2.5 text-[15px] break-words"
+    name="{{ name }}"
+    rows="1"
+    placeholder="Not mentioned"
+    maxlength="{{ maxlength }}"
+    {% if problem %}aria-invalid="true" aria-describedby="{{ field_id }}-error"{% endif %}
+  >{{ value }}</textarea>
+  {% else %}
   <input
     class="lg-field h-11 text-[15px]"
     name="{{ name }}"
@@ -43,6 +53,7 @@
     {% if kind == "number" %}placeholder="Not mentioned" type="number" inputmode="decimal" min="{{ min }}" max="{{ max }}" step="{{ step or 1 }}"{% elif kind == "date" %}type="date"{% else %}placeholder="Not mentioned" type="text" maxlength="{{ maxlength }}"{% endif %}
     {% if problem %}aria-invalid="true" aria-describedby="{{ field_id }}-error"{% endif %}
   />
+  {% endif %}
   {% if problem %}
   <span id="{{ field_id }}-error" class="text-[12px] text-error">{{ problem }}</span>
   {% endif %}
@@ -84,7 +95,7 @@
           {% for text in typed.goal_texts %}
           {% set n = loop.index0 %}
           {% set text_problem = problems.get(sport.id ~ ".goal_text." ~ n) %}
-          {{ field(sport.id ~ ".goal_text", "Goal", text, (problem_copy["goal_text.required"] if text_problem == "required" else problem_copy.goal_text) if text_problem else "", kind="text", wide=true, maxlength=max_goal) }}
+          {{ field(sport.id ~ ".goal_text", "Goal", text, (problem_copy["goal_text.required"] if text_problem == "required" else problem_copy.goal_text) if text_problem else "", kind="textarea", wide=true, maxlength=max_goal) }}
           {{ field(sport.id ~ ".goal_date", "Target date", typed.goal_dates[n] if n < typed.goal_dates | length else "", problem_of(sport.id ~ ".goal_date." ~ n, "goal_date"), kind="date", wide=true) }}
           {#- Jev's pick, to confirm or change: one radio group per goal, and a second tap on the
               picked chip clears it (static/js/onboarding_goal_kind.js). The chip is 32 px; the
