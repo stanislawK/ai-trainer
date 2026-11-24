@@ -163,6 +163,9 @@ def _summary(athlete: Athlete) -> str:
 
 
 def _value(html: str, name: str) -> str | None:
+    area = re.search(rf'<textarea[^>]*name="{name}"[^>]*>(.*?)</textarea>', html, re.DOTALL)
+    if area is not None:
+        return area.group(1)
     match = re.search(rf'<input[^>]*name="{name}"[^>]*>', html)
     assert match is not None, name
     value = re.search(r'value="([^"]*)"', match.group(0))

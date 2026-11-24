@@ -377,7 +377,7 @@ async def test_a_date_without_its_goal_is_flagged_on_that_goal(athlete: Athlete)
     )
 
     assert response.status_code == 422
-    goal = re.search(r'<input[^>]*name="climbing\.goal_text"[^>]*>', response.text)
+    goal = re.search(r'<textarea[^>]*name="climbing\.goal_text"[^>]*>', response.text)
     assert goal is not None
     assert 'aria-invalid="true"' in goal.group(0)
     assert "Add the goal this date is for." in response.text

@@ -18,14 +18,34 @@
   "days": "Choose days from the list.",
   "goal_date": "Choose a date that exists.",
   "goal_text": "At most 200 characters.",
+  "goal_kind": "Choose a kind from the list.",
   "goal_text.required": "Add the goal this date is for.",
 } %}
 {#- User-facing weekday names live here (G5); weekday 0 is Monday. -#}
+{#- Goal kinds, in the mock's order (B45); the key is the `GoalKind` value. -#}
+{% set kind_labels = {
+  "strength": "Strength",
+  "muscle": "Muscle",
+  "endurance": "Endurance",
+  "weight_loss": "Weight loss",
+  "mobility": "Mobility",
+  "general_fitness": "General fitness",
+} %}
 {% set weekday_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] %}
 {% macro field(name, label, value, problem="", kind="number", wide=false, min=none, max=none, step=none, maxlength=none) -%}
 {% set field_id = name | replace(".", "-") %}
 <label class="flex flex-col gap-1 min-w-0{{ ' col-span-2' if wide }}">
   <span class="text-[12px] text-base-content/70">{{ label }}</span>
+  {% if kind == "textarea" %}
+  <textarea
+    class="lg-field [field-sizing:content] min-h-11 resize-none py-2.5 text-[15px] break-words"
+    name="{{ name }}"
+    rows="1"
+    placeholder="Not mentioned"
+    maxlength="{{ maxlength }}"
+    {% if problem %}aria-invalid="true" aria-describedby="{{ field_id }}-error"{% endif %}
+  >{{ value }}</textarea>
+  {% else %}
   <input
     class="lg-field h-11 text-[15px]"
     name="{{ name }}"
@@ -33,6 +53,7 @@
     {% if kind == "number" %}placeholder="Not mentioned" type="number" inputmode="decimal" min="{{ min }}" max="{{ max }}" step="{{ step or 1 }}"{% elif kind == "date" %}type="date"{% else %}placeholder="Not mentioned" type="text" maxlength="{{ maxlength }}"{% endif %}
     {% if problem %}aria-invalid="true" aria-describedby="{{ field_id }}-error"{% endif %}
   />
+  {% endif %}
   {% if problem %}
   <span id="{{ field_id }}-error" class="text-[12px] text-error">{{ problem }}</span>
   {% endif %}
@@ -74,8 +95,25 @@
           {% for text in typed.goal_texts %}
           {% set n = loop.index0 %}
           {% set text_problem = problems.get(sport.id ~ ".goal_text." ~ n) %}
-          {{ field(sport.id ~ ".goal_text", "Goal", text, (problem_copy["goal_text.required"] if text_problem == "required" else problem_copy.goal_text) if text_problem else "", kind="text", wide=true, maxlength=max_goal) }}
+          {{ field(sport.id ~ ".goal_text", "Goal", text, (problem_copy["goal_text.required"] if text_problem == "required" else problem_copy.goal_text) if text_problem else "", kind="textarea", wide=true, maxlength=max_goal) }}
           {{ field(sport.id ~ ".goal_date", "Target date", typed.goal_dates[n] if n < typed.goal_dates | length else "", problem_of(sport.id ~ ".goal_date." ~ n, "goal_date"), kind="date", wide=true) }}
+          {#- Jev's pick, to confirm or change: one radio group per goal, and a second tap on the
+              picked chip clears it (static/js/onboarding_goal_kind.js). The chip is 32 px; the
+              label around it is the 44 px tap target. -#}
+          {% set picked = typed.goal_kinds[n] if n < typed.goal_kinds | length else "" %}
+          {% set kind_problem = problem_of(sport.id ~ ".goal_kind." ~ n, "goal_kind") %}
+          <fieldset class="col-span-2 flex flex-col gap-1 min-w-0 break-words" aria-label="Kind"{% if kind_problem %} aria-invalid="true" aria-describedby="{{ sport.id }}-goal-kind-{{ n }}-error"{% endif %}>
+            <legend class="text-[12px] text-base-content/70 pb-1">Kind</legend>
+            {% if not picked %}<span class="lbl-2 text-[13px]">Not mentioned</span>{% endif %}
+            <div class="flex flex-wrap gap-x-1">
+              {% for value, kind_label in kind_labels.items() %}
+              <label class="h-11 grid place-items-center cursor-pointer"><span class="lg lg-clear lg-chip"><input type="radio" class="sr-only" data-goal-kind{% if picked == value %} data-was-checked="1"{% endif %} name="{{ sport.id }}.goal_kind.{{ n }}" value="{{ value }}"{{ " checked" if picked == value }}>{{ kind_label }}</span></label>
+              {% endfor %}
+            </div>
+            {% if kind_problem %}
+            <span id="{{ sport.id }}-goal-kind-{{ n }}-error" class="text-[12px] text-error">{{ kind_problem }}</span>
+            {% endif %}
+          </fieldset>
           {% endfor %}
           {{ field(sport.id ~ ".level", "Current level", typed.fields.level, problem_of(sport.id ~ ".level", "level"), kind="text", wide=true, maxlength=max_level) }}
           {{ field(sport.id ~ ".exercises", "Current exercises", typed.fields.exercises, problem_of(sport.id ~ ".exercises", "exercises"), kind="text", wide=true, maxlength=max_exercises) }}

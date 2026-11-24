@@ -103,6 +103,7 @@ class SportForm(BaseModel):
     days: tuple[str, ...] = ()
     goal_texts: tuple[str, ...] = ()
     goal_dates: tuple[str, ...] = ()
+    goal_kinds: tuple[str, ...] = ()
 
 
 def _round_half_up(value: float) -> int:
@@ -238,14 +239,27 @@ def sport_from_read(
 
 
 def _typed_text(raw: str, length: int) -> str | FieldProblem | None:
-    text = raw.replace("\x00", "").strip()
+    text = " ".join(raw.replace("\x00", "").split())
     if len(text) > length:
         return FieldProblem.OUT_OF_RANGE
     return text or None
 
 
+def typed_goal_kind(raw: str) -> GoalKind | FieldProblem | None:
+    """A kind as the summary posts it (B45): blank is no kind, a name outside the six is a
+    problem."""
+    raw = raw.strip()
+    if not raw:
+        return None
+    return GoalKind(raw) if raw in GoalKind else FieldProblem.OUT_OF_RANGE
+
+
 def _typed_goals(
-    sport_id: str, texts: Sequence[str], dates: Sequence[str], problems: dict[str, FieldProblem]
+    sport_id: str,
+    texts: Sequence[str],
+    dates: Sequence[str],
+    kinds: Sequence[str],
+    problems: dict[str, FieldProblem],
 ) -> tuple[Goal, ...]:
     goals: list[Goal] = []
     count = min(max(len(texts), len(dates)), MAX_GOALS)
@@ -253,14 +267,18 @@ def _typed_goals(
         text = _typed_text(texts[n] if n < len(texts) else "", MAX_GOAL_LENGTH)
         raw_date = (dates[n] if n < len(dates) else "").strip()
         when = _iso_date(raw_date) if raw_date else None
+        kind = typed_goal_kind(kinds[n] if n < len(kinds) else "")
         if raw_date and when is None:
             problems[f"goal_date.{n}"] = FieldProblem.OUT_OF_RANGE
+        if isinstance(kind, FieldProblem):
+            problems[f"goal_kind.{n}"] = kind
+            kind = None
         if isinstance(text, FieldProblem):
             problems[f"goal_text.{n}"] = text
         elif text is None and raw_date:
             problems[f"goal_text.{n}"] = FieldProblem.REQUIRED
         elif text is not None:
-            goals.append(Goal(text=text, target_date=when, sport_id=sport_id))
+            goals.append(Goal(text=text, target_date=when, sport_id=sport_id, kind=kind))
     return tuple(goals)
 
 
@@ -271,6 +289,7 @@ def parse_sport_section(
     days: Sequence[str],
     goal_texts: Sequence[str],
     goal_dates: Sequence[str],
+    goal_kinds: Sequence[str] = (),
 ) -> SportSection | dict[str, FieldProblem]:
     """One sport's summary fields as typed (B35): blank is empty, and every field outside its
     bounds is named at once. Goals pair their text and date by position; a goal with neither is
@@ -288,7 +307,7 @@ def parse_sport_section(
     problems = {field: value for field, value in values.items() if isinstance(value, FieldProblem)}
     if not all(_WEEKDAY.fullmatch(day) for day in days):
         problems["days"] = FieldProblem.OUT_OF_RANGE
-    goals = _typed_goals(sport_id, goal_texts, goal_dates, problems)
+    goals = _typed_goals(sport_id, goal_texts, goal_dates, goal_kinds, problems)
     if problems:
         return problems
     return SportSection(
