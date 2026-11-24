@@ -9,6 +9,7 @@ from uuid import UUID, uuid4
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai_trainer.adapters.gym_session_reader import SqlAlchemyGymSessionReader
@@ -357,3 +358,42 @@ async def test_delete_without_a_csrf_token_is_refused(
 
     assert response.status_code == 403
     assert client.get(f"/history/{opened}").status_code == 200
+
+
+async def test_list_and_session_lines_show_the_pace_of_a_timed_distance(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    """A rower set of 2000 m in 7:50 reads with its pace on the History list and in the
+    session (PRD 0013 B42, ticket #626)."""
+    user = await _user(db_session_factory)
+    opened = await _session(
+        db_session_factory, user, date(2026, 11, 19), datetime(2026, 11, 19, 17, 40, tzinfo=UTC),
+        {"rower": []},
+    )  # fmt: skip
+    async with db_session_factory() as db:
+        entry = (
+            await db.execute(
+                select(GymExerciseEntryOrm).where(
+                    GymExerciseEntryOrm.session_id == opened,
+                    GymExerciseEntryOrm.user_id == user.id,
+                )
+            )
+        ).scalar_one()
+        entry.measure = "distance_time"
+        db.add(
+            GymSetOrm(
+                user_id=user.id,
+                entry_id=entry.id,
+                set_no=1,
+                duration_s=470,
+                distance_m=Decimal("2000"),
+            )
+        )
+        await db.commit()
+    client = _client(db_session_factory, user)
+
+    listed = client.get("/history").text
+    session = client.get(f"/history/{opened}").text
+
+    assert "2000 m in 7:50 · 1:57.5 /500 m" in listed
+    assert "2000 m in 7:50 · 1:57.5 /500 m" in session
