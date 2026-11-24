@@ -113,7 +113,9 @@ def build_mcp_server(
     ) -> ToolResult[ExerciseHistoryPage]:
         """List the athlete's own past entries of one gym exercise, the latest day first, with
         each entry's day, the name as they typed it and every set's reps, load in kg (and as
-        typed), time, distance and band. Use it to see how an exercise progressed; don't use it
+        typed), time, distance and band. A set with both a distance and a time also has its
+        `pace`, worked out already ("2:05 /500 m", "5:36 /km"); a set without both has none. Use
+        it to see how an exercise progressed; don't use it
         to find an exercise by name (call `find_exercise` first) or for sessions in general
         (`query_sessions`). Pass exactly one of `exercise_id`, an ID from `find_exercise`, and
         `typed_name`, the `name` of a `logged` row from `find_exercise` that has no ID. `limit`

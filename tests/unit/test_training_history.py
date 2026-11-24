@@ -11,13 +11,23 @@ import pytest
 from pydantic import ValidationError
 
 from ai_trainer.application.training_history import (
+    ExerciseHistoryPage,
+    ExerciseTrainingHistory,
     SessionPage,
     SessionQuery,
     SessionQueryFailed,
     TrainingHistory,
 )
+from ai_trainer.domain.exercises import (
+    Exercise,
+    ExerciseEntry,
+    ExerciseMeasure,
+    LoggedName,
+    LoggedSet,
+)
 from ai_trainer.domain.sports.registry import default_sport_registry
 from ai_trainer.domain.training import SessionSummary
+from tests.mcp_support import EmptyExercises
 
 _USER = uuid4()
 
@@ -142,3 +152,113 @@ async def test_no_matching_session_is_a_failure_not_an_empty_page() -> None:
 def test_the_limit_is_bounded(limit: int) -> None:
     with pytest.raises(ValidationError):
         SessionQuery(limit=limit)
+
+
+# --- A timed distance's pace in the exercise history (PRD 0013 B42/B46, ticket #629) ----------
+
+
+class _Rowing(EmptyExercises):
+    """Sees one exercise, the catalogue's rowing machine."""
+
+    def __init__(self, name: str) -> None:
+        self.exercise = Exercise(
+            id=uuid4(),
+            sport_id="gym",
+            owner_user_id=None,
+            name=name,
+            default_measure=ExerciseMeasure.DISTANCE_TIME,
+        )
+
+    async def get(self, user_id: UUID, exercise_id: UUID) -> Exercise | None:
+        return self.exercise if exercise_id == self.exercise.id else None
+
+
+class _Logged:
+    def __init__(self, entries: Sequence[ExerciseEntry]) -> None:
+        self._entries = entries
+
+    async def entries(
+        self, user_id: UUID, exercise_id: UUID, *, limit: int
+    ) -> Sequence[ExerciseEntry]:
+        return self._entries[:limit]
+
+    async def typed_entries(
+        self, user_id: UUID, typed_name: str, *, limit: int
+    ) -> Sequence[ExerciseEntry]:
+        return self._entries[:limit]
+
+    async def logged_names(
+        self, user_id: UUID, name: str, *, near: float, limit: int
+    ) -> Sequence[LoggedName]:
+        return []
+
+
+def _timed(day: date, typed: str, *sets: LoggedSet) -> ExerciseEntry:
+    return ExerciseEntry(
+        session_id=uuid4(),
+        occurred_on=day,
+        name_as_typed=typed,
+        measure=ExerciseMeasure.DISTANCE_TIME,
+        per_side=False,
+        sets=sets,
+    )
+
+
+async def test_history_sets_carry_pace_per_500m_for_rowing() -> None:
+    exercises = _Rowing("Rowing machine")
+    logged = _Logged(
+        [
+            _timed(date(2026, 11, 20), "row", LoggedSet(set_no=1, distance_m=2000, duration_s=470)),
+            _timed(date(2026, 11, 13), "row", LoggedSet(set_no=1, distance_m=2000, duration_s=490)),
+        ]
+    )
+
+    result = await ExerciseTrainingHistory(exercises, logged).entries(_USER, exercises.exercise.id)
+
+    assert isinstance(result, ExerciseHistoryPage)
+    assert [(e.occurred_on, e.sets[0].pace) for e in result.entries] == [
+        (date(2026, 11, 20), "1:57.5 /500 m"),
+        (date(2026, 11, 13), "2:02.5 /500 m"),
+    ]
+    # The stored set is untouched; the pace sits beside it.
+    assert result.entries[0].sets[0].distance_m == 2000
+    assert result.entries[0].sets[0].duration_s == 470
+
+
+async def test_history_sets_carry_pace_per_km_for_a_run() -> None:
+    logged = _Logged(
+        [
+            _timed(
+                date(2026, 11, 20),
+                "treadmill run",
+                LoggedSet(set_no=1, distance_m=5000, duration_s=1680),
+            )
+        ]
+    )
+
+    result = await ExerciseTrainingHistory(EmptyExercises(), logged).typed_entries(
+        _USER, "treadmill run"
+    )
+
+    assert isinstance(result, ExerciseHistoryPage)
+    assert result.entries[0].sets[0].pace == "5:36 /km"
+
+
+async def test_history_set_without_both_has_no_pace() -> None:
+    logged = _Logged(
+        [
+            _timed(
+                date(2026, 11, 20),
+                "row",
+                LoggedSet(set_no=1, distance_m=2000),
+                LoggedSet(set_no=2, duration_s=600),
+                LoggedSet(set_no=3, distance_m=0, duration_s=600),
+                LoggedSet(set_no=4, reps=8, load_kg=40),
+            )
+        ]
+    )
+
+    result = await ExerciseTrainingHistory(EmptyExercises(), logged).typed_entries(_USER, "row")
+
+    assert isinstance(result, ExerciseHistoryPage)
+    assert [s.pace for s in result.entries[0].sets] == [None, None, None, None]

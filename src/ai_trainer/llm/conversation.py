@@ -214,6 +214,9 @@ class LlmConversation:
             now=context.now,
             timezone=context.timezone,
             history_turns=self._history_turns,
+            goals=context.goals,
+            limits=context.limits,
+            sport_id=sport_id,
         )
         return self._gateway.stream(
             user_id=context.user_id,

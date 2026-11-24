@@ -157,6 +157,31 @@ async def test_a_typed_only_entry_is_read_by_its_name(tmp_path: Path) -> None:
     assert '"implements":2' in seen[1].replace(" ", "")
 
 
+async def test_fixture_reads_distance_and_measure(tmp_path: Path) -> None:
+    """A timed distance in a case's fixture reaches `exercise_history` with its measure and the
+    pace the app works out (PRD 0013 B42, #629)."""
+    seen: list[str] = []
+
+    def remember(returns: list[str]) -> str:
+        seen.extend(returns)
+        return "Done."
+
+    rowed = {
+        "day": "2026-11-20",
+        "typed": "Rowing machine",
+        "measure": "distance_time",
+        "sets": [{"distance_m": 2000, "duration_s": 470}],
+    }
+    root = _set_with(tmp_path, _case({"logged": [rowed], "expect": {}}))
+
+    await _run(root, _reading(remember, name="rowing machine"))
+
+    history = seen[1].replace(" ", "")
+    assert '"measure":"distance_time"' in history
+    assert '"distance_m":2000.0' in history
+    assert '"pace":"1:57.5/500m"' in history
+
+
 async def test_a_catalogue_exercise_with_no_entries_is_not_history(tmp_path: Path) -> None:
     seen: list[str] = []
 
@@ -201,6 +226,26 @@ async def test_each_way_a_reply_can_miss_fails_the_case(
     assert not result.passed
     assert miss in result.detail
     assert reply in result.detail
+
+
+async def test_no_digits_reads_past_a_numbered_lists_markers(tmp_path: Path) -> None:
+    """A list's "1." is layout, not a value from history (#629 smoke run)."""
+    reply = "Two things:\n1. Nothing is logged.\n2) I have no source for that."
+    root = _set_with(tmp_path, _case({"logged": [_BENCH], "expect": {"no_digits": True}}))
+
+    (result,) = await _run(root, _reading(lambda _: reply))
+
+    assert result.passed, result.detail
+
+
+async def test_no_digits_still_catches_a_number_in_a_list_item(tmp_path: Path) -> None:
+    reply = "Two things:\n1. Bench is 45 kg.\n2. That's all."
+    root = _set_with(tmp_path, _case({"logged": [_BENCH], "expect": {"no_digits": True}}))
+
+    (result,) = await _run(root, _reading(lambda _: reply))
+
+    assert not result.passed
+    assert "gives a number" in result.detail
 
 
 async def test_a_number_said_before_the_tools_fails_the_case(tmp_path: Path) -> None:
@@ -359,8 +404,15 @@ def test_the_committed_set_reads_and_every_case_names_its_source() -> None:
 
     cases = _read_cases(smoke_set)
 
-    assert 5 <= len(cases) <= 10
     raw = yaml.safe_load((_REPO / "evals" / "smoke" / "gym.answer.yaml").read_text())
+    # Cases worded from PRD 0013's new scope stand apart until field chats replace them
+    # (ADR-0034 #622 amendment); the rest stay a small set.
+    new_scope = [
+        c for c in raw["cases"] if str(c["metadata"].get("prd", "")).startswith("PRD 0013")
+    ]
+    assert len(cases) == len(raw["cases"])
+    assert 5 <= len(raw["cases"]) - len(new_scope) <= 10
+    assert 1 <= len(new_scope) <= 5
     for case in raw["cases"]:
         assert {"field", "prd", "safety"} & set(case["metadata"]), case["name"]
 

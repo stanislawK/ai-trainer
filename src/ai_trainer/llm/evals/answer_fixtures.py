@@ -36,6 +36,7 @@ class SetFixture(BaseModel):
     load_kg: float | None = None
     load_original: str | None = None
     duration_s: int | None = None
+    distance_m: float | None = None
     band_label: str | None = None
 
 
@@ -45,6 +46,7 @@ class LoggedFixture(BaseModel):
     day: date
     typed: str
     exercise: str | None = None
+    measure: ExerciseMeasure = ExerciseMeasure.LOAD_REPS
     per_side: bool = False
     implements: int | None = None
     sets: list[SetFixture]
@@ -215,7 +217,7 @@ class CaseHistory:
                 session_id=fixture_id(str(entry.day)),
                 occurred_on=entry.day,
                 name_as_typed=entry.typed,
-                measure=ExerciseMeasure.LOAD_REPS,
+                measure=entry.measure,
                 per_side=entry.per_side,
                 implements=entry.implements,
                 sets=tuple(

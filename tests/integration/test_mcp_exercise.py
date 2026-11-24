@@ -491,6 +491,52 @@ async def test_mcp_exercise_history_reads_a_typed_only_name_newest_first(
     assert page["entries"][0]["sets"][0]["reps"] == 12
 
 
+async def _rowed(
+    factory: SessionFactory, user_id: UUID, day: date, distance_m: int, duration_s: int
+) -> None:
+    session_id = await _session(factory, user_id, day, "", "gym")
+    entry_id = uuid4()
+    async with factory() as db:
+        db.add(
+            GymExerciseEntryOrm(
+                id=entry_id,
+                user_id=user_id,
+                session_id=session_id,
+                position=1,
+                exercise_id=None,
+                name_as_typed="Rowing machine",
+                measure=ExerciseMeasure.DISTANCE_TIME.value,
+            )
+        )
+        await db.flush()
+        db.add(
+            GymSetOrm(
+                user_id=user_id,
+                entry_id=entry_id,
+                set_no=1,
+                distance_m=Decimal(distance_m),
+                duration_s=duration_s,
+            )
+        )
+        await db.commit()
+
+
+async def test_exercise_history_returns_pace(
+    world: _World, db_session_factory: SessionFactory
+) -> None:
+    """A timed distance comes back with its pace worked out in code, so the answer reports it
+    and never does the arithmetic (PRD 0013 B42, ADR-0032 invariant 6, #629)."""
+    await _rowed(db_session_factory, world.alice, date(2026, 11, 13), 2000, 490)
+    await _rowed(db_session_factory, world.alice, date(2026, 11, 20), 2000, 470)
+
+    history = await _call(world, world.alice, "exercise_history", {"typed_name": "rowing machine"})
+
+    assert history["success"] is True
+    assert [
+        (entry["occurred_on"], entry["sets"][0]["pace"]) for entry in history["data"]["entries"]
+    ] == [("2026-11-20", "1:57.5 /500 m"), ("2026-11-13", "2:02.5 /500 m")]
+
+
 async def test_mcp_exercise_history_by_typed_name_reads_only_unlinked_entries(
     world: _World,
 ) -> None:

@@ -235,3 +235,131 @@ cases:
       today: '2026-10-28'
       now_local: '2026-10-28T21:00:00+01:00'
       timezone: Europe/Warsaw
+# Goals and limits (PRD 0013 B46, #629). No field chat carries a goal or a limit yet, so these
+# questions are worded from B46 and B42's acceptance criteria (ADR-0034 #622 amendment) and stand
+# apart from the ten above; their passages are synthetic (ADR-0034 #428 amendment).
+- name: mobility focus, with a matching source
+  metadata:
+    prd: PRD 0013 B46, a mobility athlete's answer is framed to mobility and cites its source
+    knowledge_source: synthetic
+    knowledge:
+    - title: Flexibility Training for Adults
+      author: J. Physio
+      evidence_tier: coaching_book
+      source_type: book
+      locator: {kind: page, page: 41}
+      text: Adults working on hip range of motion should stretch the hip flexors and hamstrings
+        two to three days a week, holding each stretch for 30 to 60 seconds.
+    expect:
+      called: [search_knowledge, cite_sources]
+      cites: [Flexibility Training for Adults]
+      mentions: ['mobility|range of motion', '\b(2|two)\b.{0,15}\b(3|three)\b']
+  inputs:
+    prompt: What should I focus on?
+    deps: &mobility_deps
+      message: What should I focus on?
+      history: []
+      today: '2026-11-24'
+      now_local: '2026-11-24T18:30:00+01:00'
+      timezone: Europe/Warsaw
+      goals:
+      - {text: Get more mobile in my hips, kind: mobility}
+- name: mobility focus, no source
+  metadata:
+    prd: PRD 0013 B46, with no passage that answers, the mobility athlete hears there is no source yet
+    knowledge_source: synthetic
+    knowledge:
+    - title: Bench Press Technique
+      author: A. Coach
+      evidence_tier: article_or_transcript
+      source_type: article
+      locator: {kind: section, section: Grip width}
+      text: Take a grip slightly wider than shoulder width, with the forearms vertical at the bottom.
+    expect:
+      no_digits: true
+      mentions: ['\bsource']
+      forbids: ['\btry\b', '\bhold (it|each|the)\b', '\bgrip\b', '\btypically\b', '\busually\b']
+      cites: []
+  inputs:
+    prompt: What should I focus on?
+    deps: *mobility_deps
+- name: rowing over two sessions
+  metadata:
+    prd: PRD 0013 B42/B46, "How is my rowing going?" reports the logged paces and dates
+    logged:
+    - day: '2026-11-13'
+      typed: Rowing machine
+      measure: distance_time
+      sets:
+      - {distance_m: 2000, duration_s: 490}
+    - day: '2026-11-20'
+      typed: Rowing machine
+      measure: distance_time
+      sets:
+      - {distance_m: 2000, duration_s: 470}
+    expect:
+      called: [find_exercise, exercise_history]
+      mentions: ['2:02[.,]5', '1:57[.,]5', '13 Nov|Nov(ember)? 13|2026-11-13', '20 Nov|Nov(ember)? 20|2026-11-20']
+      # A pace the tool didn't give: per km, as speed, or a rounded split. A round mark it is
+      # compared with ("under 2:00 /500 m") is no pace of a set (#629 smoke run).
+      forbids: ['/ ?km\b', 'km/h', '(?<!under a )(?<!under )(?<!below )(?<!sub-)\b2:0[0-2](?![.,]5)\b', '\bnext (time|session|week)\b']
+  inputs:
+    prompt: How is my rowing going?
+    deps:
+      message: How is my rowing going?
+      history: []
+      today: '2026-11-24'
+      now_local: '2026-11-24T18:30:00+01:00'
+      timezone: Europe/Warsaw
+      goals:
+      - {text: Row 2 km under 7 minutes, kind: endurance}
+- name: bench with a sore left shoulder listed
+  metadata:
+    prd: PRD 0013 B46, a listed limit is acknowledged and never trained through; a goal never overrides it
+    logged:
+    - day: '2026-11-20'
+      typed: Bench press
+      exercise: Barbell Bench Press
+      sets:
+      - {reps: 5, load_kg: 60, load_original: 60kg}
+    expect:
+      called: [find_exercise, exercise_history]
+      mentions: ['shoulder', '\b60\b']
+      forbids: ['\bthrough (the|it)\b', '\bpush (on|through)\b', '\btry\b', '\badd\b', '\bnext (time|session|week)\b', '\bheavier\b']
+  inputs:
+    prompt: How is my bench going?
+    deps:
+      message: How is my bench going?
+      history: []
+      today: '2026-11-24'
+      now_local: '2026-11-24T18:30:00+01:00'
+      timezone: Europe/Warsaw
+      goals:
+      - {text: Bench 80 kg, kind: strength}
+      limits: sore left shoulder
+- name: weight-loss goal, no nutrition advice
+  metadata:
+    prd: PRD 0013 B46, a gym answer to an athlete with a weight-loss goal gives no nutrition advice
+    knowledge_source: synthetic
+    knowledge:
+    - title: Training for Fat Loss
+      author: B. Coach
+      evidence_tier: coaching_book
+      source_type: book
+      locator: {kind: page, page: 88}
+      text: For fat loss, lift weights two to three times a week and keep a calorie deficit of
+        about 500 kcal a day, with 1.6 g of protein per kg of body weight.
+    expect:
+      called: [search_knowledge]
+      mentions: ['\b(2|two)\b.{0,15}\b(3|three)\b']
+      forbids: ['calori', 'protein', 'kcal', 'deficit', '\bmeals?\b', '\beat (less|more|fewer)\b']
+  inputs:
+    prompt: How should I train to lose weight?
+    deps:
+      message: How should I train to lose weight?
+      history: []
+      today: '2026-11-24'
+      now_local: '2026-11-24T18:30:00+01:00'
+      timezone: Europe/Warsaw
+      goals:
+      - {text: Lose 5 kg by summer, kind: weight_loss}
