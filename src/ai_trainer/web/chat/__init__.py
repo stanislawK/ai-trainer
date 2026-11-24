@@ -1,18 +1,21 @@
 """Wires the chat, the main screen, from its feature sub-routers (ticket #330): the page and its
-composer (`thread`), the streamed reply (`reply`), the session draft cards (`drafts`) and the
-choice cards (`clarifications`). `user_id` comes only from the authenticated session (ADR-0005),
-and an ID from the URL or the form is always looked up with it: another user's conversation,
-message, draft or question is a 404."""
+composer (`thread`), the streamed reply (`reply`), the session draft cards (`drafts`), the
+choice cards (`clarifications`) and the exercise card's drawn picture (`card_pictures`, #644).
+`user_id` comes only from the authenticated session (ADR-0005), and an ID from the URL or the
+form is always looked up with it: another user's conversation, message, draft or question is a
+404."""
 
 from fastapi import APIRouter
 from starlette.templating import Jinja2Templates
 
 from ai_trainer.application.exercise_card_media import ExerciseCardMedia
 from ai_trainer.application.exercise_card_picture import CardPictures
+from ai_trainer.application.exercise_card_picture_flag import CardPictureFlag
 from ai_trainer.application.exercise_simple_howto import CardHowtos
 from ai_trainer.application.ports.chat import ChatRepositoryPort
 from ai_trainer.application.reply import ReplyServices
 from ai_trainer.domain.sports.registry import SportRegistry
+from ai_trainer.web.chat.card_pictures import build_card_pictures_router
 from ai_trainer.web.chat.clarifications import build_clarifications_router
 from ai_trainer.web.chat.context import ChatContext
 from ai_trainer.web.chat.drafts import build_drafts_router
@@ -32,6 +35,7 @@ def build_chat_router(
     card_media: ExerciseCardMedia | None = None,
     card_howtos: CardHowtos | None = None,
     card_pictures: CardPictures | None = None,
+    card_picture_flag: CardPictureFlag | None = None,
 ) -> APIRouter:
     templates.env.globals["reply_glyph"] = build_reply_glyph(sports)
     templates.env.globals["failed_draft_sport"] = build_failed_draft_sport(sports)
@@ -44,6 +48,7 @@ def build_chat_router(
         card_media=card_media,
         card_howtos=card_howtos,
         card_pictures=card_pictures,
+        card_picture_flag=card_picture_flag,
     )
     router = APIRouter()
     # In this order, so the routes and the OpenAPI document stay as they were.
@@ -51,4 +56,5 @@ def build_chat_router(
     router.include_router(build_reply_router(ctx))
     router.include_router(build_drafts_router(ctx))
     router.include_router(build_clarifications_router(ctx))
+    router.include_router(build_card_pictures_router(ctx))
     return router

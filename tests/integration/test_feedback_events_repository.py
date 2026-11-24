@@ -246,3 +246,29 @@ async def test_a_howto_flagged_row_is_admitted_and_reads_back(
         2,
         (),
     )
+
+
+async def test_a_picture_flagged_row_is_admitted_and_reads_back(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    """The kind check admits `picture_flagged`, with no template and no field (#644)."""
+    user_id = await _user(db_session_factory)
+    repository = SqlAlchemyFeedbackEventsRepository(db_session_factory)
+    await repository.record(
+        _event(
+            user_id,
+            kind=FeedbackKind("picture_flagged"),
+            template_id=None,
+            template_version=None,
+            fields=[],
+        )
+    )
+
+    [read] = await repository.list_for_user(user_id)
+
+    assert (read.kind, read.template_id, read.template_version, tuple(read.fields)) == (
+        FeedbackKind("picture_flagged"),
+        None,
+        None,
+        (),
+    )

@@ -26,7 +26,7 @@ class FeedbackEventOrm(Base):
     __table_args__ = (
         CheckConstraint(
             "kind IN ('draft_edited', 'draft_discarded', 'session_undone', 'choice_answered', "
-            "'decision_overridden', 'howto_flagged')",
+            "'decision_overridden', 'howto_flagged', 'picture_flagged')",
             name="feedback_events_kind",
         ),
         Index("ix_feedback_events_user_id_created_at", "user_id", "created_at"),

@@ -4,12 +4,27 @@ A removed picture's object goes to the private uploads bucket under `quarantine/
 so its public URL stops serving it; Undo or Restore moves it back. Each move copies first and
 deletes after, so a failure never loses the object: at worst it is in both buckets. Every move
 can be retried, and finds the state a failed one left. Purging Cloudflare's cached copy is the
-review's step after the move (#557)."""
+takedown's step after the move (#557).
+
+`MediaTakedown` is the takedown path itself, shared by the admin's Remove (#556) and an athlete's
+"Looks wrong" on a picture drawn on the card (#644): the link is hidden first, then a stored
+picture's object moves to quarantine unless another live link shows the same asset, then its
+public URL is purged."""
 
 import logging
+from dataclasses import dataclass
 
+from ai_trainer.application.ports.cdn_cache import CdnCachePort
+from ai_trainer.application.ports.clock import ClockPort
+from ai_trainer.application.ports.media import ExerciseMediaReviewPort
 from ai_trainer.application.ports.object_storage import ObjectStoragePort
-from ai_trainer.domain.object_storage import ObjectNotFoundError, ObjectStorageError
+from ai_trainer.domain.cdn_cache import CdnCacheError
+from ai_trainer.domain.media import ExerciseMediaReviewRow, MediaLinkStatus
+from ai_trainer.domain.object_storage import (
+    ObjectNotFoundError,
+    ObjectStorageError,
+    media_public_url,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -67,3 +82,74 @@ class MediaQuarantine:
             # The object is public again; a stale private copy is harmless.
             logger.warning("media release left its quarantine copy: %s", error)
         return True
+
+
+@dataclass(frozen=True, slots=True)
+class TakedownResult:
+    # The status this call removed the link from; None when the link was not live (already
+    # removed, or restored again since).
+    removed_from: MediaLinkStatus | None
+    # The link is live by now (restored in another tab): nothing was moved.
+    live: MediaLinkStatus | None = None
+    # The object could not leave the public bucket; another takedown retries the move.
+    still_public: bool = False
+    # Another link still shows the same asset, so its file was left public on purpose.
+    shared: bool = False
+    # The cache purge failed or was not tried, so a cached copy may still be served for a while.
+    cache_stale: bool = False
+
+
+class MediaTakedown:
+    def __init__(
+        self,
+        *,
+        media: ExerciseMediaReviewPort,
+        quarantine: MediaQuarantine,
+        clock: ClockPort,
+        public_base_url: str | None,
+        cdn: CdnCachePort | None = None,
+    ) -> None:
+        self._media = media
+        self._quarantine = quarantine
+        self._clock = clock
+        self._base_url = public_base_url
+        self._cdn = cdn
+
+    async def take_down(self, row: ExerciseMediaReviewRow) -> TakedownResult:
+        """Hide the link at once, then move a stored picture's object to quarantine. A link
+        already removed keeps its first removal and has the move retried. A link restored in
+        another tab since is left live with its file public, and says its status."""
+        link_id = row.link_id
+        removed_from = await self._media.remove(link_id, at=self._clock.now())
+        if removed_from is None:
+            # Nothing changed: read again, so a link that is live by now keeps its file.
+            now = await self._media.review_link(link_id)
+            if now is not None and now.status is not MediaLinkStatus.REMOVED:
+                return TakedownResult(removed_from=None, live=now.status)
+        key = row.asset.storage_key
+        if key is None:
+            return TakedownResult(removed_from=removed_from)
+        # Read from the table, so the asset always has its ID.
+        asset_id = row.asset.id
+        if asset_id is not None and await self._media.has_live_link_besides(asset_id, link_id):
+            return TakedownResult(removed_from=removed_from, shared=True)
+        hidden = await self._quarantine.hide(key)
+        stale = hidden and await self._purge(key)
+        return TakedownResult(removed_from=removed_from, still_public=not hidden, cache_stale=stale)
+
+    async def _purge(self, key: str) -> bool:
+        """Purge the picture's public URL; True when a cached copy may still be served: the
+        purge failed, or no Cloudflare settings are set so none was tried. False when there is
+        no public URL (no `MEDIA_PUBLIC_BASE_URL`) or the purge succeeded."""
+        url = media_public_url(self._base_url, key)
+        if url is None:
+            return False
+        if self._cdn is None:
+            logger.info("cache purge skipped: no Cloudflare purge settings")
+            return True
+        try:
+            await self._cdn.purge(url)
+        except CdnCacheError as error:
+            logger.warning("cache purge failed: %s", error)
+            return True
+        return False

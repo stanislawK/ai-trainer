@@ -57,11 +57,24 @@
 {% macro picture_slot(question, option) -%}
 <span class="shrink-0 size-12 sm:size-16 rounded-xl skeleton grid place-items-center" data-picture-slot hx-post="/clarifications/{{ question.id }}/picture/{{ option.id }}" hx-trigger="load" hx-target="this" hx-swap="outerHTML" hx-status:4xx="swap:delete" hx-status:5xx="swap:delete" data-picture-load>{{ icon("sparkles", "size-5 lbl-2") }}<span class="sr-only" role="status" aria-busy="true">Drawing a picture</span></span>
 {%- endmacro %}
+{#- "Looks wrong" on a picture drawn on the card (ADR-0031 *Picture on the card*, *Flag*, #644; #641 option B, "picture: arrived"): the `lucide` `flag` glyph on a 28 px round button with a 44 px invisible hit area (`absolute -inset-2`), at the credit line's right end, which `pr-12` keeps clear. It is a sibling of the row button, so a tap never answers the question, and it asks no reason. It posts to the flag route and swaps the whole candidate for the route's answer (no picture, and the thanks line); a refusal or an error swaps nothing. -#}
+{% macro picture_flag(question, option) -%}
+<button type="button" class="absolute right-2.5 top-1/2 -translate-y-1/2 size-7 rounded-full grid place-items-center lbl-2 hover:bg-base-content/10 transition-colors" aria-label="Looks wrong: hide this picture" hx-post="/clarifications/{{ question.id }}/picture/{{ option.id }}/flag" hx-target="closest [data-candidate]" hx-swap="outerHTML" hx-status:4xx="swap:none" hx-status:5xx="swap:none" data-picture-flag><span class="absolute -inset-2" aria-hidden="true"></span>{{ icon("flag", "size-4") }}</button>
+{%- endmacro %}
+{#- A candidate's picture credit on the quiet line at the text column. Only a picture the card drew (`drawn_on_card`, the `#card` marker) carries the flag; an admin-approved picture, generated or wger, does not (owner 2026-11-24, #644). -#}
+{% macro card_credit(question, option, picture) -%}
+{%- if picture.drawn_on_card %}
+{%- set line = "pl-[76px] sm:pl-[92px] pr-12 flex flex-wrap items-center gap-x-1.5 gap-y-3 text-[12px] leading-4 lbl-2" %}
+<div class="relative" data-drawn-credit>{{ credit(picture, line, line, quiet=true) }}{{ picture_flag(question, option) }}</div>
+{%- else %}
+{%- set line = "pl-[76px] sm:pl-[92px] pr-4 flex flex-wrap items-center gap-x-1.5 gap-y-3 text-[12px] leading-4 lbl-2" %}
+{{ credit(picture, line, line, quiet=true) }}
+{%- endif %}
+{%- endmacro %}
 {#- Where the drawn picture's credit lands: hidden and empty until the route fills it. -#}
 {% macro credit_slot(question, option, picture=none, oob=false) -%}
-{%- set line = "pl-[76px] sm:pl-[92px] pr-4 flex flex-wrap items-center gap-x-1.5 gap-y-3 text-[12px] leading-4 lbl-2" -%}
 <div id="choice-{{ question.id }}-credit-{{ option.id }}"{% if picture %} class="contents"{% else %} hidden{% endif %}{% if oob %} hx-swap-oob="true"{% endif %} data-credit-slot>
-{%- if picture %}{{ credit(picture, line, line, quiet=true) }}{% endif -%}
+{%- if picture %}{{ card_credit(question, option, picture) }}{% endif -%}
 </div>
 {%- endmacro %}
 {#- One candidate's row button, or, as `keep`, "Keep my name". `how_id` is the ID of its how-to text, which the toggle controls, and `howto` what its line shows. -#}
@@ -88,8 +101,8 @@
       {{ icon("chevron-down", "size-4 transition-transform duration-300 motion-reduce:transition-none group-data-open/cand:rotate-180") }}
     </button>
 {%- endmacro %}
-{#- One candidate (`group/cand`, `data-candidate`): its row button and More toggle, then, just flagged (#593), a `role="status"` thanks line at the text column, then the open row's original block and the credit line. `index` is its 1-based place on the card, for its how-to text's ID. The card draws each candidate with it, and the flag route returns one on its own (`partials/chat/howto_candidate.html`). -#}
-{% macro exercise_candidate(question, option, index, picture=none, howto=none, flagged=false) -%}
+{#- One candidate (`group/cand`, `data-candidate`): its row button and More toggle, then, just flagged, a `role="status"` thanks line at the text column (#593 for the short version, #644 for a drawn picture, whose row is then text only), then the open row's original block and the credit line. `index` is its 1-based place on the card, for its how-to text's ID. The card draws each candidate with it, and the flag routes return one on their own (`partials/chat/howto_candidate.html`, `partials/chat/picture_flagged_candidate.html`). -#}
+{% macro exercise_candidate(question, option, index, picture=none, howto=none, flagged=false, picture_flagged=false) -%}
 {%- set how_id = "choice-" ~ question.id ~ "-how-" ~ index if option.params.get("how") else none %}
 {#- A drawing slot may go (#643's fallback), so under a loading row the text column follows the slot's presence in the page, not this render. -#}
 {%- if picture and picture.loading %}
@@ -99,7 +112,6 @@
 {%- else %}
 {%- set pad = "pl-4" %}
 {%- endif %}
-{%- set quiet_line = "pl-[76px] sm:pl-[92px] pr-4 flex flex-wrap items-center gap-x-1.5 gap-y-3 text-[12px] leading-4 lbl-2" %}
 <div class="group/cand flex flex-col gap-1.5" data-candidate="{{ option.id }}">
       <div class="relative">
     {{ exercise_option(question, option, picture, how_id=how_id, howto=howto) }}
@@ -110,13 +122,16 @@
     {%- if flagged %}
     <p class="{{ pad }} pr-4 flex items-center gap-1.5 text-[12px] leading-4 lbl-2" role="status" data-flagged>{{ icon("circle-check", "size-3.5 text-success") }}Thanks, the short version is hidden. Showing the original.</p>
     {%- endif %}
+    {%- if picture_flagged %}
+    <p class="{{ pad }} pr-4 flex items-center gap-1.5 text-[12px] leading-4 lbl-2" role="status" data-flagged="picture">{{ icon("circle-check", "size-3.5 text-success") }}Thanks, the picture is hidden.</p>
+    {%- endif %}
     {%- if how_id and howto and howto.kind in ("short", "load") %}
     {{ original_instructions(question, option, pad) }}
     {%- endif %}
     {%- if picture and picture.loading %}
     {{ credit_slot(question, option) }}
     {%- elif picture %}
-    {{ credit(picture, quiet_line, quiet_line, quiet=true) }}
+    {{ card_credit(question, option, picture) }}
     {%- endif %}
     </div>
 {%- endmacro %}

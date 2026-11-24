@@ -6,8 +6,10 @@ from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 from ai_trainer.application.exercise_media_review import ExerciseMediaReview
-from ai_trainer.application.media_quarantine import MediaQuarantine
+from ai_trainer.application.media_quarantine import MediaQuarantine, MediaTakedown
 from ai_trainer.application.ports.cdn_cache import CdnCachePort
+from ai_trainer.application.ports.clock import ClockPort
+from ai_trainer.application.ports.media import ExerciseMediaReviewPort
 from ai_trainer.application.ports.object_storage import ObjectStoragePort
 from ai_trainer.domain.cdn_cache import CdnCacheError
 from ai_trainer.domain.media import (
@@ -53,6 +55,12 @@ def generated_asset() -> MediaAsset:
         ),
         sha256=uuid4().hex * 2,
     )
+
+
+def card_drawn_asset() -> MediaAsset:
+    """A generated picture the exercise card drew: its `source_ref` ends in `#card` (#643)."""
+    asset = generated_asset()
+    return asset.model_copy(update={"source_ref": asset.source_ref + "#card"})
 
 
 def embedded_asset() -> MediaAsset:
@@ -236,10 +244,30 @@ def memory_exercise_media_review(
     uploads_bucket: ObjectStoragePort | None = None,
 ) -> ExerciseMediaReview:
     """`build_admin_router`'s `exercise_media`, for a test about the rest of the admin view."""
-    return ExerciseMediaReview(
-        media=media or MemoryExerciseMedia(),
-        public_base_url=base_url,
+    return review_with_takedown(
+        media or MemoryExerciseMedia(),
         quarantine=MediaQuarantine(media=media_bucket, uploads=uploads_bucket),
         clock=ReviewClock(),
+        base_url=base_url,
         cdn=cdn,
+    )
+
+
+def review_with_takedown(
+    media: ExerciseMediaReviewPort,
+    *,
+    quarantine: MediaQuarantine,
+    clock: ClockPort,
+    base_url: str | None,
+    cdn: CdnCachePort | None = None,
+) -> ExerciseMediaReview:
+    """An `ExerciseMediaReview` wired as `main.py` wires it: its takedown shares its media and
+    quarantine."""
+    return ExerciseMediaReview(
+        media=media,
+        public_base_url=base_url,
+        quarantine=quarantine,
+        takedown=MediaTakedown(
+            media=media, quarantine=quarantine, clock=clock, public_base_url=base_url, cdn=cdn
+        ),
     )

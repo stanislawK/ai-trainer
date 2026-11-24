@@ -3,7 +3,7 @@ to read the athlete's day and sports or to render a draft card (ticket #330)."""
 
 from collections.abc import Iterable, Mapping, Sequence
 from contextlib import suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 from typing import Any
 from uuid import UUID
@@ -13,15 +13,28 @@ from fastapi import HTTPException, Request
 from pydantic import ValidationError
 from starlette.templating import Jinja2Templates
 
-from ai_trainer.application.exercise_card_media import CardSlot, ExerciseCardMedia, PictureToDraw
+from ai_trainer.application.exercise_card_media import (
+    CardPicture,
+    CardSlot,
+    ExerciseCardMedia,
+    PictureToDraw,
+)
 from ai_trainer.application.exercise_card_picture import CardPictures
+from ai_trainer.application.exercise_card_picture_flag import CardPictureFlag
 from ai_trainer.application.exercise_simple_howto import CardHowtos
 from ai_trainer.application.ports.chat import ChatRepositoryPort, ConversationRepositoryPort
 from ai_trainer.application.ports.clock import ClockPort
-from ai_trainer.application.reply import ReplyDone, ReplyServices, asking_sports
+from ai_trainer.application.reply import (
+    ReplyDone,
+    ReplyServices,
+    asking_sports,
+    open_exercise_question,
+)
 from ai_trainer.domain.clarification import (
     EXERCISE_PURPOSE,
     KEEP_NAME_OPTION,
+    ClarificationNotFoundError,
+    ClarificationResolvedError,
     StoredClarification,
 )
 from ai_trainer.domain.exercise_simple_texts import CardHowto
@@ -87,6 +100,8 @@ class ChatContext:
     card_howtos: CardHowtos | None = None
     # The picture drawn for a catalogue candidate with none (#643); without it none is drawn.
     card_pictures: CardPictures | None = None
+    # "Looks wrong" on a picture drawn on the card (#644); without it the picture has no flag.
+    card_picture_flag: CardPictureFlag | None = None
 
     @property
     def clock(self) -> ClockPort:
@@ -117,11 +132,46 @@ class ChatContext:
             return {}
         exercise_ids = _exercise_ids(questions)
         found = await self.card_media.pictures(exercise_ids)
-        slots: dict[str, CardSlot] = {str(key): picture for key, picture in found.items()}
+        slots: dict[str, CardSlot] = {
+            str(key): self.flaggable(picture) for key, picture in found.items()
+        }
         if self.card_pictures is not None:
             for exercise_id in await self.card_pictures.drawable(exercise_ids - found.keys()):
                 slots[str(exercise_id)] = PictureToDraw()
         return slots
+
+    def flaggable(self, picture: CardPicture) -> CardPicture:
+        """The picture as the card draws it: a drawn one carries "Looks wrong" only while the
+        flag route is wired (#644)."""
+        if self.card_picture_flag is None and picture.drawn_on_card:
+            return replace(picture, drawn_on_card=False)
+        return picture
+
+    async def open_question(self, request: Request, clarification_id: str) -> StoredClarification:
+        """The athlete's open exercise question: another user's or an unknown one is a 404, an
+        answered one a 409."""
+        user: User = request.state.user
+        try:
+            return await open_exercise_question(
+                user.id, parse_id(clarification_id), services=self.replies
+            )
+        except ClarificationNotFoundError:
+            raise HTTPException(status_code=NOT_FOUND) from None
+        except ClarificationResolvedError:
+            raise HTTPException(status_code=CONFLICT) from None
+
+    async def candidate(
+        self, request: Request, clarification_id: str, option_id: str
+    ) -> tuple[StoredClarification, int]:
+        """The open exercise question and the index of `option_id` among its catalogue
+        candidates: the guards of `open_question`, and an option that isn't one of its
+        candidates is a 404 too (the how-to and picture routes, #592, #643, #644)."""
+        question = await self.open_question(request, clarification_id)
+        options = question.clarification.options
+        index = next((i for i, option in enumerate(options) if option.id == option_id), None)
+        if index is None or option_id == KEEP_NAME_OPTION:
+            raise HTTPException(status_code=NOT_FOUND)
+        return question, index
 
     async def exercise_howtos(
         self, questions: Iterable[StoredClarification | None]

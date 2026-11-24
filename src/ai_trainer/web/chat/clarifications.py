@@ -16,11 +16,9 @@ from ai_trainer.application.reply import (
     abandon_clarification,
     answer_clarification,
     keep_typed_name,
-    open_exercise_question,
 )
 from ai_trainer.domain.clarification import (
     EXERCISE_PURPOSE,
-    KEEP_NAME_OPTION,
     ClarificationNotFoundError,
     ClarificationResolvedError,
     StoredClarification,
@@ -137,15 +135,7 @@ class _ClarificationRoutes:
         )
 
     async def _open_question(self, request: Request, clarification_id: str) -> StoredClarification:
-        user: User = request.state.user
-        try:
-            return await open_exercise_question(
-                user.id, parse_id(clarification_id), services=self._ctx.replies
-            )
-        except ClarificationNotFoundError:
-            raise HTTPException(status_code=NOT_FOUND) from None
-        except ClarificationResolvedError:
-            raise HTTPException(status_code=CONFLICT) from None
+        return await self._ctx.open_question(request, clarification_id)
 
     async def name_field(self, request: Request, clarification_id: str) -> HTMLResponse:
         """ "Let me type instead" on the exercise card: its name field, holding the name as typed.
@@ -166,52 +156,15 @@ class _ClarificationRoutes:
             },
         )
 
-    async def _option(
-        self, request: Request, clarification_id: str, option_id: str
-    ) -> tuple[StoredClarification, int]:
-        """The open exercise question and the index of `option_id` among its catalogue
-        candidates: another user's or an unknown question, or an option that isn't one of its
-        candidates, is a 404, an answered question a 409."""
-        question = await self._open_question(request, clarification_id)
-        options = question.clarification.options
-        index = next((i for i, option in enumerate(options) if option.id == option_id), None)
-        if index is None or option_id == KEEP_NAME_OPTION:
-            raise HTTPException(status_code=NOT_FOUND)
-        return question, index
-
     async def _candidate(
         self, request: Request, clarification_id: str, option_id: str
     ) -> tuple[StoredClarification, int, CardHowtos]:
-        """`_option`, and the how-to service, whose absence is a 404 too."""
-        question, index = await self._option(request, clarification_id, option_id)
+        """`ChatContext.candidate`, and the how-to service, whose absence is a 404 too."""
+        question, index = await self._ctx.candidate(request, clarification_id, option_id)
         howtos = self._ctx.card_howtos
         if howtos is None:
             raise HTTPException(status_code=NOT_FOUND)
         return question, index, howtos
-
-    async def picture(
-        self, request: Request, clarification_id: str, option_id: str
-    ) -> HTMLResponse:
-        """A drawable candidate's loading picture slot (ADR-0031 *Picture on the card*, #643):
-        draws its picture under the athlete whose card asked and returns it with its credit, or,
-        on any fallback, nothing, which leaves the text-only row. It never answers the question.
-        The guards are `howto`'s: 404 for another user's or an unknown question or option, or
-        when pictures aren't drawn, 409 for an answered one."""
-        user: User = request.state.user
-        question, index = await self._option(request, clarification_id, option_id)
-        pictures = self._ctx.card_pictures
-        if pictures is None:
-            raise HTTPException(status_code=NOT_FOUND)
-        picture = await pictures.load(user_id=user.id, exercise_id=parse_id(option_id))
-        return self._ctx.templates.TemplateResponse(
-            request,
-            "partials/chat/card_picture.html",
-            {
-                "question": question,
-                "option": question.clarification.options[index],
-                "picture": picture,
-            },
-        )
 
     async def howto(self, request: Request, clarification_id: str, option_id: str) -> HTMLResponse:
         """A candidate's loading how-to line (ADR-0031 *Beginner how-to*, #592): writes its
@@ -365,7 +318,4 @@ def build_clarifications_router(ctx: ChatContext) -> APIRouter:
     router.post(
         "/clarifications/{clarification_id}/howto/{option_id}/flag", response_class=HTMLResponse
     )(routes.flag_howto)
-    router.post(
-        "/clarifications/{clarification_id}/picture/{option_id}", response_class=HTMLResponse
-    )(routes.picture)
     return router

@@ -17,7 +17,6 @@ from ai_trainer.adapters.media_repository import SqlAlchemyExerciseMediaReposito
 from ai_trainer.adapters.sessions_repository import SqlAlchemySessionsRepository
 from ai_trainer.adapters.user_status_changer import SqlAlchemyUserStatusChanger
 from ai_trainer.adapters.users_repository import SqlAlchemyUsersRepository
-from ai_trainer.application.exercise_media_review import ExerciseMediaReview
 from ai_trainer.application.media_quarantine import MediaQuarantine
 from ai_trainer.application.ports.cdn_cache import CdnCachePort
 from ai_trainer.domain.media import MediaAsset, MediaLinkStatus
@@ -29,7 +28,13 @@ from ai_trainer.web.auth import SESSION_COOKIE_NAME
 from ai_trainer.web.csrf import CSRF_HEADER_NAME, CsrfMiddleware
 from ai_trainer.web.templating import build_templates
 from tests.admin_tokens_support import memory_admin_tokens
-from tests.exercise_media_support import FakeCdn, embedded_asset, generated_asset, wger_asset
+from tests.exercise_media_support import (
+    FakeCdn,
+    embedded_asset,
+    generated_asset,
+    review_with_takedown,
+    wger_asset,
+)
 from tests.knowledge_support import MemoryStorage, knowledge_wiring
 from tests.simple_howto_support import memory_howto_review
 
@@ -127,11 +132,11 @@ async def _page(
             sessions=sessions,
             status_changer=SqlAlchemyUserStatusChanger(factory),
             tokens=memory_admin_tokens(),
-            exercise_media=ExerciseMediaReview(
-                media=media,
-                public_base_url=base_url,
+            exercise_media=review_with_takedown(
+                media,
                 quarantine=MediaQuarantine(media=public, uploads=private),
                 clock=clock,
+                base_url=base_url,
                 cdn=cdn,
             ),
             exercise_howtos=memory_howto_review(),

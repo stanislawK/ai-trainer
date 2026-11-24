@@ -343,3 +343,24 @@ async def test_report_counts_howto_flags_per_template_version() -> None:
         "draft_discarded - - 1",
         "howto_flagged exercise.simple_howto@v2 - 1",
     ]
+
+
+# AC (#644): `feedback-report` counts `picture_flagged`, which has no template and no field.
+async def test_feedback_report_counts_picture_flagged() -> None:
+    flagged = FeedbackKind("picture_flagged")
+    events = InMemoryFeedbackEvents()
+    recorder = FeedbackRecorder(events, clock=FixedClock())
+    for _ in range(2):
+        await recorder.record(uuid4(), flagged)
+    signals = await events.signals()
+
+    counts = [
+        (c.kind, c.template_id, c.template_version, c.field, c.count)
+        for c in count_signals(signals)
+    ]
+    output = io.StringIO()
+    code = await cli.feedback_report(events=events, since=None, output=output)
+
+    assert counts == [(flagged, None, None, None, 2)]
+    assert code == 0
+    assert output.getvalue().splitlines() == ["picture_flagged - - 2"]
