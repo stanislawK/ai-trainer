@@ -4,6 +4,7 @@ from uuid import UUID, uuid4
 
 import pytest
 
+from ai_trainer.domain.athlete_profile import AthleteProfile
 from ai_trainer.domain.goals import Goal
 from ai_trainer.domain.sessions import NewSession, Session
 from ai_trainer.domain.users import NewUser, User, UserAlreadyExistsError, UserStatus
@@ -78,6 +79,9 @@ class FakeOnboardingRepository:
 
     async def list_goals(self, user_id: UUID) -> Sequence[Goal]:
         return self.goals.get(user_id, [])
+
+    async def get_profile(self, user_id: UUID) -> AthleteProfile | None:
+        return None
 
     async def set_onboarded_at(self, user_id: UUID, when: datetime | None) -> None:
         self.onboarded_at[user_id] = when

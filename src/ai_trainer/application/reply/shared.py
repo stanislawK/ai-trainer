@@ -165,6 +165,7 @@ async def find_message(
 async def reply_context(
     user_id: UUID, message: ChatMessage, timezone: str, services: ReplyServices
 ) -> ReplyContext:
+    profile = await services.profile.get_profile(user_id)
     return ReplyContext(
         user_id=user_id,
         conversation_id=message.conversation_id,
@@ -174,4 +175,5 @@ async def reply_context(
         goals=await services.profile.list_goals(user_id),
         now=services.clock.now(),
         timezone=timezone,
+        limits=profile.limits if profile is not None else None,
     )

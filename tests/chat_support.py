@@ -36,6 +36,7 @@ from ai_trainer.application.ports.llm_gateway import (
     TextChunk,
 )
 from ai_trainer.application.reply import ReplyServices
+from ai_trainer.domain.athlete_profile import AthleteProfile
 from ai_trainer.domain.chat import ChatMessage, ChatRole, Conversation
 from ai_trainer.domain.clarification import (
     Clarification,
@@ -259,15 +260,20 @@ class InMemoryChatRepository:
 
 
 class InMemoryProfile:
-    """The athlete's sports and goals, the only parts of onboarding a reply reads."""
+    """The athlete's sports, goals and profile, the only parts of onboarding a reply reads."""
 
     def __init__(
         self,
         sports: Mapping[UUID, Sequence[str]] | None = None,
         goals: Mapping[UUID, Sequence[Goal]] | None = None,
+        profiles: Mapping[UUID, AthleteProfile] | None = None,
     ) -> None:
         self.sports = dict(sports or {})
         self.goals = dict(goals or {})
+        self.profiles = dict(profiles or {})
+
+    async def get_profile(self, user_id: UUID) -> AthleteProfile | None:
+        return self.profiles.get(user_id)
 
     async def list_sports(self, user_id: UUID) -> Sequence[str]:
         return self.sports.get(user_id, [])

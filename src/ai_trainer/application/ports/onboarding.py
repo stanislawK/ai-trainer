@@ -36,6 +36,10 @@ class OnboardingRepositoryPort(Protocol):
 
     async def list_goals(self, user_id: UUID) -> Sequence[Goal]: ...
 
+    async def get_profile(self, user_id: UUID) -> AthleteProfile | None:
+        """The user's stored profile, or `None` before onboarding confirmed one (ADR-0028)."""
+        ...
+
     async def set_onboarded_at(self, user_id: UUID, when: datetime | None) -> None: ...
 
 
