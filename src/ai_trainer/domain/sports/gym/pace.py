@@ -5,11 +5,16 @@ of them, or with either at 0, has none: a pace is never estimated.
 A rowing machine or ski erg reads per 500 m, anything else per km: the split comes from the
 exercise's canonical or typed name, owner-chosen at #626's plan gate."""
 
+import re
 from collections.abc import Mapping
 from typing import Literal, Protocol
 
-# Case-folded parts of a name that make its pace read per 500 m.
-_PER_500M_NAMES = ("row", "rower", "erg", "wiosł", "wiośl")
+# Whole words of a case-folded name that make its pace read per 500 m: rowing ("row",
+# "rower", "rowing"), an erg ("ski erg", "skierg", "ergometer", "ergometr") or Polish rowing
+# ("wiosłowanie", "wioślarz"). Whole words, so "throw", "arrow" or "narrow" never count
+# (#626 code review). A lift such as "barbell row" may match, but it holds no distance with a
+# time, so it never has a pace to show.
+_PER_500M = re.compile(r"\b(?:row|rower|rowing|(?:ski[ -]?)?erg|ergomet\w*|wios[łl]\w*|wiośl\w*)\b")
 
 type Split = Literal["500m", "km"]
 _SPLIT_M: Mapping[Split, int] = {"500m": 500, "km": 1000}
@@ -28,7 +33,7 @@ class TimedDistance(Protocol):
 def split_of(*names: str | None) -> Split:
     """`500m` when any name reads as a rowing machine or ski erg, else `km`."""
     folded = [name.casefold() for name in names if name]
-    return "500m" if any(part in name for name in folded for part in _PER_500M_NAMES) else "km"
+    return "500m" if any(_PER_500M.search(name) for name in folded) else "km"
 
 
 def pace_s_per_km(gym_set: TimedDistance) -> float | None:

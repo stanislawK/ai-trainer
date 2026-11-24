@@ -324,3 +324,26 @@ async def test_progress_session_without_pace_is_a_dashed_marker() -> None:
     assert view is not None
     assert [point.value is None for point in view.points] == [True, False]
     assert [row.value is None for row in view.rows] == [False, True]
+
+
+async def test_time_chart_reads_a_timed_distance_by_its_time_never_its_speed() -> None:
+    """Opened from a time-only rower session, the chart is in seconds, so a session with both a
+    distance and a time plots its time, never its km/h (#626 code review)."""
+    session = _rower_session()
+    timed_only = session.exercises[0].model_copy(
+        update={"measure": "time", "sets": [GymSet(duration_s=470)]}
+    )
+    session = session.model_copy(update={"exercises": (timed_only,)})
+    history = _History(
+        [
+            _rowed(date(2026, 11, 19), seconds=480),
+            _rowed(date(2026, 11, 3), seconds=470, metres=None),
+        ]
+    )
+
+    view = await _progress(session, history).view(_USER, "UTC", session.span.id, 0)
+
+    assert view is not None
+    assert view.measure is ExerciseMeasure.TIME
+    assert [point.value for point in view.points] == [470.0, 480.0]
+    assert [row.best for row in view.rows] == ["480 s", "470 s"]

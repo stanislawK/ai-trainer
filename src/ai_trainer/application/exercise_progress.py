@@ -69,6 +69,14 @@ class ProgressView(BaseModel):
         return len({row.day.year for row in self.rows}) > 1
 
 
+def _read_as(chart: ExerciseMeasure, entry: ExerciseEntry) -> ExerciseMeasure | None:
+    """How an entry is read on a chart: a timed distance on either side is read by the chart's
+    measure, so km/h never lands on a seconds or metres axis and a time never on a speed one
+    (#626). Any other entry keeps its own measure, as #517 reads it."""
+    timed = ExerciseMeasure.DISTANCE_TIME
+    return chart if timed in (chart, entry.measure) else None
+
+
 def _payload(entry: ExerciseEntry) -> Exercise:
     """The entry as a payload exercise, so the logged card's line reads it. Not validated: the
     rows were valid when written."""
@@ -138,11 +146,11 @@ class ExerciseProgress:
         # A timed distance reads every entry by its pace, so a session logged with only a time
         # is a dashed marker, as an unranked band is (#626).
         marked = measure in (ExerciseMeasure.BAND_REPS, ExerciseMeasure.DISTANCE_TIME)
-        read_as = measure if measure is ExerciseMeasure.DISTANCE_TIME else None
         measured = [
             (entry, best)
             for entry in found.entries
-            if (best := best_of(entry, order, measure=read_as, split=split)) is not None
+            if (best := best_of(entry, order, measure=_read_as(measure, entry), split=split))
+            is not None
         ]  # newest first, as read
         return ProgressView(
             session_id=session_id,
