@@ -66,7 +66,7 @@
 {%- endmacro %}
 {#- One candidate's row button, or, as `keep`, "Keep my name". `how_id` is the ID of its how-to text, which the toggle controls, and `howto` what its line shows. -#}
 {% macro exercise_option(question, option, picture=none, keep=false, how_id=none, howto=none) -%}
-<button type="button" class="lg lg-clear lg-row{% if not keep %} items-start group-data-more/cand:pr-11 group-has-[.htmx-request]/cand:pr-11{% endif %}" hx-post="/clarifications/{{ question.id }}/answer" hx-vals='{{ {"option_ids": option.id} | tojson }}' hx-target="closest [data-choice-card]" hx-swap="outerHTML" hx-disable="[data-choice-card='{{ question.id }}'] button" hx-status:4xx="swap:none" data-choice-option="{{ option.id }}">
+<button type="button" class="lg lg-clear lg-row{% if not keep %} items-start group-data-more/cand:pr-11 group-has-[.htmx-request:not([data-picture-slot])]/cand:pr-11{% endif %}" hx-post="/clarifications/{{ question.id }}/answer" hx-vals='{{ {"option_ids": option.id} | tojson }}' hx-target="closest [data-choice-card]" hx-swap="outerHTML" hx-disable="[data-choice-card='{{ question.id }}'] button" hx-status:4xx="swap:none" data-choice-option="{{ option.id }}">
       {%- if keep %}
       <span class="flex flex-col flex-1 min-w-0"><span class="text-[16px] font-medium">{{ option_label(option) }}</span><span class="text-[13px] lbl-2">{{ option_hint(option) }}</span></span>
       {{ icon("chevron-right", "size-4 lbl-2") }}

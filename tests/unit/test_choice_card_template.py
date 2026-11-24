@@ -61,8 +61,10 @@ def test_howto_loader_targets_only_its_line() -> None:
     assert _ORIGINAL in html
     assert "group-[.htmx-request]/how:hidden" in html
     assert re.search(r'class="hidden group-\[\.htmx-request\]/how:flex[^"]*" role="status"', html)
-    # The row keeps room for the chevron while it loads, as the mock's loading frame does.
-    assert "group-has-[.htmx-request]/cand:pr-11" in button
+    # The row keeps room for the chevron while its how-to loads, as the mock's loading frame
+    # does; a picture slot loading in the same row (#643) leaves the padding alone.
+    assert "group-has-[.htmx-request:not([data-picture-slot])]/cand:pr-11" in button
+    assert "group-has-[.htmx-request]/cand:pr-11" not in button
 
 
 def test_short_version_carries_the_ai_mark_and_always_the_toggle() -> None:

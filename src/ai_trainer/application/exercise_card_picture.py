@@ -8,6 +8,7 @@ first write wins. Every call is the athlete's whose card asked, through the same
 Every fallback stores nothing and leaves the row text-only, so the next card tries again; its log
 line names the reason and the exercise ID only."""
 
+import asyncio
 import contextlib
 import hashlib
 import logging
@@ -87,6 +88,11 @@ class DrawCardPicture:
         self._limits = limits
         self._clock = clock
         self._model = model
+        # The price of each image call in flight, which has no `llm_calls` row yet: draws at
+        # once all read the same day's sum, so this holds the cap for them (one app process,
+        # as ADR-0029's budget assumes).
+        self._reserved = Decimal(0)
+        self._cap_lock = asyncio.Lock()
 
     @property
     def enabled(self) -> bool:
@@ -112,12 +118,25 @@ class DrawCardPicture:
         if isinstance(brief, CardPictureSkipped):
             return brief
         # The image is skipped when its price would take today's spend over the cap.
-        if await self._spent_today() + self._limits.price_usd > self._limits.daily_cap_usd:
+        if not await self._reserve_picture():
             return CardPictureSkipped(reason="daily_cap")
-        image = await self.ports.images.generate(user_id=user_id, prompt=brief.image_prompt)
+        try:
+            image = await self.ports.images.generate(user_id=user_id, prompt=brief.image_prompt)
+        finally:
+            # The call's row is written by now (or it was refused and costs nothing).
+            self._reserved -= self._limits.price_usd
         if isinstance(image, ImageGenerationFailed):
             return CardPictureSkipped(reason=_image_failure(image))
         return await self._store(exercise_id, image)
+
+    async def _reserve_picture(self) -> bool:
+        price = self._limits.price_usd
+        async with self._cap_lock:
+            spent = await self._spent_today()
+            if spent + self._reserved + price > self._limits.daily_cap_usd:
+                return False
+            self._reserved += price
+            return True
 
     async def _spent_today(self) -> Decimal:
         now = self._clock.now().astimezone(UTC)
@@ -164,6 +183,10 @@ class DrawCardPicture:
             await self.ports.storage.put(key, image.data, content_type=image.media_type)
         except ObjectStorageError:
             return CardPictureSkipped(reason="storage_error")
+        except BaseException:
+            # A request cancelled during the upload leaves no object without a row either.
+            await self._discard(key)
+            raise
         try:
             asset_id = await media.add_card_picture(asset, exercise_id, lang=_TEXT_LANG)
         except MediaRepositoryError:

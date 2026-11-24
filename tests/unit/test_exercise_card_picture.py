@@ -4,6 +4,7 @@ an `approved` link, under the athlete whose card asked. Every fallback stores no
 card tries again; a writer that loses the race discards its own object. Every port is a fake: no
 model is called."""
 
+import asyncio
 import hashlib
 from decimal import Decimal
 from uuid import UUID, uuid4
@@ -57,12 +58,12 @@ _BASE = "https://media.example.test"
 
 
 class _Card:
-    def __init__(self, *, enabled: bool = True) -> None:
+    def __init__(self, *, enabled: bool = True, images: FakeImages | None = None) -> None:
         self.media = FakeCardMedia(subjects={_EXERCISE: _SUBJECT})
         self.spend = FakeSpend()
         self.briefs = FakeBriefs()
         self.check = FakeCheck()
-        self.images = FakeImages()
+        self.images = images or FakeImages()
         self.bucket = InMemoryBucket()
         self.draw = DrawCardPicture(
             CardPicturePorts(
@@ -247,6 +248,70 @@ async def test_a_cancelled_write_discards_the_object() -> None:
         await card.draw.draw(user_id=_USER, exercise_id=_EXERCISE)
 
     assert card.bucket.objects == {}
+
+
+async def test_a_cancelled_upload_discards_the_object() -> None:
+    card = _Card()
+    put = card.bucket.put
+
+    async def cancelled(key: str, data: bytes, *, content_type: str) -> None:
+        await put(key, data, content_type=content_type)
+        raise KeyboardInterrupt
+
+    card.bucket.put = cancelled  # type: ignore[method-assign]  # scripted failure
+
+    with pytest.raises(KeyboardInterrupt):
+        await card.draw.draw(user_id=_USER, exercise_id=_EXERCISE)
+
+    assert card.bucket.objects == {}
+    assert card.media.adds == []
+
+
+class _HeldImages(FakeImages):
+    """Holds every image call until `release` is set, as a slow upstream would."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.release = asyncio.Event()
+
+    async def generate(
+        self, *, user_id: UUID, prompt: str
+    ) -> GeneratedImage | ImageGenerationFailed:
+        self.calls.append((user_id, prompt))
+        await self.release.wait()
+        return self.reply
+
+
+async def test_draws_in_flight_reserve_the_picture_price_against_the_cap() -> None:
+    """Two cards drawing at once read the same day's sum before either image has a row; the
+    first image's price is held for it, so the second stops at the cap instead of passing it."""
+    held = _HeldImages()
+    card = _Card(images=held)
+    card.spend.spent = [_CAP - _PRICE - _PRICE / 2]
+
+    first = asyncio.create_task(card.draw.draw(user_id=_USER, exercise_id=_EXERCISE))
+    await asyncio.sleep(0)
+    try:
+        second = await asyncio.wait_for(
+            card.draw.draw(user_id=_USER, exercise_id=_EXERCISE), timeout=1
+        )
+    finally:
+        held.release.set()
+    await first
+
+    assert second == CardPictureSkipped(reason="daily_cap")
+    assert len(held.calls) == 1
+
+
+async def test_the_reserved_price_is_released_after_the_image_call() -> None:
+    card = _Card()
+    card.spend.spent = [_CAP - _PRICE - _PRICE / 2]
+    card.images.reply = ImageGenerationFailed(reason="error")
+
+    await card.draw.draw(user_id=_USER, exercise_id=_EXERCISE)
+    await card.draw.draw(user_id=_USER, exercise_id=_EXERCISE)
+
+    assert len(card.images.calls) == 2
 
 
 async def test_next_card_retries_after_fallback() -> None:
