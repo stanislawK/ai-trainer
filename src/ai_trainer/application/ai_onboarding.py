@@ -13,8 +13,11 @@ from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from ai_trainer.application.background_reads import BackgroundReads
+from ai_trainer.application.feedback import FeedbackRecorder
+from ai_trainer.application.goal_kind_overrides import overridden_kinds, record_overridden_kinds
 from ai_trainer.application.onboarding import timezone_names
 from ai_trainer.application.ports.clock import ClockPort
+from ai_trainer.application.ports.draft_settling import DecisionRef
 from ai_trainer.application.ports.onboarding import OnboardingAnswersPort, OnboardingReaderPort
 from ai_trainer.domain.athlete_profile import (
     AboutYou,
@@ -337,12 +340,16 @@ async def confirm_summary(
     sport_forms: Mapping[str, SportForm] | None = None,
     answers: OnboardingAnswersPort,
     clock: ClockPort,
+    feedback: FeedbackRecorder | None = None,
+    kind_decision: DecisionRef | None = None,
 ) -> None:
     """Validates the edited summary and, in one transaction, writes the profile, each sport's
     profile and goals, the sports, the timezone and `onboarded_at`, and deletes the answers
     (B35, B36). Only the athlete's own sports are read from `sport_forms`, and a sport's
     problems are named `<sport_id>.<field>`. The age becomes a birth year in the athlete's own
-    year. Any bad field raises `InvalidSummaryError` and writes nothing."""
+    year. Any bad field raises `InvalidSummaryError` and writes nothing. A goal whose kind the
+    athlete changed from Jev's pick records one content-free `decision_overridden` event once the
+    write succeeded (ADR-0034, #628)."""
     zone = form.get("timezone", "").strip()
     parsed = parse_about_you(form)
     problems: dict[str, FieldProblem] = dict(parsed) if isinstance(parsed, dict) else {}
@@ -358,6 +365,7 @@ async def confirm_summary(
             days=typed.days,
             goal_texts=typed.goal_texts,
             goal_dates=typed.goal_dates,
+            goal_kinds=typed.goal_kinds,
         )
         if isinstance(section, dict):
             problems.update({f"{sport_id}.{field}": p for field, p in section.items()})
@@ -365,6 +373,13 @@ async def confirm_summary(
             sections[sport_id] = section
     if problems or isinstance(parsed, dict):
         raise InvalidSummaryError(problems)
+    stored = await answers.list_answers(user_id)
+    overridden = sum(
+        overridden_kinds(
+            _sport_summary(sport_id, stored).section, (sport_forms or {}).get(sport_id, SportForm())
+        )
+        for sport_id in sports
+    )
     now = clock.now()
     sport_profiles: dict[str, SportProfile] = {
         sport_id: section.profile for sport_id, section in sections.items()
@@ -378,3 +393,5 @@ async def confirm_summary(
         timezone=zone,
         when=now,
     )
+    if feedback is not None and kind_decision is not None:
+        await record_overridden_kinds(feedback, kind_decision, user_id, overridden)

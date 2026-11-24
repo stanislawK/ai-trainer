@@ -16,6 +16,7 @@ from ai_trainer.application.ai_onboarding import (
 )
 from ai_trainer.application.onboarding import timezone_names
 from ai_trainer.domain.athlete_profile import MAX_LIMITS_LENGTH, FieldProblem
+from ai_trainer.domain.goals import GoalKind
 from ai_trainer.domain.sport_profile import (
     MAX_EXERCISES_LENGTH,
     MAX_GOAL_LENGTH,
@@ -53,6 +54,7 @@ def _shown_form(section: SportSection) -> SportForm:
         goal_texts=tuple(goal.text for goal in goals) or ("",),
         goal_dates=tuple(goal.target_date.isoformat() if goal.target_date else "" for goal in goals)
         or ("",),
+        goal_kinds=tuple(goal.kind.value if goal.kind else "" for goal in goals) or ("",),
     )
 
 
@@ -62,14 +64,21 @@ def _typed_form(form: FormData, sport_id: str) -> SportForm:
             value for value in form.getlist(f"{sport_id}.{name}") if isinstance(value, str)
         )
 
+    goal_texts = all_of("goal_text") or ("",)
     return SportForm(
         fields={
             field: value if isinstance(value := form.get(f"{sport_id}.{field}", ""), str) else ""
             for field in _SPORT_FIELDS
         },
         days=all_of("days"),
-        goal_texts=all_of("goal_text") or ("",),
+        goal_texts=goal_texts,
         goal_dates=all_of("goal_date") or ("",),
+        # One radio group per goal, `<sport>.goal_kind.<n>`, so a goal with no pick posts nothing
+        # and the others keep their place.
+        goal_kinds=tuple(
+            value if isinstance(value := form.get(f"{sport_id}.goal_kind.{n}", ""), str) else ""
+            for n in range(len(goal_texts))
+        ),
     )
 
 
@@ -115,6 +124,7 @@ class _SummaryRoutes:
             "max_goal": MAX_GOAL_LENGTH,
             "max_level": MAX_LEVEL_LENGTH,
             "max_exercises": MAX_EXERCISES_LENGTH,
+            "goal_kinds": tuple(GoalKind),
         }
 
     async def summary_page(self, request: Request) -> Response:
@@ -164,7 +174,13 @@ class _SummaryRoutes:
         }
         try:
             await confirm_summary(
-                user.id, typed, sport_forms=sport_forms, answers=ctx.answers, clock=ctx.clock
+                user.id,
+                typed,
+                sport_forms=sport_forms,
+                answers=ctx.answers,
+                clock=ctx.clock,
+                feedback=ctx.feedback,
+                kind_decision=ctx.goal_kind_decision,
             )
         except InvalidSummaryError as exc:
             summary = await summary_of(user.id, answers=ctx.answers, timezone=user.timezone)

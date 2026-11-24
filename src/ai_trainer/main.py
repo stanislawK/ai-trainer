@@ -125,7 +125,7 @@ from ai_trainer.application.pmc_source_file import PmcSourceFile
 from ai_trainer.application.ports.clock import ClockPort
 from ai_trainer.application.ports.conversation import ConversationModelPort
 from ai_trainer.application.ports.decision_gateway import DecisionGatewayPort
-from ai_trainer.application.ports.draft_settling import DraftSettlerPort
+from ai_trainer.application.ports.draft_settling import DecisionRef, DraftSettlerPort
 from ai_trainer.application.ports.embeddings import QueryEmbeddingPort
 from ai_trainer.application.ports.exercises import ExerciseNamesPort
 from ai_trainer.application.ports.llm_calls import LlmCallsRepositoryPort
@@ -153,7 +153,7 @@ from ai_trainer.llm.decision_gateway import OpenRouterDecisionGateway
 from ai_trainer.llm.embeddings import OpenRouterEmbeddingGateway
 from ai_trainer.llm.exercise_shortlist import JevExercisePicker
 from ai_trainer.llm.gateway import OpenRouterGateway
-from ai_trainer.llm.goal_kind import JevGoalKind
+from ai_trainer.llm.goal_kind import GOAL_KIND_ID, GOAL_KIND_VERSION, JevGoalKind
 from ai_trainer.llm.images import PICTURE_TEMPLATE_ID, OpenRouterImageGenerator
 from ai_trainer.llm.onboarding import LlmOnboardingReader
 from ai_trainer.llm.picture_brief import PICTURE_BRIEF_TEMPLATE_ID, LlmPictureBriefWriter
@@ -1189,6 +1189,8 @@ def create_app(  # noqa: PLR0915 -- composition root: objects are built only her
                 settings, sport_registry, gateway, clock, decisions=decisions
             ),
             clock=clock,
+            feedback=feedback,
+            goal_kind_decision=DecisionRef(GOAL_KIND_ID, GOAL_KIND_VERSION, ("kind",)),
         )
     )
     app.include_router(

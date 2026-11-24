@@ -10,7 +10,9 @@ from starlette.templating import Jinja2Templates
 
 from ai_trainer.application.ai_onboarding import OnboardingCard, Place, current_card, flow_of
 from ai_trainer.application.background_reads import BackgroundReads
+from ai_trainer.application.feedback import FeedbackRecorder
 from ai_trainer.application.ports.clock import ClockPort
+from ai_trainer.application.ports.draft_settling import DecisionRef
 from ai_trainer.application.ports.onboarding import OnboardingAnswersPort, OnboardingReaderPort
 from ai_trainer.domain.sports.registry import SportRegistry
 from ai_trainer.domain.users import User
@@ -54,6 +56,8 @@ class OnboardingContext:
     reads: BackgroundReads
     reader: OnboardingReaderPort
     clock: ClockPort
+    feedback: FeedbackRecorder | None = None
+    goal_kind_decision: DecisionRef | None = None
 
     def render(
         self, request: Request, page: str, context: Mapping[str, object], *, status_code: int = 200

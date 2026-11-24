@@ -267,3 +267,30 @@ def test_a_goal_without_a_date_has_none() -> None:
 
     assert isinstance(section, SportSection)
     assert section.goals == (Goal(text="Squat 120 kg", sport_id="gym"),)
+
+
+def test_a_typed_goal_kind_lands_on_its_goal() -> None:
+    section = parse_sport_section(
+        "gym",
+        _typed(),
+        days=[],
+        goal_texts=["Touch my toes", "Squat 100 kg"],
+        goal_dates=["", ""],
+        goal_kinds=["mobility", ""],
+    )
+
+    assert isinstance(section, SportSection)
+    assert [goal.kind for goal in section.goals] == [GoalKind.MOBILITY, None]
+
+
+def test_an_unknown_goal_kind_is_a_problem() -> None:
+    problems = parse_sport_section(
+        "gym",
+        _typed(),
+        days=[],
+        goal_texts=["Touch my toes"],
+        goal_dates=[""],
+        goal_kinds=["flexibility"],
+    )
+
+    assert problems == {"goal_kind.0": FieldProblem.OUT_OF_RANGE}
