@@ -154,10 +154,10 @@ def test_extraction_needs_at_least_one_exercise() -> None:
         _extraction(activities=[])
 
 
-def test_payload_is_version_six_and_tagged_gym() -> None:
+def test_payload_is_version_seven_and_tagged_gym() -> None:
     """A v3 document, which has no `jev_pick`, reads as it is with the flag off (#399), and a v4
     one, which has no `candidate_scores`, with no scores (#579)."""
-    assert GYM_PAYLOAD_VERSION == 6
+    assert GYM_PAYLOAD_VERSION == 7
     payload = GymPayload.model_validate(
         {"activities": [{"name_as_typed": "pull-ups", "measure": "reps", "sets": [{"reps": 8}]}]}
     )
@@ -182,11 +182,102 @@ def test_payload_is_version_six_and_tagged_gym() -> None:
                         "duration_s": None,
                         "distance_m": None,
                         "band_label": None,
+                        "incline_pct": None,
+                        "machine_level": None,
+                        "watts": None,
                     }
                 ],
             }
         ],
     }
+
+
+_V5_TREADMILL: dict[str, Any] = {
+    "sport": "gym",
+    "activities": [
+        {
+            "exercise_id": None,
+            "keep_name": False,
+            "jev_pick": False,
+            "candidate_scores": {},
+            "name_as_typed": "treadmill",
+            "measure": "time",
+            "per_side": False,
+            "implements": None,
+            "rir": None,
+            "sets": [
+                {
+                    "reps": None,
+                    "load": None,
+                    "duration_s": 1200,
+                    "distance_m": None,
+                    "band_label": None,
+                }
+            ],
+        }
+    ],
+}
+# A v6 draft (#626) is the same shape as a v5 one: neither knows a machine setting.
+_V6_ROWER: dict[str, Any] = {
+    **_V5_TREADMILL,
+    "activities": [
+        {
+            **_V5_TREADMILL["activities"][0],
+            "name_as_typed": "rower",
+            "measure": "distance_time",
+            "sets": [{"duration_s": 470, "distance_m": 2000.0, "band_label": None}],
+        }
+    ],
+}
+
+
+@pytest.mark.parametrize("stored", [_V5_TREADMILL, _V6_ROWER], ids=["v5", "v6"])
+def test_a_v5_and_v6_draft_read_with_no_machine_settings(stored: dict[str, Any]) -> None:
+    """A draft written before machine settings (B44, #630) reads as it was, with incline, level
+    and watts empty, and reads the same again once written back (ADR-0022 invariant 4)."""
+    payload = GymPayload.model_validate(stored)
+
+    (gym_set,) = payload.activities[0].sets
+    assert (gym_set.incline_pct, gym_set.machine_level, gym_set.watts) == (None, None, None)
+    assert payload.activities[0].measure == stored["activities"][0]["measure"]
+    assert GymPayload.model_validate(payload.model_dump(mode="json")) == payload
+
+
+@pytest.mark.parametrize(
+    "fields",
+    [
+        {"incline_pct": 40.1},
+        {"incline_pct": -10.1},
+        {"machine_level": 0},
+        {"machine_level": 51},
+        {"watts": 0},
+        {"watts": 2001},
+    ],
+)
+def test_a_machine_setting_out_of_range_is_refused(fields: dict[str, Any]) -> None:
+    """The bounds of ADR-0032's CHECKs (#618 amendment): incline -10 to 40 %, level 1 to 50,
+    watts 1 to 2000."""
+    with pytest.raises(ValidationError):
+        GymSet.model_validate(fields)
+
+
+def test_machine_settings_alone_hold_no_measure() -> None:
+    """A set with only incline, level or watts counts as blank (ADR-0032 #618 amendment), so
+    the first set with a measure decides, and a later timed distance still upcasts."""
+    payload = GymPayload.model_validate(
+        {
+            "activities": [
+                {
+                    "name_as_typed": "rower",
+                    "measure": "time",
+                    "sets": [{"watts": 150}, {"distance_m": 2000, "duration_s": 470}],
+                }
+            ]
+        }
+    )
+
+    assert payload.activities[0].measure == "distance_time"
+    assert GymSet(incline_pct=-10, machine_level=50, watts=2000).incline_pct == -10
 
 
 def test_a_v1_exercise_reads_as_v2() -> None:
@@ -529,3 +620,9 @@ def test_a_set_timed_in_hours_is_kept_in_seconds() -> None:
     (entry,) = _extraction(activities=[_timed("spin class", 1, "h")]).to_payload().activities
 
     assert [gym_set.duration_s for gym_set in entry.sets] == [3600]
+
+
+@pytest.mark.parametrize(("typed", "kept"), [(5.55, 5.6), (2.04, 2.0), (-9.96, -10.0)])
+def test_an_incline_is_kept_to_the_one_decimal_gym_sets_holds(typed: float, kept: float) -> None:
+    # `gym_sets.incline_pct` is numeric(4,1): the draft shows what the row will hold (#630).
+    assert GymSet(incline_pct=typed).incline_pct == kept

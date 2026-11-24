@@ -1,21 +1,25 @@
-{#- A gym payload's exercises as edit fields (tickets #159, #398 and #516; Gym Measures mock, layout B): one group per exercise with an `lg-field` name and an `lg-select` measure, Each side, Implements and RIR, then one row per set with `lg-field`s labelled by the measure (reps, kg, s, m or band), a remove control, and an Add set control, so one set of a pyramid can be corrected. A blank field stays blank and is saved as nothing, never 0. A load left as shown keeps what was typed (pounds); a changed one is in kg. Time is in seconds and distance in metres. A distance with its time (#626) shows the first set's pace under its sets, worked out from the stored values, or says it needs both; `static/js/gym_sets.js` shows that note only while the measure is distance and time. Every set's five fields are posted, the ones the measure doesn't use hidden, so a value the athlete didn't touch is kept; `static/js/gym_sets.js` shows and hides them when the measure changes, and adds and removes rows from the `<template>` (its set index is `__set__`). The chat's draft edit (`partials/chat/edit_gym.html`) and History's edit (`partials/history/edit.html`) share it: History shows the name as text and never posts it (`name_editable` false, `labels` naming the settled entries), since renaming stays with the chat's exercise card (B37, #516). `values` is what was typed, `errors` the rejected field names, `prefix` the ID that keeps one form's hint IDs apart from another's. -#}
+{#- A gym payload's exercises as edit fields (tickets #159, #398 and #516; Gym Measures mock, layout B): one group per exercise with an `lg-field` name and an `lg-select` measure, Each side, Implements and RIR, then one row per set with `lg-field`s labelled by the measure (reps, kg, s, m or band), a remove control, and an Add set control, so one set of a pyramid can be corrected. A blank field stays blank and is saved as nothing, never 0. A load left as shown keeps what was typed (pounds); a changed one is in kg. Time is in seconds and distance in metres; a machine measure (time, distance, or both) also shows each set's Incline (%), Level and Power (W) (#630, Gym Measures v2's labels, kept in set rows). A distance with its time (#626) shows the first set's pace under its sets, worked out from the stored values, or says it needs both; `static/js/gym_sets.js` shows that note only while the measure is distance and time. Every set's fields are posted, the ones the measure doesn't use hidden, so a value the athlete didn't touch is kept; `static/js/gym_sets.js` shows and hides them when the measure changes, and adds and removes rows from the `<template>` (its set index is `__set__`). The chat's draft edit (`partials/chat/edit_gym.html`) and History's edit (`partials/history/edit.html`) share it: History shows the name as text and never posts it (`name_editable` false, `labels` naming the settled entries), since renaming stays with the chat's exercise card (B37, #516). `values` is what was typed, `errors` the rejected field names, `prefix` the ID that keeps one form's hint IDs apart from another's. -#}
 {%- from "components/gym_copy.html" import kg_value, exercise_name, pace -%}
 {%- from "components/draft_field.html" import field_value, field_error, error_hint -%}
 {%- from "components/icon.html" import icon -%}
 {%- set measures = {
   "load_reps": {"label": "Reps and load", "shows": ["reps", "load"]},
   "reps": {"label": "Reps", "shows": ["reps"]},
-  "time": {"label": "Time", "shows": ["duration", "load"]},
-  "distance": {"label": "Distance", "shows": ["distance", "load"]},
-  "distance_time": {"label": "Distance and time", "shows": ["duration", "distance", "load"]},
+  "time": {"label": "Time", "shows": ["duration", "load", "incline", "level", "watts"]},
+  "distance": {"label": "Distance", "shows": ["distance", "load", "incline", "level", "watts"]},
+  "distance_time": {"label": "Distance and time", "shows": ["duration", "distance", "load", "incline", "level", "watts"]},
   "band_reps": {"label": "Reps with a band", "shows": ["reps", "band"]},
 } -%}
+{#- (field, label, input mode, error text, lowest value); a text field has no lowest value. -#}
 {%- set set_fields = [
-  ("reps", "Reps", "numeric", "Enter reps, 1 or more."),
-  ("load", "kg", "decimal", "Enter a load in kg above 0."),
-  ("duration", "s", "numeric", "Enter seconds, up to 86400."),
-  ("distance", "m", "decimal", "Enter metres, up to 9999999.9."),
-  ("band", "Band", "text", "Enter the band's name."),
+  ("reps", "Reps", "numeric", "Enter reps, 1 or more.", 0),
+  ("load", "kg", "decimal", "Enter a load in kg above 0.", 0),
+  ("duration", "s", "numeric", "Enter seconds, up to 86400.", 0),
+  ("distance", "m", "decimal", "Enter metres, up to 9999999.9.", 0),
+  ("band", "Band", "text", "Enter the band's name.", none),
+  ("incline", "Incline (%)", "decimal", "Enter an incline from -10 to 40 %.", -10),
+  ("level", "Level", "numeric", "Enter a level from 1 to 50.", 1),
+  ("watts", "Power (W)", "numeric", "Enter power from 1 to 2000 W.", 1),
 ] -%}
 {#- One set's row. `gym_set` is none for a set the athlete added; `index` is its position, or `__set__` in the template. -#}
 {% macro set_row(row, index, gym_set, shown, values, errors, draft_id, only) -%}
@@ -26,19 +30,22 @@
     "duration": gym_set.duration_s if gym_set else none,
     "distance": kg_value(gym_set.distance_m) if gym_set and gym_set.distance_m is not none else none,
     "band": gym_set.band_label if gym_set else none,
+    "incline": kg_value(gym_set.incline_pct) if gym_set and gym_set.incline_pct is not none else none,
+    "level": gym_set.machine_level if gym_set else none,
+    "watts": gym_set.watts if gym_set else none,
   } %}
   <div class="flex flex-wrap items-end gap-2" data-set-row>
     <span class="w-6 shrink-0 pb-3 text-[12px] text-base-content/70 tabular-nums" data-set-number>{{ index + 1 if index is number else "" }}</span>
-    {%- for field, label, mode, message in set_fields %}
+    {%- for field, label, mode, message, lowest in set_fields %}
     <label class="flex flex-col gap-1 flex-1 min-w-16{% if field not in shown %} hidden{% endif %}" data-field="{{ field }}">
       <span class="text-[12px] text-base-content/70">{{ label }}</span>
-      <input type="{{ 'text' if field == 'band' else 'number' }}" name="{{ prefix }}{{ field }}" inputmode="{{ mode }}"{% if field != 'band' %} min="0"{% if mode == 'decimal' %} step="any"{% endif %}{% endif %} class="lg-field tabular-nums" value="{{ field_value(prefix ~ field, values, stored[field]) }}"{{ field_error(prefix ~ field, errors, draft_id) }}>
+      <input type="{{ 'text' if field == 'band' else 'number' }}" name="{{ prefix }}{{ field }}" inputmode="{{ mode }}"{% if lowest is not none %} min="{{ lowest }}"{% if mode == 'decimal' %} step="any"{% endif %}{% endif %} class="lg-field tabular-nums" value="{{ field_value(prefix ~ field, values, stored[field]) }}"{{ field_error(prefix ~ field, errors, draft_id) }}>
     </label>
     {%- endfor %}
     {#- Which stored set this row came from, so a set removed above it doesn't pair it with another; blank for a set the athlete added. -#}
     <input type="hidden" name="{{ prefix }}src" value="{{ field_value(prefix ~ 'src', values, index if gym_set else none) }}">
     <button type="button" class="lg lg-ghost lg-icon lg-sm shrink-0 mb-1" data-remove-set aria-label="Remove set{% if index is number %} {{ index + 1 }}{% endif %}"{% if only %} disabled{% endif %}><span class="absolute -inset-x-px -inset-y-1" aria-hidden="true"></span>{{ icon("x", "size-4") }}</button>
-    {%- for field, label, mode, message in set_fields %}
+    {%- for field, label, mode, message, lowest in set_fields %}
     {% call error_hint(prefix ~ field, errors, draft_id) %}{{ message }}{% endcall %}
     {%- endfor %}
   </div>

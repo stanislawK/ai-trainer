@@ -397,3 +397,63 @@ async def test_list_and_session_lines_show_the_pace_of_a_timed_distance(
 
     assert "2000 m in 7:50 · 1:57.5 /500 m" in listed
     assert "2000 m in 7:50 · 1:57.5 /500 m" in session
+
+
+async def _machine_session(
+    factory: Callable[[], AsyncSession], user: User, name: str, gym_set: GymSetOrm
+) -> UUID:
+    """A gym session of one timed machine entry holding `gym_set` (#630)."""
+    opened = await _session(
+        factory, user, date(2026, 11, 24), datetime(2026, 11, 24, 17, 40, tzinfo=UTC),
+        {name: []},
+    )  # fmt: skip
+    async with factory() as db:
+        entry = (
+            await db.execute(
+                select(GymExerciseEntryOrm).where(
+                    GymExerciseEntryOrm.session_id == opened,
+                    GymExerciseEntryOrm.user_id == user.id,
+                )
+            )
+        ).scalar_one()
+        entry.measure = "time"
+        gym_set.user_id, gym_set.entry_id, gym_set.set_no = user.id, entry.id, 1
+        db.add(gym_set)
+        await db.commit()
+    return opened
+
+
+async def test_history_shows_a_sets_incline(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    """A treadmill set with incline 5 reads "incline 5 %" on the History list and in the
+    session (PRD 0013 B44, ticket #630)."""
+    user = await _user(db_session_factory)
+    opened = await _machine_session(
+        db_session_factory, user, "treadmill",
+        GymSetOrm(duration_s=1200, incline_pct=Decimal("5.0")),
+    )  # fmt: skip
+    client = _client(db_session_factory, user)
+
+    listed = client.get("/history").text
+    session = client.get(f"/history/{opened}").text
+
+    assert " · incline 5 %" in listed
+    assert " · incline 5 %" in session
+
+
+async def test_history_shows_watts_and_level_in_the_mock_order(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    """A bike set reads "150 W · level 6" as Gym Measures v2 draws it, and a setting not given
+    (incline) isn't shown."""
+    user = await _user(db_session_factory)
+    opened = await _machine_session(
+        db_session_factory, user, "bike", GymSetOrm(duration_s=1800, watts=150, machine_level=6)
+    )
+    client = _client(db_session_factory, user)
+
+    session = client.get(f"/history/{opened}").text
+
+    assert " · 150 W · level 6" in session
+    assert "incline" not in session

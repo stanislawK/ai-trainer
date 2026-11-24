@@ -1,4 +1,4 @@
-{#- User-facing gym formats (G5), shared by the gym draft card, its edit fields and its logged card (tickets #159 and #398). Import with `{% from "components/gym_copy.html" import exercise_name, kg, kg_value, done, exercise_blocks %}`. A name keeps how it was typed but starts upper case ("Squat", "RDL"); a load shows in kg to one decimal ("142.9", "100"). `done` is the one line of what was done (Gym Measures mock, layout B, ticket #398): sets that are all alike read "3 × 12", "3 × 12 each side", "3 × 45 s", "2 × 40 m", "4 sets" or, for one set, "12 reps" and "45 s", then the band ("red band"), the load ("60 kg", and "2 × 6 kg" for two implements, so it can't be read as a rep count) and RIR, joined by " · "; sets that differ read one by one, "10 @ 60 kg · 8 @ 70 kg · 6 @ 80 kg", where "@" is reps at a load. A value the athlete didn't give is left out, never shown as 0. `exercise_blocks` is the card's body: one block per exercise, split by a rule, with its name, that line, and what was typed when a load was in pounds. `gym_readings` is the copy of a reading question's options (ticket #206), keyed by their `copy_key`: `{movement}` is a movement the exercise name may mean, and `{load}` the load as typed without its unit. The exercise question's options (tickets #397 and #402) share it: `{name}` is a candidate's name, and its how-to text is the exercise card's own line. The band-order question's options (ticket #431) share it: `{order}` is the bands lightest first as they would read after the pick, `{lighter}` and `{heavier}` the neighbours it sits between, and `{band}` the band a narrowing step splits at. A settled entry shows by its `labels` entry (F23, #402): the exercise's name, then, on the draft only (`lines`), "you wrote: …" or "you usually log this as …". -#}
+{#- User-facing gym formats (G5), shared by the gym draft card, its edit fields and its logged card (tickets #159 and #398). Import with `{% from "components/gym_copy.html" import exercise_name, kg, kg_value, done, exercise_blocks %}`. A name keeps how it was typed but starts upper case ("Squat", "RDL"); a load shows in kg to one decimal ("142.9", "100"). `done` is the one line of what was done (Gym Measures mock, layout B, ticket #398): sets that are all alike read "3 × 12", "3 × 12 each side", "3 × 45 s", "2 × 40 m", "4 sets" or, for one set, "12 reps" and "45 s", then the band ("red band"), the load ("60 kg", and "2 × 6 kg" for two implements, so it can't be read as a rep count), a machine's settings ("150 W · level 6 · incline 5 %", Gym Measures v2, #630) and RIR, joined by " · "; sets that differ read one by one, "10 @ 60 kg · 8 @ 70 kg · 6 @ 80 kg", where "@" is reps at a load, each with its pace and settings in brackets, "500 m in 1:45 (1:45 /500 m, 150 W)". A value the athlete didn't give is left out, never shown as 0. `exercise_blocks` is the card's body: one block per exercise, split by a rule, with its name, that line, and what was typed when a load was in pounds. `gym_readings` is the copy of a reading question's options (ticket #206), keyed by their `copy_key`: `{movement}` is a movement the exercise name may mean, and `{load}` the load as typed without its unit. The exercise question's options (tickets #397 and #402) share it: `{name}` is a candidate's name, and its how-to text is the exercise card's own line. The band-order question's options (ticket #431) share it: `{order}` is the bands lightest first as they would read after the pick, `{lighter}` and `{heavier}` the neighbours it sits between, and `{band}` the band a narrowing step splits at. A settled entry shows by its `labels` entry (F23, #402): the exercise's name, then, on the draft only (`lines`), "you wrote: …" or "you usually log this as …". -#}
 {% set gym_readings = {
   "gym_reading_movement": {"label": "{movement}", "hint": ""},
   "gym_reading_kg": {"label": "Kilograms", "hint": "{load} kg"},
@@ -45,6 +45,15 @@
 {%- if gym_set.load -%}{% if exercise.implements and exercise.implements > 1 %}{{ exercise.implements }} × {% endif %}{{ kg(gym_set.load.kg) }} kg{%- endif -%}
 {%- endmacro %}
 
+{#- A set's machine settings as Gym Measures v2 draws them (B44, #630): "150 W", "level 6", "incline 5 %", in that order, joined by `sep`; one not given is left out, and an incline of 0 was given. Empty with none. -#}
+{% macro settings_text(gym_set, sep=" · ") -%}
+{%- set given = [] -%}
+{%- if gym_set.watts is not none -%}{%- set _ = given.append(gym_set.watts ~ " W") -%}{%- endif -%}
+{%- if gym_set.machine_level is not none -%}{%- set _ = given.append("level " ~ gym_set.machine_level) -%}{%- endif -%}
+{%- if gym_set.incline_pct is not none -%}{%- set _ = given.append("incline " ~ ("%g" | format(gym_set.incline_pct)) ~ " %") -%}{%- endif -%}
+{{ given | join(sep) }}
+{%- endmacro %}
+
 {#- The line of what was done, empty when the log gave nothing. -#}
 {#- `names` are the exercise's other names (its canonical one), which with the typed one pick the pace's split; `with_pace` leaves the pace out where a column shows it; `clock` reads seconds as "7:50". -#}
 {% macro done(exercise, names=[], with_pace=true, clock=false) -%}
@@ -77,13 +86,16 @@
   {%- if first.band_label -%}{%- set _ = parts.append(first.band_label ~ " band") -%}{%- endif -%}
   {%- set load = load_text(exercise, first) | trim -%}
   {%- if load -%}{%- set _ = parts.append(load) -%}{%- endif -%}
+  {%- set settings = settings_text(first) | trim -%}
+  {%- if settings -%}{%- set _ = parts.append(settings) -%}{%- endif -%}
 {%- else -%}
   {%- for gym_set in sets -%}
     {%- set number = quantity(gym_set, split, clock) | trim -%}
     {%- set load = load_text(exercise, gym_set) | trim -%}
     {%- set item = (number ~ " @ " ~ load) if number and load else (number or load) -%}
     {%- set item_pace = (pace(gym_set, split) | trim) if with_pace else "" -%}
-    {%- if item_pace -%}{%- set item = item ~ " (" ~ item_pace ~ ")" -%}{%- endif -%}
+    {%- set aside = [item_pace, settings_text(gym_set, ", ") | trim] | select | join(", ") -%}
+    {%- if aside -%}{%- set item = ((item ~ " ") if item else "") ~ "(" ~ aside ~ ")" -%}{%- endif -%}
     {%- if gym_set.band_label -%}{%- set item = ((item ~ " ") if item else "") ~ gym_set.band_label ~ " band" -%}{%- endif -%}
     {%- if item -%}{%- set _ = parts.append(item) -%}{%- endif -%}
   {%- endfor -%}

@@ -186,7 +186,7 @@ async def test_5x5_squat_then_3_sets_of_pull_ups_ends_with_a_gym_card_of_both() 
     assert _text(squat) == f"Squat 5 {_TIMES} 5 · 100 kg"
     assert _text(pull_ups) == "Pull-ups 3 sets"
     (stored,) = drafts.all_of(user_id)
-    assert (stored.sport_id, stored.payload_version) == ("gym", 6)
+    assert (stored.sport_id, stored.payload_version) == ("gym", 7)
 
 
 async def test_a_typed_pyramid_ends_with_one_bench_block_on_the_card() -> None:
@@ -490,6 +490,172 @@ async def test_done_line_shows_pace_for_distance_and_time(
 
 
 @pytest.mark.parametrize(
+    ("name", "sets", "shown"),
+    [
+        (
+            "treadmill",
+            [{"duration_s": 1200, "incline_pct": 5}],
+            "Treadmill 1200 s · incline 5 %",
+        ),
+        # Gym Measures v2's order: the main number, then W, level and incline.
+        (
+            "treadmill",
+            [{"duration_s": 1200, "machine_level": 8, "incline_pct": 5}],
+            "Treadmill 1200 s · level 8 · incline 5 %",
+        ),
+        (
+            "bike",
+            [{"duration_s": 1800, "watts": 150, "machine_level": 6}] * 2,
+            f"Bike 2 {_TIMES} 1800 s · 150 W · level 6",
+        ),
+        (
+            "rower",
+            [{"distance_m": 2000, "duration_s": 470, "watts": 190}],
+            "Rower 2000 m in 7:50 · 1:57.5 /500 m · 190 W",
+        ),
+        # Sets that differ carry their own settings, after the pace.
+        (
+            "rower",
+            [
+                {"distance_m": 500, "duration_s": 105, "watts": 150},
+                {"distance_m": 500, "duration_s": 110},
+            ],
+            "Rower 500 m in 1:45 (1:45 /500 m, 150 W) · 500 m in 1:50 (1:50 /500 m)",
+        ),
+        (
+            "treadmill",
+            [{"duration_s": 600, "incline_pct": 2.5}, {"duration_s": 600, "incline_pct": -1}],
+            "Treadmill 600 s (incline 2.5 %) · 600 s (incline -1 %)",
+        ),
+    ],
+)
+async def test_logged_card_shows_incline_after_the_time(
+    name: str, sets: list[JsonValue], shown: str
+) -> None:
+    """A machine's settings on one line after what was done (B44, #630, Gym Measures v2), on the
+    draft card and the logged card."""
+    client, user_id, chat, drafts = _client()
+    payload: dict[str, JsonValue] = {
+        "sport": "gym",
+        "activities": [{"name_as_typed": name, "measure": "time", "sets": sets}],
+    }
+    draft = await _pending(chat, drafts, user_id, payload)
+
+    (row,) = _exercises(_card(client.get(f"/drafts/{draft.id}", headers=_HTMX).text))
+    logged = _text(client.post(f"/drafts/{draft.id}/confirm", headers=_HTMX).text)
+
+    assert _text(row) == shown
+    assert shown in logged
+
+
+async def test_a_set_without_machine_settings_shows_none_of_them() -> None:
+    client, user_id, chat, drafts = _client()
+    payload: dict[str, JsonValue] = {
+        "sport": "gym",
+        "activities": [
+            {"name_as_typed": "treadmill", "measure": "time", "sets": [{"duration_s": 1200}]}
+        ],
+    }
+    draft = await _pending(chat, drafts, user_id, payload)
+
+    (row,) = _exercises(_card(client.get(f"/drafts/{draft.id}", headers=_HTMX).text))
+
+    assert _text(row) == "Treadmill 1200 s"
+    for word in ("incline", "level", " W", "%"):
+        assert word not in _text(row)
+
+
+async def test_a_given_zero_incline_is_shown() -> None:
+    """A flat treadmill is a real value: incline 0 was given, so it shows (B44)."""
+    client, user_id, chat, drafts = _client()
+    payload: dict[str, JsonValue] = {
+        "sport": "gym",
+        "activities": [
+            {
+                "name_as_typed": "treadmill",
+                "measure": "time",
+                "sets": [{"duration_s": 1200, "incline_pct": 0}],
+            }
+        ],
+    }
+    draft = await _pending(chat, drafts, user_id, payload)
+
+    (row,) = _exercises(_card(client.get(f"/drafts/{draft.id}", headers=_HTMX).text))
+
+    assert _text(row) == "Treadmill 1200 s · incline 0 %"
+
+
+@pytest.mark.parametrize(
+    ("measure", "shown"),
+    [("time", True), ("distance", True), ("distance_time", True), ("load_reps", False)],
+)
+async def test_edit_form_offers_incline_level_and_power_for_a_machine(
+    measure: str, shown: bool
+) -> None:
+    """Each set row carries Incline (%), Level and Power (W), shown for the machine measures and
+    hidden for the others, with the stored values and blank for one not given (#630)."""
+    client, user_id, chat, drafts = _client()
+    payload: dict[str, JsonValue] = {
+        "sport": "gym",
+        "activities": [
+            {
+                "name_as_typed": "treadmill",
+                "measure": measure,
+                "sets": [{"duration_s": 1200, "distance_m": 3000, "incline_pct": 5, "reps": 1}],
+            }
+        ],
+    }
+    draft = await _pending(chat, drafts, user_id, payload)
+
+    form = client.get(f"/drafts/{draft.id}/edit", headers=_HTMX).text
+
+    labels = {
+        field: re.search(
+            rf'<label class="([^"]*)" data-field="{field}">\s*<span[^>]*>([^<]*)<', form
+        )
+        for field in ("incline", "level", "watts")
+    }
+    assert {field: found.group(2) for field, found in labels.items() if found} == {
+        "incline": "Incline (%)",
+        "level": "Level",
+        "watts": "Power (W)",
+    }
+    assert all(found and ("hidden" not in found.group(1)) == shown for found in labels.values())
+    assert re.search(r'name="activities\.0\.sets\.0\.incline"[^>]*value="5"', form)
+    assert re.search(r'name="activities\.0\.sets\.0\.level"[^>]*value=""', form)
+    assert re.search(r'name="activities\.0\.sets\.0\.watts"[^>]*value=""', form)
+
+
+async def test_an_edited_incline_shows_on_the_card() -> None:
+    client, user_id, chat, drafts = _client()
+    payload: dict[str, JsonValue] = {
+        "sport": "gym",
+        "activities": [
+            {"name_as_typed": "treadmill", "measure": "time", "sets": [{"duration_s": 1200}]}
+        ],
+    }
+    draft = await _pending(chat, drafts, user_id, payload)
+
+    response = client.post(
+        f"/drafts/{draft.id}/edit",
+        headers=_HTMX,
+        data={
+            "activities.0.name": "treadmill",
+            "activities.0.measure": "time",
+            "activities.0.sets.0.duration": "1200",
+            "activities.0.sets.0.incline": "5",
+            "activities.0.sets.0.level": "",
+            "activities.0.sets.0.watts": "",
+            "activities.0.sets.0.src": "0",
+        },
+    )
+
+    assert response.status_code == 200
+    (row,) = _exercises(_card(response.text))
+    assert _text(row) == "Treadmill 1200 s · incline 5 %"
+
+
+@pytest.mark.parametrize(
     ("sets", "note"),
     [
         (
@@ -705,6 +871,9 @@ async def test_clearing_a_value_saves_it_as_null() -> None:
         "duration_s": None,
         "distance_m": None,
         "band_label": None,
+        "incline_pct": None,
+        "machine_level": None,
+        "watts": None,
     }
     assert _stored_exercise(drafts, user_id)["rir"] is None
 

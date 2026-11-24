@@ -35,6 +35,9 @@ class GymSetRow(BaseModel):
     duration_s: int | None = None
     distance_m: Decimal | None = None
     band_label: str | None = None
+    incline_pct: Decimal | None = None
+    machine_level: int | None = None
+    watts: int | None = None
 
 
 class GymEntryRow(BaseModel):
@@ -54,6 +57,7 @@ class GymEntryRow(BaseModel):
 def _set(set_no: int, gym_set: GymSet) -> GymSetRow:
     load = gym_set.load
     distance = gym_set.distance_m
+    incline = gym_set.incline_pct
     return GymSetRow(
         set_no=set_no,
         reps=gym_set.reps,
@@ -62,6 +66,9 @@ def _set(set_no: int, gym_set: GymSet) -> GymSetRow:
         duration_s=gym_set.duration_s,
         distance_m=None if distance is None else Decimal(str(distance)),
         band_label=gym_set.band_label,
+        incline_pct=None if incline is None else Decimal(str(incline)),
+        machine_level=gym_set.machine_level,
+        watts=gym_set.watts,
     )
 
 

@@ -128,6 +128,10 @@ class GymSetOrm(Base):
             name="gym_sets_band_id_user_id_fkey",
             ondelete="SET NULL (band_id)",
         ),
+        # A machine's settings (ADR-0032 #618 amendment, #630), NULL unless the athlete gave them.
+        CheckConstraint("incline_pct BETWEEN -10 AND 40", name="gym_sets_incline_pct"),
+        CheckConstraint("machine_level BETWEEN 1 AND 50", name="gym_sets_machine_level"),
+        CheckConstraint("watts BETWEEN 1 AND 2000", name="gym_sets_watts"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -144,3 +148,6 @@ class GymSetOrm(Base):
     distance_m: Mapped[Decimal | None] = mapped_column(Numeric(8, 1), nullable=True)
     band_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True, index=True)
     band_label: Mapped[str | None] = mapped_column(Text, nullable=True)
+    incline_pct: Mapped[Decimal | None] = mapped_column(Numeric(4, 1), nullable=True)
+    machine_level: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
+    watts: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)

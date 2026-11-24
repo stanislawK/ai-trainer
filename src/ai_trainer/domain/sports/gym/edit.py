@@ -1,9 +1,9 @@
 """The athlete's edit of a gym draft (PRD-0010 F2, B38, tickets #158, #159, #395 and #398): each
 exercise's name, measure, each side, implements and RIR, and every set's reps, load in kg, time in
-seconds, distance in metres and band. What the form leaves out stays as it was, and a blank field is
-cleared to None, never 0. A changed load is converted by code, as in an extraction; an untouched
-one keeps what was typed. A set whose values are left as shown is unchanged, so an edit of one set
-of a pyramid changes only that set.
+seconds, distance in metres, band, and a machine's incline, level and watts (#630). What the form
+leaves out stays as it was, and a blank field is cleared to None, never 0. A changed load is
+converted by code, as in an extraction; an untouched one keeps what was typed. A set whose values
+are left as shown is unchanged, so an edit of one set of a pyramid changes only that set.
 
 A set row names the stored set it came from, `src`, so removing a set from the middle doesn't pair
 the rows after it with the wrong stored sets. A row with a blank `src` is a new set; a form with no
@@ -18,8 +18,12 @@ from ai_trainer.domain.sports.gym.payload import (
     MAX_DISTANCE_M,
     MAX_DURATION_S,
     MAX_IMPLEMENTS,
+    MAX_INCLINE_PCT,
+    MAX_MACHINE_LEVEL,
     MAX_RIR,
     MAX_SETS,
+    MAX_WATTS,
+    MIN_INCLINE_PCT,
     BandLabel,
     Exercise,
     ExerciseName,
@@ -32,13 +36,14 @@ from ai_trainer.domain.sports.gym.payload import (
 )
 
 _EXERCISE_FIELDS = ("name", "measure", "per_side", "implements", "rir")
-_SET_FIELDS = ("reps", "load", "duration", "distance", "band")
+_SET_FIELDS = ("reps", "load", "duration", "distance", "band", "incline", "level", "watts")
 
 
 class _SetForm(BaseModel):
     """One set's row, so a rejected value is located at `activities.<i>.sets.<j>.<field>` as the
-    form names it. Time is in seconds and distance in metres. `load_text` is the load as typed,
-    kept as the stored `original`; `src` is the position of the stored set the row came from."""
+    form names it. Time is in seconds, distance in metres, incline in % and power in watts.
+    `load_text` is the load as typed, kept as the stored `original`; `src` is the position of the
+    stored set the row came from."""
 
     reps: int | None = Field(default=None, ge=1)
     load: float | None = Field(default=None, gt=0, allow_inf_nan=False)
@@ -46,6 +51,11 @@ class _SetForm(BaseModel):
     duration: int | None = Field(default=None, ge=0, le=MAX_DURATION_S)
     distance: float | None = Field(default=None, ge=0, le=MAX_DISTANCE_M, allow_inf_nan=False)
     band: BandLabel | None = None
+    incline: float | None = Field(
+        default=None, ge=MIN_INCLINE_PCT, le=MAX_INCLINE_PCT, allow_inf_nan=False
+    )
+    level: int | None = Field(default=None, ge=1, le=MAX_MACHINE_LEVEL)
+    watts: int | None = Field(default=None, ge=1, le=MAX_WATTS)
     src: int | None = Field(default=None, ge=0)
 
 
@@ -69,9 +79,10 @@ def apply_gym_edit(
 ) -> GymPayload:
     """`payload` is the stored gym payload and `changes` the athlete's form, with its
     `activities` as a list of `{name, measure, per_side, implements, rir, sets}` strings, where
-    `sets` is a list of `{reps, load, duration, distance, band, src}` strings. Rows past the stored
-    exercises are ignored. Raises `ValidationError` located at `activities.<i>.<field>` or
-    `activities.<i>.sets.<j>.<field>` when a typed value is rejected."""
+    `sets` is a list of `{reps, load, duration, distance, band, incline, level, watts, src}`
+    strings. Rows past the stored exercises are ignored. Raises `ValidationError` located at
+    `activities.<i>.<field>` or `activities.<i>.sets.<j>.<field>` when a typed value is
+    rejected."""
     current = GymPayload.model_validate(payload)
     edits = changes.get("activities")
     rows: list[dict[str, JsonValue]] = []
@@ -205,6 +216,9 @@ def _edited_set(stored: GymSet | None, form: _SetForm) -> GymSet:
         duration_s=form.duration if "duration" in fields else kept.duration_s,
         distance_m=form.distance if "distance" in fields else kept.distance_m,
         band_label=form.band if "band" in fields else kept.band_label,
+        incline_pct=form.incline if "incline" in fields else kept.incline_pct,
+        machine_level=form.level if "level" in fields else kept.machine_level,
+        watts=form.watts if "watts" in fields else kept.watts,
     )
 
 
