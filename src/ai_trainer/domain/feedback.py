@@ -20,6 +20,9 @@ class FeedbackKind(StrEnum):
     # An athlete's "Looks wrong" on a beginner how-to, with its template and version (ADR-0031
     # *The flag*, #593).
     HOWTO_FLAGGED = "howto_flagged"
+    # An athlete's "Looks wrong" on a picture drawn on the exercise card, with no template and no
+    # field: a stored picture records no template version (ADR-0031 *Picture on the card*, #644).
+    PICTURE_FLAGGED = "picture_flagged"
 
 
 class NewFeedbackEvent(BaseModel):
@@ -54,7 +57,7 @@ class FeedbackSignal(BaseModel):
 
 class FeedbackCount(BaseModel):
     """How many events of `kind` named `field` under a template version; `field` is `None` for
-    an event that names none, as a discard or a how-to flag, and `template_version` is `None`
+    an event that names none, as a discard or a flag, and `template_version` is `None`
     for a row that has none."""
 
     model_config = ConfigDict(frozen=True)
