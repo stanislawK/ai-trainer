@@ -8,6 +8,7 @@ from fastapi import APIRouter
 from starlette.templating import Jinja2Templates
 
 from ai_trainer.application.exercise_card_media import ExerciseCardMedia
+from ai_trainer.application.exercise_card_picture import CardPictures
 from ai_trainer.application.exercise_simple_howto import CardHowtos
 from ai_trainer.application.ports.chat import ChatRepositoryPort
 from ai_trainer.application.reply import ReplyServices
@@ -30,6 +31,7 @@ def build_chat_router(
     retention_days: int,
     card_media: ExerciseCardMedia | None = None,
     card_howtos: CardHowtos | None = None,
+    card_pictures: CardPictures | None = None,
 ) -> APIRouter:
     templates.env.globals["reply_glyph"] = build_reply_glyph(sports)
     templates.env.globals["failed_draft_sport"] = build_failed_draft_sport(sports)
@@ -41,6 +43,7 @@ def build_chat_router(
         retention_days=retention_days,
         card_media=card_media,
         card_howtos=card_howtos,
+        card_pictures=card_pictures,
     )
     router = APIRouter()
     # In this order, so the routes and the OpenAPI document stay as they were.

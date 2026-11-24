@@ -10,6 +10,8 @@ from pydantic import PostgresDsn, SecretStr
 from pydantic_ai import ModelMessage, ModelRequest, ModelResponse, ToolCallPart, UserPromptPart
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 
+from ai_trainer.application.budgeted_gateways import BudgetedLlmGateway
+from ai_trainer.application.model_budget import ModelCallBudget
 from ai_trainer.domain.llm_calls import LlmCallOutcome
 from ai_trainer.domain.media_generation import (
     BriefFailed,
@@ -26,6 +28,7 @@ from ai_trainer.llm.picture_brief import (
     LlmPictureBriefWriter,
 )
 from ai_trainer.settings import Settings
+from tests.ingestion_support import FrozenClock
 from tests.unit.test_llm_gateway import FakeLlmCallsRepository
 
 _PROMPTS_ROOT = Path(__file__).parents[2] / "src" / "ai_trainer" / "llm" / "prompts"
@@ -135,3 +138,24 @@ async def test_a_slow_model_is_a_timeout() -> None:
         result = await _writer(gateway).write(user_id=uuid4(), deps=_DEPS)
 
     assert result == BriefFailed(reason="timeout")
+
+
+async def test_a_brief_the_budget_refuses_is_rate_limited_and_never_sent() -> None:
+    # The card's path runs the writer through the athlete's budget (ADR-0029, #643).
+    calls = FakeLlmCallsRepository()
+    gateway = OpenRouterGateway(_settings(), calls)
+    budget = ModelCallBudget(FrozenClock(), per_hour=1, in_flight=1)
+    user_id = uuid4()
+    # The hour's one call is already spent.
+    async with budget.hold(user_id) as allowed:
+        assert allowed
+    writer = LlmPictureBriefWriter(
+        registry=build_prompt_registry(_PROMPTS_ROOT, default_sport_registry()),
+        gateway=BudgetedLlmGateway(gateway, budget),
+        model="test/brief-model",
+    )
+
+    result = await writer.write(user_id=user_id, deps=_DEPS)
+
+    assert result == BriefFailed(reason="rate_limited")
+    assert calls.recorded == []

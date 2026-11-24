@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from ai_trainer.domain.media import MediaAsset, MediaDelivery
-from ai_trainer.domain.media_generation import GENERATED_PICTURE_SOURCE
+from ai_trainer.domain.media_generation import CARD_PICTURE_FRAGMENT, GENERATED_PICTURE_SOURCE
 from ai_trainer.domain.media_sources import AI_GENERATED_FRAGMENT, WGER_SOURCE
 
 type PictureOrigin = Literal["wger", "generated", "embedded", "other"]
@@ -53,6 +53,11 @@ def page_url(asset: MediaAsset) -> str | None:
     if picture_origin(asset) == "wger":
         return asset.source_ref.removesuffix(AI_GENERATED_FRAGMENT)
     return asset.embed_url
+
+
+def drawn_on_card(asset: MediaAsset) -> bool:
+    """A picture the exercise card drew (ADR-0031 *Picture on the card*, #643)."""
+    return picture_origin(asset) == "generated" and asset.source_ref.endswith(CARD_PICTURE_FRAGMENT)
 
 
 def ai_flagged(asset: MediaAsset) -> bool:

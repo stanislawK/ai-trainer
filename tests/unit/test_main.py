@@ -27,13 +27,22 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from ai_trainer import main as main_module
 from ai_trainer.adapters.llm_calls_repository import SqlAlchemyLlmCallsRepository
-from ai_trainer.application.budgeted_gateways import BudgetedDecisionGateway, BudgetedLlmGateway
+from ai_trainer.adapters.media_repository import SqlAlchemyExerciseMediaRepository
+from ai_trainer.application.budgeted_gateways import (
+    BudgetedDecisionGateway,
+    BudgetedImageGeneration,
+    BudgetedLlmGateway,
+)
+from ai_trainer.application.exercise_card_media import ExerciseCardMedia
 from ai_trainer.application.exercise_picture import RunSpend
 from ai_trainer.application.exercise_simple_howto import WriteSimpleHowto
+from ai_trainer.application.model_budget import ModelCallBudget
+from ai_trainer.domain.sports.registry import default_sport_registry
 from ai_trainer.llm.decision_gateway import OpenRouterDecisionGateway
 from ai_trainer.llm.gateway import OpenRouterGateway
 from ai_trainer.main import _build_tracer_provider, _traces_endpoint, app_factory, create_app
 from ai_trainer.settings import Settings
+from tests.picture_support import FrozenClock
 
 DATABASE_URL = "postgresql+psycopg://ai_trainer:secret@localhost:5432/ai_trainer"
 OPENROUTER_API_KEY = "sk-or-v1-test"
@@ -568,6 +577,74 @@ async def test_build_media_storage_uses_the_media_bucket() -> None:
 def test_build_media_storage_is_none_while_unset() -> None:
     assert main_module.build_media_storage(_settings(**_STORAGE)) is None
     assert main_module.build_media_storage(_settings()) is None
+
+
+def _card_picture_calls(client: httpx2.AsyncClient) -> main_module.CardPictureCalls:
+    settings = _settings()
+    calls = SqlAlchemyLlmCallsRepository(_no_session)
+    budget = ModelCallBudget(FrozenClock(), per_hour=10, in_flight=1)
+    return main_module.CardPictureCalls(
+        gateway=BudgetedLlmGateway(OpenRouterGateway(settings, calls), budget),
+        decisions=BudgetedDecisionGateway(OpenRouterDecisionGateway(settings, calls), budget),
+        budget=budget,
+        calls_repository=calls,
+        http_client=client,
+    )
+
+
+def _no_session() -> Any:
+    raise AssertionError("no session is opened while wiring")
+
+
+async def test_card_pictures_charge_the_image_call_to_the_budget() -> None:
+    """ADR-0029, ADR-0031 *Picture on the card* (#643): the card's image call goes through the
+    athlete's budget, like its brief and check."""
+    settings = _settings(
+        **_STORAGE,
+        object_storage_media_bucket="ai-trainer-media",
+        media_public_base_url="https://media.example.test",
+    )
+    async with httpx2.AsyncClient() as client:
+        pictures = main_module.build_card_pictures(
+            settings,
+            _no_session,
+            default_sport_registry(),
+            calls=_card_picture_calls(client),
+            card_media=ExerciseCardMedia(
+                media=SqlAlchemyExerciseMediaRepository(_no_session), public_base_url=None
+            ),
+            clock=FrozenClock(),
+        )
+
+    assert pictures is not None
+    assert isinstance(pictures._draw.ports.images, BudgetedImageGeneration)
+    assert pictures._draw.enabled
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"media_public_base_url": "https://media.example.test"},
+        {**_STORAGE, "object_storage_media_bucket": "ai-trainer-media"},
+    ],
+    ids=["no_bucket", "no_public_base"],
+)
+async def test_card_pictures_are_off_without_a_bucket_or_public_base(
+    overrides: dict[str, object],
+) -> None:
+    async with httpx2.AsyncClient() as client:
+        pictures = main_module.build_card_pictures(
+            _settings(**overrides),
+            _no_session,
+            default_sport_registry(),
+            calls=_card_picture_calls(client),
+            card_media=ExerciseCardMedia(
+                media=SqlAlchemyExerciseMediaRepository(_no_session), public_base_url=None
+            ),
+            clock=FrozenClock(),
+        )
+
+    assert pictures is None
 
 
 async def test_picture_service_check_rows_do_not_stop_the_run(

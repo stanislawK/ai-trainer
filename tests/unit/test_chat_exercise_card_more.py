@@ -9,6 +9,8 @@ from uuid import uuid4
 
 from markupsafe import escape
 
+from ai_trainer.application.exercise_card_media import PictureToDraw
+from ai_trainer.domain.exercise_simple_texts import ShortHowto
 from ai_trainer.domain.exercises import ExerciseCandidate
 from tests.exercise_card_support import (
     LONG_HOW,
@@ -127,3 +129,21 @@ def test_each_text_id_is_unique_on_the_card() -> None:
     ids = re.findall(r'<span id="([^"]+)"[^>]*data-howto', html)
     assert len(ids) == 2
     assert len(set(ids)) == 2
+
+
+def test_loading_slot_pads_the_text_column_only_while_a_picture_is_there() -> None:
+    """#643: a drawing slot that falls back is removed, leaving the text-only row (#641,
+    "picture: failed"), so the blocks under the row follow the slot's presence in the page,
+    not the padding chosen while it was loading."""
+    html = render_exercise_card(
+        exercise_question([_LATERAL, _BAND]),
+        {str(_LATERAL.id): PictureToDraw()},
+        {str(_LATERAL.id): ShortHowto(text="Raise the dumbbells to the side.")},
+    )
+
+    block = _block(html, _LATERAL)
+    [original] = re.findall(r'<div class="[^"]*"[^>]*data-original', block)
+    assert "pl-4 " in original
+    assert "group-has-[[data-picture-slot]]/cand:pl-[76px]" in original
+    assert "sm:group-has-[[data-picture-slot]]/cand:pl-[92px]" in original
+    assert "data-picture-slot" in _row(block, _LATERAL)

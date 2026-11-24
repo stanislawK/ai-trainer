@@ -13,7 +13,8 @@ from fastapi import HTTPException, Request
 from pydantic import ValidationError
 from starlette.templating import Jinja2Templates
 
-from ai_trainer.application.exercise_card_media import CardPicture, ExerciseCardMedia
+from ai_trainer.application.exercise_card_media import CardSlot, ExerciseCardMedia, PictureToDraw
+from ai_trainer.application.exercise_card_picture import CardPictures
 from ai_trainer.application.exercise_simple_howto import CardHowtos
 from ai_trainer.application.ports.chat import ChatRepositoryPort, ConversationRepositoryPort
 from ai_trainer.application.ports.clock import ClockPort
@@ -84,6 +85,8 @@ class ChatContext:
     card_media: ExerciseCardMedia | None = None
     # The candidates' short how-tos (#592); without it each line keeps its original.
     card_howtos: CardHowtos | None = None
+    # The picture drawn for a catalogue candidate with none (#643); without it none is drawn.
+    card_pictures: CardPictures | None = None
 
     @property
     def clock(self) -> ClockPort:
@@ -105,13 +108,20 @@ class ChatContext:
 
     async def exercise_pictures(
         self, questions: Iterable[StoredClarification | None]
-    ) -> Mapping[str, CardPicture]:
+    ) -> Mapping[str, CardSlot]:
         """The pictures of every open exercise question's candidates, by option ID, read in one
-        call when the card is drawn, so a removed picture never shows (F24, #558)."""
+        call when the card is drawn, so a removed picture never shows (F24, #558). A drawable
+        catalogue candidate with none gets the slot that draws one (ADR-0031 *Picture on the
+        card*, #643)."""
         if self.card_media is None:
             return {}
-        found = await self.card_media.pictures(_exercise_ids(questions))
-        return {str(exercise_id): picture for exercise_id, picture in found.items()}
+        exercise_ids = _exercise_ids(questions)
+        found = await self.card_media.pictures(exercise_ids)
+        slots: dict[str, CardSlot] = {str(key): picture for key, picture in found.items()}
+        if self.card_pictures is not None:
+            for exercise_id in await self.card_pictures.drawable(exercise_ids - found.keys()):
+                slots[str(exercise_id)] = PictureToDraw()
+        return slots
 
     async def exercise_howtos(
         self, questions: Iterable[StoredClarification | None]

@@ -21,7 +21,7 @@ from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, JsonValue, ValidationError
 
-from ai_trainer.application.exercise_card_media import CardPicture
+from ai_trainer.application.exercise_card_media import CardSlot
 from ai_trainer.application.reply import asking_sports, sports_to_switch_to
 from ai_trainer.domain.chat import ChatMessage, ChatRole
 from ai_trainer.domain.clarification import BAND_PURPOSE, EXERCISE_PURPOSE, StoredClarification
@@ -62,8 +62,9 @@ class DraftCard:
     dropped: tuple[StoredClarification, ...] = ()
     # The band-order questions its log left, under the confirmed row (B39, ticket #431).
     bands: tuple[ChoiceCard, ...] = ()
-    # The exercise card's approved pictures, by candidate option ID (F24, ticket #558).
-    pictures: Mapping[str, CardPicture] = field(default_factory=dict)
+    # The exercise card's approved pictures, and the slots that draw a missing one (#643), by
+    # candidate option ID (F24, ticket #558).
+    pictures: Mapping[str, CardSlot] = field(default_factory=dict)
     # What each candidate's how-to line shows, by option ID (ADR-0031, ticket #592).
     howtos: Mapping[str, CardHowto] = field(default_factory=dict)
 
@@ -184,7 +185,7 @@ def draft_cards(
     questions: Iterable[StoredClarification] = (),
     labels: Mapping[UUID, Mapping[str, ExerciseLabel]] | None = None,
     answers: Mapping[UUID, Sequence[StoredClarification]] | None = None,
-    pictures: Mapping[str, CardPicture] | None = None,
+    pictures: Mapping[str, CardSlot] | None = None,
     howtos: Mapping[str, CardHowto] | None = None,
 ) -> Mapping[UUID, Sequence[DraftCard]]:
     """The cards to show under each assistant message, keyed by its ID. `log_id` is the
@@ -298,7 +299,7 @@ def draft_card(
     today: date,
     athlete_sports: Sequence[str] = (),
     question: StoredClarification | None = None,
-    pictures: Mapping[str, CardPicture] | None = None,
+    pictures: Mapping[str, CardSlot] | None = None,
     howtos: Mapping[str, CardHowto] | None = None,
     asking: Collection[str] = (),
     labels: Mapping[str, ExerciseLabel] | None = None,

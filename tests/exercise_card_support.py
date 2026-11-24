@@ -4,7 +4,7 @@ and pictures, through the app's Jinja environment, for the unit and e2e tests of
 from collections.abc import Mapping, Sequence
 from uuid import uuid4
 
-from ai_trainer.application.exercise_card_media import CardPicture
+from ai_trainer.application.exercise_card_media import CardPicture, CardSlot
 from ai_trainer.application.media_credit import WgerCredit
 from ai_trainer.domain.clarification import (
     EXERCISE_PURPOSE,
@@ -73,7 +73,7 @@ def exercise_question(
 
 def render_exercise_card(
     question: StoredClarification,
-    pictures: Mapping[str, CardPicture] | None = None,
+    pictures: Mapping[str, CardSlot] | None = None,
     howtos: Mapping[str, CardHowto] | None = None,
 ) -> str:
     template = build_templates().env.from_string(

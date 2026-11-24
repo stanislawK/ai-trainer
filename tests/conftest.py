@@ -128,6 +128,9 @@ _XDIST_GROUPS = {
         # Commits catalogue exercises and media rows for the recorded wger images, whose fixed
         # bytes are one `sha256` across every test here (#552).
         "tests/integration/test_import_wger_pictures_cli.py",
+        # Two writers on their own connections commit a catalogue exercise and its drawn picture
+        # (#643).
+        "tests/integration/test_media_repository_card_picture.py",
     ),
     # `test_xdist_groups` runs this group in a subprocess, so it must not overlap the outer one.
     "src_tree": (
