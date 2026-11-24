@@ -470,16 +470,44 @@ def build_card_picture_flag(
     media = SqlAlchemyExerciseMediaRepository(session_factory)
     return CardPictureFlag(
         media=media,
-        takedown=MediaTakedown(
-            media=media,
-            quarantine=MediaQuarantine(
-                media=build_media_storage(settings), uploads=build_uploads_storage(settings)
-            ),
-            clock=clock,
-            public_base_url=settings.media_public_base_url,
-            cdn=build_cdn_cache(settings),
-        ),
+        takedown=build_media_takedown(settings, media, build_media_quarantine(settings), clock),
         feedback=feedback,
+    )
+
+
+def build_media_quarantine(settings: Settings) -> MediaQuarantine:
+    return MediaQuarantine(
+        media=build_media_storage(settings), uploads=build_uploads_storage(settings)
+    )
+
+
+def build_media_takedown(
+    settings: Settings,
+    media: SqlAlchemyExerciseMediaRepository,
+    quarantine: MediaQuarantine,
+    clock: ClockPort,
+) -> MediaTakedown:
+    """The takedown path (ADR-0031 *removed*), shared by the admin's Remove and the card's
+    flag: hide the link, quarantine the object, purge its public URL."""
+    return MediaTakedown(
+        media=media,
+        quarantine=quarantine,
+        clock=clock,
+        public_base_url=settings.media_public_base_url,
+        cdn=build_cdn_cache(settings),
+    )
+
+
+def build_exercise_media_review(
+    settings: Settings, session_factory: Callable[[], AsyncSession], clock: ClockPort
+) -> ExerciseMediaReview:
+    media = SqlAlchemyExerciseMediaRepository(session_factory)
+    quarantine = build_media_quarantine(settings)
+    return ExerciseMediaReview(
+        media=media,
+        public_base_url=settings.media_public_base_url,
+        quarantine=quarantine,
+        takedown=build_media_takedown(settings, media, quarantine, clock),
     )
 
 
@@ -1086,15 +1114,7 @@ def create_app(  # noqa: PLR0915 -- composition root: objects are built only her
             status_changer=status_changer,
             knowledge=knowledge,
             tokens=AdminTokens(tokens=admin_tokens, clock=clock),
-            exercise_media=ExerciseMediaReview(
-                media=SqlAlchemyExerciseMediaRepository(session_factory),
-                public_base_url=settings.media_public_base_url,
-                quarantine=MediaQuarantine(
-                    media=build_media_storage(settings), uploads=build_uploads_storage(settings)
-                ),
-                clock=clock,
-                cdn=build_cdn_cache(settings),
-            ),
+            exercise_media=build_exercise_media_review(settings, session_factory, clock),
             exercise_howtos=HowtoReview(
                 texts=SqlAlchemyExerciseSimpleTextRepository(session_factory),
                 clock=clock,

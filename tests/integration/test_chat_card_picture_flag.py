@@ -23,7 +23,7 @@ from ai_trainer.application.exercise_card_picture import (
     DrawCardPicture,
 )
 from ai_trainer.application.exercise_card_picture_flag import CardPictureFlag
-from ai_trainer.application.exercise_media_review import ExerciseMediaReview, Restored
+from ai_trainer.application.exercise_media_review import Restored
 from ai_trainer.application.exercise_resolution import ResolutionLimits, ResolveExercises
 from ai_trainer.application.feedback import FeedbackRecorder
 from ai_trainer.application.media_quarantine import MediaQuarantine, MediaTakedown
@@ -51,6 +51,7 @@ from tests.exercise_media_support import (
     ReviewClock,
     card_drawn_asset,
     generated_asset,
+    review_with_takedown,
     wger_asset,
 )
 from tests.feedback_support import InMemoryFeedbackEvents
@@ -413,11 +414,11 @@ async def test_admin_restore_shows_the_flagged_picture_again() -> None:
     first = _App(catalogue)
     await first.reply()
     first.flag(first.open_question(), str(_RAISE.id))
-    review = ExerciseMediaReview(
-        media=catalogue,
-        public_base_url=_BASE,
+    review = review_with_takedown(
+        catalogue,
         quarantine=MediaQuarantine(media=catalogue.public, uploads=catalogue.private),
         clock=ReviewClock(),
+        base_url=_BASE,
     )
 
     page = await review.page(MediaLinkStatus.REMOVED)

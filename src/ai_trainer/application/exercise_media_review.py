@@ -29,8 +29,6 @@ from ai_trainer.application.media_credit import (
     wger_credit,
 )
 from ai_trainer.application.media_quarantine import MediaQuarantine, MediaTakedown
-from ai_trainer.application.ports.cdn_cache import CdnCachePort
-from ai_trainer.application.ports.clock import ClockPort
 from ai_trainer.application.ports.media import ExerciseMediaReviewPort
 from ai_trainer.domain.media import ExerciseMediaReviewRow, MediaLinkStatus
 from ai_trainer.domain.media_sources import WGER_SOURCE
@@ -128,19 +126,12 @@ class ExerciseMediaReview:
         media: ExerciseMediaReviewPort,
         public_base_url: str | None,
         quarantine: MediaQuarantine,
-        clock: ClockPort,
-        cdn: CdnCachePort | None = None,
+        takedown: MediaTakedown,
     ) -> None:
         self._media = media
         self._base_url = public_base_url
         self._quarantine = quarantine
-        self._takedown = MediaTakedown(
-            media=media,
-            quarantine=quarantine,
-            clock=clock,
-            public_base_url=public_base_url,
-            cdn=cdn,
-        )
+        self._takedown = takedown
 
     def _picture(self, row: ExerciseMediaReviewRow) -> ReviewPicture:
         asset = row.asset
