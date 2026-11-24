@@ -2,6 +2,7 @@
 // measure, and adding and removing a set's row. Delegated from the document, so a form htmx swaps
 // in works without a re-bind. Every field of every row is posted whether shown or not, so the
 // server keeps what the athlete didn't touch; a field the new measure hides is cleared here.
+// The pace note (#626) shows only while the measure is distance and time.
 (() => {
   const SET_INDEX = /\.sets\.(?:\d+|__set__)\./;
   // An exercise holds at most this many sets (`MAX_SETS` in the gym payload): each is a row.
@@ -16,6 +17,7 @@
   const showFields = (group, { clear }) => {
     const measure = group.querySelector("select[data-measure]").value;
     const shown = JSON.parse(group.dataset.shows)[measure]?.shows ?? [];
+    group.querySelector("[data-pace-note]")?.classList.toggle("hidden", measure !== "distance_time");
     for (const row of rowsOf(group)) {
       for (const field of row.querySelectorAll("[data-field]")) {
         const visible = shown.includes(field.dataset.field);

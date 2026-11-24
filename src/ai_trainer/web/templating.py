@@ -8,6 +8,13 @@ import jinja2
 from starlette.requests import Request
 from starlette.templating import Jinja2Templates
 
+from ai_trainer.domain.sports.gym.pace import (
+    Split,
+    TimedDistance,
+    clock_text,
+    pace_per_split,
+    split_of,
+)
 from ai_trainer.web.icons import render_icon
 from ai_trainer.web.nav import visible_sections
 
@@ -56,6 +63,13 @@ def _format_day(value: date) -> str:
     return f"{value.strftime('%a')} {value.day} {value.strftime('%b')}"
 
 
+def _set_pace(gym_set: TimedDistance, split: Split) -> str:
+    """A set's pace as a clock reading, "1:57.5"; empty without both a distance and a time
+    (PRD 0013 B42, #626). The unit, "/500 m" or "/km", is the template's."""
+    seconds = pace_per_split(gym_set, split)
+    return "" if seconds is None else clock_text(seconds)
+
+
 def build_templates() -> Jinja2Templates:
     env = jinja2.Environment(
         loader=jinja2.FileSystemLoader(TEMPLATES_DIR),
@@ -63,6 +77,9 @@ def build_templates() -> Jinja2Templates:
         undefined=jinja2.StrictUndefined,
     )
     env.globals["render_icon"] = render_icon
+    env.globals["pace_split"] = split_of
+    env.globals["set_pace"] = _set_pace
+    env.globals["clock_text"] = clock_text
     env.filters["dateformat"] = _format_date
     env.filters["shortdate"] = _format_short_date
     env.filters["dayformat"] = _format_day
