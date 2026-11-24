@@ -88,6 +88,12 @@
       };
     } else {
       y.beginAtZero = false;
+      if (spec.note) {
+        // Speed (#626): one decimal, as Gym Measures v2 draws it ("15.0").
+        y.ticks.callback = function (value) {
+          return Number(value).toFixed(1);
+        };
+      }
     }
     return {
       responsive: true,
