@@ -4,7 +4,10 @@
    `git merge-base origin/main HEAD`, the same base `make squawk` diffs against.
 2. Seed it with `tests/migrations/seed.py` and read back every row of every user-owned table.
 3. Upgrade to the branch head and compare: a dropped table or column, a lost row or a changed
-   value is a problem, named by table, column and primary key. Rows are matched on the primary
+   value is a problem, named by table, column and primary key. The one exception is a
+   reclassification a branch revision declares in `RECLASSIFIES` (ADR-0024, #626): the rows its
+   predicate names in the seeded database must hold the new value, and every other row its old
+   one. Rows are matched on the primary
    key they had before the upgrade, so a migration that drops a key column is named for it.
 4. Coverage: every user-owned table at the branch head has seed rows for both users. Tables new
    on the branch are seeded after the upgrade, so their rows are proven to fit before the next
@@ -58,6 +61,13 @@ BACKFILLED: Mapping[tuple[str, str], object] = {
 }
 
 _VERSIONS = "migrations/versions"
+
+# What a revision declares in a module-level `RECLASSIFIES` (ADR-0024 #626 amendment): for one
+# (table, column), the value it moves rows to and a SQL predicate over the table aliased `t`
+# that names exactly those rows, read on the database as seeded before the upgrade.
+Reclassifies = Mapping[tuple[str, str], tuple[object, str]]
+# The same, resolved to the keys of the seeded rows it names.
+Moved = Mapping[tuple[str, str], tuple[object, frozenset[tuple[object, ...]]]]
 
 
 @dataclass(frozen=True)
@@ -116,6 +126,7 @@ def run_upgrade_check(config: Config, base: str, head: str) -> list[str]:
             seed(conn, base_tables)
             conn.commit()
             before = snapshot(conn, base_tables)
+            moved = moved_rows(conn, before, reclassifies(config, base, head))
         command.upgrade(config, head)
         with psycopg.connect(to_psycopg_dsn(url)) as conn:
             head_tables = seeded_tables(conn)
@@ -124,7 +135,7 @@ def run_upgrade_check(config: Config, base: str, head: str) -> list[str]:
                 base_tables & head_tables,
                 {table: before[table].key for table in base_tables},
             )
-            problems = compare(before, after, CONTRACT_EXEMPT_COLUMNS)
+            problems = compare(before, after, CONTRACT_EXEMPT_COLUMNS, moved)
             problems += backfill_problems(before, after, BACKFILLED)
             seed(conn, head_tables - base_tables)
             conn.commit()
@@ -213,8 +224,41 @@ def snapshot(
     return result
 
 
-def compare(before: Snapshot, after: Snapshot, exempt: frozenset[tuple[str, str]]) -> list[str]:
-    """What the upgrade lost or changed in the rows seen before it."""
+def reclassifies(config: Config, base: str, head: str) -> Reclassifies:
+    """Every `RECLASSIFIES` the revisions after `base` up to `head` declare."""
+    declared: dict[tuple[str, str], tuple[object, str]] = {}
+    for script in ScriptDirectory.from_config(config).iterate_revisions(head, base):
+        declared.update(getattr(script.module, "RECLASSIFIES", {}))
+    return declared
+
+
+def moved_rows(conn: psycopg.Connection[Any], before: Snapshot, declared: Reclassifies) -> Moved:
+    """The keys of the seeded rows each declared predicate names, before the upgrade runs."""
+    moved: dict[tuple[str, str], tuple[object, frozenset[tuple[object, ...]]]] = {}
+    for (table, column), (value, predicate) in declared.items():
+        if table not in before:
+            continue  # added after the base, so no row seeded before the upgrade moves
+        key = before[table].key
+        cursor = conn.execute(
+            sql.SQL("SELECT {} FROM {} AS t WHERE {}").format(
+                sql.SQL(", ").join(sql.Identifier("t", c) for c in key),
+                sql.Identifier(table),
+                sql.SQL(predicate),  # a revision's own SQL, declared beside its UPDATE
+            )
+        )
+        moved[(table, column)] = (value, frozenset(tuple(row) for row in cursor))
+    return moved
+
+
+def compare(
+    before: Snapshot,
+    after: Snapshot,
+    exempt: frozenset[tuple[str, str]],
+    moved: Moved | None = None,
+) -> list[str]:
+    """What the upgrade lost or changed in the rows seen before it. A row a declared
+    reclassification names must hold its new value instead of the old one."""
+    moved = moved or {}
     problems: list[str] = []
     for table, old in before.items():
         new = after.get(table)
@@ -237,11 +281,23 @@ def compare(before: Snapshot, after: Snapshot, exempt: frozenset[tuple[str, str]
             if now is None:
                 problems.append(f"{table}: row {_key(key)} lost")
                 continue
-            problems += [
-                f"{table}.{column}: row {_key(key)} changed {value!r} -> {now[column]!r}"
-                for column, value in row.items()
-                if column in now and (table, column) not in exempt and now[column] != value
-            ]
+            for column, value in row.items():
+                if column not in now or (table, column) in exempt:
+                    continue
+                expected = value
+                if (table, column) in moved and key in moved[(table, column)][1]:
+                    expected = moved[(table, column)][0]
+                if now[column] == expected:
+                    continue
+                if expected == value:
+                    problems.append(
+                        f"{table}.{column}: row {_key(key)} changed {value!r} -> {now[column]!r}"
+                    )
+                else:
+                    problems.append(
+                        f"{table}.{column}: row {_key(key)} reclassified {value!r} ->"
+                        f" {now[column]!r}, declared {expected!r}"
+                    )
     return problems
 
 

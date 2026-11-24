@@ -1,5 +1,6 @@
 """One entry's number on a progress chart (PRD 0011 M2g, B38, B39, ticket #517): the heaviest
-set's kg, the most reps, the longest hold or carry, or the place of the heaviest ranked band in
+set's kg, the most reps, the longest hold or carry, the fastest timed distance as km/h with its
+pace (PRD 0013 B42, ticket #626), or the place of the heaviest ranked band in
 the athlete's own order. A set without the value is skipped, never estimated (B38), and a band's
 place comes only from the athlete's order, never from its colour (B39)."""
 
@@ -8,6 +9,7 @@ from collections.abc import Sequence
 from pydantic import BaseModel, ConfigDict
 
 from ai_trainer.domain.exercises import ExerciseEntry, ExerciseMeasure, LoggedSet
+from ai_trainer.domain.sports.gym.pace import Split, clock_text, pace_per_split, speed_kmh
 
 
 class EntryBest(BaseModel):
@@ -58,6 +60,16 @@ def _distance(sets: Sequence[LoggedSet]) -> EntryBest | None:
     return EntryBest(value=longest, text=f"{_number(longest)} m")
 
 
+def _distance_time(sets: Sequence[LoggedSet], split: Split) -> EntryBest | None:
+    """The fastest set: its speed in km/h plots, so faster is higher, and its pace is the text.
+    A set without both a distance and a time has no pace and is skipped (B42)."""
+    timed = [(speed, s) for s in sets if (speed := speed_kmh(s)) is not None]
+    if not timed:
+        return None
+    speed, fastest = max(timed, key=lambda pair: pair[0])
+    return EntryBest(value=speed, text=clock_text(pace_per_split(fastest, split) or 0.0))
+
+
 def _band(sets: Sequence[LoggedSet], band_order: Sequence[str]) -> EntryBest | None:
     labels = [s.band_label for s in sets if s.band_label is not None]
     if not labels:
@@ -81,11 +93,18 @@ def _fallback(sets: Sequence[LoggedSet]) -> EntryBest | None:
     return EntryBest(value=None, text=f"{labels[0]} band") if labels else None
 
 
-def best_of(entry: ExerciseEntry, band_order: Sequence[str]) -> EntryBest | None:
-    """The entry's best set by its measure. With no set carrying that measure, the first other
-    value a set has, as text with no plotted value; `None` when no set has any value."""
+def best_of(
+    entry: ExerciseEntry,
+    band_order: Sequence[str],
+    *,
+    measure: ExerciseMeasure | None = None,
+    split: Split = "km",
+) -> EntryBest | None:
+    """The entry's best set by `measure`, the chart's, or else the entry's own. With no set
+    carrying that measure, the first other value a set has, as text with no plotted value;
+    `None` when no set has any value. `split` is a pace's unit, per 500 m or per km."""
     found: EntryBest | None
-    match entry.measure:
+    match measure or entry.measure:
         case ExerciseMeasure.LOAD_REPS:
             found = _load_reps(entry.sets)
         case ExerciseMeasure.REPS:
@@ -94,6 +113,8 @@ def best_of(entry: ExerciseEntry, band_order: Sequence[str]) -> EntryBest | None
             found = _time(entry.sets)
         case ExerciseMeasure.DISTANCE:
             found = _distance(entry.sets)
+        case ExerciseMeasure.DISTANCE_TIME:
+            found = _distance_time(entry.sets, split)
         case ExerciseMeasure.BAND_REPS:
             found = _band(entry.sets, band_order)
     return found if found is not None else _fallback(entry.sets)

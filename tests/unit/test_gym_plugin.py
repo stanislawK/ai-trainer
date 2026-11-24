@@ -18,6 +18,7 @@ from ai_trainer.domain.sports.gym.payload import (
     GymPayload,
     GymSet,
     Load,
+    measure_of,
 )
 from ai_trainer.domain.sports.registry import default_sport_registry
 
@@ -153,10 +154,10 @@ def test_extraction_needs_at_least_one_exercise() -> None:
         _extraction(activities=[])
 
 
-def test_payload_is_version_five_and_tagged_gym() -> None:
+def test_payload_is_version_six_and_tagged_gym() -> None:
     """A v3 document, which has no `jev_pick`, reads as it is with the flag off (#399), and a v4
     one, which has no `candidate_scores`, with no scores (#579)."""
-    assert GYM_PAYLOAD_VERSION == 5
+    assert GYM_PAYLOAD_VERSION == 6
     payload = GymPayload.model_validate(
         {"activities": [{"name_as_typed": "pull-ups", "measure": "reps", "sets": [{"reps": 8}]}]}
     )
@@ -205,6 +206,10 @@ def test_a_v1_exercise_reads_as_v2() -> None:
     [
         ({"sets": 3, "duration": {"value": 45, "unit": "s"}}, "time"),
         ({"distance": {"value": 40, "unit": "m"}}, "distance"),
+        (
+            {"distance": {"value": 2000, "unit": "m"}, "duration": {"value": 470, "unit": "s"}},
+            "distance_time",
+        ),
         ({"sets": 3, "reps": 10, "band": "red"}, "band_reps"),
         ({"reps": 5, "load": {"original": "6 kg", "value": 6, "unit": "kg"}}, "load_reps"),
         ({"sets": 4}, "reps"),
@@ -222,6 +227,46 @@ def test_measure_comes_from_what_the_log_gave(fields: dict[str, Any], measure: s
     payload = _extraction(activities=[{"name": "x", **fields}]).to_payload()
 
     assert payload.activities[0].measure == measure
+
+
+def test_measure_of_distance_only_and_time_only_unchanged() -> None:
+    """A carry with only a distance stays `distance` and a plank with only a time stays `time`;
+    only a set holding both is `distance_time` (ADR-0032, #626)."""
+    assert measure_of(GymSet(distance_m=40)) == "distance"
+    assert measure_of(GymSet(duration_s=45)) == "time"
+    assert measure_of(GymSet(distance_m=2000, duration_s=470)) == "distance_time"
+    assert measure_of(GymSet(distance_m=0, duration_s=470)) == "distance_time"
+
+
+@pytest.mark.parametrize("measure", ["time", "distance"])
+def test_upcast_old_draft_time_with_distance_reads_distance_time(measure: str) -> None:
+    """A v5 draft read its rower as `time`; v6 reads it as `distance_time` from the first set
+    that holds a value, and leaves a plank or a carry as it was (ADR-0022 invariant 4, #626)."""
+    payload = GymPayload.model_validate(
+        {
+            "activities": [
+                {
+                    "name_as_typed": "rower",
+                    "measure": measure,
+                    "sets": [{}, {"distance_m": 2000, "duration_s": 470}],
+                },
+                {"name_as_typed": "plank", "measure": "time", "sets": [{"duration_s": 45}]},
+                {"name_as_typed": "carry", "measure": "distance", "sets": [{"distance_m": 40}]},
+                {
+                    "name_as_typed": "sled",
+                    "measure": "load_reps",
+                    "sets": [{"distance_m": 20, "duration_s": 30}],
+                },
+            ]
+        }
+    )
+
+    assert [exercise.measure for exercise in payload.activities] == [
+        "distance_time",
+        "time",
+        "distance",
+        "load_reps",
+    ]
 
 
 def test_a_duration_in_minutes_and_a_distance_in_km_are_converted_in_code() -> None:

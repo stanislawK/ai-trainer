@@ -5,7 +5,9 @@
 // Each <canvas data-chart="{labels, values, unit, order}"> gets one line: `values` is a number
 // per day, oldest first, or null for a band with no place in the athlete's order, which is
 // marked by a dashed vertical line and not plotted (B39). A band chart's `order` names its y
-// axis, lightest first. Colours come from the daisyUI variables (primary for the line,
+// axis, lightest first. A speed chart (#626) carries its words on the canvas, from the template:
+// `data-unit-note` ("faster ↑") follows the unit on the y axis, and `data-marker` ("no
+// distance") labels each dashed line. Colours come from the daisyUI variables (primary for the line,
 // base-content for grid and text) and the chart redraws when the theme changes.
 (function () {
   "use strict";
@@ -51,6 +53,16 @@
         ctx.moveTo(x, area.top);
         ctx.lineTo(x, area.bottom);
         ctx.stroke();
+        if (chart.$marker) {
+          ctx.save();
+          ctx.setLineDash([]);
+          ctx.globalAlpha = 0.7;
+          ctx.fillStyle = chart.options.color;
+          ctx.font = "11px system-ui, sans-serif";
+          ctx.textAlign = "center";
+          ctx.fillText(chart.$marker, x, area.top + 10);
+          ctx.restore();
+        }
       });
       ctx.restore();
     },
@@ -61,7 +73,11 @@
     var y = {
       grid: { color: colors.grid },
       ticks: { color: colors.text },
-      title: { display: !band && !!spec.unit, text: spec.unit, color: colors.text },
+      title: {
+        display: !band && !!spec.unit,
+        text: spec.note ? spec.unit + " · " + spec.note : spec.unit,
+        color: colors.text,
+      },
     };
     if (band) {
       y.min = 0;
@@ -72,6 +88,12 @@
       };
     } else {
       y.beginAtZero = false;
+      if (spec.note) {
+        // Speed (#626): one decimal, as Gym Measures v2 draws it ("15.0").
+        y.ticks.callback = function (value) {
+          return Number(value).toFixed(1);
+        };
+      }
     }
     return {
       responsive: true,
@@ -84,6 +106,7 @@
 
   function draw(canvas) {
     var spec = JSON.parse(canvas.getAttribute("data-chart"));
+    spec.note = canvas.getAttribute("data-unit-note") || "";
     var colors = palette();
     var chart = new window.Chart(canvas, {
       type: "line",
@@ -104,6 +127,7 @@
       options: options(spec, colors),
       plugins: [markUnplaced],
     });
+    chart.$marker = canvas.getAttribute("data-marker") || "";
     charts.set(canvas, { chart: chart, spec: spec });
   }
 

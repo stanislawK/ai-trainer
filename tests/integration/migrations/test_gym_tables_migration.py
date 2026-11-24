@@ -81,10 +81,11 @@ def test_every_reference_is_keyed_with_user_id_and_has_its_on_delete() -> None:
 def test_every_check_of_the_adr_is_present() -> None:
     checks = _constraints("c")
 
+    # Widened by #626 under a new name (ADR-0032 #618 amendment).
     assert (
-        "'load_reps'::text, 'reps'::text, 'time'::text, 'distance'::text, 'band_reps'"
-        in (checks["gym_exercise_entries_measure"])
-    )
+        "'load_reps'::text, 'reps'::text, 'time'::text, 'distance'::text, "
+        "'distance_time'::text, 'band_reps'"
+    ) in checks["gym_exercise_entries_measure_v2"]
     assert "implements >= 1" in checks["gym_exercise_entries_implements_range"]
     assert "implements <= 4" in checks["gym_exercise_entries_implements_range"]
     assert "rir >= 0" in checks["gym_exercise_entries_rir_range"]

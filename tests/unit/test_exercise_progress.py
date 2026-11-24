@@ -262,3 +262,88 @@ async def test_spans_years_only_across_calendar_years() -> None:
     assert b is not None
     assert a.spans_years is False
     assert b.spans_years is True
+
+
+def _rower_session() -> StoredGymSession:
+    at = datetime(2026, 11, 19, 7, 0, tzinfo=UTC)
+    return StoredGymSession(
+        span=SessionSpan(
+            id=uuid4(), occurred_on=date(2026, 11, 19), first_logged_at=at, last_logged_at=at
+        ),
+        updated_at=at,
+        exercises=(
+            Exercise(
+                exercise_id=_SQUAT,
+                name_as_typed="rower",
+                measure="distance_time",
+                sets=[GymSet(distance_m=2000, duration_s=470)],
+            ),
+        ),
+        labels={"rower": ExerciseLabel(name="Rowing Machine")},
+    )
+
+
+def _rowed(day: date, *, seconds: int, metres: float | None = 2000.0) -> ExerciseEntry:
+    measure = ExerciseMeasure.TIME if metres is None else ExerciseMeasure.DISTANCE_TIME
+    return _entry(day, LoggedSet(set_no=1, distance_m=metres, duration_s=seconds), measure=measure)
+
+
+async def test_distance_time_plots_speed_so_faster_is_higher() -> None:
+    """Two rower sessions: the later, faster one plots higher, and the table keeps the pace per
+    500 m (B42, #626)."""
+    session = _rower_session()
+    history = _History(
+        [_rowed(date(2026, 11, 19), seconds=470), _rowed(date(2026, 11, 12), seconds=480)]
+    )
+
+    view = await _progress(session, history).view(_USER, "UTC", session.span.id, 0)
+
+    assert view is not None
+    assert view.measure is ExerciseMeasure.DISTANCE_TIME
+    assert view.split == "500m"
+    slower, faster = (point.value for point in view.points)
+    assert slower == 15.0
+    assert faster is not None
+    assert faster > slower
+    assert [row.best for row in view.rows] == ["1:57.5", "2:00"]
+
+
+async def test_progress_session_without_pace_is_a_dashed_marker() -> None:
+    """A rower session with no distance stays on the chart with no value, and its row has no
+    pace (B42: a pace is never estimated)."""
+    session = _rower_session()
+    history = _History(
+        [
+            _rowed(date(2026, 11, 19), seconds=470),
+            _rowed(date(2026, 11, 3), seconds=470, metres=None),
+        ]
+    )
+
+    view = await _progress(session, history).view(_USER, "UTC", session.span.id, 0)
+
+    assert view is not None
+    assert [point.value is None for point in view.points] == [True, False]
+    assert [row.value is None for row in view.rows] == [False, True]
+
+
+async def test_time_chart_reads_a_timed_distance_by_its_time_never_its_speed() -> None:
+    """Opened from a time-only rower session, the chart is in seconds, so a session with both a
+    distance and a time plots its time, never its km/h (#626 code review)."""
+    session = _rower_session()
+    timed_only = session.exercises[0].model_copy(
+        update={"measure": "time", "sets": [GymSet(duration_s=470)]}
+    )
+    session = session.model_copy(update={"exercises": (timed_only,)})
+    history = _History(
+        [
+            _rowed(date(2026, 11, 19), seconds=480),
+            _rowed(date(2026, 11, 3), seconds=470, metres=None),
+        ]
+    )
+
+    view = await _progress(session, history).view(_USER, "UTC", session.span.id, 0)
+
+    assert view is not None
+    assert view.measure is ExerciseMeasure.TIME
+    assert [point.value for point in view.points] == [470.0, 480.0]
+    assert [row.best for row in view.rows] == ["480 s", "470 s"]

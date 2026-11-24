@@ -27,6 +27,7 @@ from ai_trainer.domain.sports.gym.payload import (
     GymSet,
     Load,
     Measure,
+    first_given,
     measure_of,
 )
 
@@ -187,7 +188,7 @@ def _measure(picked: Measure | None, stored: Measure, sets: Sequence[GymSet]) ->
     follows a load the athlete cleared; with every set blank, the stored one stands."""
     if picked is not None and picked != stored:
         return picked
-    given = next((gym_set for gym_set in sets if gym_set != GymSet()), None)
+    given = first_given(sets)
     if given is None:
         return picked or measure_of(sets[0])
     return measure_of(given)

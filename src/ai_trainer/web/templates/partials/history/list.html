@@ -20,7 +20,7 @@
       <span class="text-[12px] lbl-2 tabular-nums">{{ session.time.strftime("%H:%M") }} · {{ session.exercises | length }} exercise{{ "" if session.exercises | length == 1 else "s" }}</span>
       {% for exercise in session.exercises %}
       {%- set label = session.labels.get(exercise.name_as_typed) %}
-      {%- set line = done(exercise) | trim %}
+      {%- set line = done(exercise, [label.name] if label else []) | trim %}
       <span class="text-[13px] leading-[18px]"><span class="font-medium">{{ label.name if label else exercise_name(exercise.name_as_typed) }}</span>{% if line %}<span class="lbl-2"> · </span><span class="lbl-2 tabular-nums">{{ line }}</span>{% endif %}</span>
       {% endfor %}
     </span>

@@ -1,4 +1,4 @@
-{#- One exercise's progress (History v4 mock, "progress B", ticket #517): a back link to the session, the title, a Chart.js line in a `mat-content` card over a `mat-content` table of date, the session's line and its best set. `static/js/charts.js` reads the chart's data from the canvas, so there is no inline script. The mock's desktop sampler of other measures is not built. Empty, no chart, table or numbers (B40). -#}
+{#- One exercise's progress (History v4 mock, "progress B", ticket #517): a back link to the session, the title, a Chart.js line in a `mat-content` card over a `mat-content` table of date, the session's line and its best set. A timed distance (#626) plots its speed in km/h, so faster is higher, and its table keeps the pace; a session with no pace is a dashed marker. `static/js/charts.js` reads the chart's data from the canvas, so there is no inline script. The mock's desktop sampler of other measures is not built. Empty, no chart, table or numbers (B40). -#}
 {% extends "layouts/app.html" %}
 {% from "components/icon.html" import icon %}
 {% from "components/gym_copy.html" import done, exercise_name %}
@@ -12,7 +12,9 @@
   "time": "Time · the longest hold",
   "distance": "Distance · the longest carry",
   "band_reps": "Band · the heaviest band of each session, by your order",
+  "distance_time": "Speed · " ~ (view.rows | length) ~ (" session" if view.rows | length == 1 else " sessions"),
 } -%}
+{%- set timed = view.measure.value == "distance_time" -%}
 <div id="history-content" class="flex flex-col gap-4 px-4 pt-14 lg:pt-8 pb-28 w-full lg:max-w-[760px] lg:mx-auto">
   <a href="/history/{{ view.session_id }}" class="lg lg-ghost lg-sm self-start">
     <span class="absolute inset-x-0 -inset-y-1" aria-hidden="true"></span>
@@ -25,13 +27,15 @@
 
   {% if view.rows %}
   {% if view.points %}
-  <figure class="mat-content rounded-box p-4 flex flex-col gap-2" aria-label="{{ 'Heaviest band per session, by your order' if view.measure.value == 'band_reps' else 'Best set per session' }}">
+  <figure class="mat-content rounded-box p-4 flex flex-col gap-2" aria-label="{{ 'Heaviest band per session, by your order' if view.measure.value == 'band_reps' else ('Speed per session' if timed else 'Best set per session') }}">
     <div class="relative w-full max-w-[600px] h-[190px]">
-      <canvas id="progress-chart" data-chart="{{ chart | tojson | forceescape }}" role="img" aria-label="Progress over time"></canvas>
+      <canvas id="progress-chart" data-chart="{{ chart | tojson | forceescape }}" role="img" aria-label="Progress over time"{% if timed %} data-unit-note="faster ↑" data-marker="no distance"{% endif %}></canvas>
     </div>
     <figcaption class="text-[13px] lbl-2">
       {% if view.measure.value == "band_reps" %}
         {% if view.order %}Your order, lightest to heaviest: {{ view.order | join(", ") }}. {% endif %}A band that isn't in your order yet is marked by a dashed line, not plotted.
+      {% elif timed %}
+        Speed in km/h, so faster plots up. The table keeps the pace. A session with no distance or no time is marked by a dashed line, not plotted.
       {% else %}
         The best set of each session, oldest first.
       {% endif %}
@@ -42,13 +46,21 @@
 
   <div class="mat-content rounded-box px-4 py-1 flex flex-col" role="table" aria-label="Sessions with this exercise">
     <div role="row" class="grid grid-cols-[1fr_auto] gap-x-3 gap-y-0.5 lg:grid-cols-[96px_1fr_150px] lg:gap-x-4 lg:items-baseline py-2 text-[12px] font-medium lbl-2">
-      <span role="columnheader">Date</span><span role="columnheader" class="hidden lg:block">Sets</span><span role="columnheader" class="text-right">{{ "Heaviest band" if view.measure.value == "band_reps" else "Best set" }}</span>
+      <span role="columnheader">Date</span><span role="columnheader" class="hidden lg:block">Sets</span><span role="columnheader" class="text-right">{{ "Heaviest band" if view.measure.value == "band_reps" else ("Pace" if timed else "Best set") }}</span>
     </div>
     {% for row in view.rows %}
     <div role="row" class="grid grid-cols-[1fr_auto] gap-x-3 gap-y-0.5 lg:grid-cols-[96px_1fr_150px] lg:gap-x-4 lg:items-baseline py-2.5 border-t border-base-content/10">
       <span role="cell" class="text-[14px] font-medium tabular-nums">{{ row.day.strftime("%-d %b %Y" if view.spans_years else "%-d %b") }}</span>
-      <span role="cell" class="text-[14px] tabular-nums lbl-2 col-span-2 row-start-2 lg:col-span-1 lg:row-start-auto">{{ done(row.exercise) | trim }}</span>
+      <span role="cell" class="text-[14px] tabular-nums lbl-2 col-span-2 row-start-2 lg:col-span-1 lg:row-start-auto">{%- if timed and row.value is none -%}
+        {{ done(row.exercise, [view.title], with_pace=false, clock=true) | trim }}, {{ "no distance" if row.exercise.sets | selectattr("duration_s") | list else "no time" }}
+      {%- else -%}
+        {{ done(row.exercise, [view.title], with_pace=not timed) | trim }}
+      {%- endif -%}</span>
+      {%- if timed %}
+      <span role="cell" class="text-[14px] tabular-nums text-right {{ 'lbl-2' if row.value is none else 'font-semibold' }}">{{ "no pace" if row.value is none else row.best ~ (" /500 m" if view.split == "500m" else " /km") }}</span>
+      {%- else %}
       <span role="cell" class="text-[14px] tabular-nums text-right {{ 'lbl-2' if 'not in your order' in row.best else 'font-semibold' }}">{{ row.best }}</span>
+      {%- endif %}
     </div>
     {% endfor %}
   </div>

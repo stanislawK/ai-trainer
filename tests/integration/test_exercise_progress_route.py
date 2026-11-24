@@ -84,8 +84,10 @@ async def _log(
     exercise_id: UUID | None = None,
     measure: str = "load_reps",
     band: str | None = None,
+    timed: tuple[int | None, Decimal | None] = (None, None),
 ) -> UUID:
-    """A one-entry gym session on `day`; `sets` are (reps, kg, text as typed)."""
+    """A one-entry gym session on `day`; `sets` are (reps, kg, text as typed), each with the
+    seconds and metres of `timed`."""
     session_id, source_id, entry_id = uuid4(), uuid4(), uuid4()
     logged_at = datetime(day.year, day.month, day.day, 17, 0, tzinfo=UTC)
     async with factory() as db:
@@ -137,6 +139,8 @@ async def _log(
                     load_kg=kg,
                     load_original=original,
                     band_label=band,
+                    duration_s=timed[0],
+                    distance_m=timed[1],
                 )
             )
         await db.commit()
@@ -374,3 +378,43 @@ async def test_progress_with_reps_and_no_kg_lists_rows_without_a_chart(
     assert "No sessions with this exercise yet" not in page
     assert "8 reps" in page
     assert "<canvas" not in page
+
+
+async def test_rower_progress_faster_session_plots_higher(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    """Rowed 2000 m in 8:00, then in 7:50: speed in km/h plots the faster one higher, the table
+    keeps the pace per 500 m, and a session with no distance is a dashed marker with no pace
+    (PRD 0013 B42, #626)."""
+    user = await _user(db_session_factory)
+    rower = await _exercise(db_session_factory, user, "Rowing Machine")
+    for day, timed, measure in (
+        (date(2026, 11, 3), (470, None), "time"),
+        (date(2026, 11, 12), (480, Decimal("2000")), "distance_time"),
+    ):
+        await _log(
+            db_session_factory, user, day, "rower", [(None, None, None)],
+            exercise_id=rower, measure=measure, timed=timed,
+        )  # fmt: skip
+    latest = await _log(
+        db_session_factory, user, date(2026, 11, 19), "rower", [(None, None, None)],
+        exercise_id=rower, measure="distance_time", timed=(470, Decimal("2000")),
+    )  # fmt: skip
+
+    page = _client(db_session_factory, user).get(f"/history/{latest}/exercises/0").text
+
+    chart = _chart(page)
+    values = chart["values"]
+    assert isinstance(values, list)
+    no_distance, slower, faster = values
+    assert no_distance is None
+    assert slower == 15.0
+    assert faster > slower
+    assert chart["unit"] == "km/h"
+    text = " ".join(_content_text(page).split())
+    assert "Speed · 3 sessions" in page
+    assert "Speed in km/h, so faster plots up. The table keeps the pace." in text
+    assert "Pace" in text
+    assert "2000 m in 7:50 1:57.5 /500 m" in text
+    assert "2000 m in 8:00 2:00 /500 m" in text
+    assert "7:50, no distance no pace" in text

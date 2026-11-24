@@ -186,7 +186,7 @@ async def test_5x5_squat_then_3_sets_of_pull_ups_ends_with_a_gym_card_of_both() 
     assert _text(squat) == f"Squat 5 {_TIMES} 5 · 100 kg"
     assert _text(pull_ups) == "Pull-ups 3 sets"
     (stored,) = drafts.all_of(user_id)
-    assert (stored.sport_id, stored.payload_version) == ("gym", 5)
+    assert (stored.sport_id, stored.payload_version) == ("gym", 6)
 
 
 async def test_a_typed_pyramid_ends_with_one_bench_block_on_the_card() -> None:
@@ -445,6 +445,90 @@ async def test_sides_implements_and_the_other_measures_show_on_the_card(
     (row,) = _exercises(_card(client.get(f"/drafts/{draft.id}", headers=_HTMX).text))
 
     assert _text(row) == shown
+
+
+@pytest.mark.parametrize(
+    ("name", "sets", "shown"),
+    [
+        (
+            "rower",
+            [{"distance_m": 2000, "duration_s": 470}],
+            "Rower 2000 m in 7:50 · 1:57.5 /500 m",
+        ),
+        ("run", [{"distance_m": 5000, "duration_s": 1500}], "Run 5 km in 25:00 · 5:00 /km"),
+        (
+            "rower",
+            [{"distance_m": 500, "duration_s": 105}] * 3,
+            f"Rower 3 {_TIMES} 500 m in 1:45 · 1:45 /500 m",
+        ),
+        (
+            "rower",
+            [{"distance_m": 500, "duration_s": 105}, {"distance_m": 500, "duration_s": 110}],
+            "Rower 500 m in 1:45 (1:45 /500 m) · 500 m in 1:50 (1:50 /500 m)",
+        ),
+        # A run under 1000 m stays in metres; a zero distance has no pace.
+        ("run", [{"distance_m": 400, "duration_s": 90}], "Run 400 m in 1:30 · 3:45 /km"),
+        ("run", [{"distance_m": 0, "duration_s": 90}], "Run 0 m in 1:30"),
+    ],
+)
+async def test_done_line_shows_pace_for_distance_and_time(
+    name: str, sets: list[JsonValue], shown: str
+) -> None:
+    # PRD 0013 B42, #626: the pace is worked out from the set, per 500 m for a rowing machine.
+    client, user_id, chat, drafts = _client()
+    payload: dict[str, JsonValue] = {
+        "sport": "gym",
+        "activities": [{"name_as_typed": name, "measure": "distance_time", "sets": sets}],
+    }
+    draft = await _pending(chat, drafts, user_id, payload)
+
+    (row,) = _exercises(_card(client.get(f"/drafts/{draft.id}", headers=_HTMX).text))
+    logged = _text(client.post(f"/drafts/{draft.id}/confirm", headers=_HTMX).text)
+
+    assert _text(row) == shown
+    assert shown in logged
+
+
+@pytest.mark.parametrize(
+    ("sets", "note"),
+    [
+        (
+            [{"distance_m": 2000, "duration_s": 470}],
+            "Pace 1:57.5 /500 m, worked out from distance and time",
+        ),
+        ([{"duration_s": 470}], "No pace: it needs distance and time"),
+    ],
+)
+async def test_edit_form_offers_distance_and_time_with_its_pace_note(
+    sets: list[JsonValue], note: str
+) -> None:
+    client, user_id, chat, drafts = _client()
+    payload: dict[str, JsonValue] = {
+        "sport": "gym",
+        "activities": [{"name_as_typed": "rower", "measure": "distance_time", "sets": sets}],
+    }
+    draft = await _pending(chat, drafts, user_id, payload)
+
+    form = client.get(f"/drafts/{draft.id}/edit", headers=_HTMX).text
+
+    assert re.search(r'<option value="distance_time" selected>Distance and time</option>', form)
+    assert re.search(r'name="activities\.0\.sets\.0\.duration"', form)
+    assert note in _text(form)
+    assert re.search(r'<p class="[^""]*"[^>]*data-pace-note>', form)
+    assert 'hidden" data-pace-note' not in form
+
+
+async def test_the_pace_note_is_hidden_for_another_measure() -> None:
+    client, user_id, chat, drafts = _client()
+    payload: dict[str, JsonValue] = {
+        "sport": "gym",
+        "activities": [{"name_as_typed": "plank", "measure": "time", "sets": [{"duration_s": 45}]}],
+    }
+    draft = await _pending(chat, drafts, user_id, payload)
+
+    form = client.get(f"/drafts/{draft.id}/edit", headers=_HTMX).text
+
+    assert 'hidden" data-pace-note' in form
 
 
 async def test_a_long_distance_prefills_the_form_exactly_not_in_exponent_form() -> None:

@@ -31,8 +31,8 @@ class GymExerciseEntryOrm(Base):
     __tablename__ = "gym_exercise_entries"
     __table_args__ = (
         CheckConstraint(
-            "measure IN ('load_reps', 'reps', 'time', 'distance', 'band_reps')",
-            name="gym_exercise_entries_measure",
+            "measure IN ('load_reps', 'reps', 'time', 'distance', 'distance_time', 'band_reps')",
+            name="gym_exercise_entries_measure_v2",
         ),
         CheckConstraint("implements BETWEEN 1 AND 4", name="gym_exercise_entries_implements_range"),
         CheckConstraint("rir BETWEEN 0 AND 10", name="gym_exercise_entries_rir_range"),

@@ -17,6 +17,8 @@ _UNITS = {
     ExerciseMeasure.REPS: "reps",
     ExerciseMeasure.TIME: "s",
     ExerciseMeasure.DISTANCE: "m",
+    # Speed, so faster plots higher; the table keeps the pace (#626).
+    ExerciseMeasure.DISTANCE_TIME: "km/h",
     ExerciseMeasure.BAND_REPS: "",
 }
 
