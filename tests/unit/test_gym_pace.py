@@ -63,6 +63,7 @@ def test_speed_is_km_per_hour_so_faster_is_higher() -> None:
         (("SkiErg",), "500m"),
         (("ergometer",), "500m"),
         (("wiosłowanie",), "500m"),
+        (("wioślarz",), "500m"),
         (("WIOSŁOWANIE",), "500m"),
         (("ergometr wioślarski",), "500m"),
         (("Run", "rowing"), "500m"),

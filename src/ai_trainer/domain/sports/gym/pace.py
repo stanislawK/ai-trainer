@@ -9,7 +9,7 @@ from collections.abc import Mapping
 from typing import Literal, Protocol
 
 # Case-folded parts of a name that make its pace read per 500 m.
-_PER_500M_NAMES = ("row", "rower", "erg", "wiosł")
+_PER_500M_NAMES = ("row", "rower", "erg", "wiosł", "wiośl")
 
 type Split = Literal["500m", "km"]
 _SPLIT_M: Mapping[Split, int] = {"500m": 500, "km": 1000}
