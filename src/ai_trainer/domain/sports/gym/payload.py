@@ -13,7 +13,9 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_vali
 # Version 5 added `candidate_scores`, the same way, with no scores (ticket #579).
 # Version 6 added the `distance_time` measure: a `time` or `distance` exercise whose first set
 # with a value holds both reads as `distance_time` (ticket #626).
-GYM_PAYLOAD_VERSION = 6
+# Version 7 added a set's machine settings, `incline_pct`, `machine_level` and `watts`; a v5 or
+# v6 document reads as it is, with none of them (ticket #630).
+GYM_PAYLOAD_VERSION = 7
 
 type LoadUnit = Literal["kg", "lb"]
 # `gym_exercise_entries.measure`.
@@ -32,6 +34,12 @@ MAX_SETS = 100
 # A set past a day is a typo; a distance stops at what `gym_sets.distance_m` holds.
 MAX_DURATION_S = 86_400
 MAX_DISTANCE_M = 9_999_999.9
+# A machine's settings, bounded as `gym_sets`' CHECKs are (ADR-0032 #618 amendment): incline in
+# %, which a decline takes below 0, the machine's level, and power in watts.
+MIN_INCLINE_PCT = -10
+MAX_INCLINE_PCT = 40
+MAX_MACHINE_LEVEL = 50
+MAX_WATTS = 2000
 
 
 class Load(BaseModel):
@@ -59,11 +67,24 @@ class GymSet(BaseModel):
     duration_s: int | None = Field(default=None, ge=0, le=MAX_DURATION_S)
     distance_m: float | None = Field(default=None, ge=0, le=MAX_DISTANCE_M)
     band_label: BandLabel | None = None
+    # Machine settings, only as the athlete states them (B44); they hold no measure.
+    incline_pct: float | None = Field(
+        default=None, ge=MIN_INCLINE_PCT, le=MAX_INCLINE_PCT, allow_inf_nan=False
+    )
+    machine_level: int | None = Field(default=None, ge=1, le=MAX_MACHINE_LEVEL)
+    watts: int | None = Field(default=None, ge=1, le=MAX_WATTS)
+
+
+_SETTINGS = {"incline_pct": None, "machine_level": None, "watts": None}
 
 
 def first_given(sets: Sequence[GymSet]) -> GymSet | None:
-    """The first set that holds any value, which an exercise's measure is read from."""
-    return next((gym_set for gym_set in sets if gym_set != GymSet()), None)
+    """The first set that holds a measure, which an exercise's measure is read from. Machine
+    settings alone hold none, so a set with only them counts as blank (ADR-0032 #618
+    amendment)."""
+    return next(
+        (gym_set for gym_set in sets if gym_set.model_copy(update=_SETTINGS) != GymSet()), None
+    )
 
 
 def measure_of(gym_set: GymSet) -> Measure:

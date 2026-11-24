@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai_trainer.adapters.exercise_repository import SqlAlchemyExerciseRepository
 from ai_trainer.adapters.gym_backfill import SqlAlchemyGymBackfillStore
+from ai_trainer.adapters.gym_session_reader import SqlAlchemyGymSessionReader
 from ai_trainer.adapters.training_session_repository import SqlAlchemyTrainingSessionRepository
 from ai_trainer.application.drafts import edit_draft
 from ai_trainer.application.gym_backfill import backfill_gym_sessions
@@ -972,4 +973,116 @@ async def test_confirming_a_cleared_value_stores_null(
     assert await _sets(db_session_factory, confirmed.session_id) == [
         ("plank", 1, None, None, None, 45, None, None, None),
         ("plank", 2, None, None, None, None, None, None, None),
+    ]
+
+
+# --- AC #630: a machine's incline, level and watts ------------------------------------------
+
+
+async def _settings(factory: Callable[[], AsyncSession], session_id: UUID | None) -> list[Any]:
+    async with factory() as db:
+        rows = await db.execute(
+            text(
+                "SELECT e.name_as_typed, s.set_no, s.duration_s, s.incline_pct, s.machine_level,"
+                " s.watts FROM gym_sets s JOIN gym_exercise_entries e ON e.id = s.entry_id"
+                " WHERE e.session_id = :id ORDER BY e.position, s.set_no"
+            ),
+            {"id": session_id},
+        )
+        return [tuple(row) for row in rows.all()]
+
+
+async def test_confirm_writes_machine_settings_to_gym_sets(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    """Incline 5 entered on a treadmill set reaches `gym_sets` on confirm (B44, #630)."""
+    athlete = await _athlete(db_session_factory, "gym-incline")
+    treadmill = {"name_as_typed": "treadmill", "measure": "time", "sets": [{"duration_s": 1200}]}
+    draft = await athlete.draft(
+        "treadmill 20 min", _START, _draft({"sport": "gym", "activities": [treadmill]}),
+        sport_id="gym",
+    )  # fmt: skip
+    posted = {
+        "activities.0.name": "treadmill",
+        **_set_form(0, [{"duration": "1200", "incline": "5"}]),
+    }
+
+    await edit_draft(
+        athlete.user_id,
+        draft.id,
+        form_changes(posted.items()),
+        drafts=athlete.drafts,
+        sports=default_sport_registry(),
+    )
+    confirmed = await athlete.confirmed(draft)
+
+    assert await _settings(db_session_factory, confirmed.session_id) == [
+        ("treadmill", 1, 1200, Decimal("5.0"), None, None)
+    ]
+
+
+async def test_level_and_watts_round_trip_through_confirm_and_read(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    athlete = await _athlete(db_session_factory, "gym-watts")
+    bike = {
+        "name_as_typed": "bike",
+        "measure": "time",
+        "sets": [{"duration_s": 1800, "watts": 150, "machine_level": 6, "incline_pct": -2.5}],
+    }
+
+    confirmed = await _logged(
+        athlete, "bike 30 min", _draft({"sport": "gym", "activities": [bike]})
+    )
+    stored = await SqlAlchemyGymSessionReader(db_session_factory).get_session(
+        athlete.user_id, _id(confirmed.session_id)
+    )
+
+    assert await _settings(db_session_factory, confirmed.session_id) == [
+        ("bike", 1, 1800, Decimal("-2.5"), 6, 150)
+    ]
+    assert stored is not None
+    (gym_set,) = stored.exercises[0].sets
+    assert (gym_set.watts, gym_set.machine_level, gym_set.incline_pct) == (150, 6, -2.5)
+
+
+async def test_a_v5_draft_confirms_with_null_machine_settings(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    """A draft written before machine settings (v5, no such keys) confirms to the rows it gave
+    before, with every setting NULL."""
+    athlete = await _athlete(db_session_factory, "gym-v5")
+    v5 = {
+        "sport": "gym",
+        "activities": [
+            {
+                "exercise_id": None,
+                "keep_name": False,
+                "jev_pick": False,
+                "candidate_scores": {},
+                "name_as_typed": "treadmill",
+                "measure": "time",
+                "per_side": False,
+                "implements": None,
+                "rir": None,
+                "sets": [
+                    {
+                        "reps": None,
+                        "load": None,
+                        "duration_s": 1200,
+                        "distance_m": None,
+                        "band_label": None,
+                    }
+                ],
+            }
+        ],
+    }
+
+    confirmed = await _logged(athlete, "v5 log", _draft(v5))
+
+    assert await _entries(db_session_factory, confirmed.session_id) == [
+        (1, "treadmill", "time", None, False, None, None, None, "v5 log")
+    ]
+    assert await _settings(db_session_factory, confirmed.session_id) == [
+        ("treadmill", 1, 1200, None, None, None)
     ]

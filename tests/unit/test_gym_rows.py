@@ -158,3 +158,30 @@ def test_load_of_reads_the_unit_and_number_back_from_the_typed_text() -> None:
     assert (pounds.unit, pounds.value, pounds.original) == ("lb", 225.0, "225 lb")
     assert (bare.unit, bare.value, bare.original) == ("kg", 0.5, "0.5 kg")
     assert load_of("heavy", Decimal("20")).value == 20.0
+
+
+def test_rows_carry_machine_settings_as_given() -> None:
+    """Incline, level and watts reach the set rows as the athlete gave them (B44, #630)."""
+    (entry,) = entries_of(
+        _payload(
+            {
+                "name_as_typed": "treadmill",
+                "measure": "time",
+                "sets": [
+                    {"duration_s": 1200, "incline_pct": 2.5, "machine_level": 8, "watts": 150}
+                ],
+            }
+        )
+    )
+
+    (row,) = entry.sets
+    assert (row.incline_pct, row.machine_level, row.watts) == (Decimal("2.5"), 8, 150)
+
+
+def test_rows_carry_none_for_settings_not_given() -> None:
+    (entry,) = entries_of(
+        _payload({"name_as_typed": "bike", "measure": "time", "sets": [{"duration_s": 1800}]})
+    )
+
+    (row,) = entry.sets
+    assert (row.incline_pct, row.machine_level, row.watts) == (None, None, None)

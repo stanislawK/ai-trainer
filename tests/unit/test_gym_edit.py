@@ -335,3 +335,84 @@ def test_a_v1_draft_still_edits() -> None:
     edited = apply_gym_edit(v1, {"activities": [{"name": "row", "sets": [{"reps": "9"}, {}]}]})
 
     assert [s.reps for s in edited.activities[0].sets] == [9, 8]
+
+
+_TREADMILL: dict[str, JsonValue] = {
+    "sport": "gym",
+    "activities": [
+        {
+            "name_as_typed": "treadmill",
+            "measure": "time",
+            "sets": [
+                {"duration_s": 1200, "incline_pct": 5, "machine_level": 8},
+                {"duration_s": 600, "watts": 150},
+            ],
+        }
+    ],
+}
+
+
+def test_incline_level_and_watts_are_edited_per_set() -> None:
+    """Each set takes its own incline in %, level and watts (B44, #630); a set whose row leaves
+    a setting out keeps what it had, as a distance does."""
+    form = _form(
+        _set(duration="1200", incline=" 2.5 ", level="9", watts="", src="0"),
+        _set(duration="600", watts="180", src="1"),
+        measure="time",
+    )
+
+    sets = apply_gym_edit(_TREADMILL, form).activities[0].sets
+
+    assert (sets[0].incline_pct, sets[0].machine_level, sets[0].watts) == (2.5, 9, None)
+    assert (sets[1].incline_pct, sets[1].machine_level, sets[1].watts) == (None, None, 180)
+    assert sets[0].duration_s == 1200
+
+
+def test_a_blank_machine_setting_is_none_not_zero() -> None:
+    form = _form(_set(duration="1200", incline="", level=" ", watts="", src="0"), measure="time")
+
+    sets = apply_gym_edit(_TREADMILL, form).activities[0].sets
+
+    assert sets == [GymSet(duration_s=1200)]
+
+
+def test_a_flat_incline_of_zero_is_kept_and_a_negative_one_too() -> None:
+    form = _form(_set(duration="1200", incline="0", src="0"), _set(incline="-3", src="1"))
+
+    sets = apply_gym_edit(_TREADMILL, form).activities[0].sets
+
+    assert (sets[0].incline_pct, sets[1].incline_pct) == (0, -3)
+
+
+@pytest.mark.parametrize(
+    ("field", "typed"),
+    [
+        ("incline", "40.5"),
+        ("incline", "-11"),
+        ("level", "0"),
+        ("level", "51"),
+        ("level", "2.5"),
+        ("watts", "0"),
+        ("watts", "2001"),
+    ],
+)
+def test_a_machine_setting_out_of_range_is_rejected_where_the_form_names_it(
+    field: str, typed: str
+) -> None:
+    with pytest.raises(ValidationError) as rejected:
+        apply_gym_edit(_TREADMILL, _form(_set(**{field: typed, "src": "0"})))
+
+    assert {error["loc"] for error in rejected.value.errors()} == {
+        ("activities", 0, "sets", 0, field)
+    }
+
+
+def test_settings_alone_leave_a_measure_pick_standing() -> None:
+    """Settings hold no measure (ADR-0032 #618 amendment): a set with only a level is blank
+    there, so the athlete's pick stands, as on a blank set (#398)."""
+    form = _form(_set(duration="", level="6", src=""), measure="distance")
+
+    exercise = apply_gym_edit(_TREADMILL, form).activities[0]
+
+    assert exercise.measure == "distance"
+    assert exercise.sets == [GymSet(machine_level=6)]

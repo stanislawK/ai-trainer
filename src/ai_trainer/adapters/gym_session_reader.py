@@ -27,6 +27,9 @@ def _gym_set(row: GymSetOrm) -> GymSet:
         duration_s=row.duration_s,
         distance_m=None if row.distance_m is None else float(row.distance_m),
         band_label=row.band_label,
+        incline_pct=None if row.incline_pct is None else float(row.incline_pct),
+        machine_level=row.machine_level,
+        watts=row.watts,
     )
 
 
