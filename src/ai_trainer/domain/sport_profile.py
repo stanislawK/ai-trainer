@@ -239,7 +239,7 @@ def sport_from_read(
 
 
 def _typed_text(raw: str, length: int) -> str | FieldProblem | None:
-    text = raw.replace("\x00", "").strip()
+    text = " ".join(raw.replace("\x00", "").split())
     if len(text) > length:
         return FieldProblem.OUT_OF_RANGE
     return text or None

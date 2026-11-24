@@ -12,11 +12,13 @@ from ai_trainer.domain.sport_profile import SportForm, SportSection, typed_goal_
 
 def overridden_kinds(read: SportSection, typed: SportForm) -> int:
     """How many of the goals Jev read now carry another kind than its pick, by position; a goal
-    the athlete added on the summary has no pick to override."""
-    kinds = typed.goal_kinds
+    the athlete added on the summary has no pick to override, and one they cleared is dropped, so
+    it has no kind left to compare."""
+    kinds, texts = typed.goal_kinds, typed.goal_texts
     return sum(
         goal.kind != typed_goal_kind(kinds[n] if n < len(kinds) else "")
         for n, goal in enumerate(read.goals)
+        if n < len(texts) and texts[n].strip()
     )
 
 

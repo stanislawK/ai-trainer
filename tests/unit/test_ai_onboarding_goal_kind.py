@@ -15,11 +15,13 @@ from pydantic import JsonValue
 
 from ai_trainer.application.background_reads import BackgroundReads
 from ai_trainer.application.feedback import FeedbackRecorder
+from ai_trainer.application.goal_kind_overrides import overridden_kinds
 from ai_trainer.application.ports.draft_settling import DecisionRef
 from ai_trainer.domain.feedback import FeedbackKind
-from ai_trainer.domain.goals import GoalKind
+from ai_trainer.domain.goals import Goal, GoalKind
 from ai_trainer.domain.onboarding import OnboardingStep
 from ai_trainer.domain.sessions import Session
+from ai_trainer.domain.sport_profile import SportForm, SportSection
 from ai_trainer.domain.sports.registry import default_sport_registry
 from ai_trainer.web.active_user_gate import ActiveUserGateMiddleware
 from ai_trainer.web.ai_onboarding import build_ai_onboarding_router
@@ -254,3 +256,11 @@ async def test_a_bad_kind_flags_the_goal_and_records_nothing(
     assert "Choose a kind from the list." in response.text
     assert events.events == []
     assert athlete.user.id not in athlete.answers.goals
+
+
+def test_a_goal_the_athlete_cleared_is_no_override() -> None:
+    read = SportSection(goals=(Goal(text=GOAL_TEXT, kind=GoalKind.MOBILITY),))
+
+    typed = SportForm(goal_texts=("",), goal_kinds=("",))
+
+    assert overridden_kinds(read, typed) == 0

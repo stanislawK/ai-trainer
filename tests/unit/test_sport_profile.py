@@ -294,3 +294,16 @@ def test_an_unknown_goal_kind_is_a_problem() -> None:
     )
 
     assert problems == {"goal_kind.0": FieldProblem.OUT_OF_RANGE}
+
+
+def test_a_goal_typed_over_two_lines_is_kept_on_one() -> None:
+    section = parse_sport_section(
+        "gym",
+        _typed(),
+        days=[],
+        goal_texts=["Touch my toes\r\nby summer\n"],
+        goal_dates=[""],
+    )
+
+    assert isinstance(section, SportSection)
+    assert [goal.text for goal in section.goals] == ["Touch my toes by summer"]
