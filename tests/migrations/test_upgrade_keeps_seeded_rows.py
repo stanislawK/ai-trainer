@@ -42,8 +42,11 @@ def _head(config: Config) -> str:
     return head
 
 
-def _config_with_scratch_revision(tmp_path: Path, upgrade_body: str) -> tuple[Config, str]:
-    """A copy of `migrations/` with one revision on top of head; returns its config and head."""
+def _config_with_scratch_revision(
+    tmp_path: Path, upgrade_body: str, header: str = ""
+) -> tuple[Config, str]:
+    """A copy of `migrations/` with one revision on top of head, `header` at module level;
+    returns its config and head."""
     head = _head(_config())
     scripts = tmp_path / "migrations"
     shutil.copytree("migrations", scripts, ignore=shutil.ignore_patterns("__pycache__"))
@@ -55,7 +58,8 @@ def _config_with_scratch_revision(tmp_path: Path, upgrade_body: str) -> tuple[Co
         'revision = "0000scratch218"\n'
         f'down_revision = "{head}"\n'
         "branch_labels = None\n"
-        "depends_on = None\n\n\n"
+        "depends_on = None\n\n"
+        f"{header}\n\n"
         f"def upgrade() -> None:\n{body}\n\n\n"
         "def downgrade() -> None:\n    pass\n"
     )
@@ -308,6 +312,43 @@ def test_a_backfill_entry_is_skipped_once_its_column_exists_at_the_base(
     config = _config()
 
     assert run_upgrade_check(config, base=_head(config), head="head") == []
+
+
+# A declared reclassification (ADR-0024 #626 amendment): user b's goal has no sport, user a's
+# is climbing, so the predicate names only user b's row.
+_DECLARES_GYM = 'RECLASSIFIES = {("goals", "sport_id"): ("gym", "t.sport_id IS NULL")}'
+
+
+def test_a_declared_reclassification_scoped_by_its_where_passes(tmp_path: Path) -> None:
+    config, head = _config_with_scratch_revision(
+        tmp_path,
+        "op.execute(\"UPDATE goals AS t SET sport_id = 'gym' WHERE t.sport_id IS NULL\")",
+        header=_DECLARES_GYM,
+    )
+
+    assert run_upgrade_check(config, base=head, head="head") == []
+
+
+def test_a_declared_reclassification_reaching_other_rows_fails(tmp_path: Path) -> None:
+    config, head = _config_with_scratch_revision(
+        tmp_path, "op.execute(\"UPDATE goals SET sport_id = 'gym'\")", header=_DECLARES_GYM
+    )
+
+    problems = run_upgrade_check(config, base=head, head="head")
+
+    assert problems == [
+        p for p in problems if p.startswith("goals.sport_id: row") and "'climbing' -> 'gym'" in p
+    ], problems
+    assert len(problems) == 1, problems
+
+
+def test_a_declared_reclassification_the_revision_does_not_make_fails(tmp_path: Path) -> None:
+    config, head = _config_with_scratch_revision(tmp_path, "pass", header=_DECLARES_GYM)
+
+    problems = run_upgrade_check(config, base=head, head="head")
+
+    assert len(problems) == 1, problems
+    assert "reclassified None -> None, declared 'gym'" in problems[0], problems
 
 
 def test_an_additive_revision_passes(tmp_path: Path) -> None:

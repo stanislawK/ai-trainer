@@ -28,8 +28,9 @@ class ExerciseOrm(Base):
         CheckConstraint("source <> 'custom' OR owner_user_id IS NOT NULL", name="exercises_owner"),
         CheckConstraint("char_length(name) BETWEEN 1 AND 200", name="exercises_name_length"),
         CheckConstraint(
-            "default_measure IN ('load_reps', 'reps', 'time', 'distance', 'band_reps')",
-            name="exercises_default_measure",
+            "default_measure IN "
+            "('load_reps', 'reps', 'time', 'distance', 'distance_time', 'band_reps')",
+            name="exercises_default_measure_v2",
         ),
         CheckConstraint(
             "category IN ('strength', 'cardio', 'stretching', 'mobility', 'class')",
