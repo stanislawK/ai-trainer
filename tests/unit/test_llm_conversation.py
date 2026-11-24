@@ -2,7 +2,7 @@
 and the "not yet" reply (ADR-0008 skeleton routing, ticket #82)."""
 
 from collections.abc import AsyncGenerator
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
@@ -21,7 +21,7 @@ from ai_trainer.application.ports.llm_gateway import (
 )
 from ai_trainer.domain.chat import ChatMessage, ChatRole
 from ai_trainer.domain.conversation import Intent
-from ai_trainer.domain.goals import Goal
+from ai_trainer.domain.goals import Goal, GoalKind
 from ai_trainer.domain.llm_calls import LlmCallOutcome, ProviderPreferences
 from ai_trainer.domain.sports.climbing.extraction import ClimbingExtraction, ClimbingQuestion
 from ai_trainer.domain.sports.registry import SportRegistry, default_sport_registry
@@ -287,7 +287,7 @@ async def test_stream_answer_reads_the_sports_template_with_its_settings_and_too
     assert isinstance(chunks[-1], StreamEnd)
     (call,) = gateway.streams
     assert call["user_id"] == context.user_id
-    assert (call["template_id"], call["template_version"]) == ("gym.answer", 2)
+    assert (call["template_id"], call["template_version"]) == ("gym.answer", 3)
     assert call["model_id"] == "test/answer-model"
     assert call["tool_loop"] == ToolLoop(max_requests=5)
     assert call["provider"] == _ANSWER_PREFERENCES
@@ -313,9 +313,32 @@ async def test_stream_answer_renders_persona_time_and_turns_but_no_identity() ->
     assert str(context.user_id) not in instructions
 
 
+async def test_stream_answer_passes_goals_and_limits() -> None:
+    """The gym answer reads the athlete's gym and general goals with their kinds, and their limits;
+    another sport's goal stays out (PRD 0013 B46, #629)."""
+    gateway = RecordingGateway()
+    context = replace(
+        _context(),
+        goals=[
+            _GOAL,
+            Goal(text="Touch my toes", sport_id="gym", kind=GoalKind.MOBILITY),
+            Goal(text="Feel fitter", kind=GoalKind.GENERAL_FITNESS),
+        ],
+        limits="sore left shoulder",
+    )
+
+    [_ async for _ in _conversation(gateway).stream_answer(context, "gym")]
+
+    instructions = gateway.streams[0]["instructions"]
+    assert "Touch my toes (mobility)" in instructions
+    assert "Feel fitter (general_fitness)" in instructions
+    assert _GOAL.text not in instructions
+    assert "sore left shoulder" in instructions
+
+
 def test_answer_template_names_the_sports_template() -> None:
     assert _conversation(RecordingGateway()).answer_template("gym") == TemplateRef(
-        id="gym.answer", version=2
+        id="gym.answer", version=3
     )
 
 

@@ -2,27 +2,42 @@
 training, through the MCP tools (B40, ADR-0008, ADR-0010). Each plugin names its template, so a new
 sport needs no edit here. The reply is text, so it streams (F1)."""
 
+from collections.abc import Sequence
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
+from ai_trainer.domain.goals import Goal, GoalKind
 from ai_trainer.domain.sports.base import AnswerSpec
 from ai_trainer.domain.sports.registry import SportRegistry
 from ai_trainer.llm.prompts.template import PromptTemplate
 from ai_trainer.llm.router import ChatTurn, recent_turns
 
 
+class AnswerGoal(BaseModel):
+    """A goal as an answer frames its reply around it (B46): its words and its confirmed kind,
+    if one was placed on it (B45). No target date and no sport: the answer needs neither."""
+
+    model_config = ConfigDict(frozen=True)
+
+    text: str
+    kind: GoalKind | None = None
+
+
 class AnswerDeps(BaseModel):
-    """Every answer template's variables (ADR-0008): the message, the recent turns and the time
-    context (ADR-0014). The athlete's identity is no variable: the host's hook sends it to the
-    tools (ADR-0010)."""
+    """Every answer template's variables (ADR-0008): the message, the recent turns, the time
+    context (ADR-0014), and the athlete's goals in the answered sport or in none, and their limits
+    (B46, ADR-0028). The athlete's identity is no variable: the host's hook sends it to the tools
+    (ADR-0010)."""
 
     message: str
     history: list[ChatTurn] = []
     today: date
     now_local: datetime
     timezone: str
+    goals: list[AnswerGoal] = []
+    limits: str | None = None
 
 
 def build_answer_deps(
@@ -32,9 +47,12 @@ def build_answer_deps(
     now: datetime,
     timezone: str,
     history_turns: int,
+    goals: Sequence[Goal] = (),
+    limits: str | None = None,
+    sport_id: str | None = None,
 ) -> AnswerDeps:
     """`now` comes from the `Clock` port; the local day is resolved in the athlete's timezone
-    (ADR-0014)."""
+    (ADR-0014). Only goals of `sport_id`, or of no sport, are kept, in their order."""
     now_local = now.astimezone(ZoneInfo(timezone))
     return AnswerDeps(
         message=message,
@@ -42,6 +60,12 @@ def build_answer_deps(
         today=now_local.date(),
         now_local=now_local,
         timezone=timezone,
+        goals=[
+            AnswerGoal(text=goal.text, kind=goal.kind)
+            for goal in goals
+            if goal.sport_id in (None, sport_id)
+        ],
+        limits=limits,
     )
 
 
