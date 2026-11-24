@@ -14,7 +14,6 @@ and put the earlier status back only once the object is public again. Once the o
 moved, the picture's public URL is purged from Cloudflare's cache (#557); a failed purge never
 fails Remove, the page says a cached copy may still show."""
 
-import logging
 from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
@@ -29,16 +28,13 @@ from ai_trainer.application.media_credit import (
     picture_origin,
     wger_credit,
 )
-from ai_trainer.application.media_quarantine import MediaQuarantine
+from ai_trainer.application.media_quarantine import MediaQuarantine, MediaTakedown
 from ai_trainer.application.ports.cdn_cache import CdnCachePort
 from ai_trainer.application.ports.clock import ClockPort
 from ai_trainer.application.ports.media import ExerciseMediaReviewPort
-from ai_trainer.domain.cdn_cache import CdnCacheError
 from ai_trainer.domain.media import ExerciseMediaReviewRow, MediaLinkStatus
 from ai_trainer.domain.media_sources import WGER_SOURCE
 from ai_trainer.domain.object_storage import media_public_url
-
-logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -135,11 +131,16 @@ class ExerciseMediaReview:
         clock: ClockPort,
         cdn: CdnCachePort | None = None,
     ) -> None:
-        self._cdn = cdn
         self._media = media
         self._base_url = public_base_url
         self._quarantine = quarantine
-        self._clock = clock
+        self._takedown = MediaTakedown(
+            media=media,
+            quarantine=quarantine,
+            clock=clock,
+            public_base_url=public_base_url,
+            cdn=cdn,
+        )
 
     def _picture(self, row: ExerciseMediaReviewRow) -> ReviewPicture:
         asset = row.asset
@@ -219,46 +220,22 @@ class ExerciseMediaReview:
         )
 
     async def remove(self, link_id: UUID) -> Removed | Restored | None:
-        """Hide the link at once, then move a stored picture's object to quarantine. A link
-        already removed keeps its first removal and has the move retried. A link restored in
-        another tab since is left live with its file public, and says its status. None when
-        there is no such link on a catalogue exercise."""
+        """The takedown path (`MediaTakedown`): a link already removed keeps its first removal
+        and has the move retried; one restored in another tab since is left live and says its
+        status. None when there is no such link on a catalogue exercise."""
         row = await self._media.review_link(link_id)
         if row is None:
             return None
         name = row.exercise_name
-        if await self._media.remove(link_id, at=self._clock.now()) is None:
-            # Nothing changed: read again, so a link that is live by now keeps its file.
-            now = await self._media.review_link(link_id)
-            if now is not None and now.status is not MediaLinkStatus.REMOVED:
-                return Restored(exercise_name=name, status=now.status)
-        key = row.asset.storage_key
-        if key is None:
-            return Removed(exercise_name=name, still_public=False, shared=False)
-        # Read from the table, so the asset always has its ID.
-        asset_id = row.asset.id
-        if asset_id is not None and await self._media.has_live_link_besides(asset_id, link_id):
-            return Removed(exercise_name=name, still_public=False, shared=True)
-        hidden = await self._quarantine.hide(key)
-        stale = hidden and await self._purge(key)
-        return Removed(exercise_name=name, still_public=not hidden, shared=False, cache_stale=stale)
-
-    async def _purge(self, key: str) -> bool:
-        """Purge the picture's public URL; True when a cached copy may still be served: the
-        purge failed, or no Cloudflare settings are set so none was tried. False when there is
-        no public URL (no `MEDIA_PUBLIC_BASE_URL`) or the purge succeeded."""
-        url = media_public_url(self._base_url, key)
-        if url is None:
-            return False
-        if self._cdn is None:
-            logger.info("cache purge skipped: no Cloudflare purge settings")
-            return True
-        try:
-            await self._cdn.purge(url)
-        except CdnCacheError as error:
-            logger.warning("cache purge failed: %s", error)
-            return True
-        return False
+        result = await self._takedown.take_down(row)
+        if result.live is not None:
+            return Restored(exercise_name=name, status=result.live)
+        return Removed(
+            exercise_name=name,
+            still_public=result.still_public,
+            shared=result.shared,
+            cache_stale=result.cache_stale,
+        )
 
     async def restore(self, link_id: UUID) -> RestoreOutcome | None:
         """Move a stored picture's object back, then put the link's earlier status back; if

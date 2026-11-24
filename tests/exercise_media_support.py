@@ -55,6 +55,12 @@ def generated_asset() -> MediaAsset:
     )
 
 
+def card_drawn_asset() -> MediaAsset:
+    """A generated picture the exercise card drew: its `source_ref` ends in `#card` (#643)."""
+    asset = generated_asset()
+    return asset.model_copy(update={"source_ref": asset.source_ref + "#card"})
+
+
 def embedded_asset() -> MediaAsset:
     return MediaAsset(
         kind=MediaKind.VIDEO,
