@@ -2,7 +2,7 @@
 `query_sessions` MCP tool. A query that can't be answered comes back as a
 `SessionQueryFailed` value, never a raise, so a tool can turn it into a recovery hint."""
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import date
 from typing import Literal
 from uuid import UUID
@@ -11,7 +11,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from ai_trainer.application.ports.exercises import ExerciseHistoryPort, ExerciseRepositoryPort
 from ai_trainer.application.ports.training import SessionHistoryPort
-from ai_trainer.domain.exercises import ExerciseEntry, ExerciseMeasure
+from ai_trainer.domain.exercises import ExerciseEntry, ExerciseMeasure, LoggedSet
+from ai_trainer.domain.sports.gym.pace import Split, clock_text, pace_per_split, split_of
 from ai_trainer.domain.sports.registry import SportRegistry, UnknownSportError
 from ai_trainer.domain.training import SessionSummary
 
@@ -96,6 +97,39 @@ class ExerciseRef(BaseModel):
     default_measure: ExerciseMeasure
 
 
+_SPLIT_TEXT: Mapping[Split, str] = {"500m": "/500 m", "km": "/km"}
+
+
+class HistorySet(LoggedSet):
+    """A logged set as a tool shows it: `pace` is worked out in code from a distance and a time
+    both above 0, as "2:05 /500 m" or "5:36 /km", and is `None` otherwise, never estimated or
+    stored (PRD 0013 B42, ADR-0032 invariant 6)."""
+
+    pace: str | None = None
+
+
+class HistoryEntry(ExerciseEntry):
+    """A logged entry as a tool shows it, its sets with their pace."""
+
+    sets: tuple[HistorySet, ...]
+
+
+def _shown(entry: ExerciseEntry, exercise: ExerciseRef | None) -> HistoryEntry:
+    split = split_of(exercise.name if exercise else None, entry.name_as_typed)
+    return HistoryEntry(
+        **entry.model_dump(exclude={"sets"}),
+        sets=tuple(
+            HistorySet(**logged.model_dump(), pace=_pace_text(logged, split))
+            for logged in entry.sets
+        ),
+    )
+
+
+def _pace_text(logged: LoggedSet, split: Split) -> str | None:
+    seconds = pace_per_split(logged, split)
+    return None if seconds is None else f"{clock_text(seconds)} {_SPLIT_TEXT[split]}"
+
+
 class ExerciseHistoryPage(BaseModel):
     """The exercise and the athlete's entries of it, the latest day first; `truncated` when more
     exist than `limit`. Typed-only entries have no `exercise` (ADR-0031)."""
@@ -103,7 +137,7 @@ class ExerciseHistoryPage(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     exercise: ExerciseRef | None
-    entries: list[ExerciseEntry]
+    entries: list[HistoryEntry]
     truncated: bool
 
 
@@ -159,5 +193,7 @@ def _page(
     if not found:
         return ExerciseHistoryFailed(reason="no_entries")
     return ExerciseHistoryPage(
-        exercise=exercise, entries=list(found[:limit]), truncated=len(found) > limit
+        exercise=exercise,
+        entries=[_shown(entry, exercise) for entry in found[:limit]],
+        truncated=len(found) > limit,
     )
