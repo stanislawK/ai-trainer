@@ -99,6 +99,7 @@ from ai_trainer.application.exercise_card_picture import (
     CardPictures,
     DrawCardPicture,
 )
+from ai_trainer.application.exercise_card_picture_flag import CardPictureFlag
 from ai_trainer.application.exercise_lookup import ExerciseFinder
 from ai_trainer.application.exercise_media_review import ExerciseMediaReview
 from ai_trainer.application.exercise_picture import ExercisePictureService, PicturePorts, RunSpend
@@ -116,7 +117,7 @@ from ai_trainer.application.knowledge_ingestion import KnowledgeIngestion
 from ai_trainer.application.knowledge_search import KnowledgeSearch
 from ai_trainer.application.knowledge_sources import KnowledgeSources
 from ai_trainer.application.knowledge_staging import KnowledgeStaging
-from ai_trainer.application.media_quarantine import MediaQuarantine
+from ai_trainer.application.media_quarantine import MediaQuarantine, MediaTakedown
 from ai_trainer.application.metered_calls import MeteredLlmCallsRepository
 from ai_trainer.application.model_budget import ModelCallBudget
 from ai_trainer.application.operator_admin import resolve_active_admin
@@ -455,6 +456,31 @@ def build_card_pictures(
         model=image_model_source_ref(settings.image_generation_model),
     )
     return CardPictures(media=media, draw=draw, card_media=card_media)
+
+
+def build_card_picture_flag(
+    settings: Settings,
+    session_factory: Callable[[], AsyncSession],
+    feedback: FeedbackRecorder,
+    clock: ClockPort,
+) -> CardPictureFlag:
+    """ "Looks wrong" on a picture drawn on the exercise card (ADR-0031 *Picture on the card*,
+    #644): the admin's takedown path, quarantine and cache purge, with one `picture_flagged`
+    event."""
+    media = SqlAlchemyExerciseMediaRepository(session_factory)
+    return CardPictureFlag(
+        media=media,
+        takedown=MediaTakedown(
+            media=media,
+            quarantine=MediaQuarantine(
+                media=build_media_storage(settings), uploads=build_uploads_storage(settings)
+            ),
+            clock=clock,
+            public_base_url=settings.media_public_base_url,
+            cdn=build_cdn_cache(settings),
+        ),
+        feedback=feedback,
+    )
 
 
 def build_uploads_storage(settings: Settings) -> ObstoreObjectStorage | None:
@@ -1047,6 +1073,7 @@ def create_app(  # noqa: PLR0915 -- composition root: objects are built only her
                 card_media=card_media,
                 clock=clock,
             ),
+            card_picture_flag=build_card_picture_flag(settings, session_factory, feedback, clock),
         )
     )
     knowledge = build_knowledge_sources(settings, session_factory, clock, sport_registry)

@@ -15,6 +15,7 @@ from starlette.templating import Jinja2Templates
 
 from ai_trainer.application.exercise_card_media import ExerciseCardMedia
 from ai_trainer.application.exercise_card_picture import CardPictures
+from ai_trainer.application.exercise_card_picture_flag import CardPictureFlag
 from ai_trainer.application.exercise_simple_howto import CardHowtos
 from ai_trainer.application.feedback import FeedbackRecorder
 from ai_trainer.application.ports.band_order import BandOrderPort
@@ -993,11 +994,13 @@ def include_chat(
     card_media: ExerciseCardMedia | None = None,
     card_howtos: CardHowtos | None = None,
     card_pictures: CardPictures | None = None,
+    card_picture_flag: CardPictureFlag | None = None,
 ) -> InMemoryChatRepository:
     """Mounts the chat router on an in-memory repository and a scripted conversation, and
     returns the repository. Without `card_media` the exercise card is text only (#558),
-    without `card_howtos` it shows no short how-to (#592), and without `card_pictures` it draws
-    no missing picture (#643)."""
+    without `card_howtos` it shows no short how-to (#592), without `card_pictures` it draws no
+    missing picture (#643), and without `card_picture_flag` a drawn picture has no "Looks
+    wrong" (#644)."""
     repository = chat or InMemoryChatRepository()
     services = reply_services(
         repository,
@@ -1022,6 +1025,7 @@ def include_chat(
             card_media=card_media,
             card_howtos=card_howtos,
             card_pictures=card_pictures,
+            card_picture_flag=card_picture_flag,
         )
     )
     return repository

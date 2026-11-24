@@ -1940,7 +1940,7 @@
     },
     "/clarifications/{clarification_id}/picture/{option_id}": {
       "post": {
-        "description": "A drawable candidate's loading picture slot (ADR-0031 *Picture on the card*, #643):\ndraws its picture under the athlete whose card asked and returns it with its credit, or,\non any fallback, nothing, which leaves the text-only row. It never answers the question.\nThe guards are `howto`'s: 404 for another user's or an unknown question or option, or\nwhen pictures aren't drawn, 409 for an answered one.",
+        "description": "A drawable candidate's loading picture slot (#643): draws its picture under the\nathlete whose card asked and returns it with its credit, or, on any fallback, nothing,\nwhich leaves the text-only row.",
         "operationId": "picture_clarifications__clarification_id__picture__option_id__post",
         "parameters": [
           {
@@ -1985,6 +1985,55 @@
           }
         },
         "summary": "Picture"
+      }
+    },
+    "/clarifications/{clarification_id}/picture/{option_id}/flag": {
+      "post": {
+        "description": "\"Looks wrong\" on a picture drawn on the card (ADR-0031 *Flag*, #644): takes it down\nfor every athlete, records one content-free `picture_flagged` event, and returns the\ncandidate as the card draws it now, with the thanks line once it shows no picture. A\npicture the card didn't draw is left as it is, and its candidate comes back unchanged;\nan already flagged one gets the same answer as the first tap and records nothing.",
+        "operationId": "flag_clarifications__clarification_id__picture__option_id__flag_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "clarification_id",
+            "required": true,
+            "schema": {
+              "title": "Clarification Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "option_id",
+            "required": true,
+            "schema": {
+              "title": "Option Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Flag"
       }
     },
     "/drafts/{draft_id}": {
