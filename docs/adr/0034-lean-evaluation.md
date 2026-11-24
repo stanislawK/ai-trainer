@@ -49,7 +49,7 @@ There is no eval-first ordering, no separate comparison gate and no baseline pro
 
 **Feedback events.** `feedback_events` is a user-owned table (`user_id` CASCADE) holding one content-free row per signal:
 - **Columns:** `kind`, `template_id`, `template_version`, `fields` (`text[]`), `created_at`.
-- **Kinds:** `draft_edited`, `draft_discarded`, `session_undone`, `choice_answered`, `decision_overridden`. `decision_overridden` means the athlete picked something other than Jev's choice.
+- **Kinds:** `draft_edited`, `draft_discarded`, `session_undone`, `choice_answered`, `decision_overridden`, `howto_flagged` (ADR-0031, #593), `picture_flagged` (ADR-0031 *Picture on the card*, #644). `decision_overridden` means the athlete picked something other than Jev's choice. `picture_flagged` carries no template and no fields.
 - **No text:** no message text and no values.
 
 **Review loop.** A monthly owner review reads the counts per template and field (`uv run ai-trainer feedback-report`), picks the patterns, and turns the matching chats into field transcripts and smoke cases. These come from the owner's or consenting accounts, anonymised (ADR-0009 invariant 5).

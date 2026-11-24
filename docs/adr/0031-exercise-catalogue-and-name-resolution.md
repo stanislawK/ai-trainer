@@ -180,7 +180,7 @@ Owner-directed 2026-11-23, at #640. Many exercises have no `wger` picture. The c
 - **Flag:** a "Looks wrong" control on a drawn picture, outside the row button, as the how-to's (#644).
   - It moves the link to `removed` (`removed_from = approved`) through the takedown path above (quarantine, cache purge, #556, #557), hiding it for every athlete at once.
   - It writes one content-free `feedback_events` row of kind `picture_flagged`; the `kind` check is widened expand only (ADR-0024).
-  - One tap, no reason asked. Only `ai-generated` pictures carry it.
+  - One tap, no reason asked. Only a picture drawn on the card (`#card`) carries it; an admin-approved picture, generated or wger, does not (owner 2026-11-24, #644).
   - The admin sees it as removed at `/admin/exercises`, with Restore.
 
 ### Beginner how-to (F23)
@@ -251,6 +251,7 @@ Owner-directed 2026-11-22. F23 asks for "two short beginner-friendly lines on ho
   - **Cost** is one brief, one Jev call and one picture per catalogue exercise opened, bounded by `IMAGE_GENERATION_DAILY_CAP_USD` and each athlete's budget.
   - **Follow-up tickets:** #641 (design states), #642 (`picture_brief_check`), #643 (the path and its settings), #644 (the flag, `picture_flagged`, Restore).
 - Owner-approved amendment, 2026-11-23, at [#643](https://github.com/stanislawK/ai-trainer/issues/643)'s plan gate: in "Picture on the card (#640)" the **Budget and caps** bullet records which rows the daily cap sums: every `llm_calls` row of the path's three template IDs that UTC day, admin runs included. It needs no new column or migration, and admin runs are rare and on purpose. It changes no other Decision or Invariant.
+- Owner-directed amendment, 2026-11-24, at [#644](https://github.com/stanislawK/ai-trainer/issues/644)'s plan: in "Picture on the card (#640)" the **Flag** bullet names the pictures that carry the flag: only those the card drew, found by their `#card` marker. An admin-approved picture, generated or wger, has none, because an admin already chose it. It changes no other Decision or Invariant.
 - Owner-directed amendment, 2026-11-23, at #642 plan gate: in "Picture generation (#531)" the **Cap** bullet records that the brief check's Jev row is not counted toward the cap, and the **No description** bullet that an exercise with no `exercise_texts` description is skipped before any model call. It changes no other Decision or Invariant.
   - **`picture_brief_check` v1 calibrated** (#642, 2026-11-23, dataset text only): 22 cases × 3 repeats on `typesafe/jev-1.13`, with no flips. `same_movement`: good briefs 0.94–0.99, another movement 0.02–0.04, so `PICTURE_BRIEF_CHECK_MOVEMENT_THRESHOLD=0.5`. `keeps_rules`: good briefs 0.56–0.98; labels, two figures or one position only 0.04–0.22, so `PICTURE_BRIEF_CHECK_RULES_THRESHOLD=0.45`. That leans to a false fail and stays clear of a plank brief at 0.36–0.42. Every broken brief fails one of the two questions. The baseline is `evals/baselines/picture_brief_check.json`.
 - Owner-directed 2026-11-23 (#618), for the owner's review with the draft PR: gym covers stretching, mobility, classes and cardio machines ([PRD 0013](../prd/0013-ai-training-companion.md) B41, B42). Built by M2f's tickets once PRD 0013 is Approved; nothing is built yet.
