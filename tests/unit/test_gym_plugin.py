@@ -620,3 +620,9 @@ def test_a_set_timed_in_hours_is_kept_in_seconds() -> None:
     (entry,) = _extraction(activities=[_timed("spin class", 1, "h")]).to_payload().activities
 
     assert [gym_set.duration_s for gym_set in entry.sets] == [3600]
+
+
+@pytest.mark.parametrize(("typed", "kept"), [(5.55, 5.6), (2.04, 2.0), (-9.96, -10.0)])
+def test_an_incline_is_kept_to_the_one_decimal_gym_sets_holds(typed: float, kept: float) -> None:
+    # `gym_sets.incline_pct` is numeric(4,1): the draft shows what the row will hold (#630).
+    assert GymSet(incline_pct=typed).incline_pct == kept

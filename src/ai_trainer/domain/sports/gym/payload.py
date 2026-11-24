@@ -3,10 +3,18 @@
 (ADR-0022 invariant 4). A value the message didn't give stays empty (B38)."""
 
 from collections.abc import Mapping, Sequence
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    field_validator,
+    model_validator,
+)
 
 # Version 3 added `keep_name`; a v2 document reads as it is, with the flag off (ticket #397).
 # Version 4 added `jev_pick`, the same way (ticket #399).
@@ -73,6 +81,15 @@ class GymSet(BaseModel):
     )
     machine_level: int | None = Field(default=None, ge=1, le=MAX_MACHINE_LEVEL)
     watts: int | None = Field(default=None, ge=1, le=MAX_WATTS)
+
+    @field_validator("incline_pct")
+    @classmethod
+    def _one_decimal(cls, value: float | None) -> float | None:
+        # `gym_sets.incline_pct` is numeric(4,1), which rounds half away from zero: kept the
+        # same here, so the draft shows what the row will hold (#630 code review).
+        if value is None:
+            return None
+        return float(Decimal(str(value)).quantize(Decimal("0.1"), rounding=ROUND_HALF_UP))
 
 
 _SETTINGS = {"incline_pct": None, "machine_level": None, "watts": None}
