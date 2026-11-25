@@ -272,6 +272,74 @@ cases:
       duration:
         value: 15
         unit: min
+# #631 (PRD 0013 B44): a machine's incline, level and watts, only as given, worded as the
+# ticket's ACs; no field transcript holds one yet. Speed has no field and stays out.
+- name: 'treadmill: incline read, speed left out'
+  inputs:
+    prompt: 20 min treadmill incline 5 % speed 6
+    deps:
+      <<: *deps
+      message: 20 min treadmill incline 5 % speed 6
+  metadata: &b44
+    reported: '#631'
+    prd: B44
+    ignore_fields: [sets]
+  expected_output:
+    occurred_on: '2026-10-28'
+    date_source: assumed_today
+    activities:
+    - name: treadmill
+      duration:
+        value: 20
+        unit: min
+      incline: 5
+- name: 'bike erg: watts and time'
+  inputs:
+    prompt: bike erg 200 W 10 min
+    deps:
+      <<: *deps
+      message: bike erg 200 W 10 min
+  metadata: *b44
+  expected_output:
+    occurred_on: '2026-10-28'
+    date_source: assumed_today
+    activities:
+    - name: bike erg
+      duration:
+        value: 10
+        unit: min
+      watts: 200
+- name: 'cross-trainer: level'
+  inputs:
+    prompt: cross-trainer level 8, 15 min
+    deps:
+      <<: *deps
+      message: cross-trainer level 8, 15 min
+  metadata: *b44
+  expected_output:
+    occurred_on: '2026-10-28'
+    date_source: assumed_today
+    activities:
+    - name: cross-trainer
+      duration:
+        value: 15
+        unit: min
+      level: 8
+- name: 'treadmill: no settings, none invented'
+  inputs:
+    prompt: treadmill 20 min
+    deps:
+      <<: *deps
+      message: treadmill 20 min
+  metadata: *b44
+  expected_output:
+    occurred_on: '2026-10-28'
+    date_source: assumed_today
+    activities:
+    - name: treadmill
+      duration:
+        value: 20
+        unit: min
 evaluators:
 - DateMatch
 - ActivitiesMatch

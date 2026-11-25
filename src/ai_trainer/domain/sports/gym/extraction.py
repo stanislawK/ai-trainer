@@ -1,9 +1,10 @@
 """What `gym.extract` returns (ADR-0008, ADR-0014): an absolute date, how it was found, and
-each exercise with its sets, reps, load exactly as typed, time, distance, band, sides, implements
-and RIR (B38). The model copies the numbers and text and picks the unit; code, not the model,
-converts to kg, seconds and metres, and reads the measure. A log it can't read safely is a
-question instead: which movement an exercise name means, or which unit a load typed without one
-is in, its readings likeliest first (B17, ticket #206)."""
+each exercise with its sets, reps, load exactly as typed, time, distance, band, sides, implements,
+RIR and a machine's incline, level and watts (B38, B44). The model copies the numbers and text
+and picks the unit; code, not the model, converts to kg, seconds and metres, and reads the
+measure. A log it can't read safely is a question instead: which movement an exercise name
+means, or which unit a load typed without one is in, its readings likeliest first (B17, ticket
+#206)."""
 
 import math
 import re
@@ -26,8 +27,12 @@ from ai_trainer.domain.sports.gym.payload import (
     MAX_DISTANCE_M,
     MAX_DURATION_S,
     MAX_IMPLEMENTS,
+    MAX_INCLINE_PCT,
+    MAX_MACHINE_LEVEL,
     MAX_RIR,
     MAX_SETS,
+    MAX_WATTS,
+    MIN_INCLINE_PCT,
     BandLabel,
     Exercise,
     ExerciseName,
@@ -90,6 +95,12 @@ class ExtractedExercise(BaseModel):
     per_side: bool = False
     implements: int | None = Field(default=None, ge=1, le=MAX_IMPLEMENTS)
     rir: int | None = Field(default=None, ge=0, le=MAX_RIR)
+    # A machine's settings, only as the message gives them, on every set (B44, ticket #631).
+    incline: float | None = Field(
+        default=None, ge=MIN_INCLINE_PCT, le=MAX_INCLINE_PCT, allow_inf_nan=False
+    )
+    level: int | None = Field(default=None, ge=1, le=MAX_MACHINE_LEVEL)
+    watts: int | None = Field(default=None, ge=1, le=MAX_WATTS)
 
     def to_exercise(self) -> Exercise:
         """No set count is one set with what was given (ADR-0032, #376's plan gate)."""
@@ -106,6 +117,9 @@ class ExtractedExercise(BaseModel):
             if self.distance is None
             else to_metres(self.distance.value, self.distance.unit),
             band_label=self.band,
+            incline_pct=self.incline,
+            machine_level=self.level,
+            watts=self.watts,
         )
         return Exercise(
             name_as_typed=self.name,
@@ -142,7 +156,7 @@ RPE_OF_EFFORT: Mapping[Effort, int] = {
 class GymExtraction(SessionExtraction):
     """Besides the exercises, the session's own length when the log states it or is one class
     alone, and its effort as a word or a stated RPE (PRD 0013 B41, ticket #622); each is empty
-    when the log doesn't give it. Every one is optional, so v1 to v5 outputs still read."""
+    when the log doesn't give it. Every one is optional, so v1 to v6 outputs still read."""
 
     activities: list[ExtractedExercise] = Field(min_length=1)
     session_duration: ExtractedDuration | None = None

@@ -68,7 +68,7 @@ async def test_the_gym_template_reads_the_session_fields_from_the_model() -> Non
         return ModelResponse(parts=[ToolCallPart(info.output_tools[0].name, _YOGA_EXTRACTION)])
 
     registry = build_prompt_registry(_PROMPTS_ROOT, default_sport_registry())
-    agent = registry.build_agent("gym.extract", 6)
+    agent = registry.build_agent("gym.extract", 7)
     deps = build_extract_deps(
         message=_YOGA,
         history=[],
