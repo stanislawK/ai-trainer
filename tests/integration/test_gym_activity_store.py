@@ -1086,3 +1086,134 @@ async def test_a_v5_draft_confirms_with_null_machine_settings(
     assert await _settings(db_session_factory, confirmed.session_id) == [
         ("treadmill", 1, 1200, None, None, None)
     ]
+
+
+# --- #632: circuits (B43, ADR-0032 #618 and #632 amendments) --------------------------------
+
+
+def circuit_draft(*activities: dict[str, Any]) -> SessionDraft:
+    return _draft({"sport": "gym", "activities": list(activities)})
+
+
+def in_circuit(name: str, circuit: int, *reps: int) -> dict[str, Any]:
+    """One exercise of a circuit, one set per round."""
+    return {
+        "name_as_typed": name,
+        "measure": "reps",
+        "circuit": circuit,
+        "rounds": len(reps),
+        "sets": [{"reps": n} for n in reps],
+    }
+
+
+async def _circuits(factory: Callable[[], AsyncSession], session_id: UUID | None) -> list[Any]:
+    async with factory() as db:
+        rows = await db.execute(
+            text(
+                "SELECT e.position, e.name_as_typed, e.circuit, e.rounds, count(s.id)"
+                " FROM gym_exercise_entries e JOIN gym_sets s ON s.entry_id = e.id"
+                " WHERE e.session_id = :id GROUP BY e.id ORDER BY e.position"
+            ),
+            {"id": session_id},
+        )
+        return [tuple(row) for row in rows.all()]
+
+
+async def test_a_circuit_saves_its_circuit_rounds_and_one_set_per_round(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    athlete = await _athlete(db_session_factory, "gym-circuit")
+
+    confirmed = await _logged(
+        athlete,
+        "3 rounds: 10 burpees, 15 squats",
+        circuit_draft(in_circuit("burpees", 1, 10, 10, 10), in_circuit("squats", 1, 15, 15, 15)),
+    )
+
+    assert await _circuits(db_session_factory, confirmed.session_id) == [
+        (1, "burpees", 1, 3, 3),
+        (2, "squats", 1, 3, 3),
+    ]
+    stored = await SqlAlchemyGymSessionReader(db_session_factory).get_session(
+        athlete.user_id, _id(confirmed.session_id)
+    )
+    assert stored is not None
+    assert [(e.circuit, e.rounds, len(e.sets)) for e in stored.exercises] == [(1, 3, 3)] * 2
+
+
+async def test_plain_entry_saves_with_no_circuit(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    """An entry outside any circuit saves as before, beside a circuit, with both columns NULL."""
+    athlete = await _athlete(db_session_factory, "gym-plain")
+    plank = {"name_as_typed": "plank", "measure": "time", "sets": [{"duration_s": 45}] * 2}
+
+    confirmed = await _logged(
+        athlete, "plank, then 2 rounds", circuit_draft(plank, in_circuit("burpees", 1, 10, 8))
+    )
+
+    assert await _circuits(db_session_factory, confirmed.session_id) == [
+        (1, "plank", None, None, 2),
+        (2, "burpees", 1, 2, 2),
+    ]
+
+
+async def test_added_log_renumbers_circuits_after_session_max(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    """Each log numbers its circuits from 1; one added to a session (B16) takes numbers after
+    the session's highest, so two logs' circuits never merge."""
+    athlete = await _athlete(db_session_factory, "gym-circuit-add")
+    first = await _logged(
+        athlete,
+        "2 rounds burpees, squats",
+        circuit_draft(in_circuit("burpees", 1, 10, 10), in_circuit("squats", 1, 15, 15)),
+    )
+
+    await _logged(
+        athlete,
+        "then 3 rounds rows, then 2 rounds of lunges",
+        circuit_draft(in_circuit("row", 1, 5, 5, 5), in_circuit("lunges", 2, 8, 8)),
+        at=_LATER,
+        extends=first.session_id,
+    )
+
+    assert await _circuits(db_session_factory, first.session_id) == [
+        (1, "burpees", 1, 2, 2),
+        (2, "squats", 1, 2, 2),
+        (3, "row", 2, 3, 3),
+        (4, "lunges", 3, 2, 2),
+    ]
+
+
+async def test_a_v6_draft_confirms_with_no_circuit(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    """A draft written before circuits (v6, no such keys) confirms to the rows it gave before."""
+    athlete = await _athlete(db_session_factory, "gym-v6-circuit")
+    v6 = {
+        "sport": "gym",
+        "activities": [
+            {
+                "exercise_id": None,
+                "keep_name": False,
+                "jev_pick": False,
+                "candidate_scores": {},
+                "name_as_typed": "squat",
+                "measure": "reps",
+                "per_side": False,
+                "implements": None,
+                "rir": None,
+                "sets": [{"reps": 10, "load": None, "duration_s": None, "distance_m": None}],
+            }
+        ],
+    }
+
+    confirmed = await _logged(athlete, "v6 log", _draft(v6))
+
+    assert await _entries(db_session_factory, confirmed.session_id) == [
+        (1, "squat", "reps", None, False, None, None, None, "v6 log")
+    ]
+    assert await _circuits(db_session_factory, confirmed.session_id) == [
+        (1, "squat", None, None, 1)
+    ]

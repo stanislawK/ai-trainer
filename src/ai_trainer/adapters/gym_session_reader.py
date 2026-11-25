@@ -107,6 +107,8 @@ class SqlAlchemyGymSessionReader:
                     implements=entry.implements,
                     rir=entry.rir,
                     sets=[_gym_set(row) for row in sets[entry.id]],
+                    circuit=entry.circuit,
+                    rounds=entry.rounds,
                 )
             )
             if canonical is not None:

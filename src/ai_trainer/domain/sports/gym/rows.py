@@ -52,6 +52,9 @@ class GymEntryRow(BaseModel):
     implements: int | None = None
     rir: int | None
     sets: tuple[GymSetRow, ...]
+    # The entry's circuit within its log and the circuit's rounds, both None outside one (#632).
+    circuit: int | None = None
+    rounds: int | None = None
 
 
 def _set(set_no: int, gym_set: GymSet) -> GymSetRow:
@@ -81,6 +84,8 @@ def _entry(exercise: Exercise) -> GymEntryRow:
         implements=exercise.implements,
         rir=exercise.rir,
         sets=tuple(_set(set_no, gym_set) for set_no, gym_set in enumerate(exercise.sets, start=1)),
+        circuit=exercise.circuit,
+        rounds=exercise.rounds,
     )
 
 

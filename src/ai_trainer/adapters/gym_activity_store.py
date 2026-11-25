@@ -21,6 +21,16 @@ from ai_trainer.domain.sports.gym.payload import GymPayload
 from ai_trainer.domain.sports.gym.rows import GymEntryRow, entries_of, unit_of
 
 
+def _renumbered(entries: Sequence[GymEntryRow], *, after: int) -> dict[int, int]:
+    """Each circuit of a log by its number there, to its number in the session: after the
+    session's highest, in the order logged."""
+    numbers: dict[int, int] = {}
+    for entry in entries:
+        if entry.circuit is not None and entry.circuit not in numbers:
+            numbers[entry.circuit] = after + len(numbers) + 1
+    return numbers
+
+
 class GymActivityStore:
     """Implements `ActivityStorePort` over the gym's tables. `max_options` is the most places a
     band question offers at once (`max_clarification_options`, ADR-0015)."""
@@ -41,23 +51,37 @@ class GymActivityStore:
         """Appends the log's entries after the session's own; the caller holds the session's
         row lock, so two additions can't take the same position. A session confirmed before
         the tables keeps its v1 payload as it is (ADR-0022 invariant 4) until #377 backfills
-        its rows."""
-        last = await tx.scalar(
-            select(func.coalesce(func.max(GymExerciseEntryOrm.position), 0)).where(
-                GymExerciseEntryOrm.user_id == user_id,
-                GymExerciseEntryOrm.session_id == log.session_id,
+        its rows. The log's circuits are numbered after the session's highest, in the order
+        logged, so an added log's circuit never joins one already there (ADR-0032, #632
+        amendment)."""
+        last, last_circuit = (
+            await tx.execute(
+                select(
+                    func.coalesce(func.max(GymExerciseEntryOrm.position), 0),
+                    func.coalesce(func.max(GymExerciseEntryOrm.circuit), 0),
+                ).where(
+                    GymExerciseEntryOrm.user_id == user_id,
+                    GymExerciseEntryOrm.session_id == log.session_id,
+                )
             )
-        )
+        ).one()
         payload = GymPayload.model_validate(log.addition)
         settled = await settle_names(tx, user_id, payload)
+        logged = entries_of(payload)
+        circuits = _renumbered(logged, after=last_circuit)
         rows = tuple(
-            entry.model_copy(update={"exercise_id": settled.get(entry.name_as_typed)})
-            for entry in entries_of(payload)
+            entry.model_copy(
+                update={
+                    "exercise_id": settled.get(entry.name_as_typed),
+                    "circuit": circuits.get(entry.circuit) if entry.circuit else None,
+                }
+            )
+            for entry in logged
         )
         bands = await self._band_ids(tx, user_id, rows)
         entries: list[dict[str, object]] = []
         sets: list[dict[str, object]] = []
-        for position, entry in enumerate(rows, start=(last or 0) + 1):
+        for position, entry in enumerate(rows, start=last + 1):
             entry_id = uuid4()
             entries.append(
                 {
@@ -86,8 +110,9 @@ class GymActivityStore:
         self, tx: AsyncSession, user_id: UUID, edit: EditedActivities
     ) -> dict[str, JsonValue]:
         """The athlete's edit from History (B4, ticket #516): each entry, by position, takes the
-        edit's measure, each side, implements and RIR and keeps its row, its log (`source_id`),
-        its exercise and its name as typed; its sets are replaced, numbered from 1. A band first
+        edit's measure, each side, implements, RIR and rounds and keeps its row, its log
+        (`source_id`), its exercise, its name as typed and its circuit; its sets are replaced,
+        numbered from 1, one per round in a circuit (#632). A band first
         named here joins the athlete's bands unranked, as in a log, and is asked about by the
         chat's next band question (ADR-0032, #516 amendment). The rows are the record, so the
         session keeps its stored payload."""
@@ -111,6 +136,7 @@ class GymActivityStore:
             entry.per_side = row.per_side
             entry.implements = row.implements
             entry.rir = row.rir
+            entry.rounds = row.rounds
             sets.extend(
                 {
                     "user_id": user_id,

@@ -7,7 +7,13 @@ are left as shown is unchanged, so an edit of one set of a pyramid changes only 
 
 A set row names the stored set it came from, `src`, so removing a set from the middle doesn't pair
 the rows after it with the wrong stored sets. A row with a blank `src` is a new set; a form with no
-`src` at all is matched by position."""
+`src` at all is matched by position.
+
+A circuit's rounds are one value for the circuit, posted on any of its exercises' rows (the form
+puts it on the first). Raising them from N to M gives each exercise in the circuit rounds N+1 to
+M, each a copy of its last round, which the athlete sees in the form before saving; lowering them
+drops each exercise's last rounds (ADR-0032, #632 amendment). A blank rounds value is rejected,
+since a circuit always has its rounds and they are never estimated."""
 
 from collections.abc import Mapping, Sequence
 
@@ -21,6 +27,7 @@ from ai_trainer.domain.sports.gym.payload import (
     MAX_INCLINE_PCT,
     MAX_MACHINE_LEVEL,
     MAX_RIR,
+    MAX_ROUNDS,
     MAX_SETS,
     MAX_WATTS,
     MIN_INCLINE_PCT,
@@ -35,7 +42,7 @@ from ai_trainer.domain.sports.gym.payload import (
     measure_of,
 )
 
-_EXERCISE_FIELDS = ("name", "measure", "per_side", "implements", "rir")
+_EXERCISE_FIELDS = ("name", "measure", "per_side", "implements", "rir", "rounds")
 _SET_FIELDS = ("reps", "load", "duration", "distance", "band", "incline", "level", "watts")
 
 
@@ -67,6 +74,8 @@ class _ExerciseForm(BaseModel):
     per_side: bool | None = None
     implements: int | None = Field(default=None, ge=1, le=MAX_IMPLEMENTS)
     rir: int | None = Field(default=None, ge=0, le=MAX_RIR)
+    # Not nullable: a blank one is rejected. Read only on a circuit's exercise.
+    rounds: int = Field(default=1, ge=1, le=MAX_ROUNDS)
     sets: list[_SetForm] | None = Field(default=None, max_length=MAX_SETS)
 
 
@@ -96,7 +105,33 @@ def apply_gym_edit(
         _edited(exercise, typed)
         for exercise, typed in zip(current.activities, form.activities, strict=False)
     ]
-    return GymPayload(activities=[*edited, *current.activities[len(edited) :]])
+    rounds = _rounds(current.activities, form.activities)
+    return GymPayload(
+        activities=[
+            _in_rounds(exercise, rounds)
+            for exercise in [*edited, *current.activities[len(edited) :]]
+        ]
+    )
+
+
+def _rounds(stored: Sequence[Exercise], typed: Sequence[_ExerciseForm]) -> dict[int, int]:
+    """Each circuit's rounds as the form gives them: the first of its rows that carries one."""
+    rounds: dict[int, int] = {}
+    for exercise, form in zip(stored, typed, strict=False):
+        if exercise.circuit is not None and "rounds" in form.model_fields_set:
+            rounds.setdefault(exercise.circuit, form.rounds)
+    return rounds
+
+
+def _in_rounds(exercise: Exercise, rounds: Mapping[int, int]) -> Exercise:
+    """A circuit's exercise with one set per round: a new round copies its last one, and a
+    round past the count is dropped. An exercise outside a circuit is as it is."""
+    if exercise.circuit is None:
+        return exercise
+    count = rounds.get(exercise.circuit, exercise.rounds or len(exercise.sets))
+    sets = exercise.sets[:count]
+    sets += [sets[-1]] * (count - len(sets))
+    return exercise.model_copy(update={"rounds": count, "sets": sets})
 
 
 def _strip(edit: Mapping[str, JsonValue], fields: tuple[str, ...]) -> dict[str, JsonValue]:

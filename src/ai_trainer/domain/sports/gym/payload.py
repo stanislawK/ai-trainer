@@ -23,7 +23,9 @@ from pydantic import (
 # with a value holds both reads as `distance_time` (ticket #626).
 # Version 7 added a set's machine settings, `incline_pct`, `machine_level` and `watts`; a v5 or
 # v6 document reads as it is, with none of them (ticket #630).
-GYM_PAYLOAD_VERSION = 7
+# Version 8 added an exercise's `circuit` and `rounds`; a v6 or v7 document reads as it is, with
+# no circuit (ticket #632).
+GYM_PAYLOAD_VERSION = 8
 
 type LoadUnit = Literal["kg", "lb"]
 # `gym_exercise_entries.measure`.
@@ -48,6 +50,10 @@ MIN_INCLINE_PCT = -10
 MAX_INCLINE_PCT = 40
 MAX_MACHINE_LEVEL = 50
 MAX_WATTS = 2000
+# `gym_exercise_entries.circuit` and `.rounds` (ADR-0032 #618 amendment): a circuit's number
+# within its session, and how many rounds it was done for.
+MAX_CIRCUIT = 100
+MAX_ROUNDS = 100
 
 
 class Load(BaseModel):
@@ -146,7 +152,9 @@ class Exercise(BaseModel):
     `decision_overridden` signal (ticket #399). `candidate_scores` is Jev's probability per
     shortlisted exercise for a name it didn't settle, which orders the card with no second call;
     a settled or renamed entry has none (ticket #579).
-    `implements` of 2 with a load means that load in each hand."""
+    `implements` of 2 with a load means that load in each hand. `circuit` groups the exercises
+    done together for `rounds` rounds, each round a set, so set *n* is round *n* (B43, ticket
+    #632); both are set or both empty, and a round count is never estimated."""
 
     exercise_id: UUID | None = None
     keep_name: bool = False
@@ -158,6 +166,8 @@ class Exercise(BaseModel):
     implements: int | None = Field(default=None, ge=1, le=MAX_IMPLEMENTS)
     rir: int | None = Field(default=None, ge=0, le=MAX_RIR)
     sets: list[GymSet] = Field(min_length=1, max_length=MAX_SETS)
+    circuit: int | None = Field(default=None, ge=1, le=MAX_CIRCUIT)
+    rounds: int | None = Field(default=None, ge=1, le=MAX_ROUNDS)
 
     @model_validator(mode="before")
     @classmethod
@@ -177,7 +187,31 @@ class Exercise(BaseModel):
             self.measure = "distance_time"
         return self
 
+    @model_validator(mode="after")
+    def _one_set_per_round(self) -> Exercise:
+        if (self.circuit is None) != (self.rounds is None):
+            raise ValueError("circuit and rounds are both given or both empty")
+        if self.rounds is not None and len(self.sets) != self.rounds:
+            raise ValueError("a circuit exercise holds one set per round")
+        return self
+
 
 class GymPayload(BaseModel):
     sport: Literal["gym"] = "gym"
     activities: list[Exercise] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _circuits_hold_together(self) -> GymPayload:
+        """A circuit's exercises are neighbours and share its rounds (ticket #632)."""
+        rounds: dict[int, int | None] = {}
+        previous: int | None = None
+        for exercise in self.activities:
+            circuit = exercise.circuit
+            if circuit is not None and circuit != previous:
+                if circuit in rounds:
+                    raise ValueError(f"circuit {circuit}'s exercises are not together")
+                rounds[circuit] = exercise.rounds
+            if circuit is not None and rounds[circuit] != exercise.rounds:
+                raise ValueError(f"circuit {circuit}'s exercises differ in rounds")
+            previous = circuit
+        return self

@@ -154,10 +154,10 @@ def test_extraction_needs_at_least_one_exercise() -> None:
         _extraction(activities=[])
 
 
-def test_payload_is_version_seven_and_tagged_gym() -> None:
+def test_payload_is_version_eight_and_tagged_gym() -> None:
     """A v3 document, which has no `jev_pick`, reads as it is with the flag off (#399), and a v4
     one, which has no `candidate_scores`, with no scores (#579)."""
-    assert GYM_PAYLOAD_VERSION == 7
+    assert GYM_PAYLOAD_VERSION == 8
     payload = GymPayload.model_validate(
         {"activities": [{"name_as_typed": "pull-ups", "measure": "reps", "sets": [{"reps": 8}]}]}
     )
@@ -187,6 +187,8 @@ def test_payload_is_version_seven_and_tagged_gym() -> None:
                         "watts": None,
                     }
                 ],
+                "circuit": None,
+                "rounds": None,
             }
         ],
     }

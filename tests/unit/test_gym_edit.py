@@ -416,3 +416,96 @@ def test_settings_alone_leave_a_measure_pick_standing() -> None:
 
     assert exercise.measure == "distance"
     assert exercise.sets == [GymSet(machine_level=6)]
+
+
+# --- #632: a circuit's rounds (ADR-0032, #632 amendment) ------------------------------------
+
+_CIRCUIT: dict[str, JsonValue] = {
+    "sport": "gym",
+    "activities": [
+        {
+            "name_as_typed": "burpees",
+            "measure": "reps",
+            "circuit": 1,
+            "rounds": 3,
+            "sets": [{"reps": 10}, {"reps": 10}, {"reps": 8}],
+        },
+        {
+            "name_as_typed": "squats",
+            "measure": "reps",
+            "circuit": 1,
+            "rounds": 3,
+            "sets": [{"reps": 15}, {"reps": 15}, {"reps": 12}],
+        },
+        {"name_as_typed": "plank", "measure": "time", "sets": [{"duration_s": 45}]},
+    ],
+}
+
+
+def test_raising_rounds_copies_last_round_to_each_exercise() -> None:
+    """3 → 4 rounds, posted once on the circuit's first row: each exercise gains a fourth round
+    that copies its third, and the plank outside the circuit is as it was."""
+    edited = apply_gym_edit(_CIRCUIT, {"activities": [{"rounds": "4"}, {}, {}]})
+
+    burpees, squats, plank = edited.activities
+    assert (burpees.rounds, [s.reps for s in burpees.sets]) == (4, [10, 10, 8, 8])
+    assert (squats.rounds, [s.reps for s in squats.sets]) == (4, [15, 15, 12, 12])
+    assert (plank.circuit, plank.rounds, len(plank.sets)) == (None, None, 1)
+
+
+def test_lowering_rounds_drops_last_rounds() -> None:
+    edited = apply_gym_edit(_CIRCUIT, {"activities": [{"rounds": "2"}]})
+
+    burpees, squats, _ = edited.activities
+    assert (burpees.rounds, [s.reps for s in burpees.sets]) == (2, [10, 10])
+    assert (squats.rounds, [s.reps for s in squats.sets]) == (2, [15, 15])
+
+
+def test_rounds_left_as_shown_keep_each_set_and_its_edit() -> None:
+    form: dict[str, JsonValue] = {
+        "activities": [
+            {"rounds": "3", "sets": [{"reps": "10"}, {"reps": "11"}, {"reps": "8"}]},
+            {"rounds": "3"},
+        ]
+    }
+
+    burpees, squats, _ = apply_gym_edit(_CIRCUIT, form).activities
+
+    assert [s.reps for s in burpees.sets] == [10, 11, 8]
+    assert [s.reps for s in squats.sets] == [15, 15, 12]
+
+
+def test_rows_added_by_the_form_with_the_rounds_are_kept() -> None:
+    """The form may add the new rounds' rows itself; they are kept as posted."""
+    rows: list[JsonValue] = [{"reps": "10", "src": "0"}, {"reps": "10", "src": "1"}]
+    rows += [{"reps": "8", "src": "2"}, {"reps": "9", "src": ""}]
+    form: dict[str, JsonValue] = {"activities": [{"rounds": "4", "sets": rows}]}
+
+    burpees, squats, _ = apply_gym_edit(_CIRCUIT, form).activities
+
+    assert [s.reps for s in burpees.sets] == [10, 10, 8, 9]
+    assert [s.reps for s in squats.sets] == [15, 15, 12, 12]
+
+
+@pytest.mark.parametrize("rounds", ["", "0", "101", "x"])
+def test_a_blank_or_out_of_range_rounds_is_rejected_at_its_field(rounds: str) -> None:
+    with pytest.raises(ValidationError) as error:
+        apply_gym_edit(_CIRCUIT, {"activities": [{"rounds": rounds}]})
+
+    assert [detail["loc"] for detail in error.value.errors()] == [("activities", 0, "rounds")]
+
+
+def test_rounds_on_an_exercise_outside_a_circuit_are_ignored() -> None:
+    edited = apply_gym_edit(_CIRCUIT, {"activities": [{}, {}, {"rounds": "5"}]})
+
+    assert edited.activities[2].rounds is None
+    assert len(edited.activities[2].sets) == 1
+
+
+def test_a_plain_entry_edits_as_before_beside_a_circuit() -> None:
+    form: dict[str, JsonValue] = {"activities": [{}, {}, {"sets": [{"duration": "60"}]}]}
+
+    edited = apply_gym_edit(_CIRCUIT, form)
+
+    assert edited.activities[2].sets == [GymSet(duration_s=60)]
+    assert [len(exercise.sets) for exercise in edited.activities[:2]] == [3, 3]
