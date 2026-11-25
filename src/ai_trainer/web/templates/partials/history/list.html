@@ -18,10 +18,23 @@
     </span>
     <span class="flex flex-col flex-1 min-w-0 gap-1 border-l border-base-content/10 pl-3">
       <span class="text-[12px] lbl-2 tabular-nums">{{ session.time.strftime("%H:%M") }} · {{ session.exercises | length }} exercise{{ "" if session.exercises | length == 1 else "s" }}</span>
-      {% for exercise in session.exercises %}
+      {% for block in circuit_blocks(session.exercises) %}
+      {%- if block.rounds is not none %}
+      {#- A circuit (#632): "N rounds of", then each exercise numbered with its round. -#}
+      <span class="flex flex-col text-[13px] leading-[18px]" data-circuit>
+        <span><span class="font-medium tabular-nums">{{ block.rounds }} rounds</span><span class="lbl-2"> of</span></span>
+        {%- for item in block.items %}
+        {%- set label = session.labels.get(item.exercise.name_as_typed) %}
+        {%- set line = done(item.round_line, [label.name] if label else []) | trim %}
+        <span class="flex gap-2"><span class="w-3 shrink-0 text-center lbl-2 tabular-nums">{{ loop.index }}</span><span class="min-w-0"><span class="font-medium">{{ label.name if label else exercise_name(item.exercise.name_as_typed) }}</span>{% if line %}<span class="lbl-2"> · </span><span class="lbl-2 tabular-nums">{{ line }}</span>{% endif %}</span></span>
+        {%- endfor %}
+      </span>
+      {%- else %}
+      {%- set exercise = block.items[0].exercise %}
       {%- set label = session.labels.get(exercise.name_as_typed) %}
       {%- set line = done(exercise, [label.name] if label else []) | trim %}
       <span class="text-[13px] leading-[18px]"><span class="font-medium">{{ label.name if label else exercise_name(exercise.name_as_typed) }}</span>{% if line %}<span class="lbl-2"> · </span><span class="lbl-2 tabular-nums">{{ line }}</span>{% endif %}</span>
+      {%- endif %}
       {% endfor %}
     </span>
   </a>

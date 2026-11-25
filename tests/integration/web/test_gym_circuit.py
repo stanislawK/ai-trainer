@@ -3,17 +3,13 @@ draft, logged and History cards show one "N rounds of" block with its exercises,
 take one rounds value per circuit, posted as `activities.<i>.rounds` on the circuit's first
 exercise, raising them copies each exercise's last round, and each exercise in a circuit keeps
 its own sets, so its progress counts them. An entry outside any circuit and a v6 or v7 draft are
-as before.
-
-The card markup lands in #632's second part; its tests are marked `xfail(strict=True)` until
-then, so they turn green, and must be unmarked, when the templates do."""
+as before."""
 
 import re
 from collections.abc import Callable
 from typing import Any
 from uuid import UUID
 
-import pytest
 from fastapi.testclient import TestClient
 from pydantic import JsonValue
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -35,8 +31,6 @@ from tests.integration.test_gym_activity_store import (
 )
 from tests.integration.test_session_continuity_repository import _START, _Athlete, _athlete
 from tests.unit import test_chat_gym_draft as chat_card
-
-_TEMPLATES = pytest.mark.xfail(strict=True, reason="templates in #632 part 2")
 
 _EXERCISES: list[dict[str, Any]] = [
     in_circuit("burpees", 1, 10, 10, 10),
@@ -70,7 +64,6 @@ async def _logged_circuit(
 # --- AC: a 3-round circuit of burpees and squats shows one "3 rounds" block with both -------
 
 
-@_TEMPLATES
 async def test_draft_card_shows_one_rounds_block_with_both_exercises() -> None:
     client, user_id, chat, drafts = chat_card._client()
     draft = await chat_card._pending(chat, drafts, user_id, _BURPEES_AND_SQUATS)
@@ -84,7 +77,6 @@ async def test_draft_card_shows_one_rounds_block_with_both_exercises() -> None:
     assert chat_card._text(card).index("Squats") < chat_card._text(card).index("Plank")
 
 
-@_TEMPLATES
 async def test_logged_card_shows_one_rounds_block_with_both_exercises() -> None:
     client, user_id, chat, drafts = chat_card._client()
     draft = await chat_card._pending(chat, drafts, user_id, _BURPEES_AND_SQUATS)
@@ -97,7 +89,6 @@ async def test_logged_card_shows_one_rounds_block_with_both_exercises() -> None:
     assert "Squats" in block
 
 
-@_TEMPLATES
 async def test_history_list_and_session_show_one_rounds_block(
     db_session_factory: Callable[[], AsyncSession],
 ) -> None:
@@ -144,7 +135,6 @@ async def test_edit_rounds_to_four_then_confirm_saves_four_rounds(
     ]
 
 
-@_TEMPLATES
 async def test_edit_rounds_to_four_then_confirm_shows_four_in_history(
     db_session_factory: Callable[[], AsyncSession],
 ) -> None:
@@ -153,12 +143,13 @@ async def test_edit_rounds_to_four_then_confirm_shows_four_in_history(
     )
     client = history_route._client(db_session_factory, await _user(athlete))
 
-    (block,) = _rounds_blocks(client.get(f"/history/{session_id}").text)
+    # The session page shows the list beside the open session, so the circuit shows in both.
+    blocks = _rounds_blocks(client.get(f"/history/{session_id}").text)
 
-    assert block.startswith("4 rounds")
+    assert len(blocks) == 2
+    assert all(block.startswith("4 rounds") for block in blocks)
 
 
-@_TEMPLATES
 async def test_history_edit_form_has_one_rounds_field_per_circuit(
     db_session_factory: Callable[[], AsyncSession],
 ) -> None:
@@ -170,7 +161,6 @@ async def test_history_edit_form_has_one_rounds_field_per_circuit(
     assert re.search(r'name="activities\.0\.rounds"[^>]*value="3"', form)
 
 
-@_TEMPLATES
 async def test_draft_edit_form_has_one_rounds_field_per_circuit() -> None:
     client, user_id, chat, drafts = chat_card._client()
     draft = await chat_card._pending(chat, drafts, user_id, _BURPEES_AND_SQUATS)
@@ -257,7 +247,6 @@ async def test_v6_draft_confirms_unchanged() -> None:
     assert "rounds" not in logged
 
 
-@_TEMPLATES
 async def test_plain_entry_beside_a_circuit_shows_as_before() -> None:
     client, user_id, chat, drafts = chat_card._client()
     draft = await chat_card._pending(chat, drafts, user_id, _BURPEES_AND_SQUATS)

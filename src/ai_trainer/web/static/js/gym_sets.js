@@ -2,7 +2,10 @@
 // measure, and adding and removing a set's row. Delegated from the document, so a form htmx swaps
 // in works without a re-bind. Every field of every row is posted whether shown or not, so the
 // server keeps what the athlete didn't touch; a field the new measure hides is cleared here.
-// The pace note (#626) shows only while the measure is distance and time.
+// The pace note (#626) shows only while the measure is distance and time. A circuit's Rounds
+// field (#632) keeps each of its exercises at one row per round: raising it copies each
+// exercise's last row, as a new set, and lowering it drops the last rows (ADR-0032 #632
+// amendment). A circuit's exercises have no add or remove control of their own.
 (() => {
   const SET_INDEX = /\.sets\.(?:\d+|__set__)\./;
   // An exercise holds at most this many sets (`MAX_SETS` in the gym payload): each is a row.
@@ -35,10 +38,32 @@
       }
       row.querySelector("[data-set-number]").textContent = String(index + 1);
       const remove = row.querySelector("[data-remove-set]");
+      if (!remove) return;
       remove.disabled = rows.length === 1;
       remove.setAttribute("aria-label", `Remove set ${index + 1}`);
     });
-    group.querySelector("[data-add-set]").disabled = rows.length >= MAX_SETS;
+    const add = group.querySelector("[data-add-set]");
+    if (add) add.disabled = rows.length >= MAX_SETS;
+  };
+
+  // One row per round for each exercise in the circuit; a value that isn't 1 to MAX_SETS
+  // whole rounds leaves the rows as they are, and the server says what is wrong with it.
+  const followRounds = (input) => {
+    const rounds = Number(input.value);
+    if (!Number.isInteger(rounds) || rounds < 1 || rounds > MAX_SETS) return;
+    for (const group of input.closest("[data-circuit]").querySelectorAll("[data-exercise]")) {
+      let rows = rowsOf(group);
+      while (rows.length > rounds) rows.pop().remove();
+      while (rows.length < rounds) {
+        const last = rows[rows.length - 1];
+        const copy = last.cloneNode(true);
+        const source = copy.querySelector('input[name$=".src"]');
+        if (source) source.value = "";
+        last.after(copy);
+        rows = rowsOf(group);
+      }
+      renumber(group);
+    }
   };
 
   document.addEventListener("click", (event) => {
@@ -59,6 +84,11 @@
         renumber(group);
       }
     }
+  });
+
+  document.addEventListener("input", (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    if (target?.matches("input[data-rounds]")) followRounds(target);
   });
 
   document.addEventListener("change", (event) => {

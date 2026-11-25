@@ -1,6 +1,6 @@
 {#- One saved session: a `mat-content` sheet from the bottom over a scrim on a phone, a 460 px panel beside the list from `lg` (History v4 mock, ticket #515). The scrim and Close go back to the list. Under the title, Edit `lg-clear` opens the edit form in the same sheet or panel (#516) and Delete `lg-quiet` asks in `delete.html`'s dialog (#518); each exercise row opens its progress (#517). -#}
 {% from "components/icon.html" import icon %}
-{% from "components/gym_copy.html" import done, exercise_name %}
+{% from "components/gym_copy.html" import done, exercise_name, rounds_heading %}
 {% from "components/session_meta.html" import session_meta %}
 <a
   href="/history"
@@ -51,11 +51,34 @@
     >{{ icon("trash-2", "size-4") }}Delete</button>
   </div>
   <ul class="flex flex-col" aria-label="Exercises">
-    {% for exercise in open.exercises %}
+    {% for block in circuit_blocks(open.exercises) %}
+    {%- if block.rounds is not none %}
+    {#- A circuit (#632, Gym Measures v2): "N rounds of" over its numbered exercises, each still opening its own progress. -#}
+    <li class="flex flex-col pt-2.5 border-t border-base-content/10 first:border-t-0 first:pt-0" data-circuit>
+      {{ rounds_heading(block.rounds) }}
+      <ol class="flex flex-col">
+        {%- for item in block.items %}
+        {%- set label = open.labels.get(item.exercise.name_as_typed) %}
+        {%- set line = done(item.round_line, [label.name] if label else []) | trim %}
+        <li>
+          <a href="/history/{{ open.id }}/exercises/{{ item.index }}" class="flex items-center gap-2 py-2 min-h-11">
+            <span class="w-4 shrink-0 text-center text-[14px] lbl-2 tabular-nums">{{ loop.index }}</span>
+            <span class="flex flex-col flex-1 min-w-0">
+              <span class="text-[15px] font-medium">{{ label.name if label else exercise_name(item.exercise.name_as_typed) }}</span>
+              {% if line %}<span class="text-[14px] tabular-nums lbl-2">{{ line }}</span>{% endif %}
+            </span>
+            {{ icon("chevron-right", "size-4 lbl-2 shrink-0") }}
+          </a>
+        </li>
+        {%- endfor %}
+      </ol>
+    </li>
+    {%- else %}
+    {%- set exercise = block.items[0].exercise %}
     {%- set label = open.labels.get(exercise.name_as_typed) %}
     {%- set line = done(exercise, [label.name] if label else []) | trim %}
     <li class="border-t border-base-content/10 first:border-t-0">
-      <a href="/history/{{ open.id }}/exercises/{{ loop.index0 }}" class="flex items-center gap-3 py-2.5 min-h-11">
+      <a href="/history/{{ open.id }}/exercises/{{ block.items[0].index }}" class="flex items-center gap-3 py-2.5 min-h-11">
         <span class="flex flex-col flex-1 min-w-0">
           <span class="text-[15px] font-medium">{{ label.name if label else exercise_name(exercise.name_as_typed) }}</span>
           {% if line %}<span class="text-[14px] tabular-nums lbl-2">{{ line }}</span>{% endif %}
@@ -63,6 +86,7 @@
         {{ icon("chevron-right", "size-4 lbl-2 shrink-0") }}
       </a>
     </li>
+    {%- endif %}
     {% endfor %}
   </ul>
 </section>

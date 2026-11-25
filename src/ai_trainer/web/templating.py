@@ -15,6 +15,7 @@ from ai_trainer.domain.sports.gym.pace import (
     pace_per_split,
     split_of,
 )
+from ai_trainer.web.gym_blocks import circuit_blocks
 from ai_trainer.web.icons import render_icon
 from ai_trainer.web.nav import visible_sections
 
@@ -80,6 +81,7 @@ def build_templates() -> Jinja2Templates:
     env.globals["pace_split"] = split_of
     env.globals["set_pace"] = _set_pace
     env.globals["clock_text"] = clock_text
+    env.globals["circuit_blocks"] = circuit_blocks
     env.filters["dateformat"] = _format_date
     env.filters["shortdate"] = _format_short_date
     env.filters["dayformat"] = _format_day
