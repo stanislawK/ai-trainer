@@ -56,6 +56,25 @@ def test_no_settings_given_leaves_all_three_empty() -> None:
     assert _settings(exercise) == [(None, None, None)]
 
 
+def test_neighbours_merged_keep_each_sets_own_settings() -> None:
+    """Two treadmill intervals at different inclines merge into one entry (#410), and each set
+    keeps its own incline: settings live on the set, not the exercise (code review on #631)."""
+    extraction = GymExtraction.model_validate(
+        {
+            "occurred_on": "2026-11-25",
+            "date_source": "assumed_today",
+            "activities": [
+                {"name": "treadmill", "duration": {"value": 10, "unit": "min"}, "incline": 3},
+                {"name": "treadmill", "duration": {"value": 10, "unit": "min"}, "incline": 8},
+            ],
+        }
+    )
+
+    (exercise,) = extraction.to_payload().activities
+
+    assert _settings(exercise) == [(3.0, None, None), (8.0, None, None)]
+
+
 def test_a_decline_reads_below_zero() -> None:
     assert _settings(_only_exercise(name="treadmill", incline=-2.5)) == [(-2.5, None, None)]
 
