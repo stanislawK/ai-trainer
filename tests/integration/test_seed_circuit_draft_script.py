@@ -67,6 +67,37 @@ async def test_main_seeds_a_pending_draft_with_a_three_round_circuit() -> None:
     assert f"circuit draft {draft_id}" in output.getvalue()
 
 
+@pytest.mark.usefixtures("_cleanup")
+async def test_main_dates_the_reply_after_the_log() -> None:
+    # On a tie the chat can read the log as unanswered and run a real extraction on it.
+    engine = build_engine(str(Settings().database_url))
+    try:
+        await get_or_create_active_user(
+            SqlAlchemyUsersRepository(build_session_factory(engine)),
+            sub=_SUB,
+            email=f"{_SUB}@example.com",
+        )
+    finally:
+        await engine.dispose()
+
+    draft_id = await main(output=io.StringIO(), sub=_SUB)
+
+    engine = build_engine(str(Settings().database_url))
+    async with engine.connect() as connection:
+        rows = (
+            await connection.execute(
+                text(
+                    "SELECT m.role, m.created_at FROM chat_messages m JOIN session_drafts d"
+                    " ON d.conversation_id = m.conversation_id WHERE d.id = :id"
+                ),
+                {"id": draft_id},
+            )
+        ).all()
+    await engine.dispose()
+    at = {role: created for role, created in rows}
+    assert at["user"] < at["assistant"]
+
+
 async def test_main_without_the_seeded_user_writes_nothing() -> None:
     with pytest.raises(LookupError, match="dev_session"):
         await main(output=io.StringIO(), sub="seed-circuit-draft-nobody")

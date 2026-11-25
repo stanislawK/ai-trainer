@@ -1,6 +1,6 @@
 """Seeds a pending gym draft holding a circuit into a dev user's chat (ticket #632).
 
-Run with `uv run python scripts/seed_circuit_draft.py [--sub <sub>]` against the database the app
+Run with `uv run python -m scripts.seed_circuit_draft [--sub <sub>]` against the database the app
 reads (`DATABASE_URL`), after `scripts/dev_session.py` has seeded its user (the default `--sub`).
 `gym.extract` doesn't build circuits until #633, so this is how the demo reaches one: it opens a
 new conversation with the log "3 rounds: 10 burpees, 15 squats, then a 45 s plank", a reply, and
@@ -13,6 +13,7 @@ import argparse
 import asyncio
 import sys
 from collections.abc import Callable, Sequence
+from datetime import timedelta
 from typing import TextIO
 from uuid import UUID
 from zoneinfo import ZoneInfo
@@ -36,6 +37,7 @@ from scripts.dev_session import DEV_SESSION_SUB
 
 LOG = "3 rounds: 10 burpees, 15 squats, then a 45 s plank"
 REPLY = "Here's the session."
+REPLY_AFTER = timedelta(seconds=1)
 CIRCUIT = GymPayload.model_validate(
     {
         "activities": [
@@ -73,8 +75,11 @@ async def seed_circuit_draft(
     ).create(user.id, None, now)
     chat = SqlAlchemyChatRepository(factory)
     log = await chat.add(user.id, conversation.id, ChatRole.USER, LOG, now)
+    # The reply comes after the log, never at the same instant: on a tie the chat can read the
+    # log as unanswered and run a real extraction on it.
+    replied = now + REPLY_AFTER
     await chat.add(
-        user.id, conversation.id, ChatRole.ASSISTANT, REPLY, now,
+        user.id, conversation.id, ChatRole.ASSISTANT, REPLY, replied,
         sports=("gym",), template_id="gym.extract",
     )  # fmt: skip
     registry = default_sport_registry()
@@ -93,7 +98,7 @@ async def seed_circuit_draft(
             payload=CIRCUIT.model_dump(mode="json"),
         ),
         payload_version=GYM_PAYLOAD_VERSION,
-        created_at=now,
+        created_at=replied,
     )
 
 
