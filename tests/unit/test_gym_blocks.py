@@ -103,6 +103,17 @@ def test_a_circuits_card_lists_each_exercises_round_under_its_rounds() -> None:
     assert text == "3 rounds of 1 Burpees 10 reps 2 Squats 15 · 12 · 10"
 
 
+def test_a_one_round_circuit_reads_round_not_rounds() -> None:
+    card = _render(_CARD, [_exercise("burpees", 10, circuit=1), _exercise("squats", 15, circuit=1)])
+    listed = _render(
+        '{% from "components/gym_copy.html" import rounds_word %}{{ rounds_word(1) }}', []
+    )
+
+    text = " ".join(re.sub(r"<[^>]+>", " ", card).split())
+    assert text.startswith("1 round of ")
+    assert listed == "1 round"
+
+
 def test_the_edit_form_has_one_rounds_field_above_a_circuits_exercises() -> None:
     form = _render(
         _EDIT,

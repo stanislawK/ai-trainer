@@ -113,8 +113,12 @@
 {%- endmacro %}
 
 {#- A circuit's "N rounds of" heading (Gym Measures v2, #632). -#}
+{% macro rounds_word(rounds) -%}
+{{ rounds }} {{ "round" if rounds == 1 else "rounds" }}
+{%- endmacro %}
+
 {% macro rounds_heading(rounds) -%}
-<span class="text-[20px] font-semibold leading-7">{{ rounds }} rounds <span class="text-[13px] font-normal lbl-2">of</span></span>
+<span class="text-[20px] font-semibold leading-7">{{ rounds_word(rounds) }} <span class="text-[13px] font-normal lbl-2">of</span></span>
 {%- endmacro %}
 
 {#- A circuit (#632): "N rounds of" over a numbered list of its exercises, each with its round from `done` ("15 reps" when every round is alike, else round by round), what the draft says about its name and the loads typed in pounds. -#}

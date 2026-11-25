@@ -86,13 +86,14 @@
     }
   });
 
-  document.addEventListener("input", (event) => {
-    const target = event.target instanceof Element ? event.target : null;
-    if (target?.matches("input[data-rounds]")) followRounds(target);
-  });
-
   document.addEventListener("change", (event) => {
     const target = event.target instanceof Element ? event.target : null;
+    // Rounds follow on `change`, once the value settles: on `input`, typing "10" would pass
+    // through "1" and drop every round past the first (#632 code review).
+    if (target?.matches("input[data-rounds]")) {
+      followRounds(target);
+      return;
+    }
     if (!target?.matches("select[data-measure]")) return;
     showFields(target.closest("[data-exercise]"), { clear: true });
   });

@@ -1,4 +1,4 @@
-{% from "components/gym_copy.html" import done, exercise_name %}
+{% from "components/gym_copy.html" import done, exercise_name, rounds_word %}
 <div class="gap-2 {% if open %}flex flex-col{% else %}flex flex-col lg:grid lg:grid-cols-2 lg:items-start{% endif %}">
   {% for session in sessions %}
   {%- set selected = open and open.id == session.id %}
@@ -22,7 +22,7 @@
       {%- if block.rounds is not none %}
       {#- A circuit (#632): "N rounds of", then each exercise numbered with its round. -#}
       <span class="flex flex-col text-[13px] leading-[18px]" data-circuit>
-        <span><span class="font-medium tabular-nums">{{ block.rounds }} rounds</span><span class="lbl-2"> of</span></span>
+        <span><span class="font-medium tabular-nums">{{ rounds_word(block.rounds) }}</span><span class="lbl-2"> of</span></span>
         {%- for item in block.items %}
         {%- set label = session.labels.get(item.exercise.name_as_typed) %}
         {%- set line = done(item.round_line, [label.name] if label else []) | trim %}
