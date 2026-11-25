@@ -190,6 +190,35 @@ def test_the_smoke_set_holds_the_622_cases_and_grades_the_session() -> None:
     assert (stretch.per_side, [gym_set.duration_s for gym_set in stretch.sets]) == (True, [30])
 
 
+def test_the_smoke_set_holds_the_631_machine_setting_cases() -> None:
+    """A treadmill's incline with its speed left out, a bike erg's watts, a cross-trainer's level
+    and a treadmill with no setting (#631, PRD 0013 B44), each worded as the ticket's AC."""
+    smoke = Dataset[EvalCaseInputs, GymExtraction | GymQuestion, Any].from_file(
+        _SMOKE_SET,
+        custom_evaluator_types=(DateMatch, ActivitiesMatch, SessionMatch, QuestionMatch),
+    )
+    ours = {
+        str(case.name): case
+        for case in smoke.cases
+        if (case.metadata or {}).get("reported") == "#631"
+    }
+    settings: dict[str, list[tuple[float | None, int | None, int | None, int | None]]] = {}
+    for name, case in ours.items():
+        assert (case.metadata or {}).get("prd") == "B44", name
+        assert ExtractDeps.model_validate(case.inputs.deps).message == case.inputs.prompt, name
+        (exercise,) = _expected_in(ours, case.inputs.prompt).to_payload().activities
+        settings[case.inputs.prompt] = [
+            (s.incline_pct, s.machine_level, s.watts, s.duration_s) for s in exercise.sets
+        ]
+
+    assert settings == {
+        "20 min treadmill incline 5 % speed 6": [(5.0, None, None, 1200)],
+        "bike erg 200 W 10 min": [(None, None, 200, 600)],
+        "cross-trainer level 8, 15 min": [(None, 8, None, 900)],
+        "treadmill 20 min": [(None, None, None, 1200)],
+    }
+
+
 def _expected_in(cases: dict[str, Any], prompt: str) -> GymExtraction:
     (expected,) = [case.expected_output for case in cases.values() if case.inputs.prompt == prompt]
     assert isinstance(expected, GymExtraction)

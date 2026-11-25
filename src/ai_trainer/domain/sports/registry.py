@@ -82,7 +82,7 @@ def default_sport_registry() -> SportRegistry:
                 icon="dumbbell",
                 extraction=ExtractionSpec(
                     template_id="gym.extract",
-                    version=6,
+                    version=7,
                     output_type=GymExtraction,
                     payload_type=GymPayload,
                     payload_version=GYM_PAYLOAD_VERSION,
