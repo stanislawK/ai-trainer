@@ -79,6 +79,17 @@ def gym_history_page(context: BrowserContext) -> Iterator[Page]:
 
 
 @pytest.fixture
+def fitness_session_page(context: BrowserContext) -> Iterator[Page]:
+    """A page signed in as the dedicated fitness session user, with an earlier rower session
+    and a pending stretch, rower and circuit draft in today's chat
+    (`tests/e2e/fitness_session_seed.py`, #634)."""
+    context.add_cookies([_run_seeder("-m", "tests.e2e.fitness_session_seed")])
+    page = context.new_page()
+    yield page
+    page.close()
+
+
+@pytest.fixture
 def not_onboarded_page(
     context: BrowserContext, not_onboarded_cookie: SetCookieParam
 ) -> Iterator[Page]:
