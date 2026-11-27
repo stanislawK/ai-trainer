@@ -105,8 +105,12 @@ class _WithoutNulls(BaseModel):
     """A model that dumps without its `None` fields: a gym answer resends every tool result on
     each request of its tool loop, so a null per missing measure is tokens for nothing."""
 
+    # No return annotation on purpose: pydantic reads one as the serialization schema, which
+    # would turn each model's tool output schema into a bare object (#662 code review).
     @model_serializer(mode="wrap")
-    def _drop_nulls(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+    def _drop_nulls(  # type: ignore[no-untyped-def]  # an annotation would erase the JSON schema
+        self, handler: SerializerFunctionWrapHandler
+    ):
         dumped: dict[str, Any] = handler(self)
         return {key: value for key, value in dumped.items() if value is not None}
 
@@ -133,7 +137,7 @@ class HistorySet(_WithoutNulls, LoggedSet):
     def _drop_nulls(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
         """Also leaves the load typed out when it only restates `load_kg` ("45kg"), and keeps it
         otherwise ("100 lb"), so the answer sees each load once."""
-        dumped = super()._drop_nulls(handler)
+        dumped: dict[str, Any] = super()._drop_nulls(handler)
         if _restates_kg(self):
             dumped.pop("load_original", None)
         return dumped
@@ -169,7 +173,7 @@ class ExerciseHistoryPage(_WithoutNulls):
 
     model_config = ConfigDict(frozen=True)
 
-    exercise: ExerciseRef | None
+    exercise: ExerciseRef | None = None
     entries: list[HistoryEntry]
     truncated: bool
 

@@ -185,6 +185,13 @@ def test_a_history_set_built_directly_dumps_without_nulls() -> None:
     assert HistorySet(set_no=2, pace=None).model_dump(mode="json") == {"set_no": 2}
 
 
+def test_history_page_keeps_its_serialization_schema() -> None:
+    schema = ExerciseHistoryPage.model_json_schema(mode="serialization")
+
+    assert set(schema["properties"]) == {"exercise", "entries", "truncated"}
+    assert "HistorySet" in schema["$defs"]
+
+
 async def test_history_page_dump_has_no_session_id_or_null() -> None:
     typed = await ExerciseTrainingHistory(_Exercises(), _History(found=1)).typed_entries(
         _USER, "cable fly"

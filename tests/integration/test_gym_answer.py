@@ -3,6 +3,7 @@ conversation, gateway, MCP server and `process_tool_call` hook, on the real repo
 scripted model. What the tools hand the model is what the athlete's reply can be built from."""
 
 import json
+import re
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from datetime import date
@@ -251,7 +252,7 @@ async def test_bench_question_answers_from_the_athletes_sets_and_dates(world: _W
     assert str(world.bench) in found
     assert "2026-10-28" in history
     assert "2026-11-01" in history
-    assert '"load_kg": 47.5' in history
+    assert re.search(r'"load_kg":\s*47\.5', history)
     assert "47,5kg" not in history
     done = turn.events[-1]
     assert isinstance(done, ReplyDone)
