@@ -227,7 +227,7 @@ async def test_stream_chitchat_streams_the_chitchat_template_through_the_gateway
     [call] = gateway.streams
     assert (call["template_id"], call["template_version"], call["model_id"]) == (
         "chitchat",
-        2,
+        3,
         "test/chitchat-model",
     )
     deps = build_chitchat_deps(
@@ -240,7 +240,7 @@ async def test_stream_chitchat_streams_the_chitchat_template_through_the_gateway
         history_turns=10,
     )
     expected = build_prompt_registry(_PROMPTS_ROOT, default_sport_registry()).render_instructions(
-        "chitchat", 2, deps
+        "chitchat", 3, deps
     )
     assert call["instructions"] == expected
     assert "01:30" in call["instructions"]
@@ -250,7 +250,7 @@ async def test_stream_chitchat_streams_the_chitchat_template_through_the_gateway
 def test_chitchat_template_names_the_template_that_streams() -> None:
     conversation = _conversation(RecordingGateway())
 
-    assert conversation.chitchat_template == TemplateRef(id="chitchat", version=2)
+    assert conversation.chitchat_template == TemplateRef(id="chitchat", version=3)
 
 
 def test_not_yet_is_read_from_its_file_with_no_model_call() -> None:
@@ -287,7 +287,7 @@ async def test_stream_answer_reads_the_sports_template_with_its_settings_and_too
     assert isinstance(chunks[-1], StreamEnd)
     (call,) = gateway.streams
     assert call["user_id"] == context.user_id
-    assert (call["template_id"], call["template_version"]) == ("gym.answer", 3)
+    assert (call["template_id"], call["template_version"]) == ("gym.answer", 4)
     assert call["model_id"] == "test/answer-model"
     assert call["tool_loop"] == ToolLoop(max_requests=5)
     assert call["provider"] == _ANSWER_PREFERENCES
@@ -309,7 +309,6 @@ async def test_stream_answer_renders_persona_time_and_turns_but_no_identity() ->
     # 23:30 UTC on 30 Sep is already 1 Oct in Warsaw (ADR-0014).
     assert "today is 2026-10-01" in instructions
     assert "- user: earlier" in instructions
-    assert context.message in instructions
     assert str(context.user_id) not in instructions
 
 
@@ -336,9 +335,26 @@ async def test_stream_answer_passes_goals_and_limits() -> None:
     assert "sore left shoulder" in instructions
 
 
+async def test_answer_and_chitchat_runs_send_the_message_as_the_user_prompt() -> None:
+    """The latest message reaches the model once, as the user prompt, never in the
+    instructions (ADR-0026 step 6, #663)."""
+    gateway = RecordingGateway()
+    context = replace(_context(), message="Zebra-crossing message 4711")
+    conversation = _conversation(gateway)
+
+    [_ async for _ in conversation.stream_answer(context, "gym")]
+    [_ async for _ in conversation.stream_chitchat(context)]
+
+    answer, chitchat = gateway.streams
+    assert (answer["template_id"], chitchat["template_id"]) == ("gym.answer", "chitchat")
+    for call in (answer, chitchat):
+        assert call["prompt"] == context.message
+        assert context.message not in call["instructions"]
+
+
 def test_answer_template_names_the_sports_template() -> None:
     assert _conversation(RecordingGateway()).answer_template("gym") == TemplateRef(
-        id="gym.answer", version=3
+        id="gym.answer", version=4
     )
 
 

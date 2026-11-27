@@ -498,7 +498,9 @@ async def test_my_knee_hurts_also_hi_puts_the_pain_first_in_one_chitchat_call(
 
     [instructions] = chitchat.instructions
     assert "Pain or feeling unwell opens the reply" in instructions
-    assert "my knee hurts, also hi" in instructions
+    # The message is the user prompt, never repeated in the instructions (ADR-0026 step 6, #663).
+    assert "my knee hurts, also hi" not in instructions
+    assert _prompt(chitchat.prompts[0]) == "my knee hurts, also hi"
     assert body.index("Sorry about the knee.") < body.index("Hi!")
 
 

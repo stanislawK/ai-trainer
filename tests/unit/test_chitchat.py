@@ -33,6 +33,14 @@ def _registry(root: Path = _PROMPTS_ROOT) -> PromptRegistry:
     return registry
 
 
+def _shared_prefix(first: str, second: str) -> str:
+    size = next(
+        (index for index, (a, b) in enumerate(zip(first, second, strict=False)) if a != b),
+        min(len(first), len(second)),
+    )
+    return first[:size]
+
+
 def _deps(**overrides: object) -> ChitchatDeps:
     values: dict[str, object] = {
         "message": "hi!",
@@ -61,10 +69,10 @@ async def _rendered_instructions(deps: ChitchatDeps) -> str:
     return seen[0]
 
 
-def test_the_chitchat_template_is_on_v2_with_text_output_and_its_own_model_setting() -> None:
+def test_the_chitchat_template_is_on_v3_with_text_output_and_its_own_model_setting() -> None:
     template = chitchat_template()
 
-    assert (template.id, template.version, template.locale) == ("chitchat", 2, "en")
+    assert (template.id, template.version, template.locale) == ("chitchat", 3, "en")
     assert template.deps_type is ChitchatDeps
     assert template.output_type is str
     assert template.model_settings_key == "chitchat_model"
@@ -98,10 +106,10 @@ async def test_the_rendered_prompt_carries_the_athletes_local_date_not_the_serve
     assert "2026-09-30" not in rendered
 
 
-async def test_the_rendered_prompt_carries_the_message_sports_and_goals() -> None:
-    rendered = await _rendered_instructions(_deps(message="Morning, coach!"))
+async def test_the_rendered_prompt_carries_the_sports_and_goals() -> None:
+    rendered = await _rendered_instructions(_deps())
 
-    for expected in ("Morning, coach!", "climbing", "cycling", "Send my first 7a", "2027-06-01"):
+    for expected in ("climbing", "cycling", "Send my first 7a", "2027-06-01"):
         assert expected in rendered
     assert "Stay injury free" in rendered
 
@@ -123,7 +131,7 @@ def test_a_typo_in_the_real_chitchat_template_fails_the_build(tmp_path: Path) ->
     shutil.copytree(_PROMPTS_ROOT, root)
     version = chitchat_template().version
     body = root / CHITCHAT_TEMPLATE_ID / f"v{version}.en.md"
-    body.write_text(body.read_text().replace("{{message}}", "{{mesage}}"))
+    body.write_text(body.read_text().replace("{{timezone}}", "{{timezon}}"))
 
     with pytest.raises(PromptTemplateVariableError):
         _registry(root).build_agent(CHITCHAT_TEMPLATE_ID, version)
@@ -136,3 +144,36 @@ def test_build_chitchat_deps_resolves_today_and_now_local_in_the_user_timezone()
     assert deps.now_local.isoformat() == "2026-10-01T01:30:00+02:00"
     assert deps.timezone == "Europe/Warsaw"
     assert [turn.text for turn in deps.history] == [f"turn {index}" for index in range(2, 12)]
+
+
+def test_chitchat_v3_renders_share_the_static_prefix_up_to_the_first_athlete_value() -> None:
+    """ADR-0026 step 6 (#663): the task and every rule come before the turn's context."""
+    registry = _registry()
+    first = registry.render_instructions(CHITCHAT_TEMPLATE_ID, 3, _deps())
+    second = registry.render_instructions(
+        CHITCHAT_TEMPLATE_ID,
+        3,
+        _deps(
+            message="what's up?",
+            history=[ChatTurn(role="assistant", text="noted")],
+            athlete_sports=["gym"],
+            goals=[Goal(text="Run 5 km")],
+            now=datetime(2027, 2, 3, 6, 15, tzinfo=UTC),
+            timezone="America/New_York",
+        ),
+    )
+
+    prefix = _shared_prefix(first, second)
+
+    assert prefix.endswith("Sports: ")
+    assert "## Rules" in prefix
+    assert "\n5. " in prefix
+
+
+async def test_chitchat_v3_leaves_the_latest_message_out_of_the_instructions() -> None:
+    message = "Zebra-crossing small talk 4711"
+
+    rendered = await _rendered_instructions(_deps(message=message))
+
+    assert message not in rendered
+    assert "## Latest message" not in rendered

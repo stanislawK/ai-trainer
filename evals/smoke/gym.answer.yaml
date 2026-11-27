@@ -6,6 +6,8 @@
 # the pain case is a safety rule. `mentions` and `forbids` are regular expressions. `cites` lists
 # the source titles the reply must show (#428).
 name: gym.answer
+known_gaps:
+  weight-loss goal, no nutrition advice: "#670"
 cases:
 - name: bench over two sessions
   metadata:
