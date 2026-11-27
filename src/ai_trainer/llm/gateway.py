@@ -299,9 +299,9 @@ class OpenRouterGateway:
         call: _StreamCall,
         loop: ToolLoop,
     ) -> None:
-        """Text written before the run's first tool result is held and dropped when that
-        request calls a tool; the rest is streamed. What is saved is
-        exactly what was sent (#666)."""
+        """Text written before the run's first tool result is held: dropped when that request
+        calls a tool, sent whole when it ends without one. Text after the first tool result is
+        streamed. What is saved is exactly what was sent (#666)."""
         if self._toolset is None:
             raise RuntimeError("this gateway was built with no toolset")
 
