@@ -11,6 +11,7 @@ from playwright.sync_api import Page, expect
 from tests.e2e.conftest import BASE_URL
 
 ROWER = "Rowing machine"
+SWING = "Kettlebell swing"
 DRAFT_DAY = r"Wed\s*25\s*Nov"
 EARLIER_DAY = r"Wed\s*18\s*Nov"
 PACE = "2:05 /500 m"
@@ -80,13 +81,20 @@ def test_fitness_deleting_the_session_removes_its_circuit_and_sets(
     page = fitness_session_page
     _confirm(page)
     _open_saved(page, DRAFT_DAY)
+    content = page.locator("#history-content")
+    # The list shows the circuit and its swings before the delete, so their absence after it counts.
+    listed = content.get_by_role("link", name=re.compile(DRAFT_DAY))
+    expect(listed.locator("[data-circuit]")).to_have_count(1)
+    expect(listed).to_contain_text("3 rounds")
+    expect(listed).to_contain_text(SWING)
     page.get_by_role("region", name="Saved session").get_by_role("button", name="Delete").click()
     dialog = page.get_by_role("alertdialog", name="Delete this session?")
     expect(dialog).to_be_visible()
     dialog.get_by_role("button", name="Delete session").click()
-    content = page.locator("#history-content")
     expect(content.get_by_role("link", name=re.compile(DRAFT_DAY))).to_have_count(0)
+    expect(content.locator("[data-circuit]")).to_have_count(0)
     expect(content).not_to_contain_text("3 rounds")
+    expect(content).not_to_contain_text(SWING)
     expect(content.get_by_role("link", name=re.compile(EARLIER_DAY))).to_have_count(1)
     page.get_by_role("link", name=re.compile(EARLIER_DAY)).click()
     _open_rower_progress(page)
