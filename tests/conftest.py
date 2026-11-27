@@ -89,6 +89,7 @@ _XDIST_GROUPS = {
         "tests/integration/test_db_session_isolation.py",
         "tests/integration/test_vector_round_trip.py",
         "tests/integration/test_dev_session_script.py",
+        "tests/integration/test_seed_circuit_draft_script.py",
         "tests/integration/test_purge_conversations_cli.py",
         "tests/integration/test_latency_scenario_script.py",
         "tests/integration/test_clarification_repository.py",

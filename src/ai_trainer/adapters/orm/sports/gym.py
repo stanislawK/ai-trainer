@@ -37,6 +37,12 @@ class GymExerciseEntryOrm(Base):
         CheckConstraint("implements BETWEEN 1 AND 4", name="gym_exercise_entries_implements_range"),
         CheckConstraint("rir BETWEEN 0 AND 10", name="gym_exercise_entries_rir_range"),
         CheckConstraint("char_length(note) <= 500", name="gym_exercise_entries_note_length"),
+        # A circuit (ADR-0032 #618 amendment, #632): both set or both NULL, never estimated.
+        CheckConstraint("circuit BETWEEN 1 AND 100", name="gym_exercise_entries_circuit_range"),
+        CheckConstraint("rounds BETWEEN 1 AND 100", name="gym_exercise_entries_rounds_range"),
+        CheckConstraint(
+            "(circuit IS NULL) = (rounds IS NULL)", name="gym_exercise_entries_circuit_rounds"
+        ),
         UniqueConstraint(
             "session_id", "position", name="gym_exercise_entries_session_id_position_key"
         ),
@@ -82,6 +88,10 @@ class GymExerciseEntryOrm(Base):
     implements: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
     rir: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # A group number within the session: entries with the same one form a circuit of `rounds`
+    # rounds, and each round is a set (`set_no` is the round).
+    circuit: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
+    rounds: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
 
 
 class AthleteBandOrm(Base):

@@ -185,3 +185,27 @@ def test_rows_carry_none_for_settings_not_given() -> None:
 
     (row,) = entry.sets
     assert (row.incline_pct, row.machine_level, row.watts) == (None, None, None)
+
+
+def test_a_circuit_entry_carries_its_circuit_and_rounds_and_one_set_per_round() -> None:
+    """B43, #632: each round is a set, numbered from 1; an entry outside a circuit has none."""
+    payload = GymPayload.model_validate(
+        {
+            "activities": [
+                {
+                    "name_as_typed": "burpees",
+                    "measure": "reps",
+                    "sets": [{"reps": 10}] * 3,
+                    "circuit": 1,
+                    "rounds": 3,
+                },
+                {"name_as_typed": "plank", "measure": "time", "sets": [{"duration_s": 30}]},
+            ]
+        }
+    )
+
+    burpees, plank = entries_of(payload)
+
+    assert (burpees.circuit, burpees.rounds) == (1, 3)
+    assert [row.set_no for row in burpees.sets] == [1, 2, 3]
+    assert (plank.circuit, plank.rounds) == (None, None)

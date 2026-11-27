@@ -12,12 +12,23 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ai_trainer.adapters.gym_session_reader import SqlAlchemyGymSessionReader
 from ai_trainer.adapters.training_session_editor import SqlAlchemySessionEditor
+from ai_trainer.application.session_history import GymSessionEdit
 from ai_trainer.domain.history import SessionChangedError
 from ai_trainer.domain.training import SessionNotFoundError
+from ai_trainer.web.drafts import form_changes
 from tests.activity_support import STORES
 from tests.chat_support import FROZEN_NOW, FixedClock
-from tests.integration.test_gym_activity_store import _gym, _id, _lift, _logged, _sets
+from tests.integration.test_gym_activity_store import (
+    _gym,
+    _id,
+    _lift,
+    _logged,
+    _sets,
+    circuit_draft,
+    in_circuit,
+)
 from tests.integration.test_session_continuity_repository import (
     _START,
     _athlete,
@@ -171,3 +182,31 @@ async def test_another_athletes_session_is_not_found_and_unchanged(
         )
 
     assert await _sets(db_session_factory, session_id) == before
+
+
+async def test_raising_a_circuits_rounds_in_history_saves_a_set_per_round(
+    db_session_factory: Callable[[], AsyncSession],
+) -> None:
+    """3 → 4 rounds from History's form (#632): each exercise keeps its circuit and gains a
+    fourth round copying its third; the reader gives 4 rounds back."""
+    athlete = await _athlete(db_session_factory, "edit-gym-rounds")
+    logged = await _logged(
+        athlete,
+        "3 rounds: 10 burpees, 15 squats",
+        circuit_draft(in_circuit("burpees", 1, 10, 10, 8), in_circuit("squats", 1, 15, 15, 12)),
+    )
+    session_id = _id(logged.session_id)
+    reader = SqlAlchemyGymSessionReader(db_session_factory)
+
+    await GymSessionEdit(reader, _editor(db_session_factory)).save(
+        athlete.user_id,
+        session_id,
+        form_changes([("activities.0.rounds", "4")]),
+        version=(await _version(db_session_factory, session_id)).isoformat(),
+    )
+
+    stored = await reader.get_session(athlete.user_id, session_id)
+    assert stored is not None
+    assert [
+        (e.name_as_typed, e.circuit, e.rounds, [s.reps for s in e.sets]) for e in stored.exercises
+    ] == [("burpees", 1, 4, [10, 10, 8, 8]), ("squats", 1, 4, [15, 15, 12, 12])]
