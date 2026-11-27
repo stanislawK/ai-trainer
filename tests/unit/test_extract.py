@@ -168,6 +168,7 @@ def test_extract_templates_skip_a_sport_without_an_extraction() -> None:
         ("gym.extract", 5),
         ("gym.extract", 6),
         ("gym.extract", 7),
+        ("gym.extract", 8),
         ("cycling.extract", 1),
         ("cycling.extract", 2),
         ("cycling.extract", 3),
@@ -468,11 +469,11 @@ def test_every_sport_runs_its_active_extraction_version() -> None:
     """Every sport moved to v3 to ask how to read a log (tickets #164 and #206); gym to v4 to
     read "8 x3" as 3 sets of 8 (ticket #373) and to v5 for time, sides, implements and bands
     (ticket #395); cycling to v4 to leave indoor machines to gym (#619); gym to v6 for
-    stretching, classes, indoor cardio and the session's length and effort (#622), and to v7
-    for a machine's incline, level and watts (#631)."""
+    stretching, classes, indoor cardio and the session's length and effort (#622), to v7 for a
+    machine's incline, level and watts (#631), and to v8 for rounds and circuits (#633)."""
     assert {(template.id, template.version) for template in _ACTIVE_EXTRACT_TEMPLATES} == {
         ("climbing.extract", 3),
-        ("gym.extract", 7),
+        ("gym.extract", 8),
         ("cycling.extract", 4),
     }
 

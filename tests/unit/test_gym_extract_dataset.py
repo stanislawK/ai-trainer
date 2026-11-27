@@ -219,6 +219,36 @@ def test_the_smoke_set_holds_the_631_machine_setting_cases() -> None:
     }
 
 
+def test_the_smoke_set_holds_the_633_circuit_cases() -> None:
+    """Three rounds of two exercises, an EMOM, a circuit with a hold and a per side, and plain
+    sets that are no circuit (#633, PRD 0013 B43), each worded as the ticket's AC; every
+    expected output validates as the v8 output type and becomes a payload."""
+    smoke = Dataset[EvalCaseInputs, GymExtraction | GymQuestion, Any].from_file(
+        _SMOKE_SET,
+        custom_evaluator_types=(DateMatch, ActivitiesMatch, SessionMatch, QuestionMatch),
+    )
+    ours = {
+        str(case.name): case
+        for case in smoke.cases
+        if (case.metadata or {}).get("reported") == "#633"
+    }
+    circuits: dict[str, list[tuple[str, int | None, int | None, int]]] = {}
+    for name, case in ours.items():
+        assert (case.metadata or {}).get("prd") == "B43", name
+        assert ExtractDeps.model_validate(case.inputs.deps).message == case.inputs.prompt, name
+        circuits[case.inputs.prompt] = [
+            (e.name_as_typed, e.circuit, e.rounds, len(e.sets))
+            for e in _expected_in(ours, case.inputs.prompt).to_payload().activities
+        ]
+
+    assert circuits == {
+        "3 rounds: 10 burpees, 20 squats": [("burpees", 1, 3, 3), ("squats", 1, 3, 3)],
+        "EMOM 10 min: 5 pull-ups": [("pull-ups", 1, 10, 10)],
+        "circuit x3: plank 30s, 15 lunges each side": [("plank", 1, 3, 3), ("lunges", 1, 3, 3)],
+        "3x10 squats, 3x10 rows": [("squats", None, None, 3), ("rows", None, None, 3)],
+    }
+
+
 def _expected_in(cases: dict[str, Any], prompt: str) -> GymExtraction:
     (expected,) = [case.expected_output for case in cases.values() if case.inputs.prompt == prompt]
     assert isinstance(expected, GymExtraction)

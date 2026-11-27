@@ -202,16 +202,21 @@ class GymPayload(BaseModel):
 
     @model_validator(mode="after")
     def _circuits_hold_together(self) -> GymPayload:
-        """A circuit's exercises are neighbours and share its rounds (ticket #632)."""
-        rounds: dict[int, int | None] = {}
-        previous: int | None = None
-        for exercise in self.activities:
-            circuit = exercise.circuit
-            if circuit is not None and circuit != previous:
-                if circuit in rounds:
-                    raise ValueError(f"circuit {circuit}'s exercises are not together")
-                rounds[circuit] = exercise.rounds
-            if circuit is not None and rounds[circuit] != exercise.rounds:
-                raise ValueError(f"circuit {circuit}'s exercises differ in rounds")
-            previous = circuit
+        check_circuits_hold_together([(e.circuit, e.rounds) for e in self.activities])
         return self
+
+
+def check_circuits_hold_together(circuits: Sequence[tuple[int | None, int | None]]) -> None:
+    """A circuit's exercises are neighbours and share its rounds (ticket #632); `circuits` is
+    each exercise's circuit and rounds, in order. `gym.extract`'s output is held to it too, so
+    a model's split circuit is sent back to it (ticket #633)."""
+    rounds: dict[int, int | None] = {}
+    previous: int | None = None
+    for circuit, its_rounds in circuits:
+        if circuit is not None and circuit != previous:
+            if circuit in rounds:
+                raise ValueError(f"circuit {circuit}'s exercises are not together")
+            rounds[circuit] = its_rounds
+        if circuit is not None and rounds[circuit] != its_rounds:
+            raise ValueError(f"circuit {circuit}'s exercises differ in rounds")
+        previous = circuit

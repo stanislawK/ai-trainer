@@ -340,6 +340,88 @@ cases:
       duration:
         value: 20
         unit: min
+# #633 (PRD 0013 B43): rounds and circuits, worded as the ticket's ACs; no field transcript holds
+# one yet. A circuit's exercises share its number and rounds, leave `sets` empty and hold one
+# round; "EMOM 10 min" is 10 rounds. Plain sets are never a circuit.
+- name: 'circuit: three rounds of two exercises'
+  inputs:
+    prompt: '3 rounds: 10 burpees, 20 squats'
+    deps:
+      <<: *deps
+      message: '3 rounds: 10 burpees, 20 squats'
+  metadata: &b43
+    reported: '#633'
+    prd: B43
+  expected_output:
+    occurred_on: '2026-10-28'
+    date_source: assumed_today
+    activities:
+    - name: burpees
+      reps: 10
+      circuit: 1
+      rounds: 3
+    - name: squats
+      reps: 20
+      circuit: 1
+      rounds: 3
+- name: 'circuit: EMOM 10 min is 10 rounds'
+  inputs:
+    prompt: 'EMOM 10 min: 5 pull-ups'
+    deps:
+      <<: *deps
+      message: 'EMOM 10 min: 5 pull-ups'
+  metadata: *b43
+  expected_output:
+    occurred_on: '2026-10-28'
+    date_source: assumed_today
+    activities:
+    - name: pull-ups
+      reps: 5
+      circuit: 1
+      rounds: 10
+- name: 'circuit: a hold and per side kept'
+  inputs:
+    prompt: 'circuit x3: plank 30s, 15 lunges each side'
+    deps:
+      <<: *deps
+      message: 'circuit x3: plank 30s, 15 lunges each side'
+  metadata: *b43
+  expected_output:
+    occurred_on: '2026-10-28'
+    date_source: assumed_today
+    activities:
+    - name: plank
+      duration:
+        value: 30
+        unit: s
+      circuit: 1
+      rounds: 3
+    - name: lunges
+      reps: 15
+      per_side: true
+      circuit: 1
+      rounds: 3
+- name: 'plain sets: no circuit'
+  inputs:
+    prompt: 3x10 squats, 3x10 rows
+    deps:
+      <<: *deps
+      message: 3x10 squats, 3x10 rows
+  metadata: *b43
+  expected_output:
+    occurred_on: '2026-10-28'
+    date_source: assumed_today
+    activities:
+    - name: squats
+      sets: 3
+      reps: 10
+      circuit: null
+      rounds: null
+    - name: rows
+      sets: 3
+      reps: 10
+      circuit: null
+      rounds: null
 evaluators:
 - DateMatch
 - ActivitiesMatch
