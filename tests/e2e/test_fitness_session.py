@@ -96,7 +96,7 @@ def test_fitness_deleting_the_session_removes_its_circuit_and_sets(
     expect(content).not_to_contain_text("3 rounds")
     expect(content).not_to_contain_text(SWING)
     expect(content.get_by_role("link", name=re.compile(EARLIER_DAY))).to_have_count(1)
-    page.get_by_role("link", name=re.compile(EARLIER_DAY)).click()
+    content.get_by_role("link", name=re.compile(EARLIER_DAY)).click()
     _open_rower_progress(page)
     table = page.get_by_role("table", name="Sessions with this exercise")
     expect(table.get_by_role("row")).to_have_count(2)

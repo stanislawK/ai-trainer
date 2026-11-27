@@ -59,7 +59,7 @@ async def _log_earlier_rower(
 ) -> None:
     """The slower session: 2000 m in 8:40 (520 s) on `EARLIER_DAY`."""
     session_id, source_id, entry_id = uuid4(), uuid4(), uuid4()
-    logged_at = datetime(2026, 11, 18, 17, 0, tzinfo=UTC)
+    logged_at = datetime(EARLIER_DAY.year, EARLIER_DAY.month, EARLIER_DAY.day, 17, 0, tzinfo=UTC)
     async with factory() as db:
         db.add(
             TrainingSessionOrm(
