@@ -82,6 +82,7 @@ def _returned(messages: list[ModelMessage]) -> list[object]:
 
 
 def _stream(gateway: OpenRouterGateway, **kwargs: Any) -> AsyncGenerator[LlmStreamEvent]:
+    kwargs.setdefault("tool_loop", _LOOP)
     return gateway.stream(
         user_id=_USER,
         template_id="gym.answer",
@@ -89,7 +90,6 @@ def _stream(gateway: OpenRouterGateway, **kwargs: Any) -> AsyncGenerator[LlmStre
         model_id="z-ai/glm-5.3-flash",
         instructions="Answer.",
         prompt="How is my bench going?",
-        tool_loop=_LOOP,
         **kwargs,
     )
 
@@ -143,8 +143,88 @@ async def test_text_before_a_tool_call_does_not_end_the_run() -> None:
         chunks, end = await _collect(_stream(gateway))
 
     assert seen == [_USER]
-    assert chunks == ["Let me check.", "\n\n", "It is 45 kg."]
-    assert end.result.output == "Let me check.\n\nIt is 45 kg."
+    assert chunks == ["It is 45 kg."]
+    assert end.result.output == "It is 45 kg."
+
+
+async def test_text_before_the_first_tool_result_is_dropped() -> None:
+    """B40: no "Let me check." before the history is read; what is saved is what was sent."""
+
+    async def speaks_first(messages: list[ModelMessage], info: AgentInfo) -> _Stream:
+        if _returned(messages):
+            yield "It is 45 kg."
+        else:
+            yield "Let me check."
+            yield _tool_call("lookup")
+
+    repository = FakeLlmCallsRepository()
+    gateway = _gateway(repository)
+
+    with gateway.tool_agent.override(model=FunctionModel(stream_function=speaks_first)):
+        chunks, end = await _collect(_stream(gateway))
+
+    assert "".join(chunks) == "It is 45 kg."
+    assert end.result.output == "".join(chunks)
+
+
+async def test_a_run_with_no_tool_call_sends_its_text_once_at_request_end() -> None:
+    async def answers_at_once(messages: list[ModelMessage], info: AgentInfo) -> _Stream:
+        yield "Your bench "
+        yield "is 45 kg."
+
+    gateway = _gateway(FakeLlmCallsRepository())
+
+    with gateway.tool_agent.override(model=FunctionModel(stream_function=answers_at_once)):
+        chunks, end = await _collect(_stream(gateway))
+
+    assert chunks == ["Your bench is 45 kg."]
+    assert end.result.output == "Your bench is 45 kg."
+
+
+async def test_text_after_the_first_tool_result_streams_in_pieces() -> None:
+    gateway = _gateway(FakeLlmCallsRepository())
+
+    with gateway.tool_agent.override(model=FunctionModel(stream_function=_tool_then_answer)):
+        chunks, _ = await _collect(_stream(gateway))
+
+    assert chunks == ["Your bench ", "is 45 kg."]
+
+
+async def test_text_of_a_later_request_is_set_apart_from_the_one_before() -> None:
+    async def checks_twice(messages: list[ModelMessage], info: AgentInfo) -> _Stream:
+        returned = len(_returned(messages))
+        if returned == 0:
+            yield _tool_call("lookup", "1")
+        elif returned == 1:
+            yield "Checking more."
+            yield _tool_call("lookup", "2")
+        else:
+            yield "It is 45 kg."
+
+    gateway = _gateway(FakeLlmCallsRepository())
+
+    with gateway.tool_agent.override(model=FunctionModel(stream_function=checks_twice)):
+        chunks, end = await _collect(_stream(gateway))
+
+    assert "".join(chunks) == "Checking more.\n\nIt is 45 kg."
+    assert end.result.output == "".join(chunks)
+
+
+async def test_a_run_that_hits_the_request_cap_before_a_tool_result_sends_nothing() -> None:
+    repository = FakeLlmCallsRepository()
+    gateway = _gateway(repository)
+
+    async def checks_forever(messages: list[ModelMessage], info: AgentInfo) -> _Stream:
+        yield "Let me check."
+        yield _tool_call("lookup")
+
+    with gateway.tool_agent.override(model=FunctionModel(stream_function=checks_forever)):
+        chunks, end = await _collect(_stream(gateway, tool_loop=ToolLoop(max_requests=1)))
+
+    assert chunks == []
+    assert end.result.output is None
+    assert end.result.outcome is LlmCallOutcome.ERROR
+    assert [row.outcome for row in repository.recorded] == [LlmCallOutcome.ERROR]
 
 
 async def test_the_tool_reads_the_user_the_gateway_was_given() -> None:

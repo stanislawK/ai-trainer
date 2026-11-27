@@ -1,12 +1,22 @@
 """The text of a run that may call tools before it answers (ADR-0010, ticket #421), streamed from
-every model request in turn. `run_stream` would take the first text as the final output, so a tool
-call after "Let me check." would never run (Pydantic AI, `docs/agent.md`); `iter` runs it all."""
+the model requests in turn; text written before the run's first tool result is held and dropped
+when its request calls a tool (#666). `run_stream` would take the first text as the final
+output, so a tool call after "Let me check." would never run (Pydantic AI, `docs/agent.md`);
+`iter` runs it all."""
 
 import logging
 from collections.abc import Awaitable, Callable, Sequence
 from typing import Any
 
-from pydantic_ai import Agent, AgentRun, PartDeltaEvent, PartStartEvent, TextPart, TextPartDelta
+from pydantic_ai import (
+    Agent,
+    AgentRun,
+    PartDeltaEvent,
+    PartStartEvent,
+    TextPart,
+    TextPartDelta,
+    ToolCallPart,
+)
 from pydantic_ai.messages import AgentStreamEvent, ModelMessage
 
 from ai_trainer.domain.knowledge_search import CitedSource
@@ -26,24 +36,40 @@ def _text_of(event: AgentStreamEvent) -> str | None:
     return None
 
 
+def _is_tool_call(event: AgentStreamEvent) -> bool:
+    return isinstance(event, PartStartEvent) and isinstance(event.part, ToolCallPart)
+
+
 async def stream_run_text(run: AgentRun[Any, str], put: Callable[[str], Awaitable[None]]) -> bool:
-    """Hands `put` each piece of text the run's model requests make, in order, with a break
-    between requests and no leading blank text. Whether the last request said anything: a
-    "Let me check." before the tools is no answer on its own."""
-    said = request_said = False
+    """Hands `put` the text the run's model requests make, in order, with a break between
+    requests and no leading blank text. Text written before the run's first tool result is held
+    until its request ends: dropped when that request called a tool ("Let me check." before any
+    history is read, B40), sent whole when it didn't. After the first result it streams in
+    pieces. Whether the last request said anything."""
+    said = request_said = results_seen = False
     async for node in run:
         if not Agent.is_model_request_node(node):
             continue
-        request_said = False
+        request_said = called_tool = False
+        held: list[str] = []
         async with node.stream(run.ctx) as events:
             async for event in events:
+                called_tool = called_tool or _is_tool_call(event)
                 text = _text_of(event)
                 if not text or (not text.strip() and not request_said):
                     continue
-                if said and not request_said:
-                    await put(REQUEST_BREAK)
-                said = request_said = True
-                await put(text)
+                if not results_seen:
+                    held.append(text)
+                elif said and not request_said:
+                    await put(REQUEST_BREAK + text)
+                else:
+                    await put(text)
+                request_said = True
+        if not results_seen and not called_tool and held:
+            await put("".join(held))
+        request_said = request_said and (results_seen or not called_tool)
+        results_seen = results_seen or called_tool
+        said = said or request_said
     return request_said
 
 
