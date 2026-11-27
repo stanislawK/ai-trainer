@@ -1,6 +1,7 @@
 """What `gym.extract` returns (ADR-0008, ADR-0014): an absolute date, how it was found, and
 each exercise with its sets, reps, load exactly as typed, time, distance, band, sides, implements,
-RIR and a machine's incline, level and watts (B38, B44). The model copies the numbers and text
+RIR and a machine's incline, level and watts (B38, B44), and the circuit it is done in with its
+rounds (B43). The model copies the numbers and text
 and picks the unit; code, not the model, converts to kg, seconds and metres, and reads the
 measure. A log it can't read safely is a question instead: which movement an exercise name
 means, or which unit a load typed without one is in, its readings likeliest first (B17, ticket
@@ -24,12 +25,14 @@ from ai_trainer.domain.sports.gym.normalize import (
     to_seconds,
 )
 from ai_trainer.domain.sports.gym.payload import (
+    MAX_CIRCUIT,
     MAX_DISTANCE_M,
     MAX_DURATION_S,
     MAX_IMPLEMENTS,
     MAX_INCLINE_PCT,
     MAX_MACHINE_LEVEL,
     MAX_RIR,
+    MAX_ROUNDS,
     MAX_SETS,
     MAX_WATTS,
     MIN_INCLINE_PCT,
@@ -39,6 +42,7 @@ from ai_trainer.domain.sports.gym.payload import (
     GymPayload,
     GymSet,
     LoadUnit,
+    check_circuits_hold_together,
     measure_of,
 )
 from ai_trainer.domain.sports.gym.rows import RecentGymSession
@@ -101,9 +105,23 @@ class ExtractedExercise(BaseModel):
     )
     level: int | None = Field(default=None, ge=1, le=MAX_MACHINE_LEVEL)
     watts: int | None = Field(default=None, ge=1, le=MAX_WATTS)
+    # The circuit this exercise is done in, as the model numbers it, and its rounds, only when
+    # the message says rounds, a circuit or EMOM (B43, ticket #633). The fields hold one round.
+    circuit: int | None = Field(default=None, ge=1, le=MAX_CIRCUIT)
+    rounds: int | None = Field(default=None, ge=1, le=MAX_ROUNDS)
+
+    # Checked on the model's own output, so a bad circuit is sent back to it.
+    @model_validator(mode="after")
+    def _rounds_are_its_sets(self) -> Self:
+        if (self.circuit is None) != (self.rounds is None):
+            raise ValueError("circuit and rounds are both given or both empty")
+        if self.circuit is not None and self.sets is not None:
+            raise ValueError("a circuit exercise leaves sets empty: its rounds are its sets")
+        return self
 
     def to_exercise(self) -> Exercise:
-        """No set count is one set with what was given (ADR-0032, #376's plan gate)."""
+        """No set count is one set with what was given (ADR-0032, #376's plan gate); a circuit
+        exercise is one set per round, set *n* being round *n* (ADR-0032 #632 amendment)."""
         load = self.load
         gym_set = GymSet(
             reps=self.reps,
@@ -127,7 +145,9 @@ class ExtractedExercise(BaseModel):
             per_side=self.per_side,
             implements=self.implements,
             rir=self.rir,
-            sets=[gym_set] * (self.sets or 1),
+            sets=[gym_set] * (self.rounds or self.sets or 1),
+            circuit=self.circuit,
+            rounds=self.rounds,
         )
 
 
@@ -162,6 +182,13 @@ class GymExtraction(SessionExtraction):
     session_duration: ExtractedDuration | None = None
     effort: Effort | None = None
     rpe: int | None = Field(default=None, ge=1, le=MAX_RPE)
+
+    # Held to the payload's rule here, so a split circuit is sent back to the model rather than
+    # failing at `to_payload` (ticket #633).
+    @model_validator(mode="after")
+    def _circuits_hold_together(self) -> Self:
+        check_circuits_hold_together([(e.circuit, e.rounds) for e in self.activities])
+        return self
 
     def envelope(self) -> SessionEnvelope:
         """The length in whole minutes, a part minute counted as one; a stated RPE over the
@@ -218,7 +245,9 @@ class GymExtraction(SessionExtraction):
 
     def to_payload(self) -> GymPayload:
         return GymPayload(
-            activities=_merge_neighbours([exercise.to_exercise() for exercise in self.activities])
+            activities=_merge_neighbours(
+                _numbered_from_one([exercise.to_exercise() for exercise in self.activities])
+            )
         )
 
 
@@ -226,11 +255,26 @@ def _key(name: str) -> str:
     return name.strip().casefold()
 
 
+def _numbered_from_one(exercises: Sequence[Exercise]) -> list[Exercise]:
+    """Each log numbers its circuits 1, 2, … in order (ADR-0032 #632 amendment), whatever
+    numbers the model gave them."""
+    numbers: dict[int, int] = {}
+    return [
+        exercise
+        if exercise.circuit is None
+        else exercise.model_copy(
+            update={"circuit": numbers.setdefault(exercise.circuit, len(numbers) + 1)}
+        )
+        for exercise in exercises
+    ]
+
+
 def _merge_neighbours(exercises: Sequence[Exercise]) -> list[Exercise]:
     """The model lists one activity per scheme, so a pyramid ("10 @ 60, 8 @ 70, 6 @ 80") comes
     as three one-set entries; payload v2 holds it as one entry of three sets, and the athlete
     names it once (ADR-0032, ticket #410). Neighbours merge when they match in name (case
-    folded), side, implements, RIR and measure, and the merge stays within `MAX_SETS`."""
+    folded), side, implements, RIR and measure, and the merge stays within `MAX_SETS`. An
+    exercise in a circuit never merges: its sets are its rounds (ticket #633)."""
     merged: list[Exercise] = []
     for exercise in exercises:
         previous = merged[-1] if merged else None
@@ -243,7 +287,9 @@ def _merge_neighbours(exercises: Sequence[Exercise]) -> list[Exercise]:
 
 def _merges(first: Exercise, second: Exercise) -> bool:
     return (
-        _key(first.name_as_typed) == _key(second.name_as_typed)
+        first.circuit is None
+        and second.circuit is None
+        and _key(first.name_as_typed) == _key(second.name_as_typed)
         and first.per_side == second.per_side
         and first.implements == second.implements
         and first.rir == second.rir
