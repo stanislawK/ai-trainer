@@ -53,7 +53,7 @@ def build_chitchat_deps(
 def chitchat_template() -> PromptTemplate[ChitchatDeps, str]:
     return PromptTemplate(
         id=CHITCHAT_TEMPLATE_ID,
-        version=2,
+        version=3,
         locale="en",
         deps_type=ChitchatDeps,
         output_type=str,

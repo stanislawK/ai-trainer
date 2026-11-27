@@ -9,6 +9,7 @@ from ai_trainer.domain.goals import Goal, GoalKind
 from ai_trainer.domain.sports.registry import default_sport_registry
 from ai_trainer.llm.answer import AnswerDeps, AnswerGoal, build_answer_deps
 from ai_trainer.llm.conversation import build_prompt_registry
+from ai_trainer.llm.router import ChatTurn
 
 _PROMPTS_ROOT = Path(__file__).parents[2] / "src" / "ai_trainer" / "llm" / "prompts"
 _NOW = datetime(2026, 11, 24, 17, 0, tzinfo=UTC)
@@ -27,9 +28,17 @@ def _deps(goals: list[Goal], limits: str | None, sport_id: str = "gym") -> Answe
     )
 
 
+def _shared_prefix(first: str, second: str) -> str:
+    size = next(
+        (index for index, (a, b) in enumerate(zip(first, second, strict=False)) if a != b),
+        min(len(first), len(second)),
+    )
+    return first[:size]
+
+
 def _render(deps: AnswerDeps) -> str:
     registry = build_prompt_registry(_PROMPTS_ROOT, default_sport_registry())
-    return registry.render_instructions("gym.answer", 3, deps)
+    return registry.render_instructions("gym.answer", 4, deps)
 
 
 def test_answer_deps_carry_the_sports_goals_with_kind() -> None:
@@ -55,7 +64,7 @@ def test_answer_deps_carry_the_sports_goals_with_kind() -> None:
     assert "sport_id" not in AnswerGoal.model_fields
 
 
-def test_gym_answer_v3_renders_goals_and_limits() -> None:
+def test_gym_answer_v4_renders_goals_and_limits() -> None:
     deps = _deps(
         [
             Goal(text="Touch my toes", sport_id="gym", kind=GoalKind.MOBILITY),
@@ -88,9 +97,68 @@ def test_no_goals_and_no_profile_render_no_athlete_block() -> None:
     assert "today is 2026-11-24" in instructions
 
 
-def test_gym_answer_v3_renders_limits_alone() -> None:
+def test_gym_answer_v4_renders_limits_alone() -> None:
     instructions = _render(_deps([], "bad knee"))
 
     assert "## About the athlete" in instructions
     assert "Limits: bad knee" in instructions
     assert "Goals:" not in instructions
+
+
+def test_gym_answer_v4_renders_share_the_static_prefix_up_to_the_first_athlete_value() -> None:
+    """ADR-0026 step 6 (#663): the task and every rule come before the turn's context, so two
+    athletes on different days share every character up to the first athlete value."""
+    first = build_answer_deps(
+        message="How is my bench going?",
+        history=[ChatTurn(role="user", text="hi")],
+        now=_NOW,
+        timezone="Europe/Warsaw",
+        history_turns=10,
+        goals=[Goal(text="Touch my toes", sport_id="gym", kind=GoalKind.MOBILITY)],
+        limits="sore left shoulder",
+        sport_id="gym",
+    )
+    second = build_answer_deps(
+        message="How often should I squat?",
+        history=[ChatTurn(role="assistant", text="noted")],
+        now=datetime(2027, 2, 3, 6, 15, tzinfo=UTC),
+        timezone="America/New_York",
+        history_turns=10,
+        goals=[Goal(text="Run 5 km", kind=GoalKind.ENDURANCE)],
+        limits="bad knee",
+        sport_id="gym",
+    )
+
+    prefix = _shared_prefix(_render(first), _render(second))
+
+    assert prefix.endswith("## About the athlete\nGoals: ")
+    assert "## Rules" in prefix
+    assert "\n11. " in prefix
+
+
+def test_gym_answer_v4_leaves_the_latest_message_out_of_the_instructions() -> None:
+    message = "Zebra-crossing deadlift question 4711"
+    deps = build_answer_deps(
+        message=message,
+        history=[],
+        now=_NOW,
+        timezone="Europe/Warsaw",
+        history_turns=10,
+        goals=[],
+        limits=None,
+        sport_id="gym",
+    )
+
+    instructions = _render(deps)
+
+    assert message not in instructions
+    assert "## Latest message" not in instructions
+
+
+def test_gym_answer_v4_with_no_goals_or_limits_renders_no_athlete_heading() -> None:
+    instructions = _render(_deps([], None))
+
+    assert "About the athlete" not in instructions
+    assert "Goals:" not in instructions
+    assert "Limits:" not in instructions
+    assert "today is 2026-11-24" in instructions

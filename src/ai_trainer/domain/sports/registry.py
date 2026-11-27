@@ -90,7 +90,7 @@ def default_sport_registry() -> SportRegistry:
                     question=QuestionSpec(type=GymQuestion, since_version=3),
                     recent=recent_exercises,
                 ),
-                answers=AnswerSpec(template_id="gym.answer", version=3),
+                answers=AnswerSpec(template_id="gym.answer", version=4),
             ),
             SportPlugin(
                 id="cycling",
