@@ -2,6 +2,7 @@
 ADR-0031, ticket #401): through `Client(server)` and the real `process_tool_call` hook, on the
 real repositories and the sample catalogue. Both tools read only the caller's own data."""
 
+import json
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import date
@@ -341,10 +342,26 @@ async def test_mcp_exercise_history_returns_sets_loads_and_dates_newest_first(
     assert [entry["occurred_on"] for entry in page["entries"]] == ["2026-10-19", "2026-10-12"]
     latest = page["entries"][0]
     assert latest["name_as_typed"] == "bench press"
-    assert [(s["set_no"], s["reps"], s["load_kg"], s["load_original"]) for s in latest["sets"]] == [
-        (1, 8, 62.5, "62,5kg"),
-        (2, 6, 65.0, "65kg"),
+    assert latest["sets"] == [
+        {"set_no": 1, "reps": 8, "load_kg": 62.5},
+        {"set_no": 2, "reps": 6, "load_kg": 65.0},
     ]
+
+
+async def test_exercise_history_result_holds_no_null(world: _World) -> None:
+    history = await _call(world, world.alice, "exercise_history", {"exercise_id": str(world.bench)})
+
+    page = history["data"]
+    assert "session_id" not in json.dumps(page)
+    assert None not in _values(page)
+
+
+def _values(node: object) -> list[object]:
+    if isinstance(node, dict):
+        return [leaf for value in node.values() for leaf in _values(value)]
+    if isinstance(node, list):
+        return [leaf for value in node for leaf in _values(value)]
+    return [node]
 
 
 async def test_mcp_exercise_history_says_when_it_cut_the_page(world: _World) -> None:
@@ -486,7 +503,7 @@ async def test_mcp_exercise_history_reads_a_typed_only_name_newest_first(
 
     assert history["success"] is True
     page = history["data"]
-    assert page["exercise"] is None
+    assert "exercise" not in page
     assert [entry["occurred_on"] for entry in page["entries"]] == ["2026-10-28", "2026-10-21"]
     assert page["entries"][0]["sets"][0]["reps"] == 12
 

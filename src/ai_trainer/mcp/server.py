@@ -222,9 +222,8 @@ def _search_failed(failure: KnowledgeSearchFailed) -> ToolResult[KnowledgeSearch
         case "no_match":
             return ToolResult[KnowledgeSearchPage].failed(
                 "No passage matches.",
-                "Try once more with fewer filters or the question's key words. If still "
-                "nothing, the knowledge base has no source for this: say so, and don't give "
-                "advice as if it were sourced.",
+                "The knowledge base has no source for this: reply that there is no source, "
+                "and don't give advice as if it were sourced.",
             )
         case "embedding_unavailable":
             return ToolResult[KnowledgeSearchPage].failed(

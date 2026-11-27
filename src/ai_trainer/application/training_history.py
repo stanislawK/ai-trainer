@@ -2,12 +2,13 @@
 `query_sessions` MCP tool. A query that can't be answered comes back as a
 `SessionQueryFailed` value, never a raise, so a tool can turn it into a recovery hint."""
 
+import re
 from collections.abc import Mapping, Sequence
 from datetime import date
-from typing import Literal
+from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, SerializerFunctionWrapHandler, model_serializer
 
 from ai_trainer.application.ports.exercises import ExerciseHistoryPort, ExerciseRepositoryPort
 from ai_trainer.application.ports.training import SessionHistoryPort
@@ -100,17 +101,49 @@ class ExerciseRef(BaseModel):
 _SPLIT_TEXT: Mapping[Split, str] = {"500m": "/500 m", "km": "/km"}
 
 
-class HistorySet(LoggedSet):
+class _WithoutNulls(BaseModel):
+    """A model that dumps without its `None` fields: a gym answer resends every tool result on
+    each request of its tool loop, so a null per missing measure is tokens for nothing."""
+
+    @model_serializer(mode="wrap")
+    def _drop_nulls(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        dumped: dict[str, Any] = handler(self)
+        return {key: value for key, value in dumped.items() if value is not None}
+
+
+_KG_TEXT = re.compile(r"\s*(\d+(?:[.,]\d+)?)\s*(?:kg|kgs)?\s*", re.IGNORECASE)
+
+
+def _restates_kg(logged: LoggedSet) -> bool:
+    """True when `load_original` is only the kilograms in `load_kg` ("45kg", "62,5 kg")."""
+    if logged.load_original is None or logged.load_kg is None:
+        return False
+    matched = _KG_TEXT.fullmatch(logged.load_original)
+    return matched is not None and float(matched[1].replace(",", ".")) == logged.load_kg
+
+
+class HistorySet(_WithoutNulls, LoggedSet):
     """A logged set as a tool shows it: `pace` is worked out in code from a distance and a time
     both above 0, as "2:05 /500 m" or "5:36 /km", and is `None` otherwise, never estimated or
     stored (PRD 0013 B42, ADR-0032 invariant 6)."""
 
     pace: str | None = None
 
+    @model_serializer(mode="wrap")
+    def _drop_nulls(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        """Also leaves the load typed out when it only restates `load_kg` ("45kg"), and keeps it
+        otherwise ("100 lb"), so the answer sees each load once."""
+        dumped = super()._drop_nulls(handler)
+        if _restates_kg(self):
+            dumped.pop("load_original", None)
+        return dumped
 
-class HistoryEntry(ExerciseEntry):
-    """A logged entry as a tool shows it, its sets with their pace."""
 
+class HistoryEntry(_WithoutNulls, ExerciseEntry):
+    """A logged entry as a tool shows it, its sets with their pace and no session ID, which no
+    tool takes. The ID stays on the model for the progress chart's own reads (#517)."""
+
+    session_id: UUID = Field(exclude=True)
     sets: tuple[HistorySet, ...]
 
 
@@ -130,7 +163,7 @@ def _pace_text(logged: LoggedSet, split: Split) -> str | None:
     return None if seconds is None else f"{clock_text(seconds)} {_SPLIT_TEXT[split]}"
 
 
-class ExerciseHistoryPage(BaseModel):
+class ExerciseHistoryPage(_WithoutNulls):
     """The exercise and the athlete's entries of it, the latest day first; `truncated` when more
     exist than `limit`. Typed-only entries have no `exercise` (ADR-0031)."""
 

@@ -251,7 +251,8 @@ async def test_bench_question_answers_from_the_athletes_sets_and_dates(world: _W
     assert str(world.bench) in found
     assert "2026-10-28" in history
     assert "2026-11-01" in history
-    assert "47,5kg" in history
+    assert '"load_kg": 47.5' in history
+    assert "47,5kg" not in history
     done = turn.events[-1]
     assert isinstance(done, ReplyDone)
     (reply,) = done.messages

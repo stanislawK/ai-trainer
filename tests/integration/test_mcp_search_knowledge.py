@@ -84,6 +84,15 @@ async def test_no_match_returns_a_recovery_hint() -> None:
     assert result.recovery_hint
 
 
+async def test_no_match_hint_does_not_ask_to_search_again() -> None:
+    result = await _call(_server(hits=()), query="mobility focus")
+
+    hint = (result.recovery_hint or "").lower()
+    assert "again" not in hint
+    assert "try once more" not in hint
+    assert "no source" in hint
+
+
 @pytest.mark.parametrize(
     "outcome",
     [
